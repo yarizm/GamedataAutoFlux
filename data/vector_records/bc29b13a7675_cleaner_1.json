@@ -1,0 +1,45 @@
+{
+  "game_name": "Arc Raiders",
+  "app_id": 1456370,
+  "steam_api": {
+    "source": "steam_api",
+    "app_id": 1456370,
+    "details": {},
+    "current_players": 0,
+    "reviews": {
+      "total_reviews": 1,
+      "total_positive": 0,
+      "total_negative": 0,
+      "review_score_desc": "",
+      "review_count_fetched": 1,
+      "reviews": [
+        {
+          "recommendationid": "91912112",
+          "author_steamid": "76561198068638404",
+          "author_playtime": 0,
+          "voted_up": true,
+          "review_text": "Go Tell Aust Rhodyを聴くために買ったようなもん\nセーフルームのBGM変更やバイオ7での出来事をもう少し詳しく知りたい、\n最初から高難易度でプレイしたい方にはおすすめです。\n\nサムライエッジは”[b]序盤ですら[/b]”使いどころはない程弱い武器なので\n以下の理由がない限り期待はしませんように\n・デザインが好きだから（観賞用）\n・サムライエッジで縛りプレイがしたい",
+          "votes_up": 20,
+          "votes_funny": 2,
+          "timestamp_created": 1620886165,
+          "language": "japanese"
+        }
+      ]
+    },
+    "achievements": null,
+    "news": []
+  },
+  "steamdb": {
+    "source": "firecrawl",
+    "app_id": 1456370,
+    "charts": null,
+    "info": null
+  },
+  "snapshot": {
+    "name": "Arc Raiders",
+    "current_players": 0,
+    "total_reviews": 1,
+    "review_score": "",
+    "price": null
+  }
+}

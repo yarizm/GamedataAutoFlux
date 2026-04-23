@@ -1,0 +1,14 @@
+# GamedataAutoFlux 日志配置
+# 本文件由 loguru 使用，通过 settings.yaml 中的 logging 节覆盖
+
+handlers:
+  - sink: "logs/autoflux_{time:YYYY-MM-DD}.log"
+    level: "DEBUG"
+    rotation: "10 MB"
+    retention: "30 days"
+    encoding: "utf-8"
+    format: "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} | {message}"
+
+  - sink: "ext://sys.stdout"
+    level: "INFO"
+    format: "<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> | <level>{message}</level>"

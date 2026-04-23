@@ -1,0 +1,22 @@
+{
+  "name": "steam_basic",
+  "steps": [
+    {
+      "type": "collector",
+      "name": "steam",
+      "config": {
+        "request_delay": 0.5
+      }
+    },
+    {
+      "type": "processor",
+      "name": "cleaner",
+      "config": {}
+    },
+    {
+      "type": "storage",
+      "name": "local",
+      "config": {}
+    }
+  ]
+}

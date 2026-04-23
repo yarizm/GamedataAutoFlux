@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GamedataAutoFlux — 游戏数据工作流</title>
+    <meta name="description" content="游戏行业数据监控与分析工作流管理平台">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-brand">
+            <span class="nav-icon">⚡</span>
+            <span class="nav-title">GamedataAutoFlux</span>
+            <span class="nav-version">v0.1.0</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-tab="dashboard">仪表盘</a>
+            <a href="#" class="nav-link" data-tab="tasks">任务管理</a>
+            <a href="#" class="nav-link" data-tab="pipelines">Pipeline</a>
+            <a href="#" class="nav-link" data-tab="reports">报告</a>
+            <a href="#" class="nav-link" data-tab="cron">定时任务</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- ==================== 仪表盘 ==================== -->
+        <section class="tab-content active" id="tab-dashboard">
+            <div class="section-header">
+                <h1>系统概览</h1>
+                <button class="btn btn-ghost" onclick="refreshDashboard()" id="btn-refresh-dashboard">
+                    🔄 刷新
+                </button>
+            </div>
+
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">-</div>
+                    <div class="stat-label">任务总数</div>
+                </div>
+                <div class="stat-card stat-running">
+                    <div class="stat-value" id="stat-running">-</div>
+                    <div class="stat-label">运行中</div>
+                </div>
+                <div class="stat-card stat-success">
+                    <div class="stat-value" id="stat-success">-</div>
+                    <div class="stat-label">已完成</div>
+                </div>
+                <div class="stat-card stat-failed">
+                    <div class="stat-value" id="stat-failed">-</div>
+                    <div class="stat-label">失败</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-cron">-</div>
+                    <div class="stat-label">定时任务</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-components">-</div>
+                    <div class="stat-label">已注册组件</div>
+                </div>
+            </div>
+
+            <!-- 最近任务 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>最近任务</h2>
+                </div>
+                <div class="card-body">
+                    <table class="table" id="recent-tasks-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-tasks-body">
+                            <tr><td colspan="6" class="text-muted">暂无任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 任务管理 ==================== -->
+        <section class="tab-content" id="tab-tasks">
+            <div class="section-header">
+                <h1>任务管理</h1>
+                <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task">
+                    + 创建任务
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="filter-bar">
+                        <select id="task-status-filter" onchange="loadTasks()">
+                            <option value="">全部状态</option>
+                            <option value="pending">等待中</option>
+                            <option value="running">运行中</option>
+                            <option value="success">已完成</option>
+                            <option value="failed">失败</option>
+                            <option value="cancelled">已取消</option>
+                        </select>
+                        <button class="btn btn-ghost" onclick="loadTasks()">🔄 刷新</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="text-muted" id="tasks-refresh-hint">运行中的任务会自动刷新</div>
+                    <table class="table" id="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>Pipeline</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>目标数</th>
+                                <th>耗时</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasks-body">
+                            <tr><td colspan="8" class="text-muted">暂无任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== Pipeline ==================== -->
+        <section class="tab-content" id="tab-pipelines">
+            <div class="section-header">
+                <h1>Pipeline 配置</h1>
+                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline">
+                    + 创建 Pipeline
+                </button>
+            </div>
+
+            <!-- 可用组件 -->
+            <div class="card">
+                <div class="card-header"><h2>可用组件</h2></div>
+                <div class="card-body" id="components-list">
+                    <p class="text-muted">加载中...</p>
+                </div>
+            </div>
+
+            <!-- 已配置 Pipeline -->
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header"><h2>已配置 Pipeline</h2></div>
+                <div class="card-body" id="pipelines-list">
+                    <p class="text-muted">暂无 Pipeline</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 报告 ==================== -->
+        <section class="tab-content" id="tab-reports">
+            <div class="section-header">
+                <h1>报告生成</h1>
+                <button class="btn btn-primary" onclick="generateReport()" id="btn-generate-report">
+                    生成报告
+                </button>
+            </div>
+
+            <div class="reports-layout">
+                <div class="card">
+                    <div class="card-header"><h2>生成参数</h2></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="report-prompt">提示词</label>
+                            <textarea id="report-prompt" rows="5" placeholder="如: 总结最近落库的 Steam 游戏表现，指出需要继续观察的目标"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="report-data-source">数据源过滤</label>
+                            <input type="text" id="report-data-source" placeholder="如: steam 或留空自动检索">
+                        </div>
+                        <div class="form-group">
+                            <label for="report-template">模板</label>
+                            <select id="report-template">
+                                <option value="default">default</option>
+                                <option value="brief">brief</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>报告历史</h2></div>
+                    <div class="card-body" id="reports-list">
+                        <p class="text-muted">暂无报告</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header"><h2>报告内容</h2></div>
+                <div class="card-body">
+                    <pre class="report-output" id="report-content">尚未生成报告</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 定时任务 ==================== -->
+        <section class="tab-content" id="tab-cron">
+            <div class="section-header">
+                <h1>定时任务</h1>
+                <button class="btn btn-primary" onclick="showCreateCronModal()" id="btn-create-cron">
+                    + 添加定时任务
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-body" id="cron-list">
+                    <p class="text-muted">暂无定时任务</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ==================== 模态框: 创建任务 ==================== -->
+    <div class="modal-overlay" id="modal-create-task">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>创建任务</h2>
+                <button class="btn-close" onclick="closeModal('modal-create-task')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="task-name">任务名称</label>
+                    <input type="text" id="task-name" placeholder="如: Steam 日常监控">
+                </div>
+                <div class="form-group">
+                    <label for="task-pipeline">Pipeline</label>
+                    <select id="task-pipeline">
+                        <option value="">-- 选择 Pipeline --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-target-name">目标名称</label>
+                    <input type="text" id="task-target-name" placeholder="如: Counter-Strike 2">
+                </div>
+                <div class="form-group">
+                    <label for="task-app-id">Steam App ID</label>
+                    <input type="text" id="task-app-id" placeholder="如: 730">
+                </div>
+                <div class="form-group checkbox-row">
+                    <label><input type="checkbox" id="task-skip-steamdb" checked> 跳过 SteamDB，仅走官方 API</label>
+                </div>
+                <div class="form-group">
+                    <label for="task-targets">高级目标配置 (JSON 数组，可选覆盖)</label>
+                    <label for="task-steamdb-time-slice" style="display: block; margin-bottom: 0.5rem;">SteamDB 在线人数时间切片</label>
+                    <select id="task-steamdb-time-slice" style="margin-bottom: 0.75rem;">
+                        <option value="monthly_peak_1y">按月 Peak（最近 12 个月）</option>
+                        <option value="daily_precise_30d">按天精确值（最近 30 天，依赖源站支持）</option>
+                    </select>
+                    <small class="text-muted" style="display: block; margin-bottom: 0.75rem;">如果当前数据源拿不到日级精确值，结果里会写明不可用原因。</small>
+                    <textarea id="task-targets" rows="5" placeholder='[{"name": "Deadlock", "target_type": "game"}]'></textarea>
+                    <small class="text-muted">通常只填上面的目标名称和 App ID 即可。</small>
+                </div>
+                <div class="form-group">
+                    <label for="task-targets">采集目标 (JSON 数组)</label>
+                    <small class="text-muted">保留此说明以兼容原始计划中的 JSON 配置方式。</small>
+                </div>
+                <div class="form-group">
+                    <label for="task-desc">描述</label>
+                    <input type="text" id="task-desc" placeholder="可选描述">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('modal-create-task')">取消</button>
+                <button class="btn btn-primary" onclick="createTask()" id="btn-submit-task">提交</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 模态框: 创建 Pipeline ==================== -->
+    <div class="modal-overlay" id="modal-create-pipeline">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>创建 Pipeline</h2>
+                <button class="btn-close" onclick="closeModal('modal-create-pipeline')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="pipeline-template">预设模板</label>
+                    <select id="pipeline-template" onchange="applyPipelineTemplate()">
+                        <option value="">-- 自定义 --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="pipeline-name">Pipeline 名称</label>
+                    <input type="text" id="pipeline-name" placeholder="如: steam_monitor">
+                </div>
+                <div class="form-group">
+                    <label for="pipeline-collector">采集器</label>
+                    <select id="pipeline-collector"></select>
+                </div>
+                <div class="form-group checkbox-row">
+                    <label><input type="checkbox" id="pipeline-processor-cleaner" checked> cleaner</label>
+                    <label><input type="checkbox" id="pipeline-processor-embedding"> embedding</label>
+                </div>
+                <div class="form-group checkbox-row">
+                    <label><input type="checkbox" id="pipeline-storage-local" checked> local</label>
+                    <label><input type="checkbox" id="pipeline-storage-vector"> vector</label>
+                </div>
+                <div class="form-group">
+                    <label>高级步骤配置 (JSON，可选覆盖)</label>
+                    <textarea id="pipeline-steps" rows="8" placeholder='[
+  {"type": "collector", "name": "steam", "config": {}},
+  {"type": "processor", "name": "cleaner", "config": {}},
+  {"type": "storage", "name": "local", "config": {}}
+]'></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('modal-create-pipeline')">取消</button>
+                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 模态框: 创建定时任务 ==================== -->
+    <div class="modal-overlay" id="modal-create-cron">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>添加定时任务</h2>
+                <button class="btn-close" onclick="closeModal('modal-create-cron')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="cron-name">任务名称</label>
+                    <input type="text" id="cron-name" placeholder="如: daily_steam_check">
+                </div>
+                <div class="form-group">
+                    <label for="cron-pipeline">Pipeline</label>
+                    <select id="cron-pipeline">
+                        <option value="">-- 选择 Pipeline --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="cron-expr">Cron 表达式</label>
+                    <input type="text" id="cron-expr" placeholder="分 时 日 月 周 (如: 0 8 * * *)">
+                    <small class="text-muted">格式: 分 时 日 月 星期</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('modal-create-cron')">取消</button>
+                <button class="btn btn-primary" onclick="createCronJob()" id="btn-submit-cron">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 模态框: 任务日志 ==================== -->
+    <div class="modal-overlay" id="modal-task-logs">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>任务日志</h2>
+                <button class="btn-close" onclick="closeModal('modal-task-logs')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="task-logs-content">
+                    <p class="text-muted">加载中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 模态框: 任务详情 ==================== -->
+    <div class="modal-overlay" id="modal-task-detail">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>任务详情</h2>
+                <button class="btn-close" onclick="closeModal('modal-task-detail')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="task-detail-content">
+                    <p class="text-muted">加载中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

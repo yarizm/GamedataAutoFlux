@@ -1,0 +1,110 @@
+# GamedataAutoFlux 全局配置
+
+app:
+  name: "GamedataAutoFlux"
+  version: "0.1.0"
+  debug: true
+
+# Web 服务器
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+# 数据库（SQLite 本地存储）
+database:
+  url: "sqlite+aiosqlite:///data/autoflux.db"
+  # 采集结果 JSON 存储目录
+  json_store_dir: "data/results"
+
+# 向量数据库（预留配置）
+vector_store:
+  provider: "local"  # local | stub | chromadb | milvus | qdrant
+  local:
+    db_name: "vector_store.db"
+    json_dir: "vector_records"
+    fallback_to_stub: true
+  # ChromaDB / Qdrant / Milvus 仍为后续扩展
+
+# Embedding 模型（预留配置）
+embedding:
+  provider: "qwen"  # qwen | stub | openai | local
+  qwen:
+    api_key: "${DASHSCOPE_API_KEY}"
+    base_url: "https://dashscope.aliyuncs.com/api/v1"
+    model: "text-embedding-v4"
+    dimensions: 1024
+    text_type: "document"
+    output_type: "dense"
+    instruct: null
+    timeout: 30
+    fallback_to_stub: true
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: "text-embedding-3-small"
+  local:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+
+# LLM 报告生成（预留配置）
+llm:
+  provider: "deepseek"  # deepseek | stub | openai | local
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-chat"
+    temperature: 0.3
+    max_tokens: 1200
+    timeout: 60
+    fallback_to_stub: true
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-4o"
+  local:
+    base_url: "http://localhost:11434/v1"
+    model: "qwen2.5"
+
+# Steam 采集器专属配置
+steam:
+  api_key: "${STEAM_API_KEY}"
+  request_delay: 1.5       # API 请求间隔(秒)
+  max_reviews: 200          # 最大评论采集数
+  review_language: "all"    # 评论语言筛选
+  steamdb:
+    enabled: true
+    request_delay: 3.0      # SteamDB 请求间隔(秒), 更保守
+    headless: true           # Playwright 是否无头模式
+    timeout: 30000           # 页面加载超时(ms)
+
+# Firecrawl 兜底采集
+firecrawl:
+  api_key: "${FIRECRAWL_API_KEY}"
+  timeout: 30
+
+# 调度器
+scheduler:
+  max_concurrent_tasks: 5
+  default_retry_count: 3
+  default_retry_delay: 60  # 秒
+  persistence:
+    db_name: "scheduler.db"
+    json_dir: "scheduler_tasks"
+  # 定时任务 (cron 表达式)
+  cron_jobs: []
+  # 示例:
+  # - name: "daily_steam_monitor"
+  #   pipeline: "steam_monitor"
+  #   cron: "0 8 * * *"  # 每天上午8点
+  #   enabled: false
+
+# 采集器通用配置
+collector:
+  request_timeout: 30  # 秒
+  request_delay: 2     # 请求间隔（秒），防反爬
+  proxy: null          # 代理地址，如 "http://127.0.0.1:7890"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# 日志
+logging:
+  level: "DEBUG"
+  log_dir: "logs"
+  rotation: "10 MB"
+  retention: "30 days"

@@ -1,0 +1,2512 @@
+{
+  "game_name": "Deadlock",
+  "app_id": 1422440,
+  "steam_api": {
+    "source": "steam_api",
+    "app_id": 1422440,
+    "details": {
+      "app_id": 1422440,
+      "name": "Cataclismo",
+      "type": "game",
+      "is_free": false,
+      "short_description": "Design and build fortresses brick by brick to stand against endless hordes of Horrors in this real-time strategy game with resource management, siege defense, and exploration. Lead from the ramparts, push back the darkness, and hold fast against the creatures of the Mist.",
+      "developers": [
+        "Digital Sun"
+      ],
+      "publishers": [
+        "Hooded Horse"
+      ],
+      "price": {
+        "currency": "GBP",
+        "initial": 2499,
+        "final": 1499,
+        "discount_percent": 40,
+        "final_formatted": "£14.99"
+      },
+      "platforms": {
+        "windows": true,
+        "mac": false,
+        "linux": false
+      },
+      "categories": [
+        "Single-player",
+        "Steam Achievements",
+        "Steam Trading Cards",
+        "Steam Workshop",
+        "Camera Comfort",
+        "Color Alternatives",
+        "Custom Volume Controls",
+        "Adjustable Difficulty",
+        "Mouse Only Option",
+        "Save Anytime",
+        "Stereo Sound",
+        "Subtitle Options",
+        "Steam Cloud",
+        "Family Sharing"
+      ],
+      "genres": [
+        "Simulation",
+        "Strategy"
+      ],
+      "release_date": {
+        "coming_soon": false,
+        "date": "20 Mar, 2025"
+      },
+      "header_image": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1422440/header.jpg?t=1776444411",
+      "total_recommendations": 3687,
+      "total_achievements": 43,
+      "supported_languages": "English*, French, German, Spanish - Spain, Japanese, Portuguese - Brazil, Russian, Simplified Chinese, Traditional Chinese, Korean, Polish, Hungarian, Italian, Czech, Turkish, Ukrainian*languages with full audio support",
+      "website": null
+    },
+    "current_players": 31,
+    "reviews": {
+      "total_reviews": 200,
+      "total_positive": 0,
+      "total_negative": 0,
+      "review_score_desc": "",
+      "review_count_fetched": 200,
+      "reviews": [
+        {
+          "recommendationid": "223772092",
+          "author_steamid": "76561198826102970",
+          "author_playtime": 796,
+          "voted_up": true,
+          "review_text": "The game is fun and will definitely play again! \n\nThe game has good repeatable content, However I agree with the reviews that base building is very tedious at times. Having to make sure your walls meet height requirements to have good level of integrity, and troops are able to traverse up and down the walls to make sure they are able to be placed in position. \nStill overall a solid game. \n\n8/10.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776776864,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223752580",
+          "author_steamid": "76561198086209012",
+          "author_playtime": 1193,
+          "voted_up": true,
+          "review_text": "好玩",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776747160,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "223745317",
+          "author_steamid": "76561198060896489",
+          "author_playtime": 1147,
+          "voted_up": true,
+          "review_text": "개성 있는 아트 스타일 및 그래픽, 세계관, UI 등.. 정말 마음에 들지만\nUX와 컨텐츠 면에서 이 상태로 방치되어 있는 게 너무 아쉬운 게임이다\n캠페인이랑 방어전 모드 같은거 다 하고나면 남는게 무한모드 뿐인데\n병력 대 병력 멀티플레이 모드 같은거라도 있으면 좋겠다",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776736227,
+          "language": "koreana"
+        },
+        {
+          "recommendationid": "223743217",
+          "author_steamid": "76561198004539923",
+          "author_playtime": 1179,
+          "voted_up": true,
+          "review_text": "堆积木，打怪兽！\n感觉回到小时候！\n😄😄😄😄😄",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776733242,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "223741087",
+          "author_steamid": "76561198811648386",
+          "author_playtime": 562,
+          "voted_up": true,
+          "review_text": "bom, mais castle story e melhor. mais e muito bom o jogo",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776730464,
+          "language": "brazilian"
+        },
+        {
+          "recommendationid": "223729141",
+          "author_steamid": "76561198370313068",
+          "author_playtime": 1277,
+          "voted_up": true,
+          "review_text": "Enjoyed every single bit of it. Amazing graphics, music, story and perfect voiceover.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776716486,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223689159",
+          "author_steamid": "76561198056851749",
+          "author_playtime": 851,
+          "voted_up": true,
+          "review_text": "very satisfying",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776674165,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223645555",
+          "author_steamid": "76561198011917656",
+          "author_playtime": 1148,
+          "voted_up": false,
+          "review_text": "I think this could have been something truly special but after 20hrs, I've walked away and here's why. The art style in the game, story, and general 'sim' part of the game is done exceedingly well. You can feel the struggle, the hopelessness, and the resolve that pushes through the muck of the dark woods and fetid swamps. Working against that, however, is some pretty awful voice acting that can't decide if it wants to be latin-influenced or not. Depending on whos talking its \"Ho-gar\" or \"Oh-gar\"",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1776621340,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223580089",
+          "author_steamid": "76561198050498359",
+          "author_playtime": 715,
+          "voted_up": true,
+          "review_text": "蛮好玩的~",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776558822,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "223575637",
+          "author_steamid": "76561199148917546",
+          "author_playtime": 4669,
+          "voted_up": true,
+          "review_text": "Never played a base-building, tower defense game like this one, with such freedom of expression and creativity. \r\nI was expecting tougher, more intense missions, especially the Citadel and the Alta Perl. Those passed too quickly. The gamemodes add the missing difficulty, but lack the potential immersion.\r\nThe art is beautiful. The touch of spanish is perfect. I feel like she's here whenever I listen to Iris' voice.\r\nJust finished campaign and will be recommending this to all my new friends.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776553642,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223534429",
+          "author_steamid": "76561197993751020",
+          "author_playtime": 241,
+          "voted_up": false,
+          "review_text": "To me this game is just too fiddly. You spend so much time building and customizing fortifications for comparatively short combat. resulting in some really bad pacing.\r\n\r\nWorse still is how much MORE time i spent redoing things because i built some path wrong or some stair well wrong or built something too low or too high.\r\n\r\nIt was just too much. It felt like it was getting in the way of the action.\r\n\r\nThe pause button should not be active this often for this long.\r\n\r\nThat being said , if build",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776520110,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223482011",
+          "author_steamid": "76561198298758774",
+          "author_playtime": 1868,
+          "voted_up": true,
+          "review_text": "me Like\r\nOOGAABOOOGA\r\nDis Peak\r\n",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776462685,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223401146",
+          "author_steamid": "76561198398958464",
+          "author_playtime": 84,
+          "voted_up": false,
+          "review_text": "вот видно что игра прикольная, но оптимизации вообще нет походу... у меня не лагает раст на средних, арк райдерс или другие игры, но данная инди игра даже на самых минималках выдает кадров 40-50... причем самое ироничное, что и на средних выдает те же кадры... я не знаю как разрабы это сделали...",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776375871,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "223385203",
+          "author_steamid": "76561198077329853",
+          "author_playtime": 1927,
+          "voted_up": true,
+          "review_text": "game",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1776359570,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223160305",
+          "author_steamid": "76561197984129401",
+          "author_playtime": 412,
+          "voted_up": false,
+          "review_text": "After losing to only level 4 in campaign over and over and over and over, I just dont seem to get this game to click with me. Its EXTREME micro managing at a semi pro level of starcraft. For someone casually playing these games, im out. Its not a bad game, its just so badly paced and astronomically hard and FAR too much for me to manage, I cant handle it. If yo love RTS im sure youll dig it, but as someone who just wants to chill and play, it aint this one. Cant recoomend due to its insane diffi",
+          "votes_up": 4,
+          "votes_funny": 1,
+          "timestamp_created": 1776057532,
+          "language": "english"
+        },
+        {
+          "recommendationid": "223143014",
+          "author_steamid": "76561198025919420",
+          "author_playtime": 2122,
+          "voted_up": true,
+          "review_text": "Fun game, but the building mechanics could use some improvements. It would be great if they provided more prefabs so I can instant build wall stacks instead of fiddling with stupid placement, only to realize I forgot the damn door and had to remove everything. And the stair building? Absolutely abysmal.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1776031885,
+          "language": "tchinese"
+        },
+        {
+          "recommendationid": "222977879",
+          "author_steamid": "76561199018904058",
+          "author_playtime": 3776,
+          "voted_up": true,
+          "review_text": "キャンペーンモードをクリアしたのでレビューします。\nとても面白かったです。\n\nゲームとしてはStrongholdとかAge of Empiresの様な印象です。\n石壁を積み上げるのはMinecraftの様です。\n\nキャンペーンモードはステージ攻略型で、ステージごとにリソースは独立しています。\nステージが始まったらまずは資材を集めて、施設を建て、ユニット（兵士）を生産し、石壁を積み上げて、敵の襲来を迎え撃つ、という流れになります。\n昼間に準備して夜に迎撃する。この夜がステージごとに3回、4回やって来るウェーブ制となっています。\nゲーム内の説明によって、セーブ＆ロードがゲームシステムに組み込まれているのは特徴的です。\n\n\n敵はボス以外は近接攻撃のみ。味方は遠距離攻撃のみ。\nそのため石壁は基部だけが敵の攻撃に晒され、基部が崩れるとその上に載っているブロックが崩れるという仕様です。\n投石器の攻撃で城壁の上部がボロボロに、ということは起こりませんが、夜を乗り越えた後の崩れかけた石壁を眺めるのは楽しいですね。\n\n\n石壁は積み上げる高さによって段階的に強度が増す仕様となっており、7段積んだ上にマーロ",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775861232,
+          "language": "japanese"
+        },
+        {
+          "recommendationid": "222961509",
+          "author_steamid": "76561199442688803",
+          "author_playtime": 695,
+          "voted_up": true,
+          "review_text": "This game is simply incredible and is truly a hidden gem",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1775844718,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222937259",
+          "author_steamid": "76561198720845446",
+          "author_playtime": 1259,
+          "voted_up": true,
+          "review_text": "Really fun and immersive. Right amount of complexity. Fun level up and roguelike feeling as well with significant strategy component",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1775821016,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222914099",
+          "author_steamid": "76561198409177883",
+          "author_playtime": 1340,
+          "voted_up": true,
+          "review_text": "全靠人来防守，人却又有各种限制，兵种能造的很少，升级到三本才25个人，难度很大，尤其是战役的时间难度越高时间越短，石材目前挡不住怪物的进攻，又不能不防守，还没琢磨好怎么守才是最好的办法，不过还是很好玩的。",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775783285,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "222894498",
+          "author_steamid": "76561198087249073",
+          "author_playtime": 3966,
+          "voted_up": true,
+          "review_text": "This game is underrated and I hope it gets the love it deserves. Not perfect, but you can't get this gameplay from other games. The allure of this game is the ability to lay down massive but intricate defenses at the drag of a mouse. Of course your are weak at the start, but resources start to pour in exponentially if your smart, and then you slather down stone walls like hot butter on toast. It becomes tedious to build structures and supports but the game almost becomes a puzzle at this point a",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1775760241,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222858263",
+          "author_steamid": "76561198074874208",
+          "author_playtime": 1900,
+          "voted_up": true,
+          "review_text": "Good game. kill lot of bug thing. bricks.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775716059,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222851901",
+          "author_steamid": "76561198138174395",
+          "author_playtime": 145,
+          "voted_up": false,
+          "review_text": "Horrible- the game made me replay the same level over and over again. I quit before the 2 hour mark so I am not stuck with a faulty game. Its to bad because the game seemed fun",
+          "votes_up": 4,
+          "votes_funny": 2,
+          "timestamp_created": 1775704926,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222833808",
+          "author_steamid": "76561198086644458",
+          "author_playtime": 2218,
+          "voted_up": true,
+          "review_text": "Jest wciągająca",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775680553,
+          "language": "polish"
+        },
+        {
+          "recommendationid": "222811812",
+          "author_steamid": "76561198049215533",
+          "author_playtime": 129,
+          "voted_up": true,
+          "review_text": "자유도가 없음. 자유도... \n★★☆",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775659376,
+          "language": "koreana"
+        },
+        {
+          "recommendationid": "222750539",
+          "author_steamid": "76561198025081166",
+          "author_playtime": 1368,
+          "voted_up": true,
+          "review_text": "One of the best games of 25/26 - brilliant art direction, sound design, gameplay, feature set, progression, story and how it all compliments each other. A rare gem.",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1775579477,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222703323",
+          "author_steamid": "76561198413408531",
+          "author_playtime": 1555,
+          "voted_up": true,
+          "review_text": "Cataclismo — це стратегічна гра з елементами виживання та будівництва, у якій гравець створює укріплення, щоб захиститися від хвиль ворогів у зруйнованому світі після катастрофи.\n\nГра поєднує тактичне планування, будівництво бази, управління ресурсами та напружені бої проти орд монстрів. Основна увага приділяється креативному створенню оборони та виживанню в умовах постійної загрози. Підійде фанатам стратегій, tower defense та ігор про виживання. Оцінка: 9/10",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775516438,
+          "language": "ukrainian"
+        },
+        {
+          "recommendationid": "222686074",
+          "author_steamid": "76561198064811165",
+          "author_playtime": 2118,
+          "voted_up": true,
+          "review_text": "Entertaining game that mixes real strategy with tower defense. It is an interesting concept that works.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1775499222,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222645695",
+          "author_steamid": "76561199061836019",
+          "author_playtime": 2796,
+          "voted_up": true,
+          "review_text": "Would highly recommend the campaign. Great story. Extreme difficulty is great for those familiar with this genre and who are seeking a challenge",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1775457651,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222573758",
+          "author_steamid": "76561198208699424",
+          "author_playtime": 2537,
+          "voted_up": true,
+          "review_text": "短小精悍趣味无穷的防守建造RTS，和类似竞品相比，它主要的特色是它的城墙建造系统，乐意花时间的话可以一砖一瓦地修出精致漂亮、独具特色的防御工事，然后欣赏它是如何在敌人的一波波猛攻下屹立不倒的。\r\n比起注重运营产线或者巧妙安排防守的其他防守建造RTS，灾厄堡垒适合那些注重建筑美感的玩家。\r\n游戏的美术算是有自己的风格，不过配音特别有气无力，剧情也不太精致。",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775388772,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "222557927",
+          "author_steamid": "76561199056161531",
+          "author_playtime": 1224,
+          "voted_up": true,
+          "review_text": "лучшая игра в своем жанре",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775370922,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "222539774",
+          "author_steamid": "76561199517439490",
+          "author_playtime": 1034,
+          "voted_up": true,
+          "review_text": "Amei demais. A criação de fortalezas é o ponto alto do jogo e traz uma dinâmica muito divertida para a gameplay; a campanha e o enredo também são bem desenvolvidos e interessantes.\nRecomendo muito.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775348493,
+          "language": "brazilian"
+        },
+        {
+          "recommendationid": "222416317",
+          "author_steamid": "76561198978122345",
+          "author_playtime": 5385,
+          "voted_up": true,
+          "review_text": "好玩",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775231653,
+          "language": "tchinese"
+        },
+        {
+          "recommendationid": "222380825",
+          "author_steamid": "76561198354675578",
+          "author_playtime": 1101,
+          "voted_up": true,
+          "review_text": "Прекрасная игра. Я как трейлер увидел сразу заинтересовался, сначала на пиратке поиграл, потом купил, и наиграл столько же. Захватывает своими возможностями строительства и простотой. Но я дошел до 40 ой волны в бесконечном режиме и понял, что уже все застроено, мобов новых не появляется, воинов тоже. Герой всего один, а ресурсов много. Хотелось бы увидеть либо вторую часть, либо масштабные обновления, потому что у игры есть потенциал\"на будущее\", так то игра уже окупила свою стоимость, но как и",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775192984,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "222363439",
+          "author_steamid": "76561198112977381",
+          "author_playtime": 1116,
+          "voted_up": true,
+          "review_text": "El apartado artístico es simplemente hermoso, un juego que sorprende mucho con lo bien cuidado que está gráficamente y en jugabilidad cumple al completo con darte libertad y libre imaginación a la hora de construir tus defensas. La campaña es muy buena y es contada de manera bien llamativa con ilustraciones de alta calidad. 10/10 si quieres un juego de defensa y de construcción de ciudades, prepárandote para defenderte de grandes hordas de criaturas.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1775170462,
+          "language": "latam"
+        },
+        {
+          "recommendationid": "222275060",
+          "author_steamid": "76561198091966075",
+          "author_playtime": 2474,
+          "voted_up": true,
+          "review_text": "I was agreeably surprised by how cool the city building part is fun. Great gameplay and cool story !",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1775072142,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222205764",
+          "author_steamid": "76561197993747608",
+          "author_playtime": 3973,
+          "voted_up": true,
+          "review_text": "nice little game. nice little story. captivating. feels a little unfinished / unpolished in some aspects. still fun.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774989517,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222185540",
+          "author_steamid": "76561197972316964",
+          "author_playtime": 1860,
+          "voted_up": true,
+          "review_text": "An interesting hybrid between RTS resource management and tower defense",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1774971949,
+          "language": "english"
+        },
+        {
+          "recommendationid": "222147098",
+          "author_steamid": "76561198096687443",
+          "author_playtime": 1825,
+          "voted_up": true,
+          "review_text": "This game is amazing",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774923830,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "222008270",
+          "author_steamid": "76561198158448295",
+          "author_playtime": 1867,
+          "voted_up": true,
+          "review_text": "Amazing game. Just about to finish the final mission. Starting to get some separation anxiety with Lady Iris already lmao. Campaign and story is gripping. It feels a little too short me but I know I already got spoiled with campaigns from AOE series, WC3, SC series, CnC series, and Battle Realms. WH3 too, but that's too far to compare already lmao. Big connoisseur for RTS games. Newer titles I can match it with would be TAB and DINaO. If you enjoy atleast half of the games I listed, you'll love ",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1774784875,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221960628",
+          "author_steamid": "76561198005461965",
+          "author_playtime": 615,
+          "voted_up": true,
+          "review_text": "Love this game! lots of replay value, awesome vibe, so fun to build your own defences.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774735523,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221875707",
+          "author_steamid": "76561198022496805",
+          "author_playtime": 1261,
+          "voted_up": true,
+          "review_text": "After playing They Are Billions, I was hungry for more horde defence games with solid base building. Cataclismo has absolutely sated this hunger, which it owes mainly to its intricate building system. Rather than putting down whole buildings and wall segments like in TAB, you can place individual blocks that make up your defensive structures, like walls, towers and battlements. With these defences, you have to hold off multiple waves of incoming horrors, aided by various infantry types.\r\n\r\nThis ",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1774659126,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221838856",
+          "author_steamid": "76561198036457291",
+          "author_playtime": 1746,
+          "voted_up": true,
+          "review_text": "Very good tactical game.  Some of the maps you get are not great but you can just reroll them.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774627805,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221669860",
+          "author_steamid": "76561198390900549",
+          "author_playtime": 246,
+          "voted_up": true,
+          "review_text": "还挺费脑子的，不过挺好玩",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774452243,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "221645930",
+          "author_steamid": "76561198204550324",
+          "author_playtime": 1017,
+          "voted_up": true,
+          "review_text": "A good, flawed game. A lot of strange design choices. Polished though, with a sleek art direction. If you've played They Are Billons or Age of Darkness adjacent games, and you liked it, then you might like this as well. But it really doesn't add much to the genre.\n\n7/10",
+          "votes_up": 7,
+          "votes_funny": 0,
+          "timestamp_created": 1774428457,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221584881",
+          "author_steamid": "76561198026424970",
+          "author_playtime": 22,
+          "voted_up": false,
+          "review_text": "Wanted to like this game but; \n\nThe camera controls are absolutely horrible, not having full and free control over the rotational pan (instead you rotate the camera in like 30 degree increments) is insane. \n\nThe voxel style is cool but makes it hard to tell what's what and what's going on.",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1774366174,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221519087",
+          "author_steamid": "76561198006868173",
+          "author_playtime": 279,
+          "voted_up": false,
+          "review_text": "I really want to like this game but I find the creation and organising of economy and defensive structures to be fiddly, tedious and unsatisfying. The pleasure in these games comes from devising clever solutions, but there is too much friction in the process here for it to be enjoyable. Also, yes, the stairs for oxygen collectors feels like a wind-up.",
+          "votes_up": 26,
+          "votes_funny": 0,
+          "timestamp_created": 1774296610,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221311928",
+          "author_steamid": "76561198013329114",
+          "author_playtime": 1166,
+          "voted_up": true,
+          "review_text": "Offers something genuinely fun and frustrating in equal measure - it feels like the pause is a crutch for poor balance though.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774124741,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221263311",
+          "author_steamid": "76561198061778211",
+          "author_playtime": 1758,
+          "voted_up": true,
+          "review_text": "5 из 5",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1774094587,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "221122420",
+          "author_steamid": "76561198046113152",
+          "author_playtime": 980,
+          "voted_up": false,
+          "review_text": "die idee und das system des spiels ist mega..... aber der warnhinweis das man angegriffen wird ist einfach so leise .... auch der grad der wellen wird einfach igendwann zu schwer und man kommt schlecht hinterher mit dem bau der mauern .... wie gesagt coole idee ... aber man hätte den fokus etwas mehr aufs bauen legen können meiner meinung nach",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1773989620,
+          "language": "german"
+        },
+        {
+          "recommendationid": "221106933",
+          "author_steamid": "76561198270941306",
+          "author_playtime": 2109,
+          "voted_up": true,
+          "review_text": "Really enjoy the mix of city building, resource management, and siege defense mechanics in this game. Being able to build my own defensive line and getting through the night is very satisfying.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773976929,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221093358",
+          "author_steamid": "76561198046628889",
+          "author_playtime": 3314,
+          "voted_up": true,
+          "review_text": "NEAT",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773966145,
+          "language": "english"
+        },
+        {
+          "recommendationid": "221023981",
+          "author_steamid": "76561198074500224",
+          "author_playtime": 1449,
+          "voted_up": true,
+          "review_text": "Amazing game. Atmosphere and story is great. The art is beautiful. \n\nThe gameplay scratches a very specific itch for me. It's strategic but not punishing and allows the player to have fun and not hyper optimize (on medium difficulty settings anyway). \n\nThe building mechanics are great and they encourage building nice looking structures.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773890026,
+          "language": "english"
+        },
+        {
+          "recommendationid": "220860102",
+          "author_steamid": "76561197974872412",
+          "author_playtime": 1222,
+          "voted_up": true,
+          "review_text": "I like it.  It's fun to build things, the game is fun in general.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773704624,
+          "language": "english"
+        },
+        {
+          "recommendationid": "220651698",
+          "author_steamid": "76561199104271514",
+          "author_playtime": 937,
+          "voted_up": true,
+          "review_text": "HAOWANAIWAN",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773495496,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "220507911",
+          "author_steamid": "76561198034320482",
+          "author_playtime": 121,
+          "voted_up": false,
+          "review_text": "nah",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773338056,
+          "language": "german"
+        },
+        {
+          "recommendationid": "220487861",
+          "author_steamid": "76561198294259975",
+          "author_playtime": 1625,
+          "voted_up": false,
+          "review_text": "This game is the definition of tedious.\nMost of your time goes to building economy or walls instead of actual tower defense gameplay.\nAlso requiring air filters to have stairs is the worst design i have ever seen.",
+          "votes_up": 6,
+          "votes_funny": 0,
+          "timestamp_created": 1773318217,
+          "language": "english"
+        },
+        {
+          "recommendationid": "220479635",
+          "author_steamid": "76561199296528612",
+          "author_playtime": 4178,
+          "voted_up": true,
+          "review_text": "非常解压 但确实玩久了 会有恶心的状态不知道为啥",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773305903,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "220331651",
+          "author_steamid": "76561198114619538",
+          "author_playtime": 943,
+          "voted_up": false,
+          "review_text": "plenty of good ideas, with ability to build almost anything with the build system and the blueprints is the best on the market, but fall short after a few hours due to the lack of units and enemy variety, and not much to do aside from expand and gain access to more resources\r\nso would recommend once the game get more contents",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1773126228,
+          "language": "english"
+        },
+        {
+          "recommendationid": "220310066",
+          "author_steamid": "76561198130556479",
+          "author_playtime": 1029,
+          "voted_up": true,
+          "review_text": "Sound game.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1773096761,
+          "language": "english"
+        },
+        {
+          "recommendationid": "220262982",
+          "author_steamid": "76561199059371445",
+          "author_playtime": 2179,
+          "voted_up": true,
+          "review_text": "Прекрасна та чудова гра, Castle story який зміг, який зміг в рази краще. Приємно бачити таку якісну гру",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1773052207,
+          "language": "ukrainian"
+        },
+        {
+          "recommendationid": "220089536",
+          "author_steamid": "76561198009416557",
+          "author_playtime": 327,
+          "voted_up": false,
+          "review_text": "Bin vom Stil her und auch vom Gameplay nicht mit warm geworden.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1772896226,
+          "language": "german"
+        },
+        {
+          "recommendationid": "220016152",
+          "author_steamid": "76561198163517195",
+          "author_playtime": 2805,
+          "voted_up": true,
+          "review_text": "РТС с упором на оборону и \"блочной\" системой строительства, с которой можно отстроить что душе угодно, расставить лучников на стены, а потом отбиваться от орд микрочелов. Все это не просто в виде бесконечного сдерживания волн до поражения, а с полноценной сюжетной кампанией.\r\n\r\nПолный разъеб, 10/10",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1772829947,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "219973326",
+          "author_steamid": "76561198002726870",
+          "author_playtime": 417,
+          "voted_up": true,
+          "review_text": "good",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772798314,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219885457",
+          "author_steamid": "76561198755654282",
+          "author_playtime": 400,
+          "voted_up": true,
+          "review_text": "[h1]The Architecture of Grief: Why Cataclismo is a Masterpiece of Measured Despair[/h1]\n\n[i]Cataclismo[/i] is not merely a game about building walls; it is a game about the [b]inevitability of the fall[/b]. Developed by Digital Sun—the minds who gave us the mercantile charm of Moonlighter—this title swaps the shopkeeper’s apron for the architect’s blueprint and the survivor’s desperation. It is a somber, tactile, and occasionally frustrating meditation on what it means to hold the line against a",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1772720806,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219852100",
+          "author_steamid": "76561197961326391",
+          "author_playtime": 1872,
+          "voted_up": true,
+          "review_text": "Cataclismo\r\n\r\n---{ Graphics }---\r\n☐ You forget what reality is\r\n☑ Beautiful\r\n☐ Good\r\n☐ Decent\r\n☐ Bad\r\n☐ Don‘t look too long at it\r\n☐ MS-DOS\r\n\r\n---{ Gameplay }---\r\n☑ Very good\r\n☐ Good\r\n☐ It's just gameplay\r\n☐ Mehh\r\n☐ Watch paint dry instead\r\n☐ Just don't\r\n\r\n---{ Audio }---\r\n☐ Eargasm\r\n☑ Very good\r\n☐ Good\r\n☐ Not too bad\r\n☐ Bad\r\n☐ I'm now deaf\r\n\r\n---{ Audience }---\r\n☐ Kids\r\n☑ Teens\r\n☑ Adults\r\n☐ Grandma\r\n\r\n---{ PC Requirements }---\r\n☐ Check if you can run paint\r\n☐ Potato\r\n☑ Decent\r\n☐ Fast\r\n☐ Rich bo",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1772680740,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219803827",
+          "author_steamid": "76561198044304169",
+          "author_playtime": 943,
+          "voted_up": true,
+          "review_text": "I have only played the campaign as such i can not say anything about the skirmish mode. \n\nI have very much enjoyed the campaign and the artstyle is beatiful. With 15hours playtime for the campaign on medium difficulty it is also not to short.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772637463,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219767636",
+          "author_steamid": "76561197970469414",
+          "author_playtime": 130,
+          "voted_up": false,
+          "review_text": "As someone who rarely skips story, I started skipping the cutscenes regularly. There's the core of a fun game here but it's SO SLOW and dull. Eventually I got so bored watching levels drag out that I refunded.\n\nThe devs tried really hard to mark a stylised interesting world. It's stylised. It's not interesting. And you spend a lot of the game watching them endless waffle on about a very generic setting.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772600594,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219753643",
+          "author_steamid": "76561198131268866",
+          "author_playtime": 1229,
+          "voted_up": true,
+          "review_text": "well made game, fun to play",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772584532,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219745388",
+          "author_steamid": "76561199028575977",
+          "author_playtime": 3388,
+          "voted_up": true,
+          "review_text": "De los pocos juegos que se puede decir que lo único malo que tiene es que se acaba. Una verdadera obra de arte con un gameplay exquisito. Y encima, español.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772577565,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "219696641",
+          "author_steamid": "76561197993078198",
+          "author_playtime": 4070,
+          "voted_up": true,
+          "review_text": "Very good game, the campaign is fun and there's great replay value. I love the ability to create your own defenses, especially since it has a real impact on gameplay. I'd really like to see a co-op mode or maybe even a new faction, turning this TD into a competitive RTS. In any case, I already love this game as it is. I hope the developers continue to work on this project. If you like the surprising mix of Warcraft 3, Satisfactory, and a TD, you'll definitely be a fan of this game.",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1772529342,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219693206",
+          "author_steamid": "76561198083268539",
+          "author_playtime": 1586,
+          "voted_up": true,
+          "review_text": "I don't even know how I came across this game but it was exactly what I was looking for. It's almost that perfect blend of a tower defence game wrapped up in an RTS package. The base/defence building is some one of the most satisfying and rewarding I've genuinely played, the setting is eerily charming and the replayability it has to offer with player created levels and the endless game mode means it's a big recommend form me",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1772523927,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219692540",
+          "author_steamid": "76561198857644289",
+          "author_playtime": 786,
+          "voted_up": true,
+          "review_text": "Im only a few hours deep but this game is complex, fun, and super modular so far. every time I learn something, it makes me want to rebuild my entire concept of a good defense. This game is made to make you nervous, sweaty and lose track of time. If you're TIRED of games having the same style of RTS, play this game. It is a massive learning curve but breath of fresh air. Reminds me of a Stronghold/Age of Darkness build. I give this game a 9/10 so far. DONT EXPECT TO BUMRUSH ENEMY WITH ATTACKS OR",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772522883,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219505037",
+          "author_steamid": "76561199087447982",
+          "author_playtime": 1445,
+          "voted_up": true,
+          "review_text": "还不错",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1772335542,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "219322916",
+          "author_steamid": "76561198123913162",
+          "author_playtime": 733,
+          "voted_up": true,
+          "review_text": "剧情有点吸引人，建造+塔防的玩法有点创新，就是为了修好看的、精妙的城墙和塔防修的脑溢血，后面直接放弃自己修，直接去创意工坊下载成品建筑了，总体好评",
+          "votes_up": 2,
+          "votes_funny": 1,
+          "timestamp_created": 1772174157,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "219220304",
+          "author_steamid": "76561198018762399",
+          "author_playtime": 2526,
+          "voted_up": false,
+          "review_text": "Devs please let me fix your game for you in two incredibly easy steps.\r\n\r\n1. Make oxygen not require stairs\r\n2. Make roofs braindead easy\r\n\r\nIt really hurts to downvote this game but Im hoping it makes the devs see this review.  This game has a ton of promise, music, story, vibes, gameplay is all on point here.  Except for the aforementioned issues.  \r\n\r\nBuilding stairs for the oxygen tanks looks terrible, and feels like Im being punished with chores for a basic need within the game.  Expanding?",
+          "votes_up": 72,
+          "votes_funny": 3,
+          "timestamp_created": 1772049389,
+          "language": "english"
+        },
+        {
+          "recommendationid": "219064083",
+          "author_steamid": "76561197991954926",
+          "author_playtime": 1802,
+          "voted_up": false,
+          "review_text": "Игра очень неплоха, но глупые решения разработчиков, нулевая оптимизация (тупо тормозит на новом железе). Невозможно сделать светлее, у меня плохое зрение, я просто ничего не вижу, все сливается, при этом возможность сделать ярче гамму дебилойды которые это создали закрыли, якобы ради лучшего погружения в игру..\r\nБывают игры просто говнище, и там как бы все ясно, а тут реально хорошая игра, которую убили кривые руки которые не допилили самую мелочь. То что игра становится ♥♥♥♥ пошаговой даже на ",
+          "votes_up": 10,
+          "votes_funny": 1,
+          "timestamp_created": 1771874482,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "218855194",
+          "author_steamid": "76561198010700479",
+          "author_playtime": 14640,
+          "voted_up": true,
+          "review_text": "I love this game, the replay value is high and it is so relaxing to play but also can be very challenging.",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1771673532,
+          "language": "english"
+        },
+        {
+          "recommendationid": "218690425",
+          "author_steamid": "76561198042672337",
+          "author_playtime": 14173,
+          "voted_up": true,
+          "review_text": "Catch a match. A bang bang.\r\nA flashing fist O' crackerjack.\r\nA smack.\r\nA lick.\r\nA char char.\r\nYou're all burned out.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1771500665,
+          "language": "english"
+        },
+        {
+          "recommendationid": "218641872",
+          "author_steamid": "76561197993167341",
+          "author_playtime": 650,
+          "voted_up": false,
+          "review_text": "   An extremely difficult and frustrating experience, even on \"EASY\" mode! I don't recommend buying it until the game is better balanced. The art style is very good, but the game designers need to study more about their profession and learn how to balance a game of this type and genre.",
+          "votes_up": 1,
+          "votes_funny": 2,
+          "timestamp_created": 1771440038,
+          "language": "brazilian"
+        },
+        {
+          "recommendationid": "218594934",
+          "author_steamid": "76561198001486138",
+          "author_playtime": 2235,
+          "voted_up": true,
+          "review_text": "Brilliant little RTS with a gorgeous art style and a surprisingly engaging campaign story. \r\n\r\nYou don't get a lot of time between waves (the harder levels require you to move nearly as fast as a competitive RTS when it comes to resource gathering and unit production) but you can build and queue up orders while paused, which is a lifesaver. Building is intuitive and very satisfying, especially after you unlock all the pieces and construct your big ♥♥♥♥♥♥♥ fortress and watch your little guys rain",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1771382799,
+          "language": "english"
+        },
+        {
+          "recommendationid": "218592675",
+          "author_steamid": "76561197981339765",
+          "author_playtime": 450,
+          "voted_up": false,
+          "review_text": "seems like more love was put into the story/ambience than the gameplay",
+          "votes_up": 6,
+          "votes_funny": 0,
+          "timestamp_created": 1771380102,
+          "language": "english"
+        },
+        {
+          "recommendationid": "218584369",
+          "author_steamid": "76561198122611797",
+          "author_playtime": 36,
+          "voted_up": false,
+          "review_text": "-",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1771370185,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "218390474",
+          "author_steamid": "76561198008114004",
+          "author_playtime": 5392,
+          "voted_up": true,
+          "review_text": "Beautiful game. I love the story and theme. The different units were fun and interesting. Overall I found it challenging and enjoyable.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1771169587,
+          "language": "english"
+        },
+        {
+          "recommendationid": "218225140",
+          "author_steamid": "76561198314587124",
+          "author_playtime": 2240,
+          "voted_up": true,
+          "review_text": "美术风格很别致，但游戏难度还是有的",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770997458,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "218023987",
+          "author_steamid": "76561198297941822",
+          "author_playtime": 1284,
+          "voted_up": true,
+          "review_text": "Good game, with outstanding art and great atmosphere. But the building aspect I found to be too cumbersome. I appreciate the effort to offer a highly customizable experience, but I do think having premade buildings would have -for me at least- made for a more enjoyable experience. It took so much time to build and refine buildings, that at some point launching a single mission felt like I had to check my calendar to make sure I have enough time to play.\nI still think it's a good game to unwind i",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770750968,
+          "language": "french"
+        },
+        {
+          "recommendationid": "217949022",
+          "author_steamid": "76561198306373824",
+          "author_playtime": 3135,
+          "voted_up": true,
+          "review_text": "Чудова гра на декілька вечорів. Я не фанат подібного жанру, але навіть я залипав на побудову і неодноразову перебудову стін для кращого відбивання хвилі",
+          "votes_up": 0,
+          "votes_funny": 1,
+          "timestamp_created": 1770657035,
+          "language": "ukrainian"
+        },
+        {
+          "recommendationid": "217884411",
+          "author_steamid": "76561198095724841",
+          "author_playtime": 1375,
+          "voted_up": true,
+          "review_text": "really good",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770575148,
+          "language": "english"
+        },
+        {
+          "recommendationid": "217880824",
+          "author_steamid": "76561198019806609",
+          "author_playtime": 1330,
+          "voted_up": true,
+          "review_text": "je termine tout juste la campagne de cataclismo et je n'est quasiment rien a redire\nmusique / histoire / graphisme excellent  \n",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770572197,
+          "language": "french"
+        },
+        {
+          "recommendationid": "217814764",
+          "author_steamid": "76561198240456770",
+          "author_playtime": 1734,
+          "voted_up": true,
+          "review_text": "Esse jogo é simples...\r\n\r\nSimplesmente [b]INCRÍVEL[/b], uma das melhoras compras que eu já fiz na Steam.\r\n\r\nUm dos melhores RTS que já joguei, mas sendo sincero, oque me prendeu no jogo foi como a construção das muralhas e cidades é divertido e intuitivo, mas também me permite fazer coisas que parecem imponentes e robustas ou frágeis e completamente malucas, a criatividade é o limite.\r\n\r\nSem medo eu digo a você, pode comprar, nem precisa esperar promoção.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770503733,
+          "language": "brazilian"
+        },
+        {
+          "recommendationid": "217786108",
+          "author_steamid": "76561197988885684",
+          "author_playtime": 1680,
+          "voted_up": false,
+          "review_text": "The castle building is fun but walls get blown up too quickly.",
+          "votes_up": 1,
+          "votes_funny": 1,
+          "timestamp_created": 1770479436,
+          "language": "english"
+        },
+        {
+          "recommendationid": "217710169",
+          "author_steamid": "76561198181457358",
+          "author_playtime": 786,
+          "voted_up": true,
+          "review_text": "Топ",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1770397584,
+          "language": "english"
+        },
+        {
+          "recommendationid": "217693473",
+          "author_steamid": "76561198020148634",
+          "author_playtime": 1353,
+          "voted_up": true,
+          "review_text": "отличная игра!",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1770381240,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "217580966",
+          "author_steamid": "76561198091110242",
+          "author_playtime": 3600,
+          "voted_up": true,
+          "review_text": "[h1][b]The World in Mist[/b][/h1]\n[quote]The world has been plunged into a mist, and humanity is on the brink of extinction. You play as Lady Iris, mankind's last hope. You must leave the last city, Hogar, and embark on an expedition to find the mysterious pearl that can save humanity. The adventure won't be easy, but the stakes are high.[/quote]\n​\n[h2]Daylight[/h2]\nAt first, you can not just stand at your Citadel – you need to explore the surrounding area and start gathering resources as fast a",
+          "votes_up": 8,
+          "votes_funny": 0,
+          "timestamp_created": 1770235463,
+          "language": "english"
+        },
+        {
+          "recommendationid": "217342221",
+          "author_steamid": "76561198216526755",
+          "author_playtime": 46,
+          "voted_up": false,
+          "review_text": "They are billions copy. Literally...",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1769952470,
+          "language": "swedish"
+        },
+        {
+          "recommendationid": "217335024",
+          "author_steamid": "76561198801280555",
+          "author_playtime": 2457,
+          "voted_up": true,
+          "review_text": "peak experience\r\n",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1769945740,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "217288944",
+          "author_steamid": "76561198029452505",
+          "author_playtime": 1365,
+          "voted_up": true,
+          "review_text": "Я не могу не порекомендовать эту игру, но могу порекомендовать разработчикам из Digital Sun её доделать. Бесконечно врубать паузу и летать над картой, чтобы ни дай бог ни один боец не упал со стены - это тот ещё экспириенс. Не удивлен, что до конца прошли только 3,2%. Но мне понравилось",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1769895450,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "217083795",
+          "author_steamid": "76561198159163521",
+          "author_playtime": 2984,
+          "voted_up": true,
+          "review_text": "This is one of the best RTS games I have ever played. Its fun, it has depth, its stylish and it has a variety of ways to play. The gameplay is mostly a mix of building walls and structures brick by brick and more traditional base building where you have specific buildings for certain purposes like training units. The modular building is so much fun and really lets you create what you want, and it can get pretty fast once you have a bit of practice. Plus there are lots of elements that give it th",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1769682940,
+          "language": "english"
+        },
+        {
+          "recommendationid": "217050762",
+          "author_steamid": "76561198097479067",
+          "author_playtime": 901,
+          "voted_up": true,
+          "review_text": "玩法很新颖，一砖一瓦建造堡垒，但美术风格不是让我很喜欢",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1769636073,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "217008800",
+          "author_steamid": "76561198042396460",
+          "author_playtime": 1064,
+          "voted_up": true,
+          "review_text": "Great",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1769590848,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216822467",
+          "author_steamid": "76561198001692599",
+          "author_playtime": 1204,
+          "voted_up": true,
+          "review_text": "A excellent RTS-lite where building walls is more important than your economy, but only just. The story is decent enough, and the art is fantastic. The entire game oozes with flavor that is hard to describe. Building stuff is also quite fun. Learning what works and what doesn't, what to buy first and what to avoid, etc.\r\n\r\nI recommend this game for anyone who likes tower defense games or RTSes.",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1769395518,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216771282",
+          "author_steamid": "76561197977776102",
+          "author_playtime": 2705,
+          "voted_up": true,
+          "review_text": "An awesome aesthetic, really well done building system that yes, takes a while to do but sure is fun building lego castles. Really fulfills the last stand sort of feel.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1769348752,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216580360",
+          "author_steamid": "76561199124872898",
+          "author_playtime": 1505,
+          "voted_up": true,
+          "review_text": "i like it overall",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1769131278,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216376656",
+          "author_steamid": "76561198216696676",
+          "author_playtime": 2978,
+          "voted_up": true,
+          "review_text": "Cataclismo offers a fairly unique take on the standard RTS formula, combining your typical base building gameplay with the ability to design custom architecture. It follows a similar level progression to classic RTS games such as Warcraft where the player needs to construct specific buildings in order to unlock various improvements around your settlement.\n\nHowever, the game also encourages the player to take their time in designing their settlement by allowing them to pause the in-game-time whil",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768879145,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216256589",
+          "author_steamid": "76561198190081835",
+          "author_playtime": 792,
+          "voted_up": false,
+          "review_text": "Terrible bugged game, in mission 8 of the campain the path is blocked to the citadel after meeting with hunters and collecting the garbage.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1768748425,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216252466",
+          "author_steamid": "76561199053350765",
+          "author_playtime": 387,
+          "voted_up": true,
+          "review_text": "亿万僵尸加强版，郝丸！在亿万僵尸那刚开完饭回来这边也开饭好玩耶",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768745056,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "216209458",
+          "author_steamid": "76561198311890789",
+          "author_playtime": 787,
+          "voted_up": true,
+          "review_text": "这个节奏，几乎是我想象中基地建设防守的理想模板\r\n明明可以实现，但是实际上完成度做到这个地步的却不多。。。",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768695986,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "216203200",
+          "author_steamid": "76561198011514532",
+          "author_playtime": 22,
+          "voted_up": false,
+          "review_text": "Controls are meh and building isn't intuitive.",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1768689479,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216167129",
+          "author_steamid": "76561198011799633",
+          "author_playtime": 2075,
+          "voted_up": true,
+          "review_text": "While the UI and UX definitely need some work this is still a fun game. If you like building castles and having hordes of enemies attack it, will this is one of those games.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1768660892,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216108676",
+          "author_steamid": "76561199119489826",
+          "author_playtime": 5042,
+          "voted_up": true,
+          "review_text": "Super!!!",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768596402,
+          "language": "german"
+        },
+        {
+          "recommendationid": "216041468",
+          "author_steamid": "76561198179873718",
+          "author_playtime": 1970,
+          "voted_up": true,
+          "review_text": "I'm glad that I gave this game a shot. I've been bouncing off of a lot of city builder and horde defense games lately. This is a well balanced blend of both that keeps you doing different things that are all fun. i like the art style and the story was good enough. The best part of the game for me was the tile building system. I loved building the walls for the castles. I bought it on sale but i think it is worth the full asking price. I would buy a sequel if they developed one.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768512481,
+          "language": "english"
+        },
+        {
+          "recommendationid": "216036453",
+          "author_steamid": "76561198247697294",
+          "author_playtime": 482,
+          "voted_up": false,
+          "review_text": "Не понравилась. Видимо, случайно оставил включённой, когда отвлёкся и в итоге накапало 8 часов. Теперь не могу возврат средств оформить. Обидно. Только деньги зря потратил.\n\nМораль: смотрите сначала обзоры/летсплеи, а потом покупайте",
+          "votes_up": 0,
+          "votes_funny": 1,
+          "timestamp_created": 1768507194,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "216011186",
+          "author_steamid": "76561198001712670",
+          "author_playtime": 1021,
+          "voted_up": true,
+          "review_text": "Inventive and atmospheric tower defense castle builder with some clever mechanics around height. Good game but VERY unrelaxing. Think more Banner Saga than Kingdom Rush.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768477775,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215984732",
+          "author_steamid": "76561198120217870",
+          "author_playtime": 697,
+          "voted_up": false,
+          "review_text": "game is boring, resource management sucks. unclear build paths. no frontline units, no ladders, unit variety is lacking. art direction and voice acting was good but not enough to carry the gameplay loop of build wall put archer on wall.",
+          "votes_up": 8,
+          "votes_funny": 3,
+          "timestamp_created": 1768432111,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215962880",
+          "author_steamid": "76561198141734040",
+          "author_playtime": 719,
+          "voted_up": false,
+          "review_text": "幾年代的遊戲還會發生雲端存檔遺失回溯的問題?\r\n查了討論區我也不是個案\r\n英文討論區甚至用無能來形容開發團隊\r\n可以接受可能發生回檔且打折再入",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1768405717,
+          "language": "tchinese"
+        },
+        {
+          "recommendationid": "215917187",
+          "author_steamid": "76561199122321380",
+          "author_playtime": 753,
+          "voted_up": true,
+          "review_text": "soothes my chipmunk brain\r\n",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1768336777,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215898400",
+          "author_steamid": "76561199018626727",
+          "author_playtime": 2411,
+          "voted_up": true,
+          "review_text": "不錯玩",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768318003,
+          "language": "tchinese"
+        },
+        {
+          "recommendationid": "215870636",
+          "author_steamid": "76561198272854610",
+          "author_playtime": 1367,
+          "voted_up": true,
+          "review_text": "L'une de mes meilleurs découverte et le meilleur tower defense auquel j'ai joué",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768276904,
+          "language": "french"
+        },
+        {
+          "recommendationid": "215849256",
+          "author_steamid": "76561198980345720",
+          "author_playtime": 1103,
+          "voted_up": true,
+          "review_text": "Сначала не понял как играть. Потом понял. Блоки сняться до сих пор.",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1768251032,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "215834867",
+          "author_steamid": "76561199376847870",
+          "author_playtime": 1592,
+          "voted_up": true,
+          "review_text": "游戏是值得一玩的，但是不得不说一些地方让人有些难受 先说缺点 1视角调整让人感到不适 2难度曲线稍微有点问题 3玩起来很累人，而且设计图功能比想象中难用多了 4体验重复度高，这点从中期开始就有点明显了 除此以外都是优点了，自定义防御工事的核心玩法和独特的美术风格都是核心加分项 大部分设定对玩家都比较友好",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768237254,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "215787484",
+          "author_steamid": "76561198038875845",
+          "author_playtime": 2299,
+          "voted_up": true,
+          "review_text": "The mechanics are great. The story is interesting, just finished it and I still feel like there is so much more to do with the skirmishes and survival. Excellent game",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768175213,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215773231",
+          "author_steamid": "76561198962761859",
+          "author_playtime": 393,
+          "voted_up": true,
+          "review_text": "♥♥♥ iyi",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768161825,
+          "language": "turkish"
+        },
+        {
+          "recommendationid": "215679063",
+          "author_steamid": "76561198399064598",
+          "author_playtime": 366,
+          "voted_up": true,
+          "review_text": "yüzüklerin efendisi- iki kule  rp si yapabiliyorsunuz.   ama dördüncü günün şafağında gandalf gelmiyor.   onun yerine daha çok mahlukat geliyor.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1768074198,
+          "language": "turkish"
+        },
+        {
+          "recommendationid": "215636399",
+          "author_steamid": "76561198852463871",
+          "author_playtime": 59,
+          "voted_up": false,
+          "review_text": "It's to many bags and control is so bad. This game like from early 2000 wheare games was broken. I like idea, but technical isue.....",
+          "votes_up": 2,
+          "votes_funny": 5,
+          "timestamp_created": 1768041406,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215628634",
+          "author_steamid": "76561199273625059",
+          "author_playtime": 1049,
+          "voted_up": true,
+          "review_text": "Мне всегда нравилось свобода выражения мысли ещё в старых Stronhold, когда можно было буквально влить душу в каждую крепость которую ты строишь, Котоклизма это же игра где можно влить душу в каждый кирпич от крепости которую ты строишь.\n\n",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1768032349,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "215609931",
+          "author_steamid": "76561197990074942",
+          "author_playtime": 3894,
+          "voted_up": true,
+          "review_text": "i cast 5 Hundred Bowmen",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1768008962,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215608878",
+          "author_steamid": "76561198890332591",
+          "author_playtime": 4123,
+          "voted_up": true,
+          "review_text": "прекрасная игра , приятный гемплей с ноткой релакса и хорошим напряжением на повышенных сложностях , хорошее разнообразие юнитов и да их немного , но их достаточно для этой игры , пожалуй хотелось бы гг не только айрис на картах выживания но , я больше надеюсь либо на вторую часть , либо на дополнения .  для любителей стратегий игра зайдёт",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1768007746,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "215594274",
+          "author_steamid": "76561198109418417",
+          "author_playtime": 6288,
+          "voted_up": true,
+          "review_text": "With so many castle builder indie games on the market now, Cataclismo really stands out in terms of making building both meaningful in terms of gameplay and just plain enjoyable. I'll definitely be playing much more in the future across the different game types.",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1767993605,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215587522",
+          "author_steamid": "76561199122164547",
+          "author_playtime": 1247,
+          "voted_up": true,
+          "review_text": "虽说甚至不到后期，游戏就有明显重复感，但是真的是嘎嘎好玩，要是能更新几个防御塔就更好玩了",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767988068,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "215534579",
+          "author_steamid": "76561198883211086",
+          "author_playtime": 1785,
+          "voted_up": true,
+          "review_text": "Far better then I anticipated, good levels, excellent voice acting, not to long but thats ok, very interesting building mechanics as well, the story was also pretty goodm the art style grows on as well",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767932080,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215503202",
+          "author_steamid": "76561197990414883",
+          "author_playtime": 1144,
+          "voted_up": true,
+          "review_text": "10/10 can pet a crow",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767899082,
+          "language": "german"
+        },
+        {
+          "recommendationid": "215493166",
+          "author_steamid": "76561198040992749",
+          "author_playtime": 113,
+          "voted_up": false,
+          "review_text": "Story and strategy games can go both ways. They can add immense depth and connective tissue, or they can become annoying and confusing filler. [i]Cataclismo[/i] unfortunately falls into the second category… at least for me.\n\nThis could be saved by interesting and fun gameplay, but... it's not. Building something that looks decent takes too long, and then you just watch it crumble so you can rebuild it again.\n\nMaybe it would become fun if I stuck with it a bit longer, but life is short and games ",
+          "votes_up": 14,
+          "votes_funny": 1,
+          "timestamp_created": 1767890463,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215367057",
+          "author_steamid": "76561199878484261",
+          "author_playtime": 962,
+          "voted_up": true,
+          "review_text": "хорошая игра",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1767751956,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "215328730",
+          "author_steamid": "76561198041091625",
+          "author_playtime": 383,
+          "voted_up": false,
+          "review_text": "Je pensais me retrouver face à un jeu avec un mix entre RTS et Tower Defense, finalement je me retrouve avec un jeu où je dois courir après des ressources pour par perdre à cause du scaling des ennemies. Le côté RTS et tower defense sont finalement totalement éclipsés.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767718775,
+          "language": "french"
+        },
+        {
+          "recommendationid": "215324687",
+          "author_steamid": "76561197970219022",
+          "author_playtime": 464,
+          "voted_up": false,
+          "review_text": "Such an odd game.\n\nOn the one hand, a nice premise around building your base, which can be destroyed brick by brick, and the usual TD-style defence. On the other, it has you trapsing around maps Diablo style, building bridges and performing basic actions.\n\nOverall it just doesn't stick the landing. It's too fiddly, the real-time aspects cause more aggravation than they should, enemy variety isn't good either. If they'd just focused on the TD part of the design and fleshed that way out, around th",
+          "votes_up": 13,
+          "votes_funny": 2,
+          "timestamp_created": 1767715545,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215317046",
+          "author_steamid": "76561199582713799",
+          "author_playtime": 3915,
+          "voted_up": true,
+          "review_text": "haowan",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767709531,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "215260611",
+          "author_steamid": "76561198030343167",
+          "author_playtime": 2093,
+          "voted_up": true,
+          "review_text": "Tower Defense and Legos, what more could you want.",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1767648486,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215088218",
+          "author_steamid": "76561198876771072",
+          "author_playtime": 818,
+          "voted_up": true,
+          "review_text": "it gud",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767499396,
+          "language": "english"
+        },
+        {
+          "recommendationid": "215087532",
+          "author_steamid": "76561198003125592",
+          "author_playtime": 530,
+          "voted_up": true,
+          "review_text": "데이아빌리언즈와 동일한 건설 디펜스 게임.\n데아빌과 차별점이 있다면 구조물들을 꽤나 디테일하게, 진짜 중세 성벽마냥 복잡하게 지을 수 있고 지붕의 개념까지 있어서 방벽 건설에 대부분의 시간을 할애한다는 것입니다.\n\n아트 스타일 깔끔하고 건설요소도 풍부해서 마음에 들었는데\n단 하나의 문제가 이 게임 플레이 버튼을 누르는데 망설이게 만듭니다.\n바로 데아빌 특유의 한방에 무너지는 '비버집 부수기'까지 그대로 있다는 거.\n데아빌도 한 곳 뚫리면 걷잡을 수 없는건 똑같긴 하지만 유닛 컨트롤로 어느정도 커버가 가능한데\n여긴 방벽 무너질 때 방벽에 있던 유닛까지 싸그리 먹히고, 완파가 아니더라도 한두군데 반파되면 유닛들이 지나가야할 길이 무너져 통제불능에 빠지는 개같은 상황을 만날 수 있습니다. \n\n그래서 나온 공략들이 죄다 벽을 2중 3중으로 짓고 창문도 겹겹이 쌓는 것.\n결국 위 트레일러나 스크린샷에 나오는 예쁜 성벽은 갔다 버리고 기형적인 네모네모 탑을 설계도화 시켜서 주구장창 짓게 됩니다",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1767498671,
+          "language": "koreana"
+        },
+        {
+          "recommendationid": "215046253",
+          "author_steamid": "76561198807534106",
+          "author_playtime": 18,
+          "voted_up": false,
+          "review_text": "那戰役視角也太反人類",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767466272,
+          "language": "tchinese"
+        },
+        {
+          "recommendationid": "215003861",
+          "author_steamid": "76561199387099931",
+          "author_playtime": 5053,
+          "voted_up": true,
+          "review_text": "好玩，就是有点短，找到了小时候搭积木的感觉",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767433636,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "214970793",
+          "author_steamid": "76561198306459363",
+          "author_playtime": 1080,
+          "voted_up": true,
+          "review_text": "难度适中，有新颖性，有挑战。",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767399460,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "214918155",
+          "author_steamid": "76561198065012765",
+          "author_playtime": 1208,
+          "voted_up": true,
+          "review_text": "Alta Perl",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767361652,
+          "language": "polish"
+        },
+        {
+          "recommendationid": "214901081",
+          "author_steamid": "76561198029009944",
+          "author_playtime": 1572,
+          "voted_up": true,
+          "review_text": "Even though the campaign starts off slow, it introduces all of its units and mechanics at a steady pace and, by the end, you'd better know how to use them all.\r\nThe few final levels are a particular highlight, and that carries onto the infinite survival gamemode and custom maps.\r\n\r\nThis is a surprisingly chill game. The entire day you slowly build up resources, plan the best routes for your gatherers and slowly build up and improve your walls and defenses. Experiment with different combinations ",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1767345692,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214763417",
+          "author_steamid": "76561198132130440",
+          "author_playtime": 1254,
+          "voted_up": false,
+          "review_text": "Какая то ерунда а не башенная защита, каменные стены чуть ли не с двух ударов падают, солдат убивают с одного- двух  ударов, тогда как монстрам надо 3-5,учитывая что их раз в 5 как минимум больше чем собственных юнитов, итог очевиден. Экономика без какой либо логики, просто что бы была. Всегда чего то не хватает, например надо защитить 4 направления, а ресурсов на стены и на армию едва хватает на 2,5 несколько раз пробовал переигрывать лучший вариант 3 направления с натяжкой. Так как армии едва ",
+          "votes_up": 1,
+          "votes_funny": 1,
+          "timestamp_created": 1767211806,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "214760682",
+          "author_steamid": "76561198976105553",
+          "author_playtime": 1992,
+          "voted_up": true,
+          "review_text": "基本的なゲームシステム自体はおもしろいのだが、100時間200時間プレイするとなると今一つ何か足りないような感じがするゲーム。\r\nそこまで大きな期待をしなければ買っていいと思う",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767209432,
+          "language": "japanese"
+        },
+        {
+          "recommendationid": "214668578",
+          "author_steamid": "76561198110500484",
+          "author_playtime": 2082,
+          "voted_up": true,
+          "review_text": "Una carta de amor al gaming\nsolo tiene dos pecados...\n\n-que se hace corto\n-no tiene voces en español",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1767122537,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "214660798",
+          "author_steamid": "76561198072094217",
+          "author_playtime": 1352,
+          "voted_up": true,
+          "review_text": "It's an ok game on sale, but not full price.\n\nThe campaign is okayish, but feel rushed in the later missions. It feels like they took the time to present all the mechanics, units and building pieces and somewhere down the line they realized that they should end the story in 3 missions. Wish it was a bit more fleshed out and had more missions to learn about the story.\n\nThere are a few units and the diversity is nonexistent. For a game about humanity on the brink of extinction it amazes me that hu",
+          "votes_up": 10,
+          "votes_funny": 0,
+          "timestamp_created": 1767116813,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214652753",
+          "author_steamid": "76561198047536090",
+          "author_playtime": 2642,
+          "voted_up": true,
+          "review_text": "great relaxed building.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1767110650,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214605473",
+          "author_steamid": "76561198093136839",
+          "author_playtime": 47,
+          "voted_up": false,
+          "review_text": "I thought I would be interested because I like building games and lego, as well as the general concept of base building tower defense. However, the implementation ends up being really tedious. Everything you build needs to have a walkable path from the ground to the top. Also, every structure you build is a pillar. There is no concept of walls and roof, you are just building giant cubes of stone, a staircase up to it, and a bunch of the same unit buff structures along all your walls. And boy is ",
+          "votes_up": 14,
+          "votes_funny": 0,
+          "timestamp_created": 1767063405,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214537280",
+          "author_steamid": "76561197995267007",
+          "author_playtime": 1006,
+          "voted_up": true,
+          "review_text": "it's nice defense builder but Going medieval is better.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1767010786,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214529510",
+          "author_steamid": "76561198343181590",
+          "author_playtime": 8,
+          "voted_up": false,
+          "review_text": "看着挺好，结果是一坨屎，你能想象这么一个2.5D俯视角的游戏给我玩出3D晕眩症了么，视角调整就是纯纯一坨屎，特么我买的还是和其他游戏的合集包，另一个游戏挺好玩，这么一坨退都没法退",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1767003167,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "214488765",
+          "author_steamid": "76561198306394604",
+          "author_playtime": 3552,
+          "voted_up": true,
+          "review_text": "Great fun!",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766961305,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214466617",
+          "author_steamid": "76561198433634255",
+          "author_playtime": 1953,
+          "voted_up": true,
+          "review_text": "Siendo yo no muy fan de los RTS, los juegos de gestión y de los tower defense me daba medio miedo meterme aquí, pero visualmente el juego te lo vende de lujo. Me parece un buenísimo juego para empezar, llevo ahora mismo casi 20h y todavía estoy con el modo historia que introduce las herramientas poco a poco de maravilla. Es una gozada como todos los elementos de construcción y sus tropas crean un puzle gigantesco que manejar, pero hay algunas cosas que no me terminan de gustar del todo. Puede se",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766945788,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "214261726",
+          "author_steamid": "76561198010828276",
+          "author_playtime": 759,
+          "voted_up": false,
+          "review_text": "During the cutscene where our protagonist is sent underground to search for the mcguffin, she refers to the old man character as \"your scholar\". She's spent her entire life in a small town on a hill within the order. She's probably been around the same 20 people since she was a child and has fought beside and faced death with many of them. She surely must know this guy's name is Dave or something yet is intentionally dismissive. This is a massive back hand to someone out there trying to help. In",
+          "votes_up": 2,
+          "votes_funny": 11,
+          "timestamp_created": 1766772784,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214255684",
+          "author_steamid": "76561198193199901",
+          "author_playtime": 1111,
+          "voted_up": true,
+          "review_text": "is good :)",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766768425,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214253697",
+          "author_steamid": "76561198149738272",
+          "author_playtime": 3138,
+          "voted_up": true,
+          "review_text": "¿Te gustan los tower defense un poco? ¿De chico jugabas al exin castillo o te gustaba hacer casas con lego? Si has respondido que si a ambos, este es tu juego. Tiene una parte de gestión de recursos y tropas más o menos sencilla pero creo que la crema del juego o donde más han puesto el impulso del desarrollo es en la creación de estructuras defensivas. Hay muchas opciones, aprenderás a maximizar el uso de tus piezas y a minimizar las debilidades de tus estructuras ante las invasiones, lo más di",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1766766868,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "214251967",
+          "author_steamid": "76561198280041272",
+          "author_playtime": 6642,
+          "voted_up": true,
+          "review_text": "очень достойная игра",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1766765545,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "214186243",
+          "author_steamid": "76561198156820679",
+          "author_playtime": 880,
+          "voted_up": true,
+          "review_text": "yes!",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766698242,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214111084",
+          "author_steamid": "76561199413743391",
+          "author_playtime": 3705,
+          "voted_up": true,
+          "review_text": "this good game",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766617519,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214110025",
+          "author_steamid": "76561198964401082",
+          "author_playtime": 1549,
+          "voted_up": true,
+          "review_text": "игра мне понравилась , строительство экономики и защита от врага , жалко что в миссии только пару дней , и оч много надо думать чтоб построить  оч хорошую защиту из-за чего мой мозг закипает от долгой игры :)",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1766615477,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "214075156",
+          "author_steamid": "76561198217784445",
+          "author_playtime": 1368,
+          "voted_up": true,
+          "review_text": "В технічному плані у мене проблем не було. Досить стильна графіка, крута атмосфера, ну і в принципі було цікаво пройти кампанію.\n+є бісяче болото\nЧеленж присутній, в певний момент (тоді ще історія не була закінчена) була місія в якій я думав що я маю програти по скріпту) але виграти все-таки прийшлось (на паузі приходиться посидіти)\nДумаю для тих кому подобається оборонятись від орд ворогів, і будувати по цеглині оборону має сподобатись",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1766575418,
+          "language": "ukrainian"
+        },
+        {
+          "recommendationid": "214060560",
+          "author_steamid": "76561198047631514",
+          "author_playtime": 1233,
+          "voted_up": true,
+          "review_text": "this game rules. the atmosphere is unlike anything else- you never know if you've built up enough to survive the coming horde.\r\n\r\nmy only complaint is that some buildings only refund part of the resources used to construct them- this is maybe too punishing when you make a simple mistake in your placement. maybe resources could be fully refunded if you haven't finished constructing it yet?",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1766555977,
+          "language": "english"
+        },
+        {
+          "recommendationid": "214011046",
+          "author_steamid": "76561199092522940",
+          "author_playtime": 36,
+          "voted_up": false,
+          "review_text": "The tutorial is very intrusive and cannot be skipped, which unfortunately makes the Story-mode very annoying.",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1766506730,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213981956",
+          "author_steamid": "76561198111919277",
+          "author_playtime": 2467,
+          "voted_up": true,
+          "review_text": "While the game is built mostly around siege defence and save scumming, its a very fun game imo. The story is also pretty good, and the campaign is pretty challenging especially Defense of Hogar.\n\nHowever, what I like the most about the game is that buildings can strategically be placed and \"combined\" with other structures. For example you can place Oxygen Pumps on certain buildings like the citadel and barracks. You can stack Shacks together into a condo of some sort. With enough creativity you ",
+          "votes_up": 18,
+          "votes_funny": 0,
+          "timestamp_created": 1766477582,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213972521",
+          "author_steamid": "76561198815167964",
+          "author_playtime": 4473,
+          "voted_up": true,
+          "review_text": "好玩是好玩的，但是目前无尽玩久了有点无聊，目前感觉主要是前期攀科技时是最有意思的，无尽打到后面就是重复的跳过白天到晚上，因为有人口限制，经济到了后期完全没有作用了，也就修修城墙或者摆点陷阱（关键陷阱也不需要每波都摆），等科技升完人口满了就没啥好玩的了，人口就那些，打不过资源多了也没用，我玩了好几个档的无尽，目前感觉无尽要想打的波数多还是要看地图怎么样的，我玩的波次最多的一个档就是正好在地图中间一个口可以拦三个出怪口的怪，这种地图打的就很轻松，很容易集火，像比较差的位置四个位置都要分兵 主要到了后期怪的数量和血量上来了 分四个位置的兵真的顶不住，虽然现在无尽玩久了会变得无聊但是这游戏真的很上头，期望能继续更新，希望更新优化一下无尽和其他玩法",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1766464667,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "213965813",
+          "author_steamid": "76561197980744687",
+          "author_playtime": 766,
+          "voted_up": true,
+          "review_text": "Great atmosphere, intriguing world/story, inovative idea on castle defence/building",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766456528,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213701616",
+          "author_steamid": "76561198792606582",
+          "author_playtime": 4131,
+          "voted_up": true,
+          "review_text": "优化💩画面👍，卡第五关，教程BUG，跟本玩不了后面的😒，",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766211864,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "213643805",
+          "author_steamid": "76561198138813413",
+          "author_playtime": 2031,
+          "voted_up": false,
+          "review_text": "10 пауз из 10.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1766153062,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "213597204",
+          "author_steamid": "76561198076897850",
+          "author_playtime": 5575,
+          "voted_up": true,
+          "review_text": "Top Game!",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1766095241,
+          "language": "german"
+        },
+        {
+          "recommendationid": "213582438",
+          "author_steamid": "76561198041724205",
+          "author_playtime": 716,
+          "voted_up": false,
+          "review_text": "I love the general idea of making highly customized fortresses, but when something you spent an hour building gets destroyed, it's a major turn-off.  There's some kind of blueprint system, but a bunch of the campaign missions don't let you use it, and most of the time you need a custom wall to fit the shape of the map anyways.",
+          "votes_up": 10,
+          "votes_funny": 1,
+          "timestamp_created": 1766081120,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213503261",
+          "author_steamid": "76561198114583712",
+          "author_playtime": 8963,
+          "voted_up": true,
+          "review_text": " Initially when I played this  game I stopped shortly after playing the  tutorial thinking this was not for me .  I'm  super glad I revisited this game though and gave it another shot.  If you  like  strategic RTS games with the ability to pause  ( think they are billions or maybe end zone)  you will love this . The art style and voice acting are great . I enjoyed the story though it was not the selling point. This game shines in  it's design. Its great fun and surprisingly complex  with its spi",
+          "votes_up": 11,
+          "votes_funny": 0,
+          "timestamp_created": 1765982560,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213471700",
+          "author_steamid": "76561198088090486",
+          "author_playtime": 296,
+          "voted_up": true,
+          "review_text": "Enjoyable tower defense but did not hold my long term interest.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1765937016,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213440033",
+          "author_steamid": "76561198324831271",
+          "author_playtime": 239,
+          "voted_up": false,
+          "review_text": "Game idea is great, would love to keep building my castle in so much detail. The problem is the enemy spam is ridiculous. You barely have enough resources to make 5 archers, the enemy attacks from 3 directions with dozens of units, no freaking way you can defend. Gave up on it quite fast.",
+          "votes_up": 7,
+          "votes_funny": 0,
+          "timestamp_created": 1765911728,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213273212",
+          "author_steamid": "76561198040109721",
+          "author_playtime": 1320,
+          "voted_up": true,
+          "review_text": "beautiful, complex and, challenging\n\nhard to get start but payoff really well.\n\nEDIT AFTER BEATING : well worth the price, great as 1 time experience for RTS/castle defend enjoyer.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1765713923,
+          "language": "english"
+        },
+        {
+          "recommendationid": "213074629",
+          "author_steamid": "76561197970744370",
+          "author_playtime": 110,
+          "voted_up": false,
+          "review_text": "Well... No way I'm having fun with this one.. I applaud the developers but for the grace of the gods, you should have called this game \"Advance Engineering Course\"",
+          "votes_up": 2,
+          "votes_funny": 1,
+          "timestamp_created": 1765488307,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212773288",
+          "author_steamid": "76561198940954962",
+          "author_playtime": 892,
+          "voted_up": false,
+          "review_text": "Ни то ни сё.\r\n\r\nПосле 30 минут геймплея становится плохо.\r\nГлавная идея игры - строй и защищайся от монстров, но некоторые локации чисто физически нельзя пройти без багов и каких-то эксплойтов из-за небалансной сложности.\r\n\r\nКрасная цена игре - 300-400 рублей, ни о какой ТЫСЯЧЕ речь не идет. За тыщу можно купить как минимум 1 качественный проект, а не эту недоделку.\r\n\r\nСвоего прохождения - НЕ СТОИТ.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1765112453,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "212726205",
+          "author_steamid": "76561197993491971",
+          "author_playtime": 674,
+          "voted_up": false,
+          "review_text": "The plot is overall pretty interesting. The art style is excellent as well. I enjoy constructing the buildings. But, putting that into a game with waves of monsters doesn't really work as soon as the monsters can destroy your buildings in one blow, the explosive ones or ones that throw stones will waste 10 minutes of careful buidling right away. Like in a MMORPG there are red templates that fill up on the ground as an enemy attacks which in those games tell you to move away, but in a game like t",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1765057207,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212705995",
+          "author_steamid": "76561198872707789",
+          "author_playtime": 3657,
+          "voted_up": true,
+          "review_text": "Финал игры на максимальной сложности 30 минут геймплея и 4 часа на паузе (добавить возможность автоматического достраивания основания чертежа религия разрабам не позволяет + невозможность послойно рассмотреть и отредактировать постройку перед созданием)",
+          "votes_up": 7,
+          "votes_funny": 0,
+          "timestamp_created": 1765039758,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "212669501",
+          "author_steamid": "76561198055327122",
+          "author_playtime": 605,
+          "voted_up": false,
+          "review_text": "I love most of this game, but not piecing together a wall one brick at a time. Unfortunately, this tedious step happens (unsurprisingly) every level, which would be fine, but it never really gets any faster or less monotonous.",
+          "votes_up": 5,
+          "votes_funny": 0,
+          "timestamp_created": 1765002272,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212633222",
+          "author_steamid": "76561198040425173",
+          "author_playtime": 995,
+          "voted_up": false,
+          "review_text": "Im sure there is a good game beneath here, sadly the building as often very clunky and unprecise making it more of a chore. Additionally there are still game breaking bugs it seems. Im straight up soft locked in a campaign mission and cannot continue. Sadly it is after the refund mark",
+          "votes_up": 3,
+          "votes_funny": 0,
+          "timestamp_created": 1764960319,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212624808",
+          "author_steamid": "76561198211177737",
+          "author_playtime": 2971,
+          "voted_up": true,
+          "review_text": "Прикольная игра, по-своему медитативная. Заприметил еще на стадии демки, начинал проходить на релизе, и только сейчас руки дошли чтобы продолжить. \r\n\r\nИз плюсов:\r\nВполне продуманный баланс по экономике, норм задизайнены локации, все красиво выглядит, звучит и строится, особенно штуки типа выстрелов пушкарей. Особенно приятно построить что-то и элегантное, и хорошо обороняющееся от монстров. Играл на уровне сложности \"тяжело\", вполне балансный уровень сложности для меня, иногда дает некоторый чел",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1764952246,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "212598276",
+          "author_steamid": "76561199749477719",
+          "author_playtime": 10,
+          "voted_up": true,
+          "review_text": "its a good game but hard",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764919269,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212568901",
+          "author_steamid": "76561198072805076",
+          "author_playtime": 251,
+          "voted_up": true,
+          "review_text": "一局游戏时间30分钟，暂停时间一个小时。。沉迷建筑学无法自拔\n缺点是优化稀烂，开全特效4K画质，4080占用95%，明明角色和环境都很糙",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764879539,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "212498064",
+          "author_steamid": "76561199387477297",
+          "author_playtime": 1243,
+          "voted_up": true,
+          "review_text": "10/10",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764791451,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212450725",
+          "author_steamid": "76561198277788944",
+          "author_playtime": 2082,
+          "voted_up": false,
+          "review_text": "拠点を守りながらマップを探索して新たな資源を見つけそれでどんどん拠点を強化して防衛する感じ\r\nゲーム自体は面白いが雰囲気に全部りしすぎて色々不便で分かりづらい\r\n\r\nUI見づらい使いづらい、キャラぱっと見で判断しずらい移動もクセがある\r\n敵も見分けづらいし何が来るのかよう分からんｗ\r\n施設も似たり寄ったりで何があるのか無いのか判断しずらいマップに溶け込むので\r\n建設がしづらい\r\nそのくせ制限時間は短く資源もガンガン入って来るわけじゃ無いので\r\n施設に必要な資源をじーっと見ながらたまった瞬間ポーズしながら一個一個立てて\r\nそのすきに探索もしないといけない\r\nゆえに楽しいゲームって感じより疲れる\r\n\r\n※ネタバレあり\r\n\r\nあと時をさかのぼる能力があるんだがゆえに特にストーリーモードでは\r\n後出しじゃんけんをして来る\r\nそのたび時をさかのぼり改善する、ストーリーとしてはすごい能力のように聞こえるが\r\n要は相手の理不尽ムーブにセーブ＆ロードを繰り返しながら対応しないといけないだけ\r\nしかもそれが前提だって事だ！！建設めんどいのに！！！マジムカつくｗｗ\r\n物語的に主人公はこの理不尽をプレイヤー",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1764731214,
+          "language": "japanese"
+        },
+        {
+          "recommendationid": "212434699",
+          "author_steamid": "76561198181752107",
+          "author_playtime": 383,
+          "voted_up": false,
+          "review_text": "Honestly I found it boring.",
+          "votes_up": 4,
+          "votes_funny": 0,
+          "timestamp_created": 1764711188,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212339250",
+          "author_steamid": "76561198063120289",
+          "author_playtime": 1746,
+          "voted_up": true,
+          "review_text": "好玩，搭堡垒布防真的独一份体验",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764607895,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "212328049",
+          "author_steamid": "76561198063757068",
+          "author_playtime": 1161,
+          "voted_up": true,
+          "review_text": "one of the best survival rts game i played recently",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764604138,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212293291",
+          "author_steamid": "76561198054853286",
+          "author_playtime": 994,
+          "voted_up": true,
+          "review_text": "An indie castle simulator that reminds me a lot of the Stronghold series but with modern QoL additions.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764590420,
+          "language": "english"
+        },
+        {
+          "recommendationid": "212222571",
+          "author_steamid": "76561198822417002",
+          "author_playtime": 353,
+          "voted_up": true,
+          "review_text": "Graficas cuidadas, sencillo de entender, para un rato calmo haciendo un castillo y manejando algunos recursos.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764560515,
+          "language": "spanish"
+        },
+        {
+          "recommendationid": "212194304",
+          "author_steamid": "76561198016907838",
+          "author_playtime": 1213,
+          "voted_up": true,
+          "review_text": "Good times",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764545993,
+          "language": "english"
+        },
+        {
+          "recommendationid": "211982862",
+          "author_steamid": "76561198836424197",
+          "author_playtime": 1136,
+          "voted_up": true,
+          "review_text": "挺好玩的",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764518972,
+          "language": "schinese"
+        },
+        {
+          "recommendationid": "211868115",
+          "author_steamid": "76561198182582497",
+          "author_playtime": 1679,
+          "voted_up": true,
+          "review_text": "Великолепная игра, чтобы запустить в субботу утром и оказаться уже в вечере воскресенья.\r\nКрайне залипательная, как никак, когда тебе самому дают городить постройки и стены начинаешь много с этим экспериментировать. Сюжет приятно удивил, не думал, что у стратегии он будет хорош.\r\nИгра восхитительна, если вам приглянулась - БЕРИТЕ!",
+          "votes_up": 2,
+          "votes_funny": 0,
+          "timestamp_created": 1764504122,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "211861256",
+          "author_steamid": "76561198018531656",
+          "author_playtime": 208,
+          "voted_up": false,
+          "review_text": "очень скучно",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1764501628,
+          "language": "russian"
+        },
+        {
+          "recommendationid": "211825783",
+          "author_steamid": "76561198025615978",
+          "author_playtime": 377,
+          "voted_up": false,
+          "review_text": "Cool game so far, finished the first non tutorial mission and went right to sandbox to build blueprints.\n\nThen got met with probably the most ♥♥♥♥♥♥♥ design decision I have seen in a game in a long time.\n\nSome sort of 'bridge building' puzzle game where you just need to awkardly place blocks to move your character around. I am very concerned the rest of the game is going to require this as 'a skill'\n\nits very tedious and has a horrible UI. The game would be 1000x better if this entire mechanic w",
+          "votes_up": 4,
+          "votes_funny": 1,
+          "timestamp_created": 1764487443,
+          "language": "english"
+        },
+        {
+          "recommendationid": "211783490",
+          "author_steamid": "76561198005687430",
+          "author_playtime": 435,
+          "voted_up": true,
+          "review_text": "An interesting mix of Stronghold, traditional RTS, and tower defense make this a *very* fun game.",
+          "votes_up": 1,
+          "votes_funny": 0,
+          "timestamp_created": 1764466354,
+          "language": "english"
+        },
+        {
+          "recommendationid": "211773294",
+          "author_steamid": "76561197970424893",
+          "author_playtime": 1491,
+          "voted_up": true,
+          "review_text": "Wer bereits bei Stronghold Spaß am Festungsbau hatte, wird hier ebenso seine Freude finden.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764461781,
+          "language": "german"
+        },
+        {
+          "recommendationid": "211746798",
+          "author_steamid": "76561198028012617",
+          "author_playtime": 708,
+          "voted_up": true,
+          "review_text": "Coole Mischung aus \"They are Billions\" und \"Stronghold\". Grafik find ich top, ist aber glaube ich Geschmackssache. Ich mags.",
+          "votes_up": 0,
+          "votes_funny": 0,
+          "timestamp_created": 1764452173,
+          "language": "german"
+        },
+        {
+          "recommendationid": "211735437",
+          "author_steamid": "76561198098113145",
+          "author_playtime": 1087,
+          "voted_up": false,
+          "review_text": "Most people will like this but it just couldn’t hook me.  I’ve tried so many times to get into this game and while it’s not bad, it kept feeling like an obligation.  I think it’s because at the end of the day, it's a very shallow game.  It provides everything you hope for but it gets the same very fast.  So far, I have only played the story mode.  I will update with it’s endless mode.\r\n\r\nThings that it does well:\r\nBase and economy building\r\nTower defense / hoards at the wall gameplay\r\nHas an exc",
+          "votes_up": 34,
+          "votes_funny": 1,
+          "timestamp_created": 1764448678,
+          "language": "english"
+        }
+      ]
+    },
+    "achievements": [
+      {
+        "name": "CAS_CAMPAIGN_0_0",
+        "percent": 78.8
+      },
+      {
+        "name": "CAS_KILLHORRORS_1",
+        "percent": 70.6
+      },
+      {
+        "name": "CAS_STONEPIECES_1",
+        "percent": 69.1
+      },
+      {
+        "name": "CAS_CAMPAIGN_0_2",
+        "percent": 51.4
+      },
+      {
+        "name": "CAS_KILLHORRORS_2",
+        "percent": 40.8
+      },
+      {
+        "name": "CAS_STONEPIECES_2",
+        "percent": 39.0
+      },
+      {
+        "name": "CAS_ANYBOOKPAGE",
+        "percent": 34.9
+      },
+      {
+        "name": "CAS_CAMPAIGN_1_1",
+        "percent": 34.9
+      },
+      {
+        "name": "CAS_LOSEANYCAMPAIGN",
+        "percent": 33.8
+      },
+      {
+        "name": "CAS_KILLHORRORSFALLING",
+        "percent": 24.5
+      },
+      {
+        "name": "CAS_ANYCAMPAIGNSECONDARY",
+        "percent": 23.8
+      },
+      {
+        "name": "CAS_ONECOREKNOWLEDGE",
+        "percent": 21.5
+      },
+      {
+        "name": "CAS_CAMPAIGN_2_0",
+        "percent": 20.9
+      },
+      {
+        "name": "CAS_RESURRECT",
+        "percent": 17.4
+      },
+      {
+        "name": "CAS_STONEPIECES_3",
+        "percent": 14.3
+      },
+      {
+        "name": "CAS_CAMPAIGN_2_2",
+        "percent": 14.2
+      },
+      {
+        "name": "CAS_CREATIVESAVE",
+        "percent": 13.3
+      },
+      {
+        "name": "CAS_ALLCAMPAIGNSECONDARY",
+        "percent": 9.9
+      },
+      {
+        "name": "CAS_KILLHORRORS_3",
+        "percent": 9.5
+      },
+      {
+        "name": "CAS_TOPOFTHEWORLD",
+        "percent": 9.4
+      },
+      {
+        "name": "CAS_CITYMAXPROSP",
+        "percent": 8.5
+      },
+      {
+        "name": "CAS_CAMPAIGN_3_0",
+        "percent": 7.4
+      },
+      {
+        "name": "CAS_CITYHARDNOUNITLOSS",
+        "percent": 5.5
+      },
+      {
+        "name": "CAS_CITYOVERPOP",
+        "percent": 5.4
+      },
+      {
+        "name": "CAS_CAMPAIGN_3_2",
+        "percent": 5.0
+      },
+      {
+        "name": "CAS_PETHERMES",
+        "percent": 4.7
+      },
+      {
+        "name": "CAS_BACKPACK",
+        "percent": 4.7
+      },
+      {
+        "name": "CAS_ALLIRISKNOWLEDGE",
+        "percent": 3.6
+      },
+      {
+        "name": "CAS_ALLBOOKPAGE",
+        "percent": 3.5
+      },
+      {
+        "name": "CAS_CAMPAIGN_4_0",
+        "percent": 3.3
+      },
+      {
+        "name": "CAS_ALLCOREKNOWLEDGE",
+        "percent": 3.2
+      },
+      {
+        "name": "CAS_SPAWNGHOSTS",
+        "percent": 2.7
+      },
+      {
+        "name": "CAS_MAXEXPEDITIONLVL",
+        "percent": 2.1
+      },
+      {
+        "name": "CAS_CITYNOPAUSE",
+        "percent": 1.8
+      },
+      {
+        "name": "CAS_CITYONEOFEACH",
+        "percent": 1.7
+      },
+      {
+        "name": "CAS_TOWERMEDNOSTONE",
+        "percent": 1.0
+      },
+      {
+        "name": "CAS_ALLCAMPAIGNHARD",
+        "percent": 1.0
+      },
+      {
+        "name": "CAS_KILLSIRENAS",
+        "percent": 0.6
+      },
+      {
+        "name": "CAS_UNITFALLDEPTHS",
+        "percent": 0.4
+      },
+      {
+        "name": "CAS_ALLSKIRMISH",
+        "percent": 0.4
+      },
+      {
+        "name": "CAS_ALLCAMPAIGNNIGHTMARE",
+        "percent": 0.4
+      },
+      {
+        "name": "CAS_GROUPDIVERSE",
+        "percent": 0.3
+      },
+      {
+        "name": "CAS_ALLSKIRMISHNIGHTMARE",
+        "percent": 0.2
+      }
+    ],
+    "news": [
+      {
+        "gid": "1829528821314207",
+        "title": "Save 40% on Cataclismo",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1829528821314207",
+        "author": "Patrick (HoodedHorse)",
+        "contents": "Defend your fortress in Cataclismo, now 40% off in the Hooded Horse April Sale. Cataclismo is a medieval fantasy siege defense game where you build fortifications, rally defenders, and fend off waves of terrifying creatures. Strategize your defenses, manage resources, and protect your kingdom from the encroaching darkness. Hooded Horse April Sale ",
+        "date": 1776025843,
+        "feed_name": "steam_community_announcements"
+      },
+      {
+        "gid": "1827626365755569",
+        "title": "Save 40% on Cataclismo",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1827626365755569",
+        "author": "Patrick (HoodedHorse)",
+        "contents": "Defend your fortress in Cataclismo, now 40% off in the Hooded Horse Spring Sale. Cataclismo is a medieval fantasy siege defense game where you build fortifications, rally defenders, and fend off waves of terrifying creatures. Strategize your defenses, manage resources, and protect your kingdom from the encroaching darkness. Hooded Horse Spring Sale ",
+        "date": 1773950426,
+        "feed_name": "steam_community_announcements"
+      },
+      {
+        "gid": "1826992588593970",
+        "title": "ReVamp - Announcing our new castle-defense roguelite!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1826992588593970",
+        "author": "DigitalMallen",
+        "contents": "Fellow Hogardians!We're proud to announce ReVamp, our new castle-defense roguelite where you shape your fortress room by room, command an army of monsters and step into battle yourself to protect your throne from relentless mortal invaders. ReVamp is being developed by a smaller, separate team within the studio, but sharing the same creativity and ambition as all our projects. Watch the reVeal trailer:Add ReVamp to your wishlist and join our Discord for upcoming opportunities to play early! We'r",
+        "date": 1773351381,
+        "feed_name": "steam_community_announcements"
+      },
+      {
+        "gid": "1825727806713570",
+        "title": "Save 40% on Cataclismo",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1825727806713570",
+        "author": "Matt (Hooded Horse)",
+        "contents": "Defend your fortress in Cataclismo, now 40% off in the Hooded Horse Publisher Sale. Cataclismo is a medieval fantasy siege defense game where you build fortifications, rally defenders, and fend off waves of terrifying creatures. Strategize your defenses, manage resources, and protect your kingdom from the encroaching darkness. Hooded Horse Publisher Sale ",
+        "date": 1772294461,
+        "feed_name": "steam_community_announcements"
+      },
+      {
+        "gid": "1821288646579535",
+        "title": "Save 40% on Cataclismo",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1821288646579535",
+        "author": "Matt (Hooded Horse)",
+        "contents": "Defend your fortress in Cataclismo, now 40% off in the Hooded Horse January Publisher Sale. Cataclismo is a medieval fantasy siege defense game where you build fortifications, rally defenders, and fend off waves of terrifying creatures. Strategize your defenses, manage resources, and protect your kingdom from the encroaching darkness. Hooded Horse January Publisher Sale ",
+        "date": 1767902403,
+        "feed_name": "steam_community_announcements"
+      }
+    ]
+  },
+  "steamdb": {
+    "source": "firecrawl",
+    "app_id": 1422440,
+    "charts": null,
+    "info": null
+  },
+  "snapshot": {
+    "name": "Cataclismo",
+    "current_players": 31,
+    "total_reviews": 200,
+    "review_score": "",
+    "price": {
+      "currency": "GBP",
+      "initial": 2499,
+      "final": 1499,
+      "discount_percent": 40,
+      "final_formatted": "£14.99"
+    }
+  }
+}

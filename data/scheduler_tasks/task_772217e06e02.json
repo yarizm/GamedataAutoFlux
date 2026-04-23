@@ -1,0 +1,125 @@
+{
+  "id": "772217e06e02",
+  "name": "测试a'f",
+  "description": "",
+  "status": "success",
+  "progress": 1.0,
+  "pipeline_name": "steam_basic",
+  "collector_name": "",
+  "targets": [
+    {
+      "name": "CS2",
+      "target_type": "game",
+      "params": {
+        "app_id": "730"
+      }
+    }
+  ],
+  "config": {},
+  "priority": 5,
+  "error": null,
+  "step_logs": [
+    {
+      "step_name": "collect:steam",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:11.011731",
+      "completed_at": null,
+      "message": "开始采集 (1 个目标)",
+      "error": null
+    },
+    {
+      "step_name": "collect:steam",
+      "status": "success",
+      "started_at": "2026-04-22T17:31:30.864302",
+      "completed_at": "2026-04-22T17:31:30.864303",
+      "message": "采集完成: 1/1 成功",
+      "error": null
+    },
+    {
+      "step_name": "progress_update",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.866253",
+      "completed_at": null,
+      "message": "采集完成: steam",
+      "error": null
+    },
+    {
+      "step_name": "process:cleaner",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.870774",
+      "completed_at": null,
+      "message": "处理 1 条数据",
+      "error": null
+    },
+    {
+      "step_name": "process:cleaner",
+      "status": "success",
+      "started_at": "2026-04-22T17:31:30.870987",
+      "completed_at": "2026-04-22T17:31:30.870988",
+      "message": "处理完成: 1/1 成功",
+      "error": null
+    },
+    {
+      "step_name": "progress_update",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.870999",
+      "completed_at": null,
+      "message": "处理完成: cleaner",
+      "error": null
+    },
+    {
+      "step_name": "storage:local",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.875190",
+      "completed_at": null,
+      "message": "存储 1 条记录",
+      "error": null
+    },
+    {
+      "step_name": "storage:local",
+      "status": "success",
+      "started_at": "2026-04-22T17:31:30.885564",
+      "completed_at": "2026-04-22T17:31:30.885565",
+      "message": "存储完成: 1 条记录",
+      "error": null
+    },
+    {
+      "step_name": "progress_update",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.886035",
+      "completed_at": null,
+      "message": "存储完成: local",
+      "error": null
+    },
+    {
+      "step_name": "progress_update",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.889959",
+      "completed_at": null,
+      "message": "Pipeline 执行完成",
+      "error": null
+    },
+    {
+      "step_name": "progress_update",
+      "status": "running",
+      "started_at": "2026-04-22T17:31:30.893526",
+      "completed_at": null,
+      "message": "Pipeline 执行完成",
+      "error": null
+    }
+  ],
+  "retry_count": 0,
+  "max_retries": 3,
+  "cron_expr": null,
+  "created_at": "2026-04-22T17:31:11.000028",
+  "started_at": "2026-04-22T17:31:11.005790",
+  "completed_at": "2026-04-22T17:31:30.893646",
+  "result_summary": {
+    "success": true,
+    "storage_count": 1,
+    "task_id": "772217e06e02",
+    "pipeline_name": "steam_basic",
+    "errors": [],
+    "duration_seconds": 19.878624
+  }
+}
