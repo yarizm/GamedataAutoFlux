@@ -4,6 +4,7 @@ let activeTab = "dashboard";
 let autoRefreshHandle = null;
 let pipelineTemplates = [];
 let availableComponents = {};
+let availablePipelines = {};
 
 async function api(path, options = {}) {
     const resp = await fetch(`/api${path}`, {
@@ -167,11 +168,73 @@ function renderTaskActions(task) {
 }
 
 function showCreateTaskModal() {
-    loadPipelineSelect("task-pipeline");
+    loadPipelineSelect("task-pipeline").then(() => updateTaskTargetFields());
     openModal("modal-create-task");
 }
 
-function buildTaskTargetsFromForm(targetName, appId, skipSteamdb, steamdbTimeSlice) {
+function getCollectorForPipeline(pipelineName) {
+    const pipeline = availablePipelines[pipelineName];
+    const collectorStep = pipeline?.steps?.find((step) => step.type === "collector");
+    return collectorStep?.name || "";
+}
+
+function updateTaskTargetFields() {
+    const pipelineName = document.getElementById("task-pipeline")?.value || "";
+    const collector = getCollectorForPipeline(pipelineName);
+
+    const steamFields = document.getElementById("task-steam-fields");
+    const taptapFields = document.getElementById("task-taptap-fields");
+    const helper = document.getElementById("task-target-helper");
+
+    if (steamFields) {
+        steamFields.style.display = collector === "steam" ? "block" : "none";
+    }
+    if (taptapFields) {
+        taptapFields.style.display = collector === "taptap" ? "block" : "none";
+    }
+    if (helper) {
+        helper.textContent = collector === "taptap"
+            ? "TapTap v1 expects a public mainland page URL or app ID."
+            : "Steam tasks use target name + app id, or advanced JSON targets.";
+    }
+}
+
+function buildTaskTargetsFromForm(formState) {
+    const {
+        collector,
+        targetName,
+        appId,
+        skipSteamdb,
+        steamdbTimeSlice,
+        taptapUrl,
+        taptapReviewsPages,
+        taptapReviewsLimit,
+    } = formState;
+
+    if (collector === "taptap") {
+        if (!targetName && !taptapUrl && !appId) {
+            return [];
+        }
+
+        const params = {
+            region: "cn",
+            metrics: ["details", "reviews", "updates"],
+            reviews_pages: Number(taptapReviewsPages || 1),
+            reviews_limit: Number(taptapReviewsLimit || 20),
+            use_playwright: "auto",
+            ...(taptapUrl ? { page_url: taptapUrl } : {}),
+            ...(appId ? { app_id: appId } : {}),
+        };
+
+        return [
+            {
+                name: targetName || appId || taptapUrl,
+                target_type: "game",
+                params,
+            },
+        ];
+    }
+
     if (!targetName && !appId) {
         return [];
     }
@@ -197,16 +260,30 @@ async function createTask() {
     const targetsRaw = document.getElementById("task-targets")?.value.trim() || "";
     const description = document.getElementById("task-desc")?.value.trim() || "";
     const targetName = document.getElementById("task-target-name")?.value.trim() || "";
-    const appId = document.getElementById("task-app-id")?.value.trim() || "";
+    const steamAppId = document.getElementById("task-app-id")?.value.trim() || "";
+    const taptapAppId = document.getElementById("task-taptap-app-id")?.value.trim() || "";
     const skipSteamdb = document.getElementById("task-skip-steamdb")?.checked || false;
     const steamdbTimeSlice = document.getElementById("task-steamdb-time-slice")?.value || "monthly_peak_1y";
+    const taptapUrl = document.getElementById("task-taptap-url")?.value.trim() || "";
+    const taptapReviewsPages = document.getElementById("task-taptap-reviews-pages")?.value || "1";
+    const taptapReviewsLimit = document.getElementById("task-taptap-reviews-limit")?.value || "20";
+    const collector = getCollectorForPipeline(pipelineName);
 
     if (!name || !pipelineName) {
         toast("Task name and pipeline are required", "error");
         return;
     }
 
-    let targets = buildTaskTargetsFromForm(targetName, appId, skipSteamdb, steamdbTimeSlice);
+    let targets = buildTaskTargetsFromForm({
+        collector,
+        targetName,
+        appId: collector === "taptap" ? taptapAppId : steamAppId,
+        skipSteamdb,
+        steamdbTimeSlice,
+        taptapUrl,
+        taptapReviewsPages,
+        taptapReviewsLimit,
+    });
     if (targetsRaw) {
         try {
             targets = JSON.parse(targetsRaw);
@@ -547,6 +624,7 @@ async function deletePipeline(name) {
 async function loadPipelineSelect(selectId) {
     try {
         const pipelines = await api("/pipelines");
+        availablePipelines = pipelines;
         const select = document.getElementById(selectId);
         if (!select) return;
 
@@ -557,6 +635,9 @@ async function loadPipelineSelect(selectId) {
                 "beforeend",
                 `<option value="${name}" ${name === current ? "selected" : ""}>${name}</option>`
             );
+        }
+        if (selectId === "task-pipeline") {
+            updateTaskTargetFields();
         }
     } catch (err) {
         console.error("Load pipeline select failed:", err);
@@ -815,5 +896,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindModalOverlayClose();
     refreshDashboard();
     loadTasks();
+    loadPipelineTemplates();
+    loadComponents();
     restartAutoRefresh();
 });
