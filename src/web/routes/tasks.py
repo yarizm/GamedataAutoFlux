@@ -4,9 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, HTTPException
+from typing import Annotated, Any
+from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
 from src.core.task import Task, TaskTarget, TaskStatus
@@ -64,7 +63,9 @@ class TaskDetailResponse(TaskResponse):
 # ==================== 路由 ====================
 
 @router.get("/tasks", response_model=list[TaskResponse])
-async def list_tasks(status: str | None = None):
+async def list_tasks(
+    status: Annotated[str | None, Query(description="按状态过滤任务")] = None
+):
     """获取所有任务列表"""
     from src.web.app import scheduler
 
@@ -82,7 +83,9 @@ async def list_tasks(status: str | None = None):
 
 
 @router.post("/tasks", response_model=TaskResponse)
-async def create_task(req: CreateTaskRequest):
+async def create_task(
+    req: Annotated[CreateTaskRequest, Body(description="任务创建信息")]
+):
     """创建并提交新任务"""
     from src.web.app import scheduler
 
@@ -113,7 +116,9 @@ async def create_task(req: CreateTaskRequest):
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
-async def get_task(task_id: str):
+async def get_task(
+    task_id: Annotated[str, Path(description="任务 ID")]
+):
     """获取单个任务详情"""
     from src.web.app import scheduler
 
@@ -125,7 +130,9 @@ async def get_task(task_id: str):
 
 
 @router.get("/tasks/{task_id}/logs")
-async def get_task_logs(task_id: str):
+async def get_task_logs(
+    task_id: Annotated[str, Path(description="任务 ID")]
+):
     """获取任务步骤日志"""
     from src.web.app import scheduler
 
@@ -140,7 +147,9 @@ async def get_task_logs(task_id: str):
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str):
+async def cancel_task(
+    task_id: Annotated[str, Path(description="任务 ID")]
+):
     """取消任务"""
     from src.web.app import scheduler
 
@@ -152,7 +161,9 @@ async def cancel_task(task_id: str):
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(
+    task_id: Annotated[str, Path(description="任务 ID")]
+):
     """鍒犻櫎浠诲姟"""
     from src.web.app import scheduler
 

@@ -4,9 +4,8 @@ Pipeline configuration API routes.
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, HTTPException
+from typing import Annotated, Any
+from fastapi import APIRouter, HTTPException, Path, Body
 from pydantic import BaseModel, Field
 
 from src.core.pipeline import Pipeline
@@ -140,7 +139,9 @@ async def list_pipelines():
 
 
 @router.post("/pipelines")
-async def create_pipeline(req: CreatePipelineRequest):
+async def create_pipeline(
+    req: Annotated[CreatePipelineRequest, Body(description="Pipeline configuration")]
+):
     from src.web.app import scheduler
 
     pipeline = Pipeline(req.name)
@@ -164,7 +165,9 @@ async def create_pipeline(req: CreatePipelineRequest):
 
 
 @router.delete("/pipelines/{name}")
-async def delete_pipeline(name: str):
+async def delete_pipeline(
+    name: Annotated[str, Path(description="Pipeline name")]
+):
     from src.web.app import scheduler
 
     if scheduler.get_pipeline(name) is None:
@@ -182,7 +185,9 @@ async def list_cron_jobs():
 
 
 @router.post("/cron-jobs")
-async def create_cron_job(req: CronJobRequest):
+async def create_cron_job(
+    req: Annotated[CronJobRequest, Body(description="Cron job setup")]
+):
     from src.web.app import scheduler
 
     try:
@@ -198,7 +203,9 @@ async def create_cron_job(req: CronJobRequest):
 
 
 @router.delete("/cron-jobs/{name}")
-async def delete_cron_job(name: str):
+async def delete_cron_job(
+    name: Annotated[str, Path(description="Cron job ID/Name")]
+):
     from src.web.app import scheduler
 
     if not scheduler.remove_cron_job(name):

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-from pathlib import Path
+from typing import Annotated, Any
+from pathlib import Path as FilePath
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, Path, Body
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -50,7 +50,9 @@ class ReportSummaryResponse(BaseModel):
 # ==================== 路由 ====================
 
 @router.post("/reports/generate", response_model=ReportResponse)
-async def generate_report(req: GenerateReportRequest):
+async def generate_report(
+    req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]
+):
     """生成分析报告并写入历史。"""
     from src.web.app import report_generator
 
@@ -64,7 +66,9 @@ async def generate_report(req: GenerateReportRequest):
 
 
 @router.get("/reports", response_model=list[ReportSummaryResponse])
-async def list_reports(limit: int = 20):
+async def list_reports(
+    limit: Annotated[int, Query(description="返回数量限制")] = 20
+):
     """获取历史报告列表。"""
     from src.web.app import report_generator
 
@@ -73,7 +77,9 @@ async def list_reports(limit: int = 20):
 
 
 @router.get("/reports/{report_id}", response_model=ReportResponse)
-async def get_report(report_id: str):
+async def get_report(
+    report_id: Annotated[str, Path(description="报告 ID")]
+):
     """获取单个历史报告。"""
     from src.web.app import report_generator
 
@@ -84,7 +90,9 @@ async def get_report(report_id: str):
 
 
 @router.post("/reports/generate-excel", response_model=ReportResponse)
-async def generate_excel_report(req: GenerateReportRequest):
+async def generate_excel_report(
+    req: Annotated[GenerateReportRequest, Body(description="Excel 报告生成配置")]
+):
     """生成 Excel 格式的分析报告。"""
     from src.web.app import report_generator
 
@@ -98,7 +106,9 @@ async def generate_excel_report(req: GenerateReportRequest):
 
 
 @router.get("/reports/{report_id}/download")
-async def download_report(report_id: str):
+async def download_report(
+    report_id: Annotated[str, Path(description="报告 ID")]
+):
     """下载报告的 Excel 文件。"""
     from src.web.app import report_generator
 
