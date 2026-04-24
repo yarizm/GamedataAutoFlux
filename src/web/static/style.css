@@ -124,11 +124,20 @@ body {
     background: var(--accent-glow);
 }
 
-/* === Container === */
+/* === Container & Tabs === */
 .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+.tab-content.active {
+    display: block;
 }
 
 /* === Section Header === */

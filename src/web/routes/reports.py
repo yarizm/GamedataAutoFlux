@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.reporting.generator import GeneratedReport, ReportSummary
@@ -79,6 +81,45 @@ async def get_report(report_id: str):
     if report is None:
         raise HTTPException(404, f"报告不存在: {report_id}")
     return _to_report_response(report)
+
+
+@router.post("/reports/generate-excel", response_model=ReportResponse)
+async def generate_excel_report(req: GenerateReportRequest):
+    """生成 Excel 格式的分析报告。"""
+    from src.web.app import report_generator
+
+    report = await report_generator.generate_excel(
+        prompt=req.prompt,
+        data_source=req.data_source,
+        template=req.template,
+        params=req.params,
+    )
+    return _to_report_response(report)
+
+
+@router.get("/reports/{report_id}/download")
+async def download_report(report_id: str):
+    """下载报告的 Excel 文件。"""
+    from src.web.app import report_generator
+
+    report = await report_generator.get_report(report_id)
+    if report is None:
+        raise HTTPException(404, f"报告不存在: {report_id}")
+
+    excel_path = report.excel_path if hasattr(report, "excel_path") else None
+    if not excel_path:
+        # 尝试从 metadata 中获取
+        excel_path = report.metadata.get("excel_path") if isinstance(report.metadata, dict) else None
+
+    if not excel_path or not Path(excel_path).exists():
+        raise HTTPException(404, f"该报告没有对应的 Excel 文件: {report_id}")
+
+    filename = f"report_{report_id}.xlsx"
+    return FileResponse(
+        path=excel_path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 def _to_report_response(report: GeneratedReport) -> ReportResponse:

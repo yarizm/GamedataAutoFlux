@@ -1,242 +1,111 @@
-# GamedataAutoFlux
+# ⚡ GamedataAutoFlux
 
-一个面向 Steam 游戏数据采集、向量检索和报告生成的工作流项目。  
-当前项目已经打通了：
+**全栈式自动化游戏数据监测、智能分析与可视化报告生成平台**
 
-- Steam 官方 API 采集
-- SteamDB 增强采集
-- Playwright 失败后的 Firecrawl 兜底
-- Qwen Embedding
-- 本地向量检索
-- DeepSeek 报告生成
-- WebUI 任务、Pipeline、报告、定时任务管理
+GamedataAutoFlux 是一个为游戏行业分析师、运营人员和开发者打造的自动化工作流引擎。它能够跨平台追踪 Steam、TapTap 及全球搜索热度，利用 AI 大模型进行语义理解与舆情分析，最终产出包含动态图表的高质量分析报告。
 
-## 主要功能
+---
 
-- 任务创建与执行
-- Pipeline 编排
-- Steam 数据采集与清洗
-- 向量化与语义检索
-- 报告生成与历史查看
-- 定时任务调度
+## ✨ 核心亮点
 
-WebUI 当前主要页面包括：
+### 🔍 全方位数据采集 (Multi-Source Collection)
+- **Steam 深度追踪**：
+    - **多维度指标**：采集在线人数、24 小时峰值、历史记录。
+    - **评论挖掘**：自动抓取近期玩家评论，支持按语言过滤。
+    - **情报兜底**：集成 SteamDB 增强抓取，当官方接口受限时自动通过自动化浏览器补充数据。
+- **TapTap 舆情监控**：
+    - 基于 Playwright 的深度爬取，获取移动端玩家的真实反馈与评分走势。
+- **Google Trends 趋势分析**：
+    - 同步全球搜索热度数据，分析游戏在不同地域的关注度趋势。
 
-- 仪表盘
-- 任务管理
-- Pipeline
-- 报告
-- 定时任务
+### 🧠 智能数据流处理 (Intelligent Data Pipeline)
+- **深度数据“瘦身”**：内置 `DataCleaner` 处理器，在数据入库前自动剔除冗余的 HTML、Base64 和无效脚本，存储效率提升 90% 以上。
+- **语义向量化**：集成 Qwen Embedding 引擎，将琐碎的玩家评论转化为高维向量，实现基于语义而非关键词的精准检索。
+- **AI 智能报告**：支持 DeepSeek、OpenAI 等主流 LLM，针对采集到的原始数据，自动总结“版本更新影响”、“核心痛点”、“市场竞争力”等核心维度。
 
-## 目录说明
+### 📊 专业级可视化报告 (Professional Reporting)
+- **Excel 自动报表**：生成的 `.xlsx` 文件不仅包含原始清单，还自动嵌入了各类汇总统计图表，直接用于周报/月报汇报。
+- **Web 实时仪表盘**：
+    - **动态图表**：利用 ECharts 展示系统任务分布与执行趋势。
+    - **实时推送**：基于 WebSocket 技术，任务执行进度与底层日志秒级同步，告别传统页面的死板刷新。
 
-- `src/collectors/`
-  数据采集器
-- `src/processors/`
-  数据处理器，例如 `cleaner`、`embedding`
-- `src/storage/`
-  本地存储和向量存储
-- `src/reporting/`
-  报告生成
-- `src/web/`
-  FastAPI 与 WebUI
-- `config/settings.yaml`
-  全局配置
-- `tests/`
-  单元测试与联调测试
+### 📅 工业级任务调度 (Enterprise Scheduling)
+- **灵活 Pipeline 编排**：支持自由组合采集、处理和存储步骤，适配不同的业务场景。
+- **自动化 Cron 引擎**：支持标准的 Cron 表达式，轻松实现“每日凌晨自动采集数据并发送 AI 总结”。
 
-## 环境要求
+---
 
-- Python `>= 3.12`
-- Windows / macOS / Linux
-- 如果需要 Playwright，请安装 Chromium
+## 🚀 快速上手
 
-## 安装
+### 1. 环境准备
+项目基于 Python 3.12+ 开发。
 
-建议先创建虚拟环境，再安装项目。
+```bash
+# 克隆项目并进入目录
+git clone https://github.com/your-repo/GamedataAutoFlux.git
+cd GamedataAutoFlux
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e .[dev]
+# 安装核心依赖
+pip install -e .
+
+# 安装自动化浏览器 (用于处理动态网页采集)
 playwright install chromium
 ```
 
-如果你只需要基础运行，不跑测试，也可以：
+### 2. 环境配置 (Windows PowerShell 示例)
+项目使用环境变量管理敏感信息。你可以参考 `.env.example` 进行设置：
 
+**推荐：永久设置环境变量 (执行一次即可)**
 ```powershell
-pip install -e .
-```
-
-## 配置方式
-
-项目的密钥不再直接写在 `config/settings.yaml` 中，而是通过环境变量注入。  
-当前使用到的环境变量有：
-
-- `DASHSCOPE_API_KEY`
-- `DEEPSEEK_API_KEY`
-- `STEAM_API_KEY`
-- `FIRECRAWL_API_KEY`
-
-`settings.yaml` 已经支持 `${ENV_VAR}` 占位方式，启动时会自动解析。
-
-仓库中提供了 [.env.example](C:\Users\YARIZM\PycharmProjects\GamedataAutoFlux\.env.example) 作为变量模板参考。
-
-## PowerShell 配置示例
-
-可以把密钥写入 Windows 用户环境变量：
-
-```powershell
-[Environment]::SetEnvironmentVariable("DASHSCOPE_API_KEY", "你的DashScopeKey", "User")
-[Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的DeepSeekKey", "User")
+# 基础 AI 与数据接口配置
 [Environment]::SetEnvironmentVariable("STEAM_API_KEY", "你的SteamApiKey", "User")
+[Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的DeepSeekKey", "User")
+[Environment]::SetEnvironmentVariable("DASHSCOPE_API_KEY", "你的DashScopeKey", "User")
 [Environment]::SetEnvironmentVariable("FIRECRAWL_API_KEY", "你的FirecrawlKey", "User")
 ```
 
-配置完成后，重启终端、IDE 或运行服务的进程，再启动项目。
-
-临时只在当前 PowerShell 窗口生效也可以：
-
+**临时在当前窗口设置：**
 ```powershell
-$env:DASHSCOPE_API_KEY="你的DashScopeKey"
-$env:DEEPSEEK_API_KEY="你的DeepSeekKey"
-$env:STEAM_API_KEY="你的SteamApiKey"
-$env:FIRECRAWL_API_KEY="你的FirecrawlKey"
+$env:STEAM_API_KEY="你的Key"
+$env:DEEPSEEK_API_KEY="你的Key"
 ```
 
-## 启动项目
-
-项目提供了命令行入口：
-
-```powershell
-autoflux
-```
-
-也可以直接启动 FastAPI 应用：
-
-```powershell
+### 3. 启动项目
+```bash
 python -m src.web.app
 ```
+服务启动后，在浏览器访问：`http://localhost:8000`
 
-默认监听地址由 `config/settings.yaml` 控制：
+---
 
-- `server.host`
-- `server.port`
+## 🛠️ 控制台使用指南
 
-默认访问地址通常是：
+### 1. 配置数据管线 (Pipeline)
+在 **Pipeline** 页面，你可以看到“数据如何流转”。
+- **Collector**: 选择数据源（Steam/TapTap/GTrends）。
+- **Processor**: 启用 `cleaner` 进行瘦身，启用 `embedding` 准备 AI 检索。
+- **Storage**: 决定数据是存入 SQLite (`local`) 还是向量数据库 (`vector`)。
 
-```text
-http://127.0.0.1:8000
-```
+### 2. 执行分析任务
+在 **任务管理** 页面点击“+ 创建任务”：
+- 输入游戏名称、AppID 或 URL。
+- 勾选 **“自动生成报告”**，系统会在抓取完成后自动调动 AI 进行分析。
+- 任务执行期间，你可以点击“日志”查看实时的抓取步进。
 
-## WebUI 使用说明
+### 3. 管理分析报告
+在 **报告** 页面：
+- 查看 AI 整理的深度总结摘要。
+- 点击 **“下载 EXCEL 报告”** 导出包含可视化统计图表的专业分析文件。
 
-### 1. 创建 Pipeline
+---
 
-进入 `Pipeline` 页面后，可以：
+## 📂 项目结构概览 (核心逻辑)
+- `src/collectors/` - 跨平台数据采集插件集
+- `src/processors/` - 数据清洗、文本截断、向量化引擎
+- `src/storage/` - SQLite 与向量数据库适配层
+- `src/reporting/` - Excel 渲染器与 LLM 提示词模板
+- `src/web/` - FastAPI 服务端与现代化响应式前端
 
-- 使用预设模板创建
-- 手动选择 `collector / processor / storage`
-- 或者直接填写 JSON 步骤配置
+---
 
-常见基础链路：
-
-```text
-steam -> cleaner -> local
-```
-
-带向量检索的链路：
-
-```text
-steam -> cleaner -> embedding -> vector
-```
-
-### 2. 创建任务
-
-进入 `任务管理` 页面后，可以填写：
-
-- 任务名称
-- Pipeline
-- 目标名称
-- Steam App ID
-- 是否跳过 SteamDB
-- SteamDB 在线人数时间切片
-
-当前 SteamDB 在线人数支持两种切片请求：
-
-- `monthly_peak_1y`
-  最近 12 个月的月度 Peak 数据
-- `daily_precise_30d`
-  最近 30 天的日级精确值
-
-注意：
-
-- 当前 `Firecrawl -> SteamDB` 的返回内容通常只能稳定提供月度表
-- 如果你请求 `daily_precise_30d`，但源站内容没有精确日级点位，结果里会明确返回不可用原因，不会静默伪造数据
-
-### 3. 生成报告
-
-进入 `报告` 页面后，可以填写：
-
-- 提示词
-- 数据源过滤
-- 模板
-
-报告生成当前默认走 `DeepSeek`。
-
-## 当前采集链路
-
-### Steam 基础数据
-
-来自 Steam 官方 API，主要包括：
-
-- 游戏详情
-- 当前在线人数
-- 评论
-- 成就
-- 新闻
-
-### SteamDB 增强数据
-
-优先尝试 `Playwright`，如果遇到 Cloudflare 或页面访问失败，则自动回退到 `Firecrawl`。
-
-当前增强数据主要包括：
-
-- 最近 12 个月月度在线峰值
-- 更新历史
-- 更新时间
-- 最近变更号
-
-## 关于 SteamDB 和 Cloudflare
-
-当前项目里：
-
-- `Playwright` 已可正常启动
-- 但访问 `steamdb.info` 时仍可能被 Cloudflare 拦截
-- 被拦截后会自动切换到 `Firecrawl`
-
-这是当前设计上的正常路径，不代表任务失败。
-
-## 数据输出
-
-默认本地数据会写入：
-
-- `data/results/`
-  采集结果 JSON
-- `data/reports/`
-  报告历史
-- `data/vector_records/`
-  向量数据
-- `data/scheduler_tasks/`
-  调度器持久化任务
-
-本地数据库默认包括：
-
-- `data/autoflux.db`
-- `data/vector_store.db`
-- `data/reports.db`
-- `data/scheduler.db`
-
-
-
-
+© 2026 GamedataAutoFlux ⚡

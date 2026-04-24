@@ -75,7 +75,7 @@ taptap:
   playwright_enabled: true
   headless: true
   playwright_timeout: 30000
-  firecrawl_enabled: true
+  firecrawl_enabled: false
   reviews_limit_default: 20
   reviews_pages_default: 1
   save_raw_snapshots: true
@@ -83,6 +83,14 @@ taptap:
 firecrawl:
   api_key: "${FIRECRAWL_API_KEY}"
   timeout: 30
+
+gtrends:
+  geo: "" # Default to global
+  hl: "zh-CN" # Language
+  timeframe: "today 12-m" # Default time slice
+  proxies: [] # Provide a list of proxies to avoid 429 errors, e.g. ["https://34.203.233.13:80"]
+  retries: 2
+  backoff_factor: 0.5
 
 scheduler:
   max_concurrent_tasks: 5

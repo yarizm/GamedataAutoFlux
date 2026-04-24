@@ -57,8 +57,10 @@ UPDATES_HEADINGS = {
     "Whats new",
     "What鈥檚 new",
     "\u516c\u544a",
+    "\u66f4\u65b0",
     "\u66f4\u65b0\u5185\u5bb9",
     "\u66f4\u65b0\u8bb0\u5f55",
+    "\u66f4\u65b0\u65e5\u5fd7",
 }
 ABOUT_LABELS = {
     "Provider": "provider",
@@ -77,12 +79,15 @@ ABOUT_LABELS = {
     "Network Connection": "network_connection",
     "Platform": "platforms_label",
     "\u5382\u5546": "provider",
+    "\u4f9b\u5e94\u5546": "provider",
     "\u5f00\u53d1\u5546": "developer",
     "\u53d1\u884c\u5546": "publisher",
     "\u5173\u6ce8": "followers",
     "\u4e0b\u8f7d": "downloads",
     "\u4e0a\u7ebf\u65f6\u95f4": "release_date",
+    "\u4e0a\u7ebf\u65e5\u671f": "release_date",
     "\u66f4\u65b0\u65f6\u95f4": "last_updated_at",
+    "\u5f53\u524d\u7248\u672c": "current_version",
     "\u6700\u65b0\u7248\u672c": "current_version",
     "\u7248\u672c": "current_version",
     "\u5927\u5c0f": "size",
@@ -100,8 +105,10 @@ INLINE_LABEL_PATTERNS = {
     "release_date": re.compile(r"^Release date\s+(.+)$", re.IGNORECASE),
     "content_rating": re.compile(r"^Content Rating\s+(.+)$", re.IGNORECASE),
     "provider_cn": re.compile(r"^(?:\u5382\u5546|Provider)[\s:]+(.+)$", re.IGNORECASE),
+    "supplier_cn": re.compile(r"^(?:\u4f9b\u5e94\u5546)[\s:]+(.+)$", re.IGNORECASE),
     "developer_cn": re.compile(r"^(?:\u5f00\u53d1\u5546|Developer)[\s:]+(.+)$", re.IGNORECASE),
     "publisher_cn": re.compile(r"^(?:\u53d1\u884c\u5546|Publisher)[\s:]+(.+)$", re.IGNORECASE),
+    "current_version_current_cn": re.compile(r"^(?:\u5f53\u524d\u7248\u672c)[\s:]+(.+)$", re.IGNORECASE),
     "current_version_cn": re.compile(r"^(?:\u6700\u65b0\u7248\u672c|\u7248\u672c|Current Version)[\s:]+(.+)$", re.IGNORECASE),
     "size_cn": re.compile(r"^(?:\u5927\u5c0f|Size)[\s:]+(.+)$", re.IGNORECASE),
     "last_updated_at_cn": re.compile(r"^(?:\u66f4\u65b0\u65f6\u95f4|Last Updated on)[\s:]+(.+)$", re.IGNORECASE),
@@ -110,8 +117,10 @@ INLINE_LABEL_PATTERNS = {
 }
 INLINE_FIELD_ALIASES = {
     "provider_cn": "provider",
+    "supplier_cn": "provider",
     "developer_cn": "developer",
     "publisher_cn": "publisher",
+    "current_version_current_cn": "current_version",
     "current_version_cn": "current_version",
     "size_cn": "size",
     "last_updated_at_cn": "last_updated_at",
@@ -126,13 +135,18 @@ def parse_taptap_page(
     page_url: str,
     source_format: str = "html",
     review_limit: int = 20,
+    include_game: bool = True,
+    include_reviews: bool = True,
+    include_updates: bool = True,
 ) -> dict[str, Any]:
     text, lines, links = _extract_content(markup, source_format=source_format, base_url=page_url)
     title_hint = _extract_title_hint(markup, source_format=source_format)
 
-    game = _parse_game(lines, text, links, page_url, title_hint=title_hint)
-    reviews_summary, review_items = _parse_reviews(lines, review_limit=review_limit)
-    updates = _parse_updates(lines)
+    game = _parse_game(lines, text, links, page_url, title_hint=title_hint) if include_game else {}
+    reviews_summary, review_items = (
+        _parse_reviews(lines, review_limit=review_limit) if include_reviews else ({"has_next_page": False}, [])
+    )
+    updates = _parse_updates(lines) if include_updates else []
     sections = [line for line in lines if line in REVIEWS_HEADINGS | UPDATES_HEADINGS | ABOUT_HEADINGS]
 
     return {
@@ -326,6 +340,20 @@ def _parse_game(
         else:
             game[field] = value
 
+    inline_pairs = _extract_labeled_pairs(lines)
+    for label, field in ABOUT_LABELS.items():
+        if field in game and game[field] not in (None, "", [], {}):
+            continue
+        value = inline_pairs.get(label)
+        if value in (None, "") or _looks_like_noise(value):
+            continue
+        if field in {"followers", "downloads"}:
+            game[field] = _parse_compact_int(value)
+        elif field == "languages":
+            game[field] = [item.strip() for item in re.split(r",| and |\u3001", value) if item.strip()]
+        else:
+            game[field] = value
+
     inline_values = _extract_inline_values(lines)
     for field, value in inline_values.items():
         if field in {"followers", "downloads"}:
@@ -333,7 +361,7 @@ def _parse_game(
         else:
             game[field] = game.get(field) or value
 
-    provider = game.get("provider") or _extract_provider(lines)
+    provider = game.get("provider") or _extract_provider(lines, page_url=page_url)
     if provider:
         game["provider"] = provider
         game["developer"] = game.get("developer") or provider
@@ -399,14 +427,13 @@ def _extract_genres(lines: list[str]) -> list[str]:
     return []
 
 
-def _extract_provider(lines: list[str]) -> str | None:
+def _extract_provider(lines: list[str], *, page_url: str = "") -> str | None:
     inline_values = _extract_inline_values(lines)
     provider = inline_values.get("provider")
     if provider and not _looks_like_noise(provider):
         return provider
 
-    has_cn_domain = any("taptap.cn" in line for line in lines)
-    if has_cn_domain or any(_contains_cjk(line) for line in lines[:20]):
+    if "taptap.cn" in page_url or any(_contains_cjk(line) for line in lines):
         return None
 
     title = _extract_title(lines, "")
@@ -456,7 +483,7 @@ def _extract_platforms(text: str, links: list[dict[str, str]]) -> list[str]:
 
 
 def _extract_about(lines: list[str]) -> dict[str, str]:
-    about_index = _find_line(lines, *ABOUT_HEADINGS)
+    about_index = _find_line_ordered(lines, ["About the Game", "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f", "\u6e38\u620f\u4ecb\u7ecd"])
     if about_index is None:
         return {}
 
@@ -483,7 +510,7 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
     }
     items: list[dict[str, Any]] = []
 
-    index = _find_line(lines, *REVIEWS_HEADINGS)
+    index = _find_line_ordered(lines, ["Ratings & Reviews", "\u8bc4\u5206\u4e0e\u8bc4\u4ef7", "\u8bc4\u5206\u53ca\u8bc4\u4ef7", "\u8bc4\u4ef7"])
     if index is None:
         return summary, items
 
@@ -496,9 +523,15 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
         if ratings_match:
             summary["ratings_count"] = _parse_compact_int(ratings_match.group(1))
             continue
-        ratings_cn_match = re.fullmatch(r"(.+?)(?:\u4eba\u8bc4\u4ef7|\u4eba\u8bc4\u5206)", line)
+        ratings_cn_match = re.fullmatch(r"(.+?)(?:\u4eba\u8bc4\u4ef7|\u4eba\u8bc4\u5206|\u4e2a\u8bc4\u4ef7|\u4e2a\u8bc4\u5206)", line)
         if ratings_cn_match:
             summary["ratings_count"] = _parse_compact_int(ratings_cn_match.group(1))
+            continue
+        score_cn_match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)", line)
+        if score_cn_match and summary["score"] is None:
+            score_value = float(score_cn_match.group(1))
+            if 0 <= score_value <= 10:
+                summary["score"] = score_value
 
     stop_index = len(lines)
     for marker in UPDATES_HEADINGS | ABOUT_HEADINGS:
@@ -547,8 +580,40 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
 def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen: set[tuple[str | None, str]] = set()
+    stop_lines = {
+        "View",
+        "View update history",
+        "Details",
+        "Official Website",
+        "Download",
+        "Download App",
+        "App Store Download",
+        "Android APK Download",
+        "Download PC Version",
+        "TapTap Mobile App",
+        "TapTap PC Version",
+        "Privacy Policy",
+        "Required Permissions",
+        "\u67e5\u770b",
+        "\u67e5\u770b\u66f4\u65b0\u5386\u53f2",
+        "\u8be6\u7ec6\u4fe1\u606f",
+        "\u5b98\u7f51",
+        "\u4e0b\u8f7d",
+        "\u4e0b\u8f7dApp",
+        "\u4e0b\u8f7d\u624b\u673a APP",
+        "\u8bba\u575b",
+        "\u6d3b\u52a8",
+        "\u9886\u793c\u5305",
+        "App Store \u4e0b\u8f7d",
+        "Android APK \u4e0b\u8f7d",
+        "\u4e0b\u8f7d PC \u7248",
+        "TapTap \u624b\u673a APP",
+        "TapTap PC \u7248",
+        "\u9690\u79c1\u653f\u7b56",
+        "\u6240\u9700\u6743\u9650",
+    }
 
-    for heading in UPDATES_HEADINGS:
+    for heading in ("Announcements", "What's new", "Whats new", "What鈥檚 new", "\u516c\u544a", "\u66f4\u65b0\u5185\u5bb9", "\u66f4\u65b0\u8bb0\u5f55", "\u66f4\u65b0\u65e5\u5fd7"):
         index = _find_line(lines, heading)
         if index is None:
             continue
@@ -556,7 +621,7 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
         i = index + 1
         while i < len(lines):
             line = lines[i]
-            if line in ABOUT_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+            if line in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
                 break
 
             published_at: str | None = None
@@ -567,7 +632,9 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
             summary_parts: list[str] = []
             while i < len(lines):
                 next_line = lines[i]
-                if next_line in ABOUT_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+                if next_line in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+                    break
+                if next_line in stop_lines or next_line in ABOUT_LABELS:
                     break
                 if published_at and DATE_RE.match(next_line):
                     break
@@ -575,7 +642,7 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
                 i += 1
 
             summary = " ".join(summary_parts).strip()
-            if not summary:
+            if not summary or _looks_like_update_noise(summary):
                 if published_at is None:
                     i += 1
                 continue
@@ -591,12 +658,99 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
                     "summary": summary,
                     "platforms": _extract_platform_mentions(summary),
                     "kind": _classify_update_kind(summary),
+                    "event_type": _classify_event_type(summary),
+                    "version": _extract_update_version(summary),
+                    "importance": _infer_update_importance(summary),
                 }
             )
             if len(items) >= 20:
                 break
 
+    if not items:
+        update_index = _find_line(lines, "\u66f4\u65b0")
+        if update_index is not None:
+            i = update_index + 1
+            summary_parts: list[str] = []
+            published_at: str | None = None
+            while i < len(lines):
+                next_line = lines[i]
+                if next_line in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+                    break
+                if next_line in stop_lines or next_line in ABOUT_LABELS:
+                    break
+                if DATE_RE.match(next_line):
+                    if published_at is None:
+                        published_at = next_line
+                        i += 1
+                        continue
+                    break
+                if not summary_parts and re.fullmatch(r"\d+(?:\.\d+)+(?:\s*\(\d+\))?", next_line):
+                    i += 1
+                    continue
+                summary_parts.append(next_line)
+                i += 1
+            summary = " ".join(summary_parts).strip()
+            if summary and not _looks_like_update_noise(summary):
+                items.append(
+                    {
+                        "title": _guess_update_title(summary),
+                        "published_at": published_at,
+                        "summary": summary,
+                        "platforms": _extract_platform_mentions(summary),
+                        "kind": _classify_update_kind(summary),
+                        "event_type": _classify_event_type(summary),
+                        "version": _extract_update_version(summary),
+                        "importance": _infer_update_importance(summary),
+                    }
+                )
+
     return items
+
+
+def _looks_like_update_noise(summary: str) -> bool:
+    compact = re.sub(r"\s+", " ", summary).strip()
+    lowered = compact.lower()
+    if compact in {
+        "View",
+        "扫码下载",
+        "论坛",
+        "活动",
+        "领礼包",
+        "下载",
+    }:
+        return True
+    if lowered in {"download", "view", "forum", "event"}:
+        return True
+    if compact.startswith("扫码下载"):
+        return True
+    noisy_fragments = (
+        "Windows 版下载",
+        "Windows 客户端下载",
+        "主题设置",
+        "关于 TapTap",
+        "关于我们",
+        "开发者",
+        "工作机会",
+        "产品建议和反馈",
+        "状态页",
+        "品牌资源",
+        "推广中心",
+        "资源置换服务",
+        "侵权投诉",
+        "服务协议",
+        "营业执照",
+        "沪 ICP",
+        "网文",
+        "增值电信业务经营许可证",
+        "聚光灯计划",
+        "kefu@taptap.com",
+        "加载中",
+    )
+    if any(fragment in compact for fragment in noisy_fragments):
+        return True
+    if re.fullmatch(r"版本[:：]\s*v?", compact, re.IGNORECASE):
+        return True
+    return False
 
 
 def _guess_update_title(summary: str) -> str:
@@ -611,6 +765,77 @@ def _classify_update_kind(summary: str) -> str:
     if summary:
         return "announcement"
     return "unknown"
+
+
+def _classify_event_type(summary: str) -> str:
+    lowered = summary.lower()
+    if "scheduled to release" in lowered or "\u9884\u8ba1\u4e8e" in summary or "\u5b9a\u6863" in summary:
+        return "scheduled_release"
+    if (
+        "public beta" in lowered
+        or "open beta" in lowered
+        or "\u516c\u6d4b" in summary
+        or "\u4e0a\u7ebf" in summary
+        or "\u6b63\u5f0f\u5f00\u542f" in summary
+    ):
+        return "launch_event"
+    if (
+        "version" in lowered
+        or re.search(r"\b\d+(?:\.\d+){1,3}\b", summary)
+        or "\u7248\u672c" in summary
+        or "\u66f4\u65b0\u4e8e" in summary
+    ):
+        return "version_update"
+    if (
+        "\u6d3b\u52a8" in summary
+        or "\u7b7e\u5230" in summary
+        or "\u9650\u65f6" in summary
+        or "\u5956\u52b1" in summary
+        or "event" in lowered
+    ):
+        return "major_event"
+    if summary:
+        return "announcement"
+    return "unknown"
+
+
+def _extract_update_version(summary: str) -> str | None:
+    cn_match = re.search(r"\u7248\u672c[^\d]*([0-9]+(?:\.[0-9]+){1,3})", summary)
+    if cn_match:
+        return cn_match.group(1)
+    generic_match = re.search(r"\bv(?:ersion)?\s*([0-9]+(?:\.[0-9]+){1,3})\b", summary, re.IGNORECASE)
+    if generic_match:
+        return generic_match.group(1)
+    bare_match = re.search(r"\b([0-9]+(?:\.[0-9]+){1,3})\b", summary)
+    if bare_match and ("\u66f4\u65b0" in summary or "version" in summary.lower()):
+        return bare_match.group(1)
+    return None
+
+
+def _infer_update_importance(summary: str) -> str:
+    lowered = summary.lower()
+    if (
+        "\u516c\u6d4b" in summary
+        or "\u6b63\u5f0f\u5f00\u542f" in summary
+        or "\u4e0a\u7ebf" in summary
+        or "\u5b9a\u6863" in summary
+        or "open beta" in lowered
+        or "public beta" in lowered
+        or "scheduled to release" in lowered
+        or "launch" in lowered
+        or "release" in lowered
+    ):
+        return "high"
+    if (
+        "\u7248\u672c" in summary
+        or "\u66f4\u65b0" in summary
+        or "\u6d3b\u52a8" in summary
+        or "\u7b7e\u5230" in summary
+        or "event" in lowered
+        or "update" in lowered
+    ):
+        return "medium"
+    return "low"
 
 
 def _extract_platform_mentions(summary: str) -> list[str]:
@@ -654,6 +879,18 @@ def _extract_inline_values(lines: list[str]) -> dict[str, str]:
     return values
 
 
+def _extract_labeled_pairs(lines: list[str]) -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    for index, line in enumerate(lines[:-1]):
+        if line not in ABOUT_LABELS:
+            continue
+        next_line = lines[index + 1].strip()
+        if not next_line or _looks_like_noise(next_line):
+            continue
+        pairs.setdefault(line, next_line)
+    return pairs
+
+
 def _select_store_links(links: list[dict[str, str]]) -> dict[str, str | None]:
     selected = {"official_website": None, "google_play_url": None, "app_store_url": None}
     for link in links:
@@ -670,6 +907,14 @@ def _select_store_links(links: list[dict[str, str]]) -> dict[str, str | None]:
 def _find_line(lines: list[str], *needles: str) -> int | None:
     for index, line in enumerate(lines):
         if line in needles:
+            return index
+    return None
+
+
+def _find_line_ordered(lines: list[str], needles: list[str]) -> int | None:
+    for needle in needles:
+        index = _find_line(lines, needle)
+        if index is not None:
             return index
     return None
 
@@ -707,6 +952,7 @@ def _generic_titles() -> set[str]:
         "\u516c\u544a",
         "\u66f4\u65b0\u5185\u5bb9",
         "\u66f4\u65b0\u8bb0\u5f55",
+        "\u66f4\u65b0\u65e5\u5fd7",
         "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f",
         "\u8bc4\u5206\u4e0e\u8bc4\u4ef7",
         "\u8bc4\u5206\u53ca\u8bc4\u4ef7",
@@ -728,7 +974,10 @@ def _looks_like_noise(value: str) -> bool:
             "\u6392\u884c\u699c",
             "\u53d1\u73b0",
             "\u4e91\u6e38\u620f",
+            "\u5b98\u65b9\u5165\u9a7b",
         }
+        or "\u4eba\u6c14\u51fa\u54c1" in value
+        or value.startswith("· ")
         or lowered in {item.lower() for item in _generic_titles()}
         or lowered.startswith("home > games >")
         or "games, posts and people" in lowered
@@ -743,10 +992,18 @@ def _contains_cjk(value: str) -> bool:
 def _parse_compact_int(value: str | None) -> int | None:
     if not value:
         return None
-    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([KMB])?", value, re.IGNORECASE)
+    normalized = value.replace(",", "").strip()
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([KMB万亿])?", normalized, re.IGNORECASE)
     if not match:
         return None
     number = float(match.group(1))
     suffix = (match.group(2) or "").upper()
-    multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[suffix]
+    multiplier = {
+        "": 1,
+        "K": 1_000,
+        "M": 1_000_000,
+        "B": 1_000_000_000,
+        "万": 10_000,
+        "亿": 100_000_000,
+    }[suffix]
     return int(number * multiplier)

@@ -82,6 +82,40 @@ PIPELINE_TEMPLATES = [
             {"type": "storage", "name": "vector", "config": {}},
         ],
     },
+    {
+        "id": "steam_full_report",
+        "name": "Steam 一条龙报告",
+        "description": "Steam -> cleaner -> embedding -> local -> vector，适合采集、落库和报告一条龙",
+        "steps": [
+            {"type": "collector", "name": "steam", "config": {"request_delay": 0.5}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "processor", "name": "embedding", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+            {"type": "storage", "name": "vector", "config": {}},
+        ],
+    },
+    {
+        "id": "taptap_full_report",
+        "name": "TapTap 一条龙报告",
+        "description": "TapTap -> cleaner -> embedding -> local -> vector，适合公开页采集、落库和报告",
+        "steps": [
+            {"type": "collector", "name": "taptap", "config": {}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "processor", "name": "embedding", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+            {"type": "storage", "name": "vector", "config": {}},
+        ],
+    },
+    {
+        "id": "gtrends_basic",
+        "name": "Google Trends 基础采集",
+        "description": "gtrends -> cleaner -> local，适合获取游戏时序热度",
+        "steps": [
+            {"type": "collector", "name": "gtrends", "config": {}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+        ],
+    },
 ]
 
 

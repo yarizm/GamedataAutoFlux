@@ -20,9 +20,12 @@ import httpx
 from pydantic import BaseModel, Field
 
 from src.core.config import get as get_config
+from src.core.config import get_data_dir
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
 from src.storage.vector_store import VectorStorage
+from src.reporting.data_extractor import extract_from_records
+from src.reporting.excel_exporter import export_to_excel
 
 
 class ReportSummary(BaseModel):
@@ -42,6 +45,7 @@ class GeneratedReport(ReportSummary):
 
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    excel_path: str | None = Field(default=None, description="Excel 报告文件路径")
 
 
 class ReportGenerator:
@@ -72,9 +76,11 @@ class ReportGenerator:
         data_source: str = "",
         template: str = "default",
         params: dict[str, Any] | None = None,
+        records: list[StorageRecord] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> GeneratedReport:
         params = params or {}
-        records = await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+        records = records or await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
 
         report = GeneratedReport(
             id=uuid.uuid4().hex[:12],
@@ -89,6 +95,78 @@ class ReportGenerator:
                 "provider": self._llm_provider,
                 "template": template,
                 "source_query": data_source or prompt,
+                **(metadata or {}),
+            },
+        )
+
+        await self._save_report(report)
+        return report
+
+    async def generate_excel(
+        self,
+        prompt: str,
+        data_source: str = "",
+        template: str = "default",
+        params: dict[str, Any] | None = None,
+        records: list[StorageRecord] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> GeneratedReport:
+        """
+        生成 Excel 格式的报告。
+
+        流程: 加载数据 → 提取结构化字段 → 可选 LLM 分析 → 写入 .xlsx
+        """
+        params = params or {}
+        records = records or await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+
+        # 提取结构化数据
+        raw_data_list = [r.data for r in records if r.data is not None]
+        extracted = extract_from_records(raw_data_list)
+
+        # 可选: LLM 文字分析
+        llm_content = None
+        if params.get("include_llm_analysis", True):
+            try:
+                llm_content = await self._render_report(prompt, data_source, template, records)
+            except Exception as exc:
+                from loguru import logger
+                logger.warning(f"LLM 分析生成失败，Excel 中将不包含 AI 分析: {exc}")
+
+        # 生成 Excel
+        report_id = uuid.uuid4().hex[:12]
+        title = self._build_title(prompt, data_source, template)
+        excel_dir = get_data_dir() / "excel_reports"
+        excel_path = excel_dir / f"report_{report_id}.xlsx"
+
+        export_to_excel(
+            data=extracted,
+            output_path=excel_path,
+            title=title,
+            llm_content=llm_content,
+        )
+
+        report = GeneratedReport(
+            id=report_id,
+            title=title,
+            prompt=prompt,
+            data_source=data_source,
+            template=template,
+            generated_at=datetime.now(),
+            matched_records=len(records),
+            content=llm_content or "报告已生成为 Excel 文件",
+            excel_path=str(excel_path),
+            metadata={
+                "provider": self._llm_provider,
+                "template": template,
+                "source_query": data_source or prompt,
+                "format": "excel",
+                "sheets": {
+                    "overview": len(extracted.overview),
+                    "reviews": len(extracted.reviews),
+                    "trends": len(extracted.trends),
+                    "related_queries": len(extracted.related_queries),
+                },
+                **(metadata or {}),
             },
         )
 

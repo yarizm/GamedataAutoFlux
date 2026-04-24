@@ -223,6 +223,9 @@ class Task(BaseModel):
             "pipeline_name",
             "errors",
             "duration_seconds",
+            "generated_report_id",
+            "generated_report_title",
+            "generated_report_matched_records",
         ):
             if hasattr(result, field):
                 summary[field] = getattr(result, field)

@@ -1,4 +1,4 @@
-const AUTO_REFRESH_INTERVAL_MS = 5000;
+const AUTO_REFRESH_INTERVAL_MS = 30000; // 降低轮询频率，主要依赖 WebSocket
 
 let activeTab = "dashboard";
 let autoRefreshHandle = null;
@@ -31,10 +31,96 @@ function toast(message, type = "info") {
     setTimeout(() => el.remove(), 3000);
 }
 
+let wsConnection = null;
+
+function initWebSocket() {
+    if (wsConnection) return;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/tasks`;
+    
+    wsConnection = new WebSocket(wsUrl);
+    
+    wsConnection.onopen = () => {
+        console.log("WebSocket connected");
+        toast("实时推送已连接", "success");
+    };
+    
+    wsConnection.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === "task_update" && data.task) {
+                handleTaskUpdate(data.task);
+            } else if (data.type === "stats_update" && data.stats) {
+                handleStatsUpdate(data.stats);
+            }
+        } catch (e) {
+            console.error("WS message parse error:", e);
+        }
+    };
+    
+    wsConnection.onclose = () => {
+        console.log("WebSocket disconnected, retrying in 5s...");
+        wsConnection = null;
+        setTimeout(initWebSocket, 5000);
+    };
+    
+    wsConnection.onerror = (err) => {
+        console.error("WebSocket error:", err);
+    };
+}
+
+function handleTaskUpdate(task) {
+    // 1. 如果在大盘页，且任务是近期任务，刷新 Dashboard（简单粗暴点可以直接调 refreshDashboard）
+    if (activeTab === "dashboard") {
+        refreshDashboard();
+    }
+    
+    // 2. 如果在任务列表页，更新对应行
+    if (activeTab === "tasks") {
+        loadTasks(); // 可以优化为 DOM 局部更新，这里先直接拉取保持简单稳定
+    }
+    
+    // 3. 如果当前正打开此任务的详情页或日志页，刷新它们
+    const modalDetail = document.getElementById("modal-task-detail");
+    if (modalDetail && modalDetail.classList.contains("show")) {
+        // 判断当前查看的是否是这个 task（可以通过读取当前 DOM 里的 ID 判断，这里简化为重新加载当前 ID）
+        const currentIdEl = document.querySelector("#task-detail-content .detail-kv code");
+        if (currentIdEl && currentIdEl.textContent === task.id) {
+            viewTaskDetail(task.id);
+        }
+    }
+    
+    const modalLogs = document.getElementById("modal-task-logs");
+    if (modalLogs && modalLogs.classList.contains("show")) {
+        // 如果日志弹窗打开，且是当前任务，重新加载日志
+        // (为了精准可以把 currentTaskId 存成全局变量，这里为了简便直接调用 API)
+        // 简单实现：由于日志弹窗没有保存当前任务ID，如果想实时追加需要一点结构改动。
+        // 这里我们在 viewTaskLogs 时把 ID 存在弹窗上
+        if (modalLogs.dataset.taskId === task.id) {
+            viewTaskLogs(task.id);
+        }
+    }
+}
+
+function handleStatsUpdate(stats) {
+    if (activeTab === "dashboard") {
+        refreshDashboard();
+    }
+}
+
 function openModal(id) {
     const modal = document.getElementById(id);
     if (modal) {
         modal.classList.add("show");
+        // refresh CodeMirror to prevent UI bugs inside hidden elements
+        setTimeout(() => {
+            if (id === "modal-create-task" && taskTargetsEditor) {
+                taskTargetsEditor.refresh();
+            }
+            if (id === "modal-create-pipeline" && pipelineStepsEditor) {
+                pipelineStepsEditor.refresh();
+            }
+        }, 10);
     }
 }
 
@@ -68,6 +154,76 @@ function loadTabData(tab) {
     }
 }
 
+let dashboardChart = null;
+let taskTargetsEditor = null;
+let pipelineStepsEditor = null;
+
+function initEditors() {
+    if (typeof CodeMirror === "undefined") return;
+
+    const targetsEl = document.getElementById("task-targets");
+    if (targetsEl && !taskTargetsEditor) {
+        taskTargetsEditor = CodeMirror.fromTextArea(targetsEl, {
+            mode: "javascript",
+            theme: "dracula",
+            lineNumbers: true,
+            viewportMargin: Infinity
+        });
+        taskTargetsEditor.setSize(null, 150);
+    }
+
+    const stepsEl = document.getElementById("pipeline-steps");
+    if (stepsEl && !pipelineStepsEditor) {
+        pipelineStepsEditor = CodeMirror.fromTextArea(stepsEl, {
+            mode: "javascript",
+            theme: "dracula",
+            lineNumbers: true,
+            viewportMargin: Infinity
+        });
+        pipelineStepsEditor.setSize(null, 200);
+    }
+}
+
+function renderDashboardChart(stats) {
+    const chartDom = document.getElementById("dashboard-chart");
+    if (!chartDom) return;
+    if (!dashboardChart) {
+        dashboardChart = echarts.init(chartDom);
+        window.addEventListener('resize', () => dashboardChart.resize());
+    }
+
+    const counts = stats.status_counts || {};
+    const option = {
+        tooltip: { trigger: 'item' },
+        legend: { top: 'bottom' },
+        series: [
+            {
+                name: '任务分布',
+                type: 'pie',
+                radius: ['40%', '70%'],
+                avoidLabelOverlap: false,
+                itemStyle: {
+                    borderRadius: 10,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                },
+                label: { show: false, position: 'center' },
+                emphasis: {
+                    label: { show: true, fontSize: 20, fontWeight: 'bold' }
+                },
+                labelLine: { show: false },
+                data: [
+                    { value: counts.success || 0, name: '已完成', itemStyle: { color: '#10b981' } },
+                    { value: counts.running || 0, name: '运行中', itemStyle: { color: '#3b82f6' } },
+                    { value: counts.failed || 0, name: '失败', itemStyle: { color: '#ef4444' } },
+                    { value: counts.pending || 0, name: '等待中', itemStyle: { color: '#f59e0b' } }
+                ].filter(item => item.value > 0)
+            }
+        ]
+    };
+    dashboardChart.setOption(option);
+}
+
 async function refreshDashboard() {
     try {
         const [stats, components, tasks] = await Promise.all([
@@ -85,6 +241,8 @@ async function refreshDashboard() {
 
         const componentCount = Object.values(components).reduce((sum, names) => sum + names.length, 0);
         setText("stat-components", componentCount);
+
+        renderDashboardChart(stats);
 
         const recentTasks = [...tasks]
             .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
@@ -178,6 +336,11 @@ function getCollectorForPipeline(pipelineName) {
     return collectorStep?.name || "";
 }
 
+function hasStorageStep(pipelineName, storageName) {
+    const pipeline = availablePipelines[pipelineName];
+    return Boolean(pipeline?.steps?.some((step) => step.type === "storage" && step.name === storageName));
+}
+
 function updateTaskTargetFields() {
     const pipelineName = document.getElementById("task-pipeline")?.value || "";
     const collector = getCollectorForPipeline(pipelineName);
@@ -196,6 +359,11 @@ function updateTaskTargetFields() {
         helper.textContent = collector === "taptap"
             ? "TapTap v1 expects a public mainland page URL or app ID."
             : "Steam tasks use target name + app id, or advanced JSON targets.";
+    }
+
+    const autoReport = document.getElementById("task-enable-report");
+    if (autoReport && (pipelineName === "steam_full_report" || pipelineName === "taptap_full_report")) {
+        autoReport.checked = true;
     }
 }
 
@@ -257,7 +425,7 @@ function buildTaskTargetsFromForm(formState) {
 async function createTask() {
     const name = document.getElementById("task-name")?.value.trim() || "";
     const pipelineName = document.getElementById("task-pipeline")?.value || "";
-    const targetsRaw = document.getElementById("task-targets")?.value.trim() || "";
+    const targetsRaw = taskTargetsEditor ? taskTargetsEditor.getValue().trim() : (document.getElementById("task-targets")?.value.trim() || "");
     const description = document.getElementById("task-desc")?.value.trim() || "";
     const targetName = document.getElementById("task-target-name")?.value.trim() || "";
     const steamAppId = document.getElementById("task-app-id")?.value.trim() || "";
@@ -267,6 +435,9 @@ async function createTask() {
     const taptapUrl = document.getElementById("task-taptap-url")?.value.trim() || "";
     const taptapReviewsPages = document.getElementById("task-taptap-reviews-pages")?.value || "1";
     const taptapReviewsLimit = document.getElementById("task-taptap-reviews-limit")?.value || "20";
+    const enableReport = document.getElementById("task-enable-report")?.checked || false;
+    const reportPromptRaw = document.getElementById("task-report-prompt")?.value.trim() || "";
+    const reportTemplate = document.getElementById("task-report-template")?.value || "default";
     const collector = getCollectorForPipeline(pipelineName);
 
     if (!name || !pipelineName) {
@@ -298,6 +469,25 @@ async function createTask() {
         return;
     }
 
+    const primarySubject = targetName
+        || (collector === "taptap" ? taptapAppId : steamAppId)
+        || name;
+    const reportPrompt = reportPromptRaw
+        || `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`;
+    const config = enableReport
+        ? {
+            report: {
+                enabled: true,
+                prompt: reportPrompt,
+                template: reportTemplate,
+                data_source: collector || pipelineName,
+                params: {
+                    use_vector: hasStorageStep(pipelineName, "vector"),
+                },
+            },
+        }
+        : {};
+
     try {
         await api("/tasks", {
             method: "POST",
@@ -306,6 +496,7 @@ async function createTask() {
                 pipeline_name: pipelineName,
                 targets,
                 description,
+                config,
             }),
         });
 
@@ -344,6 +535,9 @@ async function deleteTask(id) {
 
 async function viewTaskLogs(id) {
     openModal("modal-task-logs");
+    const modalLogs = document.getElementById("modal-task-logs");
+    if (modalLogs) modalLogs.dataset.taskId = id; // 保存当前查看的任务 ID 供 WS 更新用
+    
     const container = document.getElementById("task-logs-content");
     if (!container) return;
 
@@ -394,6 +588,9 @@ async function viewTaskDetail(id) {
         const resultSummary = task.result_summary
             ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.result_summary, null, 2))}</pre>`
             : '<p class="text-muted">No result summary</p>';
+        const autoReportLink = task.result_summary?.generated_report_id
+            ? `<div style="margin-top: 0.75rem;"><button class="btn btn-primary btn-sm" onclick="viewReport('${task.result_summary.generated_report_id}')">Open Generated Report</button></div>`
+            : "";
         const latestLogs = task.step_logs?.length
             ? task.step_logs.slice(-8).map((log) => `
                 <div class="log-entry ${log.status === "success" ? "log-success" : log.status === "failed" ? "log-failed" : "log-running"}">
@@ -429,6 +626,7 @@ async function viewTaskDetail(id) {
             ${config}
             <h3 style="margin-top: 1rem;">Result Summary</h3>
             ${resultSummary}
+            ${autoReportLink}
         `;
     } catch (err) {
         container.innerHTML = `<p style="color: var(--danger);">Load failed: ${escapeHtml(err.message)}</p>`;
@@ -570,7 +768,7 @@ function buildPipelineStepsFromForm() {
 
 async function createPipeline() {
     const name = document.getElementById("pipeline-name")?.value.trim() || "";
-    const stepsRaw = document.getElementById("pipeline-steps")?.value.trim() || "";
+    const stepsRaw = pipelineStepsEditor ? pipelineStepsEditor.getValue().trim() : (document.getElementById("pipeline-steps")?.value.trim() || "");
 
     if (!name) {
         toast("Pipeline name is required", "error");
@@ -669,7 +867,25 @@ async function loadReports() {
 function renderReport(report) {
     const container = document.getElementById("report-content");
     if (container) {
-        container.textContent = report.content || "";
+        let contentHtml = `<pre>${escapeHtml(report.content || "")}</pre>`;
+        
+        // Add Excel download button if it's an Excel report
+        const isExcel = report.metadata?.format === "excel" || report.metadata?.excel_path;
+        if (isExcel) {
+            contentHtml = `
+                <div style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border);">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--success);">📊 Excel 报告已生成</h4>
+                    <p style="margin: 0 0 1rem 0; color: var(--text-muted);">
+                        该报告包含了清洗好的表格行、多个工作表以及统计图表。
+                    </p>
+                    <a href="/api/reports/${report.id}/download" class="btn btn-primary" target="_blank" download>
+                        ⬇️ 下载 Excel 文件
+                    </a>
+                </div>
+            ` + contentHtml;
+        }
+        
+        container.innerHTML = contentHtml;
     }
 }
 
@@ -684,7 +900,7 @@ async function generateReport() {
     }
 
     try {
-        const report = await api("/reports/generate", {
+        const report = await api("/reports/generate-excel", {
             method: "POST",
             body: JSON.stringify({
                 prompt,
@@ -892,6 +1108,8 @@ function bindModalOverlayClose() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    initWebSocket(); // 初始化 WebSocket
+    initEditors(); // 初始化代码编辑器
     bindNavigation();
     bindModalOverlayClose();
     refreshDashboard();

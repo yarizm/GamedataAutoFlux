@@ -58,7 +58,11 @@ class PipelineResult:
     success: bool = True
     collect_results: list[CollectResult] = field(default_factory=list)
     process_results: list[ProcessOutput] = field(default_factory=list)
+    output_records: list[StorageRecord] = field(default_factory=list)
     storage_count: int = 0
+    generated_report_id: str | None = None
+    generated_report_title: str | None = None
+    generated_report_matched_records: int = 0
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: datetime | None = None
     errors: list[str] = field(default_factory=list)
@@ -289,6 +293,7 @@ class Pipeline:
                 )
                 for i, pd in enumerate(current_data)
             ]
+            result.output_records = list(records)
 
             for step in storage_steps:
                 storage: BaseStorage = step.instance

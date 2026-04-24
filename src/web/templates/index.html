@@ -6,7 +6,13 @@
     <title>GamedataAutoFlux</title>
     <meta name="description" content="游戏数据采集与分析工作流">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
+    
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
 </head>
 <body>
     <nav class="navbar" id="navbar">
@@ -58,7 +64,15 @@
                 </div>
             </div>
 
-            <div class="card">
+            <!-- ECharts 图表容器 -->
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header"><h2>任务执行趋势</h2></div>
+                <div class="card-body">
+                    <div id="dashboard-chart" style="width: 100%; height: 300px;"></div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1.5rem;">
                 <div class="card-header"><h2>最近任务</h2></div>
                 <div class="card-body">
                     <table class="table" id="recent-tasks-table">
@@ -271,6 +285,20 @@
                     <input type="text" id="task-desc" placeholder="可选描述">
                 </div>
             </div>
+                <div class="form-group checkbox-row">
+                    <label><input type="checkbox" id="task-enable-report"> 采集完成后自动生成报告</label>
+                </div>
+                <div class="form-group">
+                    <label for="task-report-prompt">自动报告提示词</label>
+                    <textarea id="task-report-prompt" rows="3" placeholder="留空则按目标自动生成提示词"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="task-report-template">自动报告模板</label>
+                    <select id="task-report-template">
+                        <option value="default">default</option>
+                        <option value="brief">brief</option>
+                    </select>
+                </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-task')">取消</button>
                 <button class="btn btn-primary" onclick="createTask()" id="btn-submit-task">提交</button>
@@ -383,6 +411,6 @@
 
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>

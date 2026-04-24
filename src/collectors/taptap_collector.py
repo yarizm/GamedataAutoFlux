@@ -47,12 +47,13 @@ class TapTapCollector(BaseCollector):
         user_agent = self.config.get("user_agent", taptap_cfg.get("user_agent", collector_cfg.get("user_agent", "")))
         self.config.setdefault("request_retries", int(taptap_cfg.get("request_retries", 2)))
         self.config.setdefault("request_delay", float(taptap_cfg.get("request_delay", 1.5)))
+        self.config.setdefault("firecrawl_enabled", bool(taptap_cfg.get("firecrawl_enabled", False)))
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
             headers={
                 "User-Agent": user_agent or _default_user_agent(),
-                "Accept-Language": "en-US,en;q=0.9",
+                **_build_http_headers(region="cn", referer=self.BASE_URL),
             },
         )
 
@@ -68,7 +69,7 @@ class TapTapCollector(BaseCollector):
             self.config.get("firecrawl_api_key")
             or firecrawl_cfg.get("api_key", "")
         )
-        if firecrawl_key and not str(firecrawl_key).startswith("${") and bool(taptap_cfg.get("firecrawl_enabled", True)):
+        if firecrawl_key and not str(firecrawl_key).startswith("${") and bool(self.config.get("firecrawl_enabled", False)):
             self._firecrawl = TapTapFirecrawlFallback(
                 api_key=str(firecrawl_key),
                 timeout=int(firecrawl_cfg.get("timeout", 30)),
@@ -85,11 +86,13 @@ class TapTapCollector(BaseCollector):
         await super().teardown()
 
     async def collect(self, target: CollectTarget) -> CollectResult:
-        page_url, review_url = self._resolve_urls(target)
+        page_url, review_url, all_info_url = self._resolve_urls(target)
+        region = str(target.params.get("region", "cn")).lower()
         metrics = list(target.params.get("metrics", ["details", "reviews", "updates"]))
         reviews_limit = int(target.params.get("reviews_limit", self.config.get("reviews_limit_default", 20)))
         reviews_pages = max(1, int(target.params.get("reviews_pages", self.config.get("reviews_pages_default", 1))))
         use_playwright = str(target.params.get("use_playwright", "auto")).lower()
+        use_firecrawl = bool(target.params.get("use_firecrawl", self.config.get("firecrawl_enabled", False)))
         save_raw_snapshots = bool(self.config.get("save_raw_snapshots", True))
 
         logger.info(f"[TapTap] Start collect: {target.name} -> {page_url}")
@@ -97,15 +100,44 @@ class TapTapCollector(BaseCollector):
         layer_used = "html"
         layers = {"details": "html", "reviews": "html", "updates": "html"}
 
+        if self._client is not None:
+            self._client.headers.update(_build_http_headers(region=region, referer=page_url))
+
         try:
-            detail_html, review_html = await self._fetch_http_pages(detail_url=page_url, review_url=review_url)
-            detail_payload = (
-                parse_taptap_page(detail_html, page_url=page_url, source_format="html", review_limit=reviews_limit)
-                if "details" in metrics or "updates" in metrics
-                else {}
+            detail_html, review_html, all_info_html = await self._fetch_http_pages(
+                detail_url=page_url,
+                review_url=review_url,
+                all_info_url=all_info_url,
             )
+            detail_payloads = []
+            if "details" in metrics or "updates" in metrics:
+                detail_payloads.append(
+                    parse_taptap_page(
+                        detail_html,
+                        page_url=page_url,
+                        source_format="html",
+                        review_limit=reviews_limit,
+                        include_reviews=False,
+                    )
+                )
+                detail_payloads.append(
+                    parse_taptap_page(
+                        all_info_html,
+                        page_url=all_info_url,
+                        source_format="html",
+                        review_limit=reviews_limit,
+                        include_reviews=False,
+                    )
+                )
+            detail_payload = merge_taptap_payloads(*detail_payloads) if detail_payloads else {}
             review_payload = (
-                parse_taptap_page(review_html, page_url=review_url, source_format="html", review_limit=reviews_limit)
+                parse_taptap_page(
+                    review_html,
+                    page_url=review_url,
+                    source_format="html",
+                    review_limit=reviews_limit,
+                    include_updates=False,
+                )
                 if "reviews" in metrics
                 else {}
             )
@@ -125,18 +157,56 @@ class TapTapCollector(BaseCollector):
                 supplement = await self._playwright.fetch(
                     detail_url=page_url,
                     review_url=review_url,
+                    all_info_url=all_info_url,
                     reviews_pages=reviews_pages,
+                    region=region,
                 )
-                detail_payload = (
-                    parse_taptap_page(
-                        supplement["detail_html"],
-                        page_url=page_url,
-                        source_format="html",
-                        review_limit=reviews_limit,
+                detail_payloads: list[dict[str, Any]] = []
+                if "details" in metrics or "updates" in metrics:
+                    detail_payloads.append(
+                        parse_taptap_page(
+                            supplement["detail_html"],
+                            page_url=page_url,
+                            source_format="html",
+                            review_limit=reviews_limit,
+                            include_reviews=False,
+                        )
                     )
-                    if "details" in metrics or "updates" in metrics
-                    else {}
-                )
+                    detail_text = str(supplement.get("detail_text", "")).strip()
+                    if detail_text:
+                        detail_payloads.append(
+                            parse_taptap_page(
+                                detail_text,
+                                page_url=page_url,
+                                source_format="markdown",
+                                review_limit=reviews_limit,
+                                include_reviews=False,
+                            )
+                        )
+                    all_info_html = str(supplement.get("all_info_html", "")).strip()
+                    if all_info_html:
+                        detail_payloads.append(
+                            parse_taptap_page(
+                                all_info_html,
+                                page_url=all_info_url,
+                                source_format="html",
+                                review_limit=reviews_limit,
+                                include_reviews=False,
+                            )
+                        )
+                    all_info_text = str(supplement.get("all_info_text", "")).strip()
+                    if all_info_text:
+                        detail_payloads.append(
+                            parse_taptap_page(
+                                all_info_text,
+                                page_url=all_info_url,
+                                source_format="markdown",
+                                review_limit=reviews_limit,
+                                include_reviews=False,
+                            )
+                        )
+
+                detail_payload = merge_taptap_payloads(*detail_payloads) if detail_payloads else {}
                 review_payloads = []
                 for page_html in supplement["review_pages_html"]:
                     review_payloads.append(
@@ -145,9 +215,23 @@ class TapTapCollector(BaseCollector):
                             page_url=review_url,
                             source_format="html",
                             review_limit=reviews_limit,
+                            include_updates=False,
+                        )
+                    )
+                for review_text in supplement.get("review_pages_text", []):
+                    if not str(review_text).strip():
+                        continue
+                    review_payloads.append(
+                        parse_taptap_page(
+                            str(review_text),
+                            page_url=review_url,
+                            source_format="markdown",
+                            review_limit=reviews_limit,
+                            include_updates=False,
                         )
                     )
                 merged = merge_taptap_payloads(merged, detail_payload, *review_payloads)
+                merged = _merge_structured_review_items(merged, supplement.get("review_items", []))
                 layer_used = "playwright"
                 if detail_payload.get("game"):
                     layers["details"] = "playwright"
@@ -159,7 +243,7 @@ class TapTapCollector(BaseCollector):
                 warnings.append(f"Playwright supplement failed: {exc}")
                 logger.warning(f"[TapTap] Playwright failed: {exc}")
 
-        if _needs_firecrawl(merged, metrics=metrics) and self._firecrawl:
+        if use_firecrawl and _needs_firecrawl(merged, metrics=metrics) and self._firecrawl:
             logger.info("[TapTap] Fallback to Firecrawl")
             fallback = await self._firecrawl.scrape(
                 detail_url=page_url,
@@ -178,6 +262,8 @@ class TapTapCollector(BaseCollector):
                         layers["updates"] = "firecrawl"
             elif fallback and fallback.get("error"):
                 warnings.append(f"Firecrawl failed: {fallback['error']}")
+        elif not use_firecrawl and _needs_firecrawl(merged, metrics=metrics):
+            warnings.append("Firecrawl fallback disabled; preserving direct collection result")
 
         if not merged.get("game"):
             return CollectResult(
@@ -196,9 +282,10 @@ class TapTapCollector(BaseCollector):
             "game_name": merged["game"].get("title", target.name),
             "source_meta": {
                 "collector": "taptap",
-                "region": str(target.params.get("region", "cn")).lower(),
+                "region": region,
                 "page_url": page_url,
                 "review_url": review_url,
+                "all_info_url": all_info_url,
                 "collected_at": datetime.now(timezone.utc).isoformat(),
                 "layer": layer_used,
                 "layers": layers,
@@ -229,12 +316,13 @@ class TapTapCollector(BaseCollector):
 
         return CollectResult(target=target, success=True, data=data, metadata=metadata)
 
-    async def _fetch_http_pages(self, *, detail_url: str, review_url: str) -> tuple[str, str]:
+    async def _fetch_http_pages(self, *, detail_url: str, review_url: str, all_info_url: str) -> tuple[str, str, str]:
         if self._client is None:
             raise RuntimeError("TapTap collector client is not initialized")
         detail_response = await self._fetch_with_retry(detail_url)
         review_response = await self._fetch_with_retry(review_url)
-        return detail_response.text, review_response.text
+        all_info_response = await self._fetch_with_retry(all_info_url)
+        return detail_response.text, review_response.text, all_info_response.text
 
     async def _fetch_with_retry(self, url: str) -> httpx.Response:
         retries = max(1, int(self.config.get("request_retries", 2)))
@@ -252,7 +340,7 @@ class TapTapCollector(BaseCollector):
                 await asyncio.sleep(float(self.config.get("request_delay", 1.5)))
         raise last_error or RuntimeError(f"TapTap fetch failed: {url}")
 
-    def _resolve_urls(self, target: CollectTarget) -> tuple[str, str]:
+    def _resolve_urls(self, target: CollectTarget) -> tuple[str, str, str]:
         region = str(target.params.get("region", "cn")).lower()
         if region not in {"cn", "intl"}:
             raise ValueError("TapTap target region must be 'cn' or 'intl'")
@@ -270,7 +358,8 @@ class TapTapCollector(BaseCollector):
         else:
             detail_url = page_url.rstrip("/")
         review_url = detail_url.rstrip("/") + "/review"
-        return detail_url, review_url
+        all_info_url = detail_url.rstrip("/") + "/all-info"
+        return detail_url, review_url, all_info_url
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True
@@ -308,6 +397,55 @@ def _default_user_agent() -> str:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
     )
+
+
+def _build_http_headers(*, region: str, referer: str) -> dict[str, str]:
+    accept_language = "zh-CN,zh;q=0.9,en;q=0.8" if region == "cn" else "en-US,en;q=0.9"
+    return {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": accept_language,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": referer,
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
+def _merge_structured_review_items(merged: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    if not items:
+        return merged
+    reviews = merged.setdefault("reviews", {})
+    existing_items = reviews.setdefault("items", [])
+    seen = {
+        (
+            str(item.get("author", "")),
+            str(item.get("published_at", "")),
+            str(item.get("content", "")),
+        )
+        for item in existing_items
+    }
+    for item in items:
+        normalized = {
+            "author": item.get("author"),
+            "published_at": item.get("published_at"),
+            "rating_text_or_score": item.get("rating_text_or_score"),
+            "content": item.get("content"),
+            "likes": item.get("likes"),
+            "reply_count": item.get("reply_count"),
+        }
+        identity = (
+            str(normalized.get("author", "")),
+            str(normalized.get("published_at", "")),
+            str(normalized.get("content", "")),
+        )
+        if identity in seen:
+            continue
+        if not normalized["author"] or not normalized["content"]:
+            continue
+        seen.add(identity)
+        existing_items.append(normalized)
+    return merged
 
 
 def _build_availability(merged: dict[str, Any], *, warnings: list[str]) -> dict[str, Any]:

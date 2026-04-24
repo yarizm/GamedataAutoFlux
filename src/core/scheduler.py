@@ -181,6 +181,8 @@ class Scheduler:
                 result = await pipeline.execute(task)
 
                 if result.success:
+                    if self._should_generate_report(task):
+                        await self._generate_report_for_task(task, pipeline, result)
                     task.complete(result)
                     await self._persist_task(task)
                     logger.info(f"任务执行成功: [{task.id}] {task.name}")
@@ -419,10 +421,73 @@ class Scheduler:
             except Exception as exc:
                 logger.warning(f"加载 cron 任务失败: {name} - {exc}")
 
+    def _should_generate_report(self, task: Task) -> bool:
+        report_config = task.config.get("report", {})
+        return bool(report_config.get("enabled"))
+
+    async def _generate_report_for_task(
+        self,
+        task: Task,
+        pipeline: Pipeline,
+        result: PipelineResult,
+    ) -> None:
+        from src.web.app import report_generator
+
+        report_config = task.config.get("report", {})
+        prompt = str(report_config.get("prompt") or self._build_default_report_prompt(task))
+        template = str(report_config.get("template", "default"))
+        params = dict(report_config.get("params", {}))
+        if "use_vector" not in params:
+            params["use_vector"] = any(
+                step.step_type.value == "storage" and step.component_name == "vector"
+                for step in pipeline.steps
+            )
+
+        task.add_step_log("report:auto", TaskStatus.RUNNING, "开始生成报告")
+        await self._persist_task(task)
+
+        try:
+            report = await report_generator.generate_excel(
+                prompt=prompt,
+                data_source=str(report_config.get("data_source") or task.collector_name or task.pipeline_name),
+                template=template,
+                params=params,
+                records=list(result.output_records),
+                metadata={
+                    "task_id": task.id,
+                    "pipeline_name": task.pipeline_name,
+                    "auto_generated": True,
+                },
+            )
+        except Exception as exc:
+            error_msg = f"auto_report: {exc}"
+            result.success = False
+            result.errors.append(error_msg)
+            task.result = result
+            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=str(exc))
+            await self._persist_task(task)
+            raise RuntimeError(error_msg) from exc
+
+        result.generated_report_id = report.id
+        result.generated_report_title = report.title
+        result.generated_report_matched_records = report.matched_records
+        task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
+        await self._persist_task(task)
+
+    def _build_default_report_prompt(self, task: Task) -> str:
+        targets = [target.name for target in task.targets if target.name]
+        subject = "、".join(targets[:3]) if targets else task.name
+        return f"基于本次采集结果，总结{subject}的核心表现、版本更新、评论反馈和关键事件。"
+
     async def _persist_task(self, task: Task) -> None:
-        """持久化任务快照。"""
+        """持久化任务快照，并向前端广播状态。"""
         if self._task_store is None:
             return
+            
+        # 提取给前端的简明数据
+        task_payload = task.to_storage_payload()
+        
+        # 保存到数据库
         await self._task_store.save(
             StorageRecord(
                 key=f"task:{task.id}",
@@ -436,6 +501,19 @@ class Scheduler:
                 tags=["task", task.status.value],
             )
         )
+        
+        # WebSocket 广播
+        try:
+            from src.web.routes.ws import manager
+            # 防止阻塞持久化逻辑，采用 create_task 背景发送
+            asyncio.create_task(
+                manager.broadcast({
+                    "type": "task_update",
+                    "task": task_payload
+                })
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to broadcast task update: {exc}")
 
     async def _persist_pipeline(self, pipeline: Pipeline) -> None:
         """Persist a pipeline snapshot."""
