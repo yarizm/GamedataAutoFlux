@@ -89,6 +89,13 @@ async def create_task(
     """创建并提交新任务"""
     from src.web.app import scheduler
 
+    collector_name = req.collector_name
+    pipeline = scheduler.get_pipeline(req.pipeline_name)
+    if not collector_name and pipeline is not None:
+        collector_step = next((step for step in pipeline.steps if step.step_type.value == "collector"), None)
+        if collector_step is not None:
+            collector_name = collector_step.component_name
+
     targets = [
         TaskTarget(
             name=t.get("name", ""),
@@ -102,7 +109,7 @@ async def create_task(
         name=req.name,
         description=req.description,
         pipeline_name=req.pipeline_name,
-        collector_name=req.collector_name,
+        collector_name=collector_name,
         targets=targets,
         config=req.config,
     )

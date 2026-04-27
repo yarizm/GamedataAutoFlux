@@ -13,7 +13,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+import copy
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -66,6 +67,7 @@ class Scheduler:
         await self._restore_tasks()
         self._cron_scheduler.start()
         self._load_cron_jobs_from_config()
+        await self._restore_cron_jobs()
         self._started = True
         logger.info(
             f"调度器已启动: 最大并发={self._max_concurrent}, "
@@ -293,6 +295,7 @@ class Scheduler:
         pipeline_name: str,
         cron_expr: str,
         task_template: dict[str, Any] | None = None,
+        persist: bool = True,
     ) -> str:
         """
         添加定时任务。
@@ -332,12 +335,23 @@ class Scheduler:
         )
 
         logger.info(f"定时任务已添加: {name} → [{cron_expr}] → Pipeline [{pipeline_name}]")
+        if persist and self._task_store is not None:
+            asyncio.create_task(
+                self._persist_cron_job(
+                    name=name,
+                    pipeline_name=pipeline_name,
+                    cron_expr=cron_expr,
+                    task_template=task_template or {},
+                )
+            )
         return job.id
 
     def remove_cron_job(self, name: str) -> bool:
         """移除定时任务"""
         try:
             self._cron_scheduler.remove_job(name)
+            if self._task_store is not None:
+                asyncio.create_task(self._task_store.delete(f"cron:{name}"))
             logger.info(f"定时任务已移除: {name}")
             return True
         except Exception:
@@ -352,6 +366,9 @@ class Scheduler:
                 "name": job.name,
                 "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
                 "trigger": str(job.trigger),
+                "pipeline_name": (job.kwargs or {}).get("pipeline_name", ""),
+                "task_template": (job.kwargs or {}).get("task_template", {}),
+                "kind": ((job.kwargs or {}).get("task_template", {}).get("config", {}).get("refresh", {}) or {}).get("refresh_kind", "cron"),
             }
             for job in jobs
         ]
@@ -367,7 +384,7 @@ class Scheduler:
         task = Task(
             name=f"[定时] {job_name} - {datetime.now().strftime('%Y%m%d_%H%M')}",
             pipeline_name=pipeline_name,
-            **task_template,
+            **_roll_refresh_template(task_template),
         )
         try:
             await self.submit(task, pipeline_name=pipeline_name)
@@ -417,6 +434,7 @@ class Scheduler:
                     pipeline_name=pipeline_name,
                     cron_expr=cron_expr,
                     task_template=task_template,
+                    persist=False,
                 )
             except Exception as exc:
                 logger.warning(f"加载 cron 任务失败: {name} - {exc}")
@@ -532,6 +550,40 @@ class Scheduler:
             )
         )
 
+    async def _persist_cron_job(
+        self,
+        *,
+        name: str,
+        pipeline_name: str,
+        cron_expr: str,
+        task_template: dict[str, Any],
+    ) -> None:
+        if self._task_store is None:
+            return
+        refresh = {}
+        if isinstance(task_template, dict):
+            config = task_template.get("config", {})
+            if isinstance(config, dict) and isinstance(config.get("refresh"), dict):
+                refresh = config["refresh"]
+        await self._task_store.save(
+            StorageRecord(
+                key=f"cron:{name}",
+                data={
+                    "name": name,
+                    "pipeline_name": pipeline_name,
+                    "cron_expr": cron_expr,
+                    "task_template": task_template,
+                },
+                metadata={
+                    "kind": "cron",
+                    "pipeline_name": pipeline_name,
+                    "refresh_kind": refresh.get("refresh_kind", ""),
+                },
+                source="scheduler",
+                tags=["cron"],
+            )
+        )
+
     async def _restore_pipelines(self) -> None:
         """Restore persisted pipelines from local storage."""
         if self._task_store is None:
@@ -560,3 +612,72 @@ class Scheduler:
                 task.cancel()
                 task.error = "Recovered from a previous session without a live worker; marked cancelled."
             self._tasks[task.id] = task
+
+    async def _restore_cron_jobs(self) -> None:
+        if self._task_store is None:
+            return
+        result = await self._task_store.query("key:cron:", limit=1000)
+        for record in result.records:
+            if not isinstance(record.data, dict):
+                continue
+            name = str(record.data.get("name") or "").strip()
+            pipeline_name = str(record.data.get("pipeline_name") or "").strip()
+            cron_expr = str(record.data.get("cron_expr") or "").strip()
+            task_template = record.data.get("task_template", {})
+            if not name or not pipeline_name or not cron_expr:
+                continue
+            try:
+                self.add_cron_job(
+                    name=name,
+                    pipeline_name=pipeline_name,
+                    cron_expr=cron_expr,
+                    task_template=task_template if isinstance(task_template, dict) else {},
+                    persist=False,
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to restore cron job {name}: {exc}")
+
+
+def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:
+    template = copy.deepcopy(task_template or {})
+    config = template.get("config", {})
+    refresh = config.get("refresh", {}) if isinstance(config, dict) else {}
+    if not isinstance(refresh, dict) or not refresh.get("rolling_window"):
+        return template
+
+    for target in template.get("targets", []) or []:
+        if not isinstance(target, dict):
+            continue
+        params = target.get("params")
+        if isinstance(params, dict):
+            _roll_time_params(params)
+    return template
+
+
+def _roll_time_params(params: dict[str, Any]) -> None:
+    today = date.today()
+    for start_key, end_key in (("start_time", "end_time"), ("start_date", "end_date")):
+        start_raw = params.get(start_key)
+        end_raw = params.get(end_key)
+        if not start_raw or not end_raw:
+            continue
+        start_date = _parse_date_prefix(start_raw)
+        end_date = _parse_date_prefix(end_raw)
+        if start_date is None or end_date is None:
+            continue
+        window = max((end_date - start_date).days, 0)
+        params[start_key] = _replace_date_prefix(str(start_raw), today - timedelta(days=window))
+        params[end_key] = _replace_date_prefix(str(end_raw), today)
+
+
+def _parse_date_prefix(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _replace_date_prefix(original: str, value: date) -> str:
+    if len(original) > 10:
+        return value.isoformat() + original[10:]
+    return value.isoformat()

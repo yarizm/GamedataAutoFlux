@@ -177,11 +177,18 @@ class SteamAPIClient:
 
         # 汇总统计
         query_summary = data.get("query_summary", {}) if 'data' in dir() else {}
+        total_reviews_val = query_summary.get("total_reviews", len(all_reviews))
+        total_positive_val = query_summary.get("total_positive", 0)
+        review_score_percent = 0
+        if total_reviews_val > 0:
+            review_score_percent = round((total_positive_val / total_reviews_val) * 100)
+            
         return {
-            "total_reviews": query_summary.get("total_reviews", len(all_reviews)),
-            "total_positive": query_summary.get("total_positive", 0),
+            "total_reviews": total_reviews_val,
+            "total_positive": total_positive_val,
             "total_negative": query_summary.get("total_negative", 0),
             "review_score_desc": query_summary.get("review_score_desc", ""),
+            "review_score_percent": review_score_percent,
             "review_count_fetched": len(all_reviews),
             "reviews": all_reviews[:max_reviews],
         }
