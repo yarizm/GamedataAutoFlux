@@ -17,3 +17,7 @@ node_modules/
 gamedata_autoflux.egg-info/
 
 *.db
+/Steam数据计划.md
+/【原始需求文档】监控需求.xlsx
+/原始计划.md
+/流程.drawio.xml

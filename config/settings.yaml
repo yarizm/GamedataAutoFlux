@@ -39,7 +39,18 @@ embedding:
     model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
 llm:
-  provider: "deepseek"
+  provider: "qwen"
+  qwen:
+    api_key: "${DASHSCOPE_API_KEY}"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen-max"
+    temperature: 0.3
+    max_tokens: 2000
+    max_input_chars: 18000
+    retry_count: 2
+    retry_delay: 2.0
+    timeout: 90
+    fallback_to_stub: true
   deepseek:
     api_key: "${DEEPSEEK_API_KEY}"
     base_url: "https://api.deepseek.com"
@@ -66,6 +77,14 @@ steam:
     headless: true
     timeout: 30000
 
+steam_discussions:
+  request_delay: 2.0
+  timeout: 30
+  max_pages: 50
+  max_topics: 1000
+  include_replies: true
+  max_reply_pages: 5
+
 taptap:
   base_url: "https://www.taptap.cn"
   timeout: 20
@@ -79,6 +98,16 @@ taptap:
   reviews_limit_default: 20
   reviews_pages_default: 1
   save_raw_snapshots: true
+
+monitor:
+  default_days: 30
+  timezone: "Asia/Shanghai"
+  request_delay: 1.5
+  metric_concurrency: 4
+  sully_siteurl_overrides:
+    "2507950": "delta_force_hawk_ops"
+    "Delta Force": "delta_force_hawk_ops"
+    "三角洲行动": "delta_force_hawk_ops"
 
 firecrawl:
   api_key: "${FIRECRAWL_API_KEY}"

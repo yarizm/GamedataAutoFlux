@@ -5,6 +5,14 @@ let autoRefreshHandle = null;
 let pipelineTemplates = [];
 let availableComponents = {};
 let availablePipelines = {};
+let dataGames = [];
+let dataGroups = [];
+let selectedDataGame = null;
+let currentDataRecords = [];
+let selectedReportRecordKeys = [];
+let selectedReportRecordMeta = {};
+let reportTemplates = [];
+let currentReportProgressId = "";
 
 async function api(path, options = {}) {
     const resp = await fetch(`/api${path}`, {
@@ -52,6 +60,8 @@ function initWebSocket() {
                 handleTaskUpdate(data.task);
             } else if (data.type === "stats_update" && data.stats) {
                 handleStatsUpdate(data.stats);
+            } else if (data.type === "report_progress") {
+                handleReportProgress(data);
             }
         } catch (e) {
             console.error("WS message parse error:", e);
@@ -108,6 +118,29 @@ function handleStatsUpdate(stats) {
     }
 }
 
+function handleReportProgress(event) {
+    if (!event || event.progress_id !== currentReportProgressId) return;
+    setReportProgress(event.progress || 0, event.stage || "running", event.message || "");
+}
+
+function setReportProgress(progress, stage, message) {
+    const wrapper = document.getElementById("report-progress");
+    const fill = document.getElementById("report-progress-fill");
+    const percent = document.getElementById("report-progress-percent");
+    const stageEl = document.getElementById("report-progress-stage");
+    const messageEl = document.getElementById("report-progress-message");
+    const value = Math.max(0, Math.min(1, Number(progress) || 0));
+    if (wrapper) wrapper.style.display = "block";
+    if (fill) fill.style.width = `${Math.round(value * 100)}%`;
+    if (percent) percent.textContent = `${Math.round(value * 100)}%`;
+    if (stageEl) stageEl.textContent = stage;
+    if (messageEl) messageEl.textContent = message || stage;
+}
+
+function resetReportProgress() {
+    setReportProgress(0, "queued", "Report generation queued");
+}
+
 function openModal(id) {
     const modal = document.getElementById(id);
     if (modal) {
@@ -143,7 +176,12 @@ function loadTabData(tab) {
             loadComponents();
             loadPipelines();
             break;
+        case "data":
+            loadDataGames();
+            break;
         case "reports":
+            loadReportTemplates();
+            loadDataGroups();
             loadReports();
             break;
         case "cron":
@@ -322,7 +360,7 @@ function renderTaskActions(task) {
         actions.push(`<button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">Delete</button>`);
     }
 
-    return actions.join(" ");
+    return `<div class="action-buttons">${actions.join(" ")}</div>`;
 }
 
 function showCreateTaskModal() {
@@ -346,23 +384,47 @@ function updateTaskTargetFields() {
     const collector = getCollectorForPipeline(pipelineName);
 
     const steamFields = document.getElementById("task-steam-fields");
+    const steamDiscussionsFields = document.getElementById("task-steam-discussions-fields");
     const taptapFields = document.getElementById("task-taptap-fields");
+    const monitorFields = document.getElementById("task-monitor-fields");
+    const qimaiFields = document.getElementById("task-qimai-fields");
     const helper = document.getElementById("task-target-helper");
 
     if (steamFields) {
         steamFields.style.display = collector === "steam" ? "block" : "none";
     }
+    if (steamDiscussionsFields) {
+        steamDiscussionsFields.style.display = collector === "steam_discussions" ? "block" : "none";
+    }
     if (taptapFields) {
         taptapFields.style.display = collector === "taptap" ? "block" : "none";
     }
+    if (monitorFields) {
+        monitorFields.style.display = collector === "monitor" ? "block" : "none";
+    }
+    if (qimaiFields) {
+        qimaiFields.style.display = collector === "qimai" ? "block" : "none";
+    }
     if (helper) {
-        helper.textContent = collector === "taptap"
-            ? "TapTap v1 expects a public mainland page URL or app ID."
-            : "Steam tasks use target name + app id, or advanced JSON targets.";
+        if (collector === "taptap") {
+            helper.textContent = "TapTap v1 expects a public mainland page URL or app ID.";
+        } else if (collector === "steam_discussions") {
+            helper.textContent = "Steam Community tasks use app id or forum URL plus optional start/end dates.";
+        } else if (collector === "monitor") {
+            helper.textContent = "Monitor tasks use app id and optional Twitch/SullyGnome hints.";
+        } else if (collector === "qimai") {
+            helper.textContent = "Qimai tasks use qimai_app_id (App Store ID or Package Name).";
+        } else {
+            helper.textContent = "Steam tasks use target name + app id, or advanced JSON targets.";
+        }
     }
 
     const autoReport = document.getElementById("task-enable-report");
-    if (autoReport && (pipelineName === "steam_full_report" || pipelineName === "taptap_full_report")) {
+    if (autoReport && (
+        pipelineName === "steam_full_report"
+        || pipelineName === "taptap_full_report"
+        || pipelineName === "steam_discussions_full_report"
+    )) {
         autoReport.checked = true;
     }
 }
@@ -374,10 +436,44 @@ function buildTaskTargetsFromForm(formState) {
         appId,
         skipSteamdb,
         steamdbTimeSlice,
+        steamDiscussionsForumUrl,
+        steamDiscussionsStart,
+        steamDiscussionsEnd,
+        steamDiscussionsMaxPages,
+        steamDiscussionsMaxTopics,
+        steamDiscussionsIncludeReplies,
         taptapUrl,
         taptapReviewsPages,
         taptapReviewsLimit,
+        monitorDays,
+        monitorTwitchName,
+        monitorSiteurl,
+        qimaiAppId,
     } = formState;
+
+    if (collector === "steam_discussions") {
+        if (!targetName && !appId && !steamDiscussionsForumUrl) {
+            return [];
+        }
+
+        const params = {
+            ...(appId ? { app_id: appId } : {}),
+            ...(steamDiscussionsForumUrl ? { forum_url: steamDiscussionsForumUrl } : {}),
+            ...(steamDiscussionsStart ? { start_time: steamDiscussionsStart } : {}),
+            ...(steamDiscussionsEnd ? { end_time: steamDiscussionsEnd } : {}),
+            max_pages: Number(steamDiscussionsMaxPages || 50),
+            max_topics: Number(steamDiscussionsMaxTopics || 1000),
+            include_replies: Boolean(steamDiscussionsIncludeReplies),
+        };
+
+        return [
+            {
+                name: targetName || appId || steamDiscussionsForumUrl,
+                target_type: "game",
+                params,
+            },
+        ];
+    }
 
     if (collector === "taptap") {
         if (!targetName && !taptapUrl && !appId) {
@@ -403,6 +499,40 @@ function buildTaskTargetsFromForm(formState) {
         ];
     }
 
+    if (collector === "monitor") {
+        if (!targetName && !appId) {
+            return [];
+        }
+        return [
+            {
+                name: targetName || appId,
+                target_type: "game",
+                params: {
+                    app_id: appId,
+                    days: Number(monitorDays || 30),
+                    metrics: ["twitch_viewer_trend"],
+                    ...(monitorTwitchName ? { twitch_name: monitorTwitchName } : {}),
+                    ...(monitorSiteurl ? { siteurl: monitorSiteurl } : {}),
+                },
+            },
+        ];
+    }
+
+    if (collector === "qimai") {
+        if (!targetName && !qimaiAppId) {
+            return [];
+        }
+        return [
+            {
+                name: targetName || qimaiAppId,
+                target_type: "game",
+                params: {
+                    qimai_app_id: qimaiAppId,
+                },
+            },
+        ];
+    }
+
     if (!targetName && !appId) {
         return [];
     }
@@ -424,17 +554,30 @@ function buildTaskTargetsFromForm(formState) {
 
 async function createTask() {
     const name = document.getElementById("task-name")?.value.trim() || "";
+    const dataGroup = document.getElementById("task-data-group")?.value.trim() || "";
     const pipelineName = document.getElementById("task-pipeline")?.value || "";
     const targetsRaw = taskTargetsEditor ? taskTargetsEditor.getValue().trim() : (document.getElementById("task-targets")?.value.trim() || "");
     const description = document.getElementById("task-desc")?.value.trim() || "";
     const targetName = document.getElementById("task-target-name")?.value.trim() || "";
     const steamAppId = document.getElementById("task-app-id")?.value.trim() || "";
+    const steamDiscussionsAppId = document.getElementById("task-steam-discussions-app-id")?.value.trim() || "";
+    const steamDiscussionsForumUrl = document.getElementById("task-steam-discussions-forum-url")?.value.trim() || "";
+    const steamDiscussionsStart = document.getElementById("task-steam-discussions-start")?.value || "";
+    const steamDiscussionsEnd = document.getElementById("task-steam-discussions-end")?.value || "";
+    const steamDiscussionsMaxPages = document.getElementById("task-steam-discussions-max-pages")?.value || "50";
+    const steamDiscussionsMaxTopics = document.getElementById("task-steam-discussions-max-topics")?.value || "1000";
+    const steamDiscussionsIncludeReplies = document.getElementById("task-steam-discussions-include-replies")?.checked ?? true;
     const taptapAppId = document.getElementById("task-taptap-app-id")?.value.trim() || "";
     const skipSteamdb = document.getElementById("task-skip-steamdb")?.checked || false;
     const steamdbTimeSlice = document.getElementById("task-steamdb-time-slice")?.value || "monthly_peak_1y";
     const taptapUrl = document.getElementById("task-taptap-url")?.value.trim() || "";
     const taptapReviewsPages = document.getElementById("task-taptap-reviews-pages")?.value || "1";
     const taptapReviewsLimit = document.getElementById("task-taptap-reviews-limit")?.value || "20";
+    const monitorAppId = document.getElementById("task-monitor-app-id")?.value.trim() || "";
+    const monitorDays = document.getElementById("task-monitor-days")?.value || "30";
+    const monitorTwitchName = document.getElementById("task-monitor-twitch-name")?.value.trim() || "";
+    const monitorSiteurl = document.getElementById("task-monitor-siteurl")?.value.trim() || "";
+    const qimaiAppId = document.getElementById("task-qimai-app-id")?.value.trim() || "";
     const enableReport = document.getElementById("task-enable-report")?.checked || false;
     const reportPromptRaw = document.getElementById("task-report-prompt")?.value.trim() || "";
     const reportTemplate = document.getElementById("task-report-template")?.value || "default";
@@ -448,12 +591,27 @@ async function createTask() {
     let targets = buildTaskTargetsFromForm({
         collector,
         targetName,
-        appId: collector === "taptap" ? taptapAppId : steamAppId,
+        appId: collector === "taptap"
+            ? taptapAppId
+            : collector === "steam_discussions"
+                ? steamDiscussionsAppId
+                : steamAppId,
+        ...(collector === "monitor" ? { appId: monitorAppId } : {}),
         skipSteamdb,
         steamdbTimeSlice,
+        steamDiscussionsForumUrl,
+        steamDiscussionsStart,
+        steamDiscussionsEnd,
+        steamDiscussionsMaxPages,
+        steamDiscussionsMaxTopics,
+        steamDiscussionsIncludeReplies,
         taptapUrl,
         taptapReviewsPages,
         taptapReviewsLimit,
+        monitorDays,
+        monitorTwitchName,
+        monitorSiteurl,
+        qimaiAppId,
     });
     if (targetsRaw) {
         try {
@@ -470,7 +628,7 @@ async function createTask() {
     }
 
     const primarySubject = targetName
-        || (collector === "taptap" ? taptapAppId : steamAppId)
+        || (collector === "taptap" ? taptapAppId : collector === "steam_discussions" ? steamDiscussionsAppId : steamAppId)
         || name;
     const reportPrompt = reportPromptRaw
         || `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`;
@@ -487,6 +645,9 @@ async function createTask() {
             },
         }
         : {};
+    if (dataGroup) {
+        config.data_group = { id: dataGroup, name: dataGroup };
+    }
 
     try {
         await api("/tasks", {
@@ -842,6 +1003,478 @@ async function loadPipelineSelect(selectId) {
     }
 }
 
+async function loadDataGames() {
+    try {
+        dataGames = await api("/data/games");
+        renderDataGames(dataGames);
+        if (selectedDataGame && dataGames.some((game) => game.game_key === selectedDataGame.game_key)) {
+            await selectDataGame(selectedDataGame.game_key);
+        }
+    } catch (err) {
+        toast(`Load data failed: ${err.message}`, "error");
+    }
+}
+
+async function loadDataGroups() {
+    try {
+        dataGroups = await api("/data/groups");
+        const select = document.getElementById("report-group-select");
+        if (select) {
+            const current = select.value;
+            select.innerHTML = '<option value="">-- Select group --</option>';
+            for (const group of dataGroups) {
+                select.insertAdjacentHTML(
+                    "beforeend",
+                    `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.group_name || group.group_id)} (${group.count})</option>`
+                );
+            }
+            if ([...select.options].some((option) => option.value === current)) {
+                select.value = current;
+            }
+        }
+        return dataGroups;
+    } catch (err) {
+        console.error("Load groups failed:", err);
+        return [];
+    }
+}
+
+async function searchDataRecords() {
+    const q = document.getElementById("data-search-query")?.value.trim() || "";
+    if (!q) {
+        loadDataGames();
+        return;
+    }
+    try {
+        selectedDataGame = null;
+        currentDataRecords = await api(`/data/search?q=${encodeURIComponent(q)}`);
+        const title = document.getElementById("data-records-title");
+        const summary = document.getElementById("data-selected-summary");
+        if (title) title.textContent = "Search results";
+        if (summary) summary.textContent = `${currentDataRecords.length} matching records`;
+        renderDataRecords(currentDataRecords);
+    } catch (err) {
+        toast(`Search failed: ${err.message}`, "error");
+    }
+}
+
+function renderDataGames(games) {
+    const container = document.getElementById("data-games-list");
+    if (!container) return;
+
+    if (!games.length) {
+        container.innerHTML = '<p class="text-muted">暂无已落库数据</p>';
+        return;
+    }
+
+    container.innerHTML = games.map((game) => {
+        const activeClass = selectedDataGame?.game_key === game.game_key ? "active" : "";
+        const sourceText = (game.sources || []).map((source) => `${source.name} ${source.count}`).join(" / ");
+        return `
+            <button class="data-game-item ${activeClass}" onclick="selectDataGame('${escapeJs(game.game_key)}')">
+                <span class="data-game-name">${escapeHtml(game.game_name)}</span>
+                <span class="data-game-meta">App ID: ${escapeHtml(game.app_id || "-")} | Group: ${escapeHtml(game.group_name || "-")} | ${game.total_records} records</span>
+                <span class="data-game-sources">${escapeHtml(sourceText || "No source")}</span>
+            </button>
+        `;
+    }).join("");
+}
+
+async function selectDataGame(gameKey) {
+    selectedDataGame = dataGames.find((game) => game.game_key === gameKey) || null;
+    renderDataGames(dataGames);
+
+    const title = document.getElementById("data-records-title");
+    const summary = document.getElementById("data-selected-summary");
+    const sourceFilter = document.getElementById("data-source-filter");
+
+    if (!selectedDataGame) {
+        if (title) title.textContent = "选择一个游戏";
+        if (summary) summary.textContent = "按 App ID 或游戏名聚合已落库 JSON";
+        return;
+    }
+
+    if (title) title.textContent = selectedDataGame.game_name;
+    if (summary) {
+        summary.textContent = `App ID: ${selectedDataGame.app_id || "-"} | ${selectedDataGame.total_records} 条记录 | 最新 ${formatTime(selectedDataGame.latest_stored_at)}`;
+    }
+    if (sourceFilter) {
+        const current = sourceFilter.value;
+        sourceFilter.innerHTML = '<option value="">全部数据源</option>';
+        for (const source of selectedDataGame.sources || []) {
+            sourceFilter.insertAdjacentHTML(
+                "beforeend",
+                `<option value="${escapeHtml(source.name)}">${escapeHtml(source.name)} (${source.count})</option>`
+            );
+        }
+        sourceFilter.value = [...sourceFilter.options].some((option) => option.value === current) ? current : "";
+    }
+
+    await loadSelectedGameRecords();
+}
+
+async function loadSelectedGameRecords() {
+    if (!selectedDataGame) return;
+    const source = document.getElementById("data-source-filter")?.value || "";
+    const query = source ? `?source=${encodeURIComponent(source)}` : "";
+    try {
+        currentDataRecords = await api(`/data/games/${encodeURIComponent(selectedDataGame.game_key)}/records${query}`);
+        renderDataRecords(currentDataRecords);
+    } catch (err) {
+        toast(`Load records failed: ${err.message}`, "error");
+    }
+}
+
+function renderDataRecords(records) {
+    const tbody = document.getElementById("data-records-body");
+    if (!tbody) return;
+
+    if (!records.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-muted">该分类下暂无记录</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = records.map((record) => `
+        <tr>
+            <td><code>${escapeHtml(record.key)}</code></td>
+            <td>${escapeHtml(record.data_source)}</td>
+            <td>${escapeHtml(formatDataSummary(record.summary || {}))}</td>
+            <td>${formatTime(record.stored_at)}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-ghost btn-sm" onclick="previewDataRecord('${escapeJs(record.key)}')">预览</button>
+                    <button class="btn btn-ghost btn-sm" onclick="downloadDataRecord('${escapeJs(record.key)}')">导出</button>
+                    <button class="btn btn-ghost btn-sm" onclick="editDataRecord('${escapeJs(record.key)}')">Edit</button>
+                    <button class="btn btn-ghost btn-sm" onclick="refreshDataRecord('${escapeJs(record.key)}')">Update</button>
+                    <button class="btn btn-ghost btn-sm" onclick="scheduleDataRecordRefresh('${escapeJs(record.key)}')">Schedule</button>
+                    <button class="btn btn-primary btn-sm" onclick="useDataRecordForReport('${escapeJs(record.key)}')">报告</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteDataRecord('${escapeJs(record.key)}')">Delete</button>
+                </div>
+            </td>
+        </tr>
+    `).join("");
+}
+
+function formatDataSummary(summary) {
+    const entries = Object.entries(summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== "");
+    if (!entries.length) return "-";
+    return entries.slice(0, 4).map(([key, value]) => `${key}: ${value}`).join(" | ");
+}
+
+async function previewDataRecord(key) {
+    const preview = document.getElementById("data-preview");
+    if (preview) preview.textContent = "加载中...";
+    try {
+        const detail = await api(`/data/records/${encodeURIComponent(key)}`);
+        if (preview) {
+            preview.textContent = JSON.stringify(detail, null, 2);
+        }
+    } catch (err) {
+        if (preview) preview.textContent = `Load failed: ${err.message}`;
+    }
+}
+
+function downloadDataRecord(key) {
+    window.open(`/api/data/records/${encodeURIComponent(key)}/download`, "_blank");
+}
+
+async function editDataRecord(key) {
+    const record = currentDataRecords.find((item) => item.key === key) || {};
+    const groupName = prompt("Data group", record.group_name || record.group_id || "");
+    if (groupName === null) return;
+    const displayName = prompt("Display name", record.display_name || record.game_name || "");
+    if (displayName === null) return;
+    try {
+        const updated = await api(`/data/records/${encodeURIComponent(key)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+                group_id: groupName.trim(),
+                group_name: groupName.trim(),
+                display_name: displayName.trim(),
+            }),
+        });
+        toast("Record updated", "success");
+        await loadDataGames();
+        if (selectedDataGame) {
+            await loadSelectedGameRecords();
+        } else {
+            await searchDataRecords();
+        }
+        previewDataRecord(updated.key);
+    } catch (err) {
+        toast(`Update failed: ${err.message}`, "error");
+    }
+}
+
+async function deleteDataRecord(key) {
+    if (!confirm(`Delete data record ${key}?`)) return;
+    try {
+        await api(`/data/records/${encodeURIComponent(key)}`, { method: "DELETE" });
+        toast("Record deleted", "success");
+        await loadDataGames();
+        if (selectedDataGame) {
+            await loadSelectedGameRecords();
+        } else {
+            renderDataRecords(currentDataRecords.filter((item) => item.key !== key));
+        }
+    } catch (err) {
+        toast(`Delete failed: ${err.message}`, "error");
+    }
+}
+
+async function refreshDataRecord(key) {
+    try {
+        const resp = await api(`/data/records/${encodeURIComponent(key)}/refresh`, {
+            method: "POST",
+            body: JSON.stringify({ rolling_window: true }),
+        });
+        toast(`Refresh task submitted: ${resp.task_id}`, "success");
+        activateTab("tasks");
+        loadTasks();
+    } catch (err) {
+        toast(`Refresh failed: ${err.message}`, "error");
+    }
+}
+
+async function scheduleDataRecordRefresh(key) {
+    const cronExpr = prompt("Cron expression", "0 8 * * *");
+    if (!cronExpr) return;
+    const name = prompt("Schedule name", `refresh_${key.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 48)}`);
+    if (!name) return;
+    try {
+        await api(`/data/records/${encodeURIComponent(key)}/refresh-schedules`, {
+            method: "POST",
+            body: JSON.stringify({ name, cron_expr: cronExpr, rolling_window: true }),
+        });
+        toast("Refresh schedule created", "success");
+        loadCronJobs();
+    } catch (err) {
+        toast(`Schedule failed: ${err.message}`, "error");
+    }
+}
+
+function useDataRecordForReport(key) {
+    const record = currentDataRecords.find((item) => item.key === key);
+    addReportRecordSelection(key, record);
+    syncSelectedReportRecordKeys();
+    setValue("report-data-source", record?.data_source || "");
+    setValue("report-prompt", `基于所选原始 JSON 数据，生成${record?.game_name || "该游戏"}的数据分析报告。`);
+    activateTab("reports");
+    toast("已添加 1 条原始 JSON 用于报告", "success");
+}
+
+function useCurrentDataForReport() {
+    if (!currentDataRecords.length) {
+        toast("当前没有可用于报告的记录", "error");
+        return;
+    }
+    for (const record of currentDataRecords) {
+        addReportRecordSelection(record.key, record);
+    }
+    syncSelectedReportRecordKeys();
+    setValue("report-data-source", selectedDataGame?.game_name || "");
+    setValue("report-prompt", `基于${selectedDataGame?.game_name || "所选游戏"}当前筛选出的原始 JSON 数据，生成综合分析报告。`);
+    activateTab("reports");
+    toast(`已选择 ${selectedReportRecordKeys.length} 条原始 JSON 用于报告`, "success");
+}
+
+function clearSelectedReportRecords() {
+    selectedReportRecordKeys = [];
+    selectedReportRecordMeta = {};
+    syncSelectedReportRecordKeys();
+}
+
+function syncSelectedReportRecordKeys() {
+    const el = document.getElementById("report-record-keys");
+    if (el) {
+        el.value = selectedReportRecordKeys.join("\n");
+    }
+    renderSelectedReportRecords();
+    updateReportTemplateHelp();
+}
+
+function syncReportRecordKeysFromTextarea() {
+    const raw = document.getElementById("report-record-keys")?.value.trim() || "";
+    const keys = raw ? raw.split(/\s+/).map((item) => item.trim()).filter(Boolean) : [];
+    selectedReportRecordKeys = [...new Set(keys)];
+    for (const key of Object.keys(selectedReportRecordMeta)) {
+        if (!selectedReportRecordKeys.includes(key)) {
+            delete selectedReportRecordMeta[key];
+        }
+    }
+    renderSelectedReportRecords();
+    updateReportTemplateHelp();
+}
+
+function addReportRecordSelection(key, meta = null) {
+    if (!selectedReportRecordKeys.includes(key)) {
+        selectedReportRecordKeys.push(key);
+    }
+    if (meta) {
+        selectedReportRecordMeta[key] = {
+            key,
+            collector: meta.collector || "",
+            data_source: meta.data_source || meta.collector || "",
+            game_name: meta.game_name || "",
+            app_id: meta.app_id || "",
+        };
+    }
+}
+
+function renderSelectedReportRecords() {
+    const container = document.getElementById("report-selected-records");
+    if (!container) return;
+    if (!selectedReportRecordKeys.length) {
+        container.innerHTML = '<p class="text-muted">尚未添加 JSON 数据源</p>';
+        return;
+    }
+    container.innerHTML = selectedReportRecordKeys.map((key) => {
+        const meta = selectedReportRecordMeta[key] || {};
+        const label = meta.data_source || meta.collector || "手工输入";
+        const title = meta.game_name ? `${meta.game_name} / ${label}` : label;
+        return `
+            <div class="selected-source-chip">
+                <span>
+                    <strong>${escapeHtml(title)}</strong>
+                    <code>${escapeHtml(key)}</code>
+                </span>
+                <button class="btn btn-ghost btn-sm" type="button" onclick="removeReportRecordSelection('${escapeJs(key)}')">移除</button>
+            </div>
+        `;
+    }).join("");
+}
+
+function removeReportRecordSelection(key) {
+    selectedReportRecordKeys = selectedReportRecordKeys.filter((item) => item !== key);
+    delete selectedReportRecordMeta[key];
+    syncSelectedReportRecordKeys();
+}
+
+async function loadReportTemplates() {
+    try {
+        reportTemplates = await api("/reports/templates");
+        const select = document.getElementById("report-template");
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = reportTemplates.map((template) => (
+            `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`
+        )).join("");
+        if ([...select.options].some((option) => option.value === current)) {
+            select.value = current;
+        }
+        updateReportTemplateHelp();
+    } catch (err) {
+        console.error("Load report templates failed:", err);
+    }
+}
+
+function updateReportTemplateHelp() {
+    const templateId = document.getElementById("report-template")?.value || "";
+    const help = document.getElementById("report-template-help");
+    if (!help) return;
+    const template = reportTemplates.find((item) => item.id === templateId);
+    if (!template) {
+        help.textContent = "";
+        return;
+    }
+    const knownCollectors = new Set(
+        Object.values(selectedReportRecordMeta)
+            .map((meta) => normalizeCollector(meta.collector))
+            .filter(Boolean)
+    );
+    const missing = (template.required_collectors || []).filter((collector) => !knownCollectors.has(collector));
+    const requirements = (template.required_collectors || []).map(labelCollector).join(" / ");
+    const manualCount = selectedReportRecordKeys.filter((key) => !selectedReportRecordMeta[key]).length;
+    const status = missing.length
+        ? `缺少：${missing.map(labelCollector).join(" / ")}`
+        : "已满足已知数据源要求";
+    help.innerHTML = `
+        <span>${escapeHtml(template.description)}</span><br>
+        <span>必需数据源：${escapeHtml(requirements || "-")}；${escapeHtml(status)}</span>
+        ${manualCount ? `<br><span>包含 ${manualCount} 个手工 key，前端无法识别来源，后端生成时会再次校验。</span>` : ""}
+    `;
+}
+
+function normalizeCollector(value) {
+    const normalized = String(value || "").toLowerCase();
+    const aliases = {
+        google_trends: "gtrends",
+        pytrends: "gtrends",
+        steam_api: "steam",
+        steamdb: "steam",
+        firecrawl: "steam",
+    };
+    return aliases[normalized] || normalized;
+}
+
+function labelCollector(value) {
+    const labels = {
+        steam: "Steam",
+        taptap: "TapTap",
+        gtrends: "Google Trends",
+        monitor: "Monitor",
+        events: "事件数据",
+        steam_discussions: "Steam Community Discussions",
+    };
+    return labels[value] || value;
+}
+
+async function uploadReportJsonFiles() {
+    const input = document.getElementById("report-json-files");
+    const files = [...(input?.files || [])];
+    if (!files.length) {
+        toast("请选择 JSON 文件", "error");
+        return;
+    }
+    const formData = new FormData();
+    for (const file of files) {
+        formData.append("files", file);
+    }
+    try {
+        const resp = await fetch("/api/reports/upload-json", {
+            method: "POST",
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        const uploaded = await resp.json();
+        for (const item of uploaded) {
+            addReportRecordSelection(item.key, {
+                collector: item.collector,
+                data_source: labelCollector(normalizeCollector(item.collector)),
+                game_name: item.game_name,
+                app_id: item.app_id,
+            });
+        }
+        syncSelectedReportRecordKeys();
+        if (input) input.value = "";
+        loadDataGames();
+        toast(`已导入 ${uploaded.length} 个 JSON 数据源`, "success");
+    } catch (err) {
+        toast(`Upload failed: ${err.message}`, "error");
+    }
+}
+
+async function importReportGroupRecords() {
+    const groupId = document.getElementById("report-group-select")?.value || "";
+    if (!groupId) {
+        toast("Choose a data group", "error");
+        return;
+    }
+    try {
+        const records = await api(`/reports/group-records?group_id=${encodeURIComponent(groupId)}`);
+        for (const record of records) {
+            addReportRecordSelection(record.key, record);
+        }
+        syncSelectedReportRecordKeys();
+        toast(`Imported ${records.length} records`, "success");
+    } catch (err) {
+        toast(`Import failed: ${err.message}`, "error");
+    }
+}
+
 async function loadReports() {
     try {
         const reports = await api("/reports");
@@ -854,10 +1487,16 @@ async function loadReports() {
         }
 
         container.innerHTML = reports.map((report) => `
-            <button class="report-item" onclick="viewReport('${report.id}')">
-                <span class="report-item-title">${escapeHtml(report.title)}</span>
-                <span class="report-item-meta">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${report.matched_records} records</span>
-            </button>
+            <div class="report-item">
+                <button class="report-item-main" onclick="viewReport('${report.id}')">
+                    <span class="report-item-title">${escapeHtml(report.title)}</span>
+                    <span class="report-item-meta">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${report.matched_records} records</span>
+                </button>
+                <div class="inline-actions">
+                    <button class="btn btn-ghost btn-sm" onclick="editReport('${report.id}')">Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteReport('${report.id}')">Delete</button>
+                </div>
+            </div>
         `).join("");
     } catch (err) {
         toast(`Load failed: ${err.message}`, "error");
@@ -890,29 +1529,53 @@ function renderReport(report) {
 }
 
 async function generateReport() {
+    syncReportRecordKeysFromTextarea();
     const prompt = document.getElementById("report-prompt")?.value.trim() || "";
     const dataSource = document.getElementById("report-data-source")?.value.trim() || "";
     const template = document.getElementById("report-template")?.value || "default";
+    const recordKeysRaw = document.getElementById("report-record-keys")?.value.trim() || "";
+    const recordKeys = recordKeysRaw
+        ? recordKeysRaw.split(/\s+/).map((item) => item.trim()).filter(Boolean)
+        : [];
 
     if (!prompt) {
         toast("Prompt is required", "error");
         return;
     }
 
+    currentReportProgressId = `report_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    resetReportProgress();
+    const button = document.getElementById("btn-generate-report");
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Generating...";
+    }
+
     try {
+        setReportProgress(0.08, "requesting", "Sending report request");
         const report = await api("/reports/generate-excel", {
             method: "POST",
             body: JSON.stringify({
                 prompt,
                 data_source: dataSource,
                 template,
+                record_keys: recordKeys,
+                params: { progress_id: currentReportProgressId },
             }),
         });
+        setReportProgress(1, "completed", "Report generated");
         renderReport(report);
         loadReports();
         toast("Report generated", "success");
     } catch (err) {
+        setReportProgress(1, "failed", err.message);
         toast(`Generate failed: ${err.message}`, "error");
+    } finally {
+        if (button) {
+            button.disabled = false;
+            setTimeout(() => { button.textContent = "生成报告"; }, 0);
+            button.textContent = "生成报告";
+        }
     }
 }
 
@@ -922,6 +1585,38 @@ async function viewReport(id) {
         renderReport(report);
     } catch (err) {
         toast(`Load failed: ${err.message}`, "error");
+    }
+}
+
+async function editReport(id) {
+    try {
+        const report = await api(`/reports/${id}`);
+        const title = prompt("Report title", report.title || "");
+        if (title === null) return;
+        const notes = prompt("Notes", report.metadata?.notes || "");
+        if (notes === null) return;
+        const updated = await api(`/reports/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ title: title.trim(), notes: notes.trim() }),
+        });
+        renderReport(updated);
+        loadReports();
+        toast("Report updated", "success");
+    } catch (err) {
+        toast(`Edit failed: ${err.message}`, "error");
+    }
+}
+
+async function deleteReport(id) {
+    if (!confirm(`Delete report ${id}?`)) return;
+    try {
+        await api(`/reports/${id}`, { method: "DELETE" });
+        toast("Report deleted", "success");
+        loadReports();
+        const container = document.getElementById("report-content");
+        if (container) container.textContent = "No report selected";
+    } catch (err) {
+        toast(`Delete failed: ${err.message}`, "error");
     }
 }
 
@@ -1061,6 +1756,10 @@ function escapeHtml(value) {
         .replaceAll("'", "&#39;");
 }
 
+function escapeJs(value) {
+    return String(value).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
+
 function restartAutoRefresh() {
     if (autoRefreshHandle) {
         clearInterval(autoRefreshHandle);
@@ -1072,27 +1771,33 @@ function restartAutoRefresh() {
             refreshDashboard();
         } else if (activeTab === "tasks") {
             loadTasks();
+        } else if (activeTab === "data") {
+            loadDataGames();
         } else if (activeTab === "cron") {
             loadCronJobs();
         }
     }, AUTO_REFRESH_INTERVAL_MS);
 }
 
+function activateTab(tab) {
+    activeTab = tab;
+
+    document.querySelectorAll(".nav-link").forEach((item) => {
+        item.classList.toggle("active", item.dataset.tab === tab);
+    });
+
+    document.querySelectorAll(".tab-content").forEach((panel) => panel.classList.remove("active"));
+    document.getElementById(`tab-${tab}`)?.classList.add("active");
+
+    loadTabData(tab);
+    restartAutoRefresh();
+}
+
 function bindNavigation() {
     document.querySelectorAll(".nav-link").forEach((link) => {
         link.addEventListener("click", (e) => {
             e.preventDefault();
-            const tab = link.dataset.tab;
-            activeTab = tab;
-
-            document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
-            link.classList.add("active");
-
-            document.querySelectorAll(".tab-content").forEach((panel) => panel.classList.remove("active"));
-            document.getElementById(`tab-${tab}`)?.classList.add("active");
-
-            loadTabData(tab);
-            restartAutoRefresh();
+            activateTab(link.dataset.tab);
         });
     });
 }
@@ -1116,5 +1821,6 @@ document.addEventListener("DOMContentLoaded", () => {
     loadTasks();
     loadPipelineTemplates();
     loadComponents();
+    loadReportTemplates();
     restartAutoRefresh();
 });

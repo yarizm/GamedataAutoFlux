@@ -1,22 +1,21 @@
 """
-报告生成器。
+Report generator.
 
-当前提供一个可落地的本地实现:
-  - 从本地存储检索相关数据
-  - 使用模板组装结构化 Markdown 报告
-  - 保存报告历史，供 API 与 WebUI 查询
-
-后续如接入真实 LLM，仅需替换 _render_report 内容生成逻辑。
+It loads stored source records, renders Markdown or Excel reports, and saves
+report history for the API and WebUI.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import uuid
 from datetime import datetime
 from typing import Any
 
 import httpx
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from src.core.config import get as get_config
@@ -26,10 +25,11 @@ from src.storage.local_store import LocalStorage
 from src.storage.vector_store import VectorStorage
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.excel_exporter import export_to_excel
+from src.reporting.report_templates import get_report_template, validate_template_sources
 
 
 class ReportSummary(BaseModel):
-    """报告摘要，用于列表展示。"""
+    """Report summary used by list views."""
 
     id: str
     title: str
@@ -41,15 +41,15 @@ class ReportSummary(BaseModel):
 
 
 class GeneratedReport(ReportSummary):
-    """完整报告对象。"""
+    """Full generated report."""
 
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-    excel_path: str | None = Field(default=None, description="Excel 报告文件路径")
+    excel_path: str | None = Field(default=None, description="Excel report file path")
 
 
 class ReportGenerator:
-    """报告生成与历史管理。"""
+    """Report generation and history management."""
 
     def __init__(
         self,
@@ -80,7 +80,23 @@ class ReportGenerator:
         metadata: dict[str, Any] | None = None,
     ) -> GeneratedReport:
         params = params or {}
-        records = records or await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+        progress_id = str(params.get("progress_id") or "")
+        logger.info(
+            "[Report] generate start template={} data_source={} records={} progress_id={}",
+            template,
+            data_source or "",
+            len(records) if records is not None else "auto",
+            progress_id or "-",
+        )
+        await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
+        if records is None:
+            await _emit_report_progress(progress_id, "loading_records", 0.12, "Loading report records")
+            records = await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+        logger.info("[Report] records loaded count={} template={}", len(records), template)
+
+        await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
+        content = await self._render_report(prompt, data_source, template, records)
+        await _emit_report_progress(progress_id, "llm_done", 0.76, "LLM analysis completed")
 
         report = GeneratedReport(
             id=uuid.uuid4().hex[:12],
@@ -90,7 +106,7 @@ class ReportGenerator:
             template=template,
             generated_at=datetime.now(),
             matched_records=len(records),
-            content=await self._render_report(prompt, data_source, template, records),
+            content=content,
             metadata={
                 "provider": self._llm_provider,
                 "template": template,
@@ -100,6 +116,12 @@ class ReportGenerator:
         )
 
         await self._save_report(report)
+        logger.info(
+            "[Report] generate complete report_id={} matched_records={}",
+            report.id,
+            report.matched_records,
+        )
+        await _emit_report_progress(progress_id, "completed", 1.0, "Report generated", report_id=report.id)
         return report
 
     async def generate_excel(
@@ -112,27 +134,64 @@ class ReportGenerator:
         metadata: dict[str, Any] | None = None,
     ) -> GeneratedReport:
         """
-        生成 Excel 格式的报告。
+        Generate an Excel report.
 
-        流程: 加载数据 → 提取结构化字段 → 可选 LLM 分析 → 写入 .xlsx
+        Flow: load records, extract structured fields, optionally ask the LLM,
+        then write the .xlsx file.
         """
         params = params or {}
-        records = records or await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+        progress_id = str(params.get("progress_id") or "")
+        logger.info(
+            "[Report] generate_excel start template={} data_source={} records={} progress_id={}",
+            template,
+            data_source or "",
+            len(records) if records is not None else "auto",
+            progress_id or "-",
+        )
+        await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
+        if records is None:
+            await _emit_report_progress(progress_id, "loading_records", 0.12, "Loading report records")
+            records = await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+        logger.info("[Report] records loaded count={} template={}", len(records), template)
 
-        # 提取结构化数据
-        raw_data_list = [r.data for r in records if r.data is not None]
-        extracted = extract_from_records(raw_data_list)
+        usable_records = [r for r in records if r.data is not None]
+        await _emit_report_progress(progress_id, "extracting", 0.22, f"Parsing {len(usable_records)} records")
+        raw_data_list = [r.data for r in usable_records]
+        extracted = extract_from_records(
+            raw_data_list,
+            record_keys=[r.key for r in usable_records],
+            metadata_list=[r.metadata for r in usable_records],
+        )
+        template_validation = validate_template_sources(template, extracted.source_coverage)
+        logger.info(
+            "[Report] extracted coverage={} overview={} steam_peaks={} google={} monitor={} events={} discussions={}",
+            extracted.source_coverage,
+            len(extracted.overview),
+            len(extracted.steam_player_peaks),
+            len(extracted.google_trends),
+            len(extracted.monitor_metrics),
+            len(extracted.events),
+            len(extracted.community_discussions),
+        )
 
-        # 可选: LLM 文字分析
+        # Optional LLM narrative.
         llm_content = None
         if params.get("include_llm_analysis", True):
             try:
-                llm_content = await self._render_report(prompt, data_source, template, records)
+                await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
+                llm_content = await self._render_report(
+                    self._build_template_prompt(prompt, template, template_validation),
+                    data_source,
+                    template,
+                    records,
+                )
+                await _emit_report_progress(progress_id, "llm_done", 0.68, "LLM analysis completed")
             except Exception as exc:
-                from loguru import logger
-                logger.warning(f"LLM 分析生成失败，Excel 中将不包含 AI 分析: {exc}")
+                logger.warning("[Report] LLM analysis failed, fallback to template report: {}", exc)
+                await _emit_report_progress(progress_id, "llm_failed", 0.62, f"LLM failed; falling back to template report: {exc}")
 
-        # 生成 Excel
+        # Write Excel output.
+        await _emit_report_progress(progress_id, "exporting", 0.78, "Writing Excel report")
         report_id = uuid.uuid4().hex[:12]
         title = self._build_title(prompt, data_source, template)
         excel_dir = get_data_dir() / "excel_reports"
@@ -143,6 +202,8 @@ class ReportGenerator:
             output_path=excel_path,
             title=title,
             llm_content=llm_content,
+            template_id=template,
+            template_validation=template_validation,
         )
 
         report = GeneratedReport(
@@ -153,7 +214,7 @@ class ReportGenerator:
             template=template,
             generated_at=datetime.now(),
             matched_records=len(records),
-            content=llm_content or "报告已生成为 Excel 文件",
+            content=llm_content or "Report generated as an Excel file",
             excel_path=str(excel_path),
             metadata={
                 "provider": self._llm_provider,
@@ -165,12 +226,27 @@ class ReportGenerator:
                     "reviews": len(extracted.reviews),
                     "trends": len(extracted.trends),
                     "related_queries": len(extracted.related_queries),
+                    "steam_player_peaks": len(extracted.steam_player_peaks),
+                    "steam_monthly_peaks": len(extracted.steam_monthly_peaks),
+                    "google_trends": len(extracted.google_trends),
+                    "monitor_metrics": len(extracted.monitor_metrics),
+                    "events": len(extracted.events),
+                    "community_discussions": len(extracted.community_discussions),
+                    "raw_appendices": len(extracted.raw_sources),
                 },
+                "template_validation": template_validation,
                 **(metadata or {}),
             },
         )
 
         await self._save_report(report)
+        logger.info(
+            "[Report] generate_excel complete report_id={} matched_records={} excel_path={}",
+            report.id,
+            report.matched_records,
+            report.excel_path or "",
+        )
+        await _emit_report_progress(progress_id, "completed", 1.0, "Report generated", report_id=report.id)
         return report
 
     async def list_reports(self, limit: int = 20) -> list[ReportSummary]:
@@ -194,6 +270,56 @@ class ReportGenerator:
             return GeneratedReport.model_validate(record.data)
         finally:
             await store.close()
+
+    async def update_report(
+        self,
+        report_id: str,
+        *,
+        title: str | None = None,
+        prompt: str | None = None,
+        data_source: str | None = None,
+        template: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> GeneratedReport | None:
+        report = await self.get_report(report_id)
+        if report is None:
+            return None
+        update_data: dict[str, Any] = {}
+        if title is not None:
+            update_data["title"] = title
+        if prompt is not None:
+            update_data["prompt"] = prompt
+        if data_source is not None:
+            update_data["data_source"] = data_source
+        if template is not None:
+            update_data["template"] = template
+        if metadata:
+            update_data["metadata"] = {**report.metadata, **metadata}
+        updated = report.model_copy(update=update_data)
+        await self._save_report(updated)
+        return updated
+
+    async def delete_report(self, report_id: str) -> bool:
+        report = await self.get_report(report_id)
+        if report is None:
+            return False
+        excel_path = report.excel_path or report.metadata.get("excel_path")
+        if excel_path:
+            try:
+                from pathlib import Path
+
+                path = Path(excel_path)
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                pass
+        store = LocalStorage(self._report_storage_config)
+        await store.initialize()
+        try:
+            await store.delete(f"report:{report_id}")
+        finally:
+            await store.close()
+        return True
 
     async def _save_report(self, report: GeneratedReport) -> None:
         store = LocalStorage(self._report_storage_config)
@@ -267,9 +393,30 @@ class ReportGenerator:
         return ordered_tokens[:5]
 
     def _build_title(self, prompt: str, data_source: str, template: str) -> str:
-        prefix = data_source or "综合数据"
-        subject = prompt.strip()[:24] or "报告"
-        return f"{prefix} {template}报告: {subject}"
+        prefix = data_source or "Combined data"
+        subject = prompt.strip()[:24] or "report"
+        return f"{prefix} {template} report: {subject}"
+
+    def _build_template_prompt(
+        self,
+        prompt: str,
+        template: str,
+        template_validation: dict[str, Any],
+    ) -> str:
+        template_def = get_report_template(template)
+        if template_def is None:
+            return prompt
+
+        missing = template_validation.get("missing_collectors") or []
+        missing_text = ", ".join(missing) if missing else "none"
+        return (
+            f"{prompt}\n\n"
+            f"Report template: {template_def.name}\n"
+            f"Template requirements: {template_def.prompt_instruction}\n"
+            f"Missing data sources: {missing_text}\n"
+            "Analyze strictly from the provided JSON records. If a source is missing, "
+            "state the gap instead of inventing data."
+        )
 
     async def _render_report(
         self,
@@ -278,19 +425,26 @@ class ReportGenerator:
         template: str,
         records: list[StorageRecord],
     ) -> str:
-        if self._llm_provider == "deepseek":
+        if self._llm_provider in {"deepseek", "qwen"}:
             try:
-                return await self._render_report_with_deepseek(prompt, data_source, template, records)
+                return await self._render_report_with_openai_compatible(
+                    provider=self._llm_provider,
+                    prompt=prompt,
+                    data_source=data_source,
+                    template=template,
+                    records=records,
+                )
             except Exception as exc:
-                fallback_enabled = bool(get_config("llm.deepseek.fallback_to_stub", True))
+                fallback_enabled = bool(get_config(f"llm.{self._llm_provider}.fallback_to_stub", True))
                 if not fallback_enabled:
                     raise
+                provider_label = "Qwen" if self._llm_provider == "qwen" else "DeepSeek"
                 return self._render_stub_report(
                     prompt=prompt,
                     data_source=data_source,
                     template=template,
                     records=records,
-                    extra_note=f"DeepSeek 调用失败，已回退到模板报告：{exc}",
+                    extra_note=f"{provider_label} request failed; fell back to template report: {exc}",
                 )
         return self._render_stub_report(prompt, data_source, template, records)
 
@@ -305,76 +459,87 @@ class ReportGenerator:
         lines = [
             f"# {self._build_title(prompt, data_source, template)}",
             "",
-            "## 任务输入",
-            f"- 提示词: {prompt}",
-            f"- 数据源过滤: {data_source or '未指定'}",
-            f"- 模板: {template}",
-            f"- 匹配记录数: {len(records)}",
+            "## Task Input",
+            f"- Prompt: {prompt}",
+            f"- Data source filter: {data_source or 'not specified'}",
+            f"- Template: {template}",
+            f"- Matched records: {len(records)}",
             "",
         ]
 
         if extra_note:
-            lines.extend(["## 生成备注", extra_note, ""])
+            lines.extend(["## Generation Note", extra_note, ""])
 
         if not records:
             lines.extend(
                 [
-                    "## 数据结论",
-                    "当前没有检索到可用于生成分析的历史记录。",
-                    "建议先执行采集任务并落库，再重新生成报告。",
+                    "## Data Conclusion",
+                    "No historical records were found for this report.",
+                    "Run a collection task first, then generate the report again.",
                 ]
             )
             return "\n".join(lines)
 
         lines.extend(
             [
-                "## 数据概览",
+                "## Data Overview",
                 *self._render_record_overview(records),
                 "",
-                "## 初步观察",
+                "## Initial Observations",
                 *self._render_observations(records),
             ]
         )
 
         if template == "brief":
-            lines.extend(["", "## 建议", "优先复查最新 1-2 条记录，确认是否需要追加采集。"])
+            lines.extend(["", "## Suggestions", "Review the latest 1-2 records first and decide whether more collection is needed."])
         else:
             lines.extend(
                 [
                     "",
-                    "## 建议动作",
-                    "1. 对高波动或高热度目标追加定时采集。",
-                    "2. 对评论或公告明显变化的目标进入复盘池。",
-                    "3. 如需更细的研判，可继续补充更多时间切片和评论文本。",
+                    "## Suggested Actions",
+                    "1. Add scheduled collection for high-volatility or high-interest targets.",
+                    "2. Put targets with clear review or announcement changes into the review pool.",
+                    "3. Add more time slices and discussion text for deeper analysis.",
                 ]
             )
 
         return "\n".join(lines)
 
-    async def _render_report_with_deepseek(
+    async def _render_report_with_openai_compatible(
         self,
+        provider: str,
         prompt: str,
         data_source: str,
         template: str,
         records: list[StorageRecord],
     ) -> str:
-        api_key = get_config("llm.deepseek.api_key", "")
+        provider_label = "Qwen" if provider == "qwen" else provider
+        api_key = get_config(f"llm.{provider}.api_key", "")
         if not api_key or api_key.startswith("${"):
-            raise ValueError("llm.deepseek.api_key 未配置")
+            raise ValueError(f"llm.{provider}.api_key is not configured")
 
-        base_url = get_config("llm.deepseek.base_url", "https://api.deepseek.com").rstrip("/")
-        model = get_config("llm.deepseek.model", "deepseek-chat")
-        temperature = float(get_config("llm.deepseek.temperature", 0.3))
-        max_tokens = int(get_config("llm.deepseek.max_tokens", 1200))
-        timeout = float(get_config("llm.deepseek.timeout", 60))
+        default_base_url = (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            if provider == "qwen"
+            else "https://api.deepseek.com"
+        )
+        default_model = "qwen-max" if provider == "qwen" else "deepseek-chat"
+        base_url = get_config(f"llm.{provider}.base_url", default_base_url).rstrip("/")
+        model = get_config(f"llm.{provider}.model", default_model)
+        temperature = float(get_config(f"llm.{provider}.temperature", 0.3))
+        max_tokens = int(get_config(f"llm.{provider}.max_tokens", 2000))
+        timeout = float(get_config(f"llm.{provider}.timeout", 90))
+        retry_count = int(get_config(f"llm.{provider}.retry_count", 2))
+        retry_delay = float(get_config(f"llm.{provider}.retry_delay", 2.0))
 
-        context = self._build_record_context(records)
-        system_prompt = self._build_deepseek_system_prompt(template=template)
+        context = self._build_record_context(records, provider=provider)
+        system_prompt = self._build_report_system_prompt(template=template)
         user_prompt = (
-            f"用户需求：{prompt}\n"
-            f"数据源过滤：{data_source or '未指定'}\n\n"
-            f"下面是检索到的数据记录，请基于这些记录生成一份中文 Markdown 报告。\n"
-            f"如果信息不足，请明确指出不足，不要编造。\n\n"
+            f"User request: {prompt}\n"
+            f"Data source filter: {data_source or 'not specified'}\n\n"
+            "Below are the matched data records. Generate a Chinese Markdown report "
+            "based only on these records. If information is insufficient, state the "
+            "gap explicitly and do not invent data.\n\n"
             f"{context}"
         )
 
@@ -392,60 +557,116 @@ class ReportGenerator:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "Connection": "close",
         }
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
-            response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-            if response.is_error:
-                try:
-                    error_payload = response.json()
-                except Exception:
-                    error_payload = response.text
+        request_stats = f"context_chars={len(context)}, user_prompt_chars={len(user_prompt)}"
+        attempts = max(1, retry_count + 1)
+        logger.info(
+            "[Report][LLM] request provider={} model={} template={} records={} {} attempts={}",
+            provider_label,
+            model,
+            template,
+            len(records),
+            request_stats,
+            attempts,
+        )
+        data = None
+        last_error: Exception | None = None
+        limits = httpx.Limits(max_connections=5, max_keepalive_connections=0)
+        for attempt in range(1, attempts + 1):
+            try:
+                logger.info("[Report][LLM] attempt {}/{} provider={} model={}", attempt, attempts, provider_label, model)
+                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout), limits=limits) as client:
+                    response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                if response.is_error:
+                    try:
+                        error_payload = response.json()
+                    except Exception:
+                        error_payload = response.text
+                    if response.status_code in {429, 500, 502, 503, 504} and attempt < attempts:
+                        logger.warning(
+                            "[Report][LLM] retryable status={} attempt={}/{} {}",
+                            response.status_code,
+                            attempt,
+                            attempts,
+                            request_stats,
+                        )
+                        await asyncio.sleep(retry_delay * attempt)
+                        continue
+                    raise ValueError(
+                        f"{provider_label} report request failed: status={response.status_code}, "
+                        f"{request_stats}, body={error_payload}"
+                    )
+                data = response.json()
+                logger.info("[Report][LLM] response received provider={} attempt={}", provider_label, attempt)
+                break
+            except httpx.TransportError as exc:
+                last_error = exc
+                if attempt < attempts:
+                    logger.warning(
+                        "[Report][LLM] transport error attempt={}/{} error={} {}",
+                        attempt,
+                        attempts,
+                        exc,
+                        request_stats,
+                    )
+                    await asyncio.sleep(retry_delay * attempt)
+                    continue
                 raise ValueError(
-                    f"DeepSeek report request failed: status={response.status_code}, body={error_payload}"
-                )
-            data = response.json()
+                    f"{provider_label} report request failed after {attempt} attempts: "
+                    f"{exc.__class__.__name__}: {exc}; {request_stats}"
+                ) from exc
+
+        if data is None:
+            raise ValueError(f"{provider_label} report request failed: {last_error}; {request_stats}")
 
         choices = data.get("choices") or []
         if not choices:
-            raise ValueError("DeepSeek 返回为空 choices")
+            raise ValueError(f"{provider_label} returned empty choices")
 
         message = choices[0].get("message") or {}
         content = message.get("content", "").strip()
         if not content:
-            raise ValueError("DeepSeek 返回空内容")
+            raise ValueError(f"{provider_label} returned empty content")
         return content
 
-    def _build_record_context(self, records: list[StorageRecord]) -> str:
+    def _build_record_context(self, records: list[StorageRecord], provider: str = "") -> str:
         if not records:
-            return "没有检索到任何记录。"
+            return "No records were matched."
 
+        max_chars = int(get_config(f"llm.{provider}.max_input_chars", 22000) if provider else 22000)
         sections: list[str] = []
-        for index, record in enumerate(records[:8], start=1):
-            snapshot = self._extract_snapshot(record.data)
+        for index, record in enumerate(records[:12], start=1):
+            snapshot = _compact_value(self._extract_snapshot(record.data))
+            compact_data = _compact_record_data(record.data)
             sections.append(
                 "\n".join(
                     [
-                        f"### 记录 {index}",
+                        f"### Record {index}",
                         f"- key: {record.key}",
                         f"- source: {record.source or 'unknown'}",
-                        f"- snapshot: {snapshot}",
-                        f"- raw_data: {record.data}",
+                        f"- metadata: {_compact_metadata(record.metadata)}",
+                        f"- snapshot: {_safe_json(snapshot, max_chars=1000)}",
+                        f"- compact_data: {_safe_json(compact_data, max_chars=3500)}",
                     ]
                 )
             )
-        return "\n\n".join(sections)
+        context = "\n\n".join(sections)
+        if len(context) > max_chars:
+            return context[:max_chars] + "\n\n[TRUNCATED: LLM input context was capped before request]"
+        return context
 
-    def _build_deepseek_system_prompt(self, template: str) -> str:
+    def _build_report_system_prompt(self, template: str) -> str:
         base = (
-            "你是游戏行业数据分析师。"
-            "请严格基于提供的记录生成中文 Markdown 报告。"
-            "不要编造不存在的数据。"
-            "优先输出结论、证据和建议。"
+            "You are a game industry data analyst. "
+            "Generate a Chinese Markdown report strictly from the provided records. "
+            "Do not invent missing data. "
+            "Prioritize conclusions, evidence, and recommended actions. "
         )
         if template == "brief":
-            return base + "报告尽量简洁，控制在 4 个小节以内。"
-        return base + "报告建议包含概览、发现、风险/不确定性、建议动作。"
+            return base + "Keep the report concise and within four sections."
+        return base + "Include overview, findings, risks or uncertainty, and suggested actions."
 
     def _render_record_overview(self, records: list[StorageRecord]) -> list[str]:
         lines: list[str] = []
@@ -454,15 +675,15 @@ class ReportGenerator:
             name = snapshot.get("name") or snapshot.get("game_name") or record.key
             details: list[str] = []
             if snapshot.get("current_players") not in (None, ""):
-                details.append(f"当前在线 {snapshot['current_players']}")
+                details.append(f"current_players {snapshot['current_players']}")
             if snapshot.get("total_reviews") not in (None, ""):
-                details.append(f"评论总量 {snapshot['total_reviews']}")
+                details.append(f"total_reviews {snapshot['total_reviews']}")
             if snapshot.get("review_score"):
-                details.append(f"口碑 {snapshot['review_score']}")
+                details.append(f"review_score {snapshot['review_score']}")
             if snapshot.get("price") not in (None, ""):
-                details.append(f"价格 {snapshot['price']}")
-            suffix = "，".join(details) if details else "暂无关键快照"
-            lines.append(f"{index}. {name}，来源 {record.source or 'unknown'}，{suffix}")
+                details.append(f"price {snapshot['price']}")
+            suffix = ", ".join(details) if details else "no key snapshot"
+            lines.append(f"{index}. {name}, source {record.source or 'unknown'}, {suffix}")
         return lines
 
     def _render_observations(self, records: list[StorageRecord]) -> list[str]:
@@ -477,10 +698,10 @@ class ReportGenerator:
         ]
 
         observations = [
-            f"1. 当前报告覆盖 {len(records)} 条已落库记录，适合做快速盘点，不适合做长期趋势判断。",
-            f"2. 最高在线值为 {max(player_values)}。" if player_values else "2. 本批数据未包含稳定的在线人数指标。",
-            f"3. 最高评论量为 {max(review_values)}。" if review_values else "3. 本批数据未包含稳定的评论量指标。",
-            "4. 如需更强结论，建议补充更多时间切片数据，并将报告生成切换到真实 LLM/Embedding。"
+            f"1. This report covers {len(records)} stored records and is suitable for a quick review.",
+            f"2. Highest online player value: {max(player_values)}." if player_values else "2. No stable online player metric was found.",
+            f"3. Highest review count: {max(review_values)}." if review_values else "3. No stable review count metric was found.",
+            "4. For stronger conclusions, add more time slices and discussion text.",
         ]
         return observations
 
@@ -501,3 +722,127 @@ class ReportGenerator:
     def _summary_from_record(self, record: StorageRecord) -> ReportSummary:
         payload = record.data if isinstance(record.data, dict) else {}
         return ReportSummary.model_validate(payload)
+
+
+def _compact_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    source_task = metadata.get("source_task") if isinstance(metadata.get("source_task"), dict) else {}
+    return {
+        key: value
+        for key, value in {
+            "collector": metadata.get("collector"),
+            "target": metadata.get("target"),
+            "group_id": metadata.get("group_id"),
+            "group_name": metadata.get("group_name"),
+            "task_id": source_task.get("task_id") if isinstance(source_task, dict) else "",
+            "task_name": source_task.get("task_name") if isinstance(source_task, dict) else "",
+        }.items()
+        if value not in (None, "")
+    }
+
+
+def _compact_record_data(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return _compact_value(data)
+
+    compact: dict[str, Any] = {}
+    for key in (
+        "collector",
+        "game_name",
+        "app_id",
+        "keyword",
+        "snapshot",
+        "source_meta",
+        "steamdb",
+        "steam_api",
+        "trend_history",
+        "related_queries",
+        "monitor_metrics",
+        "discussions",
+        "events",
+        "event_history",
+        "reviews",
+        "game",
+        "updates",
+    ):
+        if key in data:
+            compact[key] = _compact_value(data[key], key_hint=key)
+    return compact or _compact_value(data)
+
+
+def _compact_value(value: Any, *, key_hint: str = "", depth: int = 0) -> Any:
+    if depth > 5:
+        return _truncate_text(_safe_json(value, max_chars=500), 500)
+    if isinstance(value, str):
+        return _truncate_text(value, _string_limit_for_key(key_hint))
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        limit = _list_limit_for_key(key_hint)
+        return [_compact_value(item, key_hint=key_hint, depth=depth + 1) for item in value[:limit]]
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        for index, (key, child) in enumerate(value.items()):
+            if index >= 80:
+                compact["__truncated_keys__"] = len(value) - 80
+                break
+            compact[str(key)] = _compact_value(child, key_hint=str(key), depth=depth + 1)
+        return compact
+    return _truncate_text(str(value), 500)
+
+
+def _list_limit_for_key(key: str) -> int:
+    lowered = key.lower()
+    if lowered in {"daily_rows", "trend_history", "records"}:
+        return 60
+    if lowered in {"topics", "posts", "items", "reviews", "news", "events", "updates"}:
+        return 12
+    if lowered in {"related_queries", "top", "rising"}:
+        return 30
+    return 25
+
+
+def _string_limit_for_key(key: str) -> int:
+    lowered = key.lower()
+    if lowered in {"content", "contents", "summary", "review", "text", "body"}:
+        return 500
+    return 200
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "...[truncated]"
+
+
+def _safe_json(value: Any, *, max_chars: int) -> str:
+    text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    return _truncate_text(text, max_chars)
+
+
+async def _emit_report_progress(
+    progress_id: str,
+    stage: str,
+    progress: float,
+    message: str,
+    **extra: Any,
+) -> None:
+    if not progress_id:
+        return
+    logger.info("[Report][Progress] id={} stage={} progress={} message={}", progress_id, stage, progress, message)
+    try:
+        from src.web.routes.ws import manager
+
+        await manager.broadcast(
+            {
+                "type": "report_progress",
+                "progress_id": progress_id,
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                **extra,
+            }
+        )
+    except Exception as exc:
+        logger.debug("[Report][Progress] broadcast failed: {}", exc)

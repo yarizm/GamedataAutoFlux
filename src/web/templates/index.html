@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
     
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -25,6 +25,7 @@
             <a href="#" class="nav-link active" data-tab="dashboard">仪表盘</a>
             <a href="#" class="nav-link" data-tab="tasks">任务管理</a>
             <a href="#" class="nav-link" data-tab="pipelines">Pipeline</a>
+            <a href="#" class="nav-link" data-tab="data">数据浏览</a>
             <a href="#" class="nav-link" data-tab="reports">报告</a>
             <a href="#" class="nav-link" data-tab="cron">定时任务</a>
         </div>
@@ -158,6 +159,61 @@
             </div>
         </section>
 
+        <section class="tab-content" id="tab-data">
+            <div class="section-header">
+                <h1>数据浏览</h1>
+                <button class="btn btn-ghost" onclick="loadDataGames()" id="btn-refresh-data">刷新</button>
+            </div>
+
+            <div class="filter-bar" style="margin-bottom: 1rem;">
+                <input type="text" id="data-search-query" placeholder="Search by task name, task id, game, group, or record key">
+                <button class="btn btn-ghost" onclick="searchDataRecords()">Search</button>
+            </div>
+
+            <div class="data-browser-layout">
+                <div class="card data-game-panel">
+                    <div class="card-header"><h2>游戏分类</h2></div>
+                    <div class="card-body" id="data-games-list">
+                        <p class="text-muted">暂无数据</p>
+                    </div>
+                </div>
+
+                <div class="card data-record-panel">
+                    <div class="card-header">
+                        <div>
+                            <h2 id="data-records-title">选择一个游戏</h2>
+                            <div class="text-muted" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
+                        </div>
+                        <div class="filter-bar">
+                            <select id="data-source-filter" onchange="loadSelectedGameRecords()">
+                                <option value="">全部数据源</option>
+                            </select>
+                            <button class="btn btn-ghost btn-sm" onclick="loadDataGroups()">Groups</button>
+                            <button class="btn btn-primary btn-sm" onclick="useCurrentDataForReport()">用于报告</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <table class="table" id="data-records-table">
+                            <thead>
+                                <tr>
+                                    <th>记录</th>
+                                    <th>数据源</th>
+                                    <th>摘要</th>
+                                    <th>时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="data-records-body">
+                                <tr><td colspan="5" class="text-muted">请选择左侧游戏分类</td></tr>
+                            </tbody>
+                        </table>
+                        <h3 class="data-preview-title">原始 JSON 预览</h3>
+                        <pre class="report-output data-preview" id="data-preview">选择一条记录后在这里预览</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="tab-content" id="tab-reports">
             <div class="section-header">
                 <h1>报告生成</h1>
@@ -177,11 +233,52 @@
                             <input type="text" id="report-data-source" placeholder="如 steam / taptap">
                         </div>
                         <div class="form-group">
+                            <label for="report-record-keys">指定原始 JSON</label>
+                            <textarea id="report-record-keys" rows="3" placeholder="从数据浏览页选择记录后自动填充；留空则按数据源过滤" oninput="syncReportRecordKeysFromTextarea()"></textarea>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 0.5rem;">
+                                <small class="text-muted">每行一个 storage key，用于精确选择报告输入数据。</small>
+                                <button class="btn btn-ghost btn-sm" type="button" onclick="clearSelectedReportRecords()">清空选择</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="report-json-files">上传 JSON 数据源</label>
+                            <div class="inline-actions" style="margin-top: 0.25rem;">
+                                <input type="file" id="report-json-files" accept=".json,application/json" multiple style="flex: 1;">
+                                <button class="btn btn-primary btn-sm" type="button" onclick="uploadReportJsonFiles()">导入数据列表</button>
+                            </div>
+                            <small class="text-muted" style="margin-top: 0.5rem;">上传后会写入本地数据列表，并自动加入本次报告输入。</small>
+                        </div>
+                        <div class="form-group">
+                            <label>已添加数据源</label>
+                            <div class="selected-source-list" id="report-selected-records">
+                                <p class="text-muted">尚未添加 JSON 数据源</p>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="report-group-select">Import by data group</label>
+                            <div class="inline-actions" style="margin-top: 0.25rem;">
+                                <select id="report-group-select" style="flex: 1;"></select>
+                                <button class="btn btn-primary btn-sm" type="button" onclick="importReportGroupRecords()">Import group</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
                             <label for="report-template">模板</label>
-                            <select id="report-template">
-                                <option value="default">default</option>
-                                <option value="brief">brief</option>
+                            <select id="report-template" onchange="updateReportTemplateHelp()">
+                                <option value="general_game">通用游戏模板</option>
+                                <option value="taptap_game">TapTap游戏模板</option>
+                                <option value="steam_game">Steam游戏模板</option>
                             </select>
+                            <small class="text-muted" id="report-template-help"></small>
+                        </div>
+                        <div class="report-progress" id="report-progress" style="display: none;">
+                            <div class="report-progress-row">
+                                <span id="report-progress-stage">Preparing</span>
+                                <span id="report-progress-percent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="report-progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="text-muted" id="report-progress-message">Waiting</div>
                         </div>
                     </div>
                 </div>
@@ -228,6 +325,10 @@
                     <input type="text" id="task-name" placeholder="例如：TapTap 每日检查">
                 </div>
                 <div class="form-group">
+                    <label for="task-data-group">Data group</label>
+                    <input type="text" id="task-data-group" placeholder="Example: delta-force-april">
+                </div>
+                <div class="form-group">
                     <label for="task-pipeline">Pipeline</label>
                     <select id="task-pipeline" onchange="updateTaskTargetFields()">
                         <option value="">-- 选择 Pipeline --</option>
@@ -256,6 +357,36 @@
                     </div>
                 </div>
 
+                <div id="task-steam-discussions-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-steam-discussions-app-id">Steam App ID</label>
+                        <input type="text" id="task-steam-discussions-app-id" placeholder="730">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-steam-discussions-forum-url">Forum URL (optional)</label>
+                        <input type="text" id="task-steam-discussions-forum-url" placeholder="https://steamcommunity.com/app/730/discussions/">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-steam-discussions-start">Start Time (optional)</label>
+                        <input type="date" id="task-steam-discussions-start">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-steam-discussions-end">End Time (optional)</label>
+                        <input type="date" id="task-steam-discussions-end">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-steam-discussions-max-pages">Max Forum Pages</label>
+                        <input type="number" id="task-steam-discussions-max-pages" min="1" max="500" value="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-steam-discussions-max-topics">Max Topics</label>
+                        <input type="number" id="task-steam-discussions-max-topics" min="1" max="5000" value="1000">
+                    </div>
+                    <div class="form-group checkbox-row">
+                        <label><input type="checkbox" id="task-steam-discussions-include-replies" checked> Include replies</label>
+                    </div>
+                </div>
+
                 <div id="task-taptap-fields" style="display: none;">
                     <div class="form-group">
                         <label for="task-taptap-url">TapTap 国内公开页 URL</label>
@@ -275,6 +406,37 @@
                     </div>
                 </div>
 
+                <div id="task-monitor-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-monitor-app-id">Monitor App ID</label>
+                        <input type="text" id="task-monitor-app-id" placeholder="730">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-monitor-days">Trend Days</label>
+                        <input type="number" id="task-monitor-days" min="7" max="90" value="30">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-monitor-twitch-name">Twitch Name (optional)</label>
+                        <input type="text" id="task-monitor-twitch-name" placeholder="Counter-Strike">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-monitor-siteurl">SullyGnome Siteurl (optional)</label>
+                        <input type="text" id="task-monitor-siteurl" placeholder="counter-strike_global_offensive">
+                    </div>
+                    <div class="form-group">
+                        <label>Metrics</label>
+                        <small class="text-muted">Monitor now collects SullyGnome twitch_viewer_trend only.</small>
+                    </div>
+                </div>
+
+                <div id="task-qimai-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-qimai-app-id">Qimai/AppStore App ID</label>
+                        <input type="text" id="task-qimai-app-id" placeholder="123456789">
+                        <small class="text-muted">例如填写 iOS App Store 的纯数字 ID 或 Android 包名</small>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="task-targets">Advanced Targets (JSON array, optional override)</label>
                     <textarea id="task-targets" rows="5" placeholder='[{"name": "Deadlock", "target_type": "game"}]'></textarea>
@@ -284,7 +446,6 @@
                     <label for="task-desc">描述</label>
                     <input type="text" id="task-desc" placeholder="可选描述">
                 </div>
-            </div>
                 <div class="form-group checkbox-row">
                     <label><input type="checkbox" id="task-enable-report"> 采集完成后自动生成报告</label>
                 </div>
@@ -299,6 +460,7 @@
                         <option value="brief">brief</option>
                     </select>
                 </div>
+            </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-task')">取消</button>
                 <button class="btn btn-primary" onclick="createTask()" id="btn-submit-task">提交</button>
@@ -411,6 +573,6 @@
 
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>

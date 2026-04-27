@@ -169,19 +169,24 @@ class SteamCollector(BaseCollector):
         steamdb_data: dict[str, Any] | None = None
         steamdb_warning: str | None = None
 
-        if not skip_steamdb and self._steamdb:
-            logger.info("[Steam] 阶段2: SteamDB Playwright 采集")
-            try:
-                steamdb_data = await self._steamdb.scrape(app_id)
-                logger.info("[Steam] SteamDB Playwright ✓")
-            except SteamDBScrapeFailed as e:
-                steamdb_warning = f"SteamDB Playwright 失败: {e}"
-                logger.warning(f"[Steam] Playwright 失败: {e}")
-                steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning)
-            except Exception as e:
-                steamdb_warning = f"SteamDB 可选采集异常: {e}"
-                logger.warning(f"[Steam] SteamDB 可选采集异常，保留官方 API 结果: {e}")
-                steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning)
+        if not skip_steamdb:
+            requested_time_slice = target.params.get("steamdb_time_slice", "monthly_peak_1y")
+            if self._steamdb:
+                logger.info("[Steam] 阶段2: SteamDB Playwright 采集")
+                try:
+                    steamdb_data = await self._steamdb.scrape(app_id, time_slice=requested_time_slice)
+                    logger.info("[Steam] SteamDB Playwright ✓")
+                except SteamDBScrapeFailed as e:
+                    steamdb_warning = f"SteamDB Playwright 失败: {e}"
+                    logger.warning(f"[Steam] Playwright 失败: {e}")
+                    steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
+                except Exception as e:
+                    steamdb_warning = f"SteamDB 可选采集异常: {e}"
+                    logger.warning(f"[Steam] SteamDB 可选采集异常，保留官方 API 结果: {e}")
+                    steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
+            elif self._firecrawl:
+                steamdb_warning = "SteamDB Playwright 未启用，直接使用 Firecrawl 兜底"
+                steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
 
         # ── 合并结果 ──
         merged_data = {
@@ -196,11 +201,16 @@ class SteamCollector(BaseCollector):
 
         # 提取关键快照指标
         details = steam_data.get("details") or {}
+        reviews = steam_data.get("reviews") or {}
+        review_score_percent = reviews.get("review_score_percent", 0)
+        review_score_desc = reviews.get("review_score_desc", "")
+        review_score_formatted = f"{review_score_percent}% ({review_score_desc})" if review_score_percent else review_score_desc
+
         merged_data["snapshot"] = {
             "name": details.get("name", target.name),
             "current_players": steam_data.get("current_players", 0),
-            "total_reviews": (steam_data.get("reviews") or {}).get("total_reviews", 0),
-            "review_score": (steam_data.get("reviews") or {}).get("review_score_desc", ""),
+            "total_reviews": reviews.get("total_reviews", 0),
+            "review_score": review_score_formatted,
             "price": details.get("price"),
         }
 
@@ -218,13 +228,13 @@ class SteamCollector(BaseCollector):
         )
 
     async def _run_firecrawl_fallback(
-        self, app_id: str | int, warning_message: str
+        self, app_id: str | int, warning_message: str, requested_time_slice: str = "monthly_peak_1y"
     ) -> dict[str, Any]:
         """SteamDB 失败时尝试 Firecrawl，失败则保留错误信息。"""
         if self._firecrawl:
             logger.info("[Steam] 切换到 Firecrawl 兜底采集")
             try:
-                result = await self._firecrawl.scrape(app_id)
+                result = await self._firecrawl.scrape(app_id, time_slice=requested_time_slice)
                 logger.info("[Steam] Firecrawl 兜底 ✓")
                 return result
             except Exception as fc_err:

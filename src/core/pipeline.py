@@ -288,7 +288,7 @@ class Pipeline:
                 StorageRecord(
                     key=f"{task.id}:{pd.source}:{i}",
                     data=pd.data,
-                    metadata=pd.metadata,
+                    metadata=_build_storage_metadata(task, pd.metadata),
                     source=pd.source,
                 )
                 for i, pd in enumerate(current_data)
@@ -375,3 +375,51 @@ class Pipeline:
             elif step_type == "storage":
                 pipeline.add_storage(name, step_config)
         return pipeline
+
+
+def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(metadata or {})
+    target_params = enriched.get("target_params")
+    if not isinstance(target_params, dict):
+        target_params = {}
+        target_name = enriched.get("target")
+        for target in task.targets:
+            if not target_name or target.name == target_name:
+                target_params = dict(target.params)
+                enriched.setdefault("target_type", target.target_type)
+                break
+
+    data_group = task.config.get("data_group", {})
+    if not isinstance(data_group, dict):
+        data_group = {}
+    group_name = str(data_group.get("name") or data_group.get("group_name") or "").strip()
+    group_id = str(data_group.get("id") or data_group.get("group_id") or group_name).strip()
+
+    enriched["source_task"] = {
+        "task_id": task.id,
+        "task_name": task.name,
+        "pipeline_name": task.pipeline_name,
+        "collector_name": task.collector_name,
+        "target": enriched.get("target", ""),
+        "target_type": enriched.get("target_type", ""),
+        "target_params": target_params,
+        "task_config": task.config,
+        "created_at": task.created_at.isoformat(),
+    }
+    if group_name or group_id:
+        enriched["group_id"] = group_id or group_name
+        enriched["group_name"] = group_name or group_id
+
+    refresh = task.config.get("refresh", {})
+    if isinstance(refresh, dict):
+        for key in (
+            "refresh_parent_key",
+            "refresh_series_id",
+            "refresh_run_id",
+            "refresh_kind",
+            "scheduled_job_id",
+        ):
+            if refresh.get(key) not in (None, ""):
+                enriched[key] = refresh[key]
+
+    return enriched

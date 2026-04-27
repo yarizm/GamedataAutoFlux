@@ -102,11 +102,13 @@ def create_app() -> FastAPI:
     from src.web.routes.tasks import router as tasks_router
     from src.web.routes.pipelines import router as pipelines_router
     from src.web.routes.reports import router as reports_router
+    from src.web.routes.data import router as data_router
     from src.web.routes.ws import router as ws_router
 
     app.include_router(tasks_router, prefix="/api")
     app.include_router(pipelines_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
+    app.include_router(data_router, prefix="/api")
     app.include_router(ws_router, prefix="/api")
 
     # 注册页面路由

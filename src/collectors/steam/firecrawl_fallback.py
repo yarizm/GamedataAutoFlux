@@ -13,6 +13,7 @@ Markdown, including:
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -24,6 +25,23 @@ class FirecrawlFallback:
     """Fallback SteamDB scraper backed by Firecrawl."""
 
     STEAMDB_BASE = "https://steamdb.info"
+    HIGHCHARTS_EXTRACT_SCRIPT = """
+(() => {
+  const charts = (window.Highcharts && window.Highcharts.charts || []).filter(Boolean);
+  return JSON.stringify(charts.map(chart => ({
+    title: chart.title && chart.title.textStr || "",
+    series: (chart.series || []).map(series => ({
+      name: series.name || "",
+      points: (series.points || []).map(point => ({
+        x: point.x,
+        y: point.y,
+        name: point.name || ""
+      })),
+      data: (series.options && series.options.data || []).slice(0, 5000)
+    }))
+  })));
+})()
+"""
 
     def __init__(
         self,
@@ -52,7 +70,7 @@ class FirecrawlFallback:
     async def teardown(self) -> None:
         self._app = None
 
-    async def scrape(self, app_id: str | int) -> dict[str, Any]:
+    async def scrape(self, app_id: str | int, time_slice: str = "monthly_peak_1y") -> dict[str, Any]:
         """Scrape SteamDB charts/info pages and parse Firecrawl Markdown."""
         if not self._app:
             await self.setup()
@@ -66,12 +84,18 @@ class FirecrawlFallback:
         result: dict[str, Any] = {
             "source": "firecrawl",
             "app_id": int(app_id),
+            "requested_time_slice": time_slice,
         }
 
-        charts_url = f"{self.STEAMDB_BASE}/app/{app_id}/charts/"
-        charts_md = await self._scrape_url(charts_url)
+        charts_url = _build_charts_url(self.STEAMDB_BASE, app_id, time_slice)
+        charts_md, highcharts_payload = await self._scrape_charts_url(charts_url)
         if charts_md:
-            result["charts"] = _parse_steamdb_markdown(charts_md)
+            result["charts"] = _parse_steamdb_markdown(
+                charts_md,
+                chart_url=charts_url,
+                requested_time_slice=time_slice,
+            )
+            _merge_highcharts_payload(result["charts"], highcharts_payload)
             result["charts_raw_preview"] = charts_md[:3000]
         else:
             result["charts"] = None
@@ -86,44 +110,80 @@ class FirecrawlFallback:
 
         return result
 
+    async def _scrape_charts_url(self, url: str) -> tuple[str | None, list[dict[str, Any]]]:
+        """Scrape charts Markdown and try to extract rendered Highcharts series."""
+        actions = [
+            {"type": "wait", "milliseconds": 5000},
+            {"type": "executeJavascript", "script": self.HIGHCHARTS_EXTRACT_SCRIPT},
+        ]
+        markdown, action_payload = await self._scrape_url_with_actions(url, actions=actions)
+        return markdown, _extract_highcharts_action_payload(action_payload)
+
     async def _scrape_url(self, url: str) -> str | None:
         """Call Firecrawl and return Markdown content for a single URL."""
+        markdown, _ = await self._scrape_url_with_actions(url, actions=None)
+        return markdown
+
+    async def _scrape_url_with_actions(
+        self,
+        url: str,
+        *,
+        actions: list[dict[str, Any]] | None,
+    ) -> tuple[str | None, Any]:
+        """Call Firecrawl and return Markdown plus optional action output."""
         logger.info(f"[Firecrawl] Scrape: {url}")
         try:
             import asyncio
 
             scrape_fn = getattr(self._app, "scrape", None)
             if callable(scrape_fn):
+                kwargs: dict[str, Any] = {"formats": ["markdown"]}
+                if actions:
+                    kwargs["actions"] = actions
                 result = await asyncio.to_thread(
                     scrape_fn,
                     url,
-                    formats=["markdown"],
+                    **kwargs,
                 )
             else:
                 legacy_scrape_fn = getattr(self._app, "scrape_url", None)
                 if not callable(legacy_scrape_fn):
                     raise AttributeError("Firecrawl client does not expose scrape() or scrape_url()")
+                params: dict[str, Any] = {"formats": ["markdown"]}
+                if actions:
+                    params["actions"] = actions
                 result = await asyncio.to_thread(
                     legacy_scrape_fn,
                     url,
-                    params={"formats": ["markdown"]},
+                    params=params,
                 )
 
             markdown = _extract_markdown(result)
+            action_payload = _extract_actions(result)
             if markdown:
                 logger.debug(f"[Firecrawl] Retrieved {len(markdown)} chars")
-                return markdown
+                return markdown, action_payload
 
             logger.warning(f"[Firecrawl] Empty response: {url}")
-            return None
+            return None, action_payload
         except Exception as exc:
             logger.error(f"[Firecrawl] Scrape failed: {exc}")
-            return None
+            return None, None
 
 
-def _parse_steamdb_markdown(markdown: str) -> dict[str, Any]:
+def _parse_steamdb_markdown(
+    markdown: str,
+    *,
+    chart_url: str | None = None,
+    requested_time_slice: str | None = None,
+) -> dict[str, Any]:
     """Extract structured SteamDB data from Firecrawl Markdown."""
     data: dict[str, Any] = {}
+    if chart_url:
+        data["chart_url"] = chart_url
+    if requested_time_slice:
+        data["requested_time_slice"] = requested_time_slice
+
     normalized = _normalize_markdown(markdown)
     tables = _extract_markdown_tables(markdown)
     table_data = _extract_table_data(tables)
@@ -186,6 +246,51 @@ def _normalize_markdown(markdown: str) -> str:
     normalized = normalized.replace("\u00a0", " ")
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized
+
+
+def _build_charts_url(base_url: str, app_id: str | int, time_slice: str = "monthly_peak_1y") -> str:
+    fragment = "#1m" if time_slice == "daily_precise_30d" else ""
+    return f"{base_url}/app/{app_id}/charts/{fragment}"
+
+
+def _merge_highcharts_payload(charts: dict[str, Any], payload: list[dict[str, Any]]) -> None:
+    if not payload:
+        return
+    from src.collectors.steam.steamdb_scraper import _merge_highcharts_payload as merge_payload
+
+    merge_payload(charts, payload)
+    availability = charts.get("online_history_availability")
+    if isinstance(availability, dict) and availability.get("daily_precise_30d"):
+        reasons = charts.get("online_history_unavailable_reasons")
+        if isinstance(reasons, dict):
+            reasons.pop("daily_precise_30d", None)
+            if not reasons:
+                charts.pop("online_history_unavailable_reasons", None)
+
+
+def _extract_highcharts_action_payload(action_payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(action_payload, dict):
+        return []
+
+    returns = action_payload.get("javascriptReturns")
+    if not isinstance(returns, list):
+        return []
+
+    for item in returns:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("value")
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list):
+                return [entry for entry in parsed if isinstance(entry, dict)]
+        if isinstance(value, list):
+            return [entry for entry in value if isinstance(entry, dict)]
+
+    return []
 
 
 def _extract_stats(normalized_markdown: str) -> dict[str, Any]:
@@ -618,5 +723,28 @@ def _extract_markdown(result: Any) -> str | None:
     data = getattr(result, "data", None)
     if isinstance(data, dict) and isinstance(data.get("markdown"), str):
         return data["markdown"]
+
+    return None
+
+
+def _extract_actions(result: Any) -> Any:
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        actions = result.get("actions")
+        if actions is not None:
+            return actions
+        data = result.get("data")
+        if isinstance(data, dict):
+            return data.get("actions")
+        return None
+
+    actions = getattr(result, "actions", None)
+    if actions is not None:
+        return actions
+
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        return data.get("actions")
 
     return None
