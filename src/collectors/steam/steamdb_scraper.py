@@ -56,10 +56,15 @@ class SteamDBScraper:
         headless: bool = True,
         timeout: int = 30000,
         request_delay: float = 3.0,
+        cookie: str = "",
+        extra_headers: dict[str, str] | None = None,
     ):
         self._headless = headless
         self._timeout = timeout
         self._delay = request_delay
+        self._extra_headers = dict(extra_headers or {})
+        if cookie:
+            self._extra_headers.setdefault("Cookie", cookie)
         self._browser = None
         self._playwright = None
 
@@ -98,7 +103,14 @@ class SteamDBScraper:
         self._browser = None
         self._playwright = None
 
-    async def scrape(self, app_id: str | int, time_slice: str = "monthly_peak_1y") -> dict[str, Any]:
+    async def scrape(
+        self,
+        app_id: str | int,
+        time_slice: str = "monthly_peak_1y",
+        *,
+        cookie: str = "",
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         采集 SteamDB 上指定游戏的数据。
 
@@ -110,7 +122,7 @@ class SteamDBScraper:
         """
         if self._should_use_threaded_playwright():
             logger.info("[SteamDB] 当前事件循环不兼容，改用独立线程启动 Playwright")
-            return await asyncio.to_thread(self._scrape_sync, app_id, time_slice)
+            return await asyncio.to_thread(self._scrape_sync, app_id, time_slice, cookie, extra_headers)
 
         if not self._browser:
             await self.setup()
@@ -121,11 +133,15 @@ class SteamDBScraper:
             "requested_time_slice": time_slice,
         }
 
-        context = await self._browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=_random_user_agent(),
-            locale="en-US",
-        )
+        context_kwargs: dict[str, Any] = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": _random_user_agent(),
+            "locale": "en-US",
+        }
+        context_headers = self._request_headers(cookie=cookie, extra_headers=extra_headers)
+        if context_headers:
+            context_kwargs["extra_http_headers"] = context_headers
+        context = await self._browser.new_context(**context_kwargs)
 
         try:
             page = await context.new_page()
@@ -140,6 +156,11 @@ class SteamDBScraper:
             info_data = await self._scrape_info(page, app_id)
             result["info"] = info_data
 
+            await asyncio.sleep(self._delay + random.uniform(0.5, 2.0))
+
+            # ── 当前 Steam 全球畅销榜 ──
+            result["top_sellers"] = await self._scrape_top_sellers(page, app_id)
+
         except SteamDBScrapeFailed:
             raise
         except Exception as e:
@@ -150,7 +171,13 @@ class SteamDBScraper:
 
         return result
 
-    def _scrape_sync(self, app_id: str | int, time_slice: str = "monthly_peak_1y") -> dict[str, Any]:
+    def _scrape_sync(
+        self,
+        app_id: str | int,
+        time_slice: str = "monthly_peak_1y",
+        cookie: str = "",
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """在独立线程中使用同步 Playwright，绕开 Windows SelectorEventLoop 限制。"""
         try:
             from playwright.sync_api import sync_playwright
@@ -174,16 +201,22 @@ class SteamDBScraper:
                         "--no-sandbox",
                     ],
                 )
-                context = browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=_random_user_agent(),
-                    locale="en-US",
-                )
+                context_kwargs: dict[str, Any] = {
+                    "viewport": {"width": 1920, "height": 1080},
+                    "user_agent": _random_user_agent(),
+                    "locale": "en-US",
+                }
+                context_headers = self._request_headers(cookie=cookie, extra_headers=extra_headers)
+                if context_headers:
+                    context_kwargs["extra_http_headers"] = context_headers
+                context = browser.new_context(**context_kwargs)
                 try:
                     page = context.new_page()
                     result["charts"] = self._scrape_charts_sync(page, app_id, time_slice=time_slice)
                     time.sleep(self._delay + random.uniform(0.5, 2.0))
                     result["info"] = self._scrape_info_sync(page, app_id)
+                    time.sleep(self._delay + random.uniform(0.5, 2.0))
+                    result["top_sellers"] = self._scrape_top_sellers_sync(page, app_id)
                 finally:
                     context.close()
                     browser.close()
@@ -196,6 +229,25 @@ class SteamDBScraper:
         return result
 
     # ── 内部采集方法 ──────────────────────────────────
+
+    def _request_headers(
+        self,
+        *,
+        cookie: str = "",
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        headers = dict(self._extra_headers)
+        if isinstance(extra_headers, dict):
+            headers.update(
+                {
+                    str(key): str(value)
+                    for key, value in extra_headers.items()
+                    if key not in (None, "") and value not in (None, "")
+                }
+            )
+        if cookie:
+            headers["Cookie"] = cookie
+        return headers
 
     async def _scrape_charts(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
@@ -323,6 +375,26 @@ class SteamDBScraper:
 
         return info
 
+    async def _scrape_top_sellers(self, page: Any, app_id: str | int) -> dict[str, Any]:
+        """采集 SteamDB 当前全球畅销榜排名。"""
+        url = f"{self.BASE_URL}/stats/globaltopsellers/"
+        logger.info(f"[SteamDB] 访问 global top sellers: {url}")
+        try:
+            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+        except Exception as e:
+            logger.debug(f"[SteamDB] global top sellers 加载失败: {e}")
+            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": str(e)}
+
+        if resp and resp.status == 403:
+            raise SteamDBScrapeFailed("Cloudflare 403 拦截")
+
+        content = await page.content()
+        if "challenge-platform" in content or "Just a moment" in content:
+            raise SteamDBScrapeFailed("Cloudflare challenge 拦截")
+
+        rows = await page.query_selector_all("table tbody tr")
+        return await _parse_top_sellers_rows_async(rows, app_id, url)
+
     def _scrape_charts_sync(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
     ) -> dict[str, Any]:
@@ -436,6 +508,26 @@ class SteamDBScraper:
 
         return info
 
+    def _scrape_top_sellers_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
+        """同步版本的 SteamDB 当前全球畅销榜排名采集。"""
+        url = f"{self.BASE_URL}/stats/globaltopsellers/"
+        logger.info(f"[SteamDB] 访问 global top sellers: {url}")
+        try:
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+        except Exception as e:
+            logger.debug(f"[SteamDB] global top sellers 加载失败: {e}")
+            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": str(e)}
+
+        if resp and resp.status == 403:
+            raise SteamDBScrapeFailed("Cloudflare 403 拦截")
+
+        content = page.content()
+        if "challenge-platform" in content or "Just a moment" in content:
+            raise SteamDBScrapeFailed("Cloudflare challenge 拦截")
+
+        rows = page.query_selector_all("table tbody tr")
+        return _parse_top_sellers_rows_sync(rows, app_id, url)
+
 
 # ── 工具函数 ──────────────────────────────────────────
 
@@ -445,9 +537,48 @@ def _build_charts_url(base_url: str, app_id: str | int, time_slice: str = "month
 
 
 def _chart_fragment_for_time_slice(time_slice: str) -> str:
-    if time_slice == "daily_precise_30d":
+    if time_slice in {"daily_precise_30d", "daily_precise_90d"}:
         return "#1m"
     return ""
+
+
+async def _parse_top_sellers_rows_async(rows: list[Any], app_id: str | int, url: str) -> dict[str, Any]:
+    target = f"/app/{app_id}/"
+    for fallback_rank, row in enumerate(rows, start=1):
+        html = await row.inner_html()
+        if target not in html:
+            continue
+        text = (await row.inner_text()).strip()
+        return _top_seller_result_from_text(text, fallback_rank, url)
+    return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "matched": False}
+
+
+def _parse_top_sellers_rows_sync(rows: list[Any], app_id: str | int, url: str) -> dict[str, Any]:
+    target = f"/app/{app_id}/"
+    for fallback_rank, row in enumerate(rows, start=1):
+        html = row.inner_html()
+        if target not in html:
+            continue
+        text = row.inner_text().strip()
+        return _top_seller_result_from_text(text, fallback_rank, url)
+    return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "matched": False}
+
+
+def _top_seller_result_from_text(text: str, fallback_rank: int, url: str) -> dict[str, Any]:
+    lines = [line.strip() for line in re.split(r"[\r\n\t]+", text) if line.strip()]
+    rank = fallback_rank
+    if lines:
+        match = re.match(r"^(\d+)\.?", lines[0])
+        if match:
+            rank = int(match.group(1))
+    name = next((line for line in lines if not re.fullmatch(r"\d+\.?", line)), "")
+    return {
+        "source": "steamdb_globaltopsellers",
+        "url": url,
+        "rank": rank,
+        "name": name,
+        "matched": True,
+    }
 
 
 def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
@@ -455,7 +586,9 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
         return
 
     series_records = _extract_highcharts_series_records(payload)
-    followers_records = _extract_followers_series(payload)
+    followers_records = _extract_named_series(payload, ("follower",))
+    wishlist_records = _extract_named_series(payload, ("wishlist", "wishlists"))
+    review_history_records = _extract_user_reviews_history(payload)
     
     availability = charts.get("online_history_availability")
     if not isinstance(availability, dict):
@@ -464,6 +597,15 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
 
     if followers_records:
         charts["followers_history"] = followers_records
+    if wishlist_records:
+        charts["wishlist_history"] = wishlist_records
+    if review_history_records:
+        charts["user_reviews_history_90d"] = review_history_records[-90:]
+        charts["user_reviews_history"] = review_history_records
+        charts["user_reviews_history_availability"] = {
+            "positive_rate_90d": bool(charts["user_reviews_history_90d"]),
+            "source": "steamdb_user_reviews_history",
+        }
 
     if not series_records:
         availability["daily_precise_30d"] = False
@@ -472,8 +614,10 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
         )
         return
 
+    charts["online_history_daily_precise_90d"] = series_records[-90:]
     charts["online_history_daily_precise_30d"] = series_records[-31:]
-    availability["daily_precise_30d"] = True
+    availability["daily_precise_90d"] = bool(charts["online_history_daily_precise_90d"])
+    availability["daily_precise_30d"] = bool(charts["online_history_daily_precise_30d"])
 
 
 def _extract_highcharts_series_records(payload: list[Any]) -> list[dict[str, Any]]:
@@ -492,7 +636,66 @@ def _extract_highcharts_series_records(payload: list[Any]) -> list[dict[str, Any
                 best = records
     return best
 
-def _extract_followers_series(payload: list[Any]) -> list[dict[str, Any]]:
+
+def _extract_user_reviews_history(payload: list[Any]) -> list[dict[str, Any]]:
+    best: list[dict[str, Any]] = []
+    for chart in payload:
+        if not isinstance(chart, dict):
+            continue
+        chart_title = str(chart.get("title") or "").lower()
+        series_list = [series for series in chart.get("series") or [] if isinstance(series, dict)]
+        series_names = " ".join(str(series.get("name") or "").lower() for series in series_list)
+        if "review" not in chart_title and not (
+            "positive" in series_names and "negative" in series_names
+        ):
+            continue
+
+        by_date: dict[str, dict[str, Any]] = {}
+        for series in series_list:
+            name = str(series.get("name") or "").lower()
+            if "positive" in name:
+                bucket_name = "positive"
+            elif "negative" in name:
+                bucket_name = "negative"
+            else:
+                continue
+            for point in series.get("points") or series.get("data") or []:
+                x_value, y_value = _extract_point_xy(point)
+                if x_value is None or y_value is None:
+                    continue
+                dt = _timestamp_to_datetime(x_value)
+                value = _safe_int(y_value)
+                if dt is None or value is None:
+                    continue
+                date_key = dt.date().isoformat()
+                entry = by_date.setdefault(
+                    date_key,
+                    {
+                        "date": date_key,
+                        "positive": 0,
+                        "negative": 0,
+                        "timestamp": dt.isoformat(),
+                        "source": "steamdb_user_reviews_history",
+                    },
+                )
+                entry[bucket_name] += abs(value)
+
+        records: list[dict[str, Any]] = []
+        for date_key in sorted(by_date):
+            entry = by_date[date_key]
+            positive = int(entry.get("positive") or 0)
+            negative = int(entry.get("negative") or 0)
+            total = positive + negative
+            if total <= 0:
+                continue
+            entry["total"] = total
+            entry["positive_rate"] = round((positive / total) * 100, 2)
+            records.append(entry)
+        if len(records) > len(best):
+            best = records
+    return best
+
+def _extract_named_series(payload: list[Any], name_tokens: tuple[str, ...]) -> list[dict[str, Any]]:
     best: list[dict[str, Any]] = []
     for chart in payload:
         if not isinstance(chart, dict):
@@ -501,7 +704,7 @@ def _extract_followers_series(payload: list[Any]) -> list[dict[str, Any]]:
             if not isinstance(series, dict):
                 continue
             name = str(series.get("name") or "").lower()
-            if "follower" not in name:
+            if not any(token in name for token in name_tokens):
                 continue
             records = _series_to_daily_records(series.get("points") or series.get("data") or [])
             if len(records) > len(best):

@@ -47,9 +47,14 @@ class FirecrawlFallback:
         self,
         api_key: str = "",
         timeout: int = 30,
+        headers: dict[str, str] | None = None,
+        cookie: str = "",
     ):
         self._api_key = api_key
         self._timeout = timeout
+        self._headers = dict(headers or {})
+        if cookie:
+            self._headers.setdefault("Cookie", cookie)
         self._app = None
 
     async def setup(self) -> None:
@@ -70,7 +75,14 @@ class FirecrawlFallback:
     async def teardown(self) -> None:
         self._app = None
 
-    async def scrape(self, app_id: str | int, time_slice: str = "monthly_peak_1y") -> dict[str, Any]:
+    async def scrape(
+        self,
+        app_id: str | int,
+        time_slice: str = "monthly_peak_1y",
+        *,
+        headers: dict[str, str] | None = None,
+        cookie: str = "",
+    ) -> dict[str, Any]:
         """Scrape SteamDB charts/info pages and parse Firecrawl Markdown."""
         if not self._app:
             await self.setup()
@@ -88,7 +100,8 @@ class FirecrawlFallback:
         }
 
         charts_url = _build_charts_url(self.STEAMDB_BASE, app_id, time_slice)
-        charts_md, highcharts_payload = await self._scrape_charts_url(charts_url)
+        request_headers = self._request_headers(headers=headers, cookie=cookie)
+        charts_md, highcharts_payload = await self._scrape_charts_url(charts_url, headers=request_headers)
         if charts_md:
             result["charts"] = _parse_steamdb_markdown(
                 charts_md,
@@ -101,27 +114,37 @@ class FirecrawlFallback:
             result["charts"] = None
 
         info_url = f"{self.STEAMDB_BASE}/app/{app_id}/info/"
-        info_md = await self._scrape_url(info_url)
+        info_md = await self._scrape_url(info_url, headers=request_headers)
         if info_md:
             result["info"] = _parse_steamdb_markdown(info_md)
             result["info_raw_preview"] = info_md[:3000]
         else:
             result["info"] = None
 
+        top_sellers_url = f"{self.STEAMDB_BASE}/stats/globaltopsellers/"
+        top_sellers_md = await self._scrape_url(top_sellers_url, headers=request_headers)
+        if top_sellers_md:
+            result["top_sellers"] = _parse_steamdb_top_sellers(top_sellers_md, app_id)
+
         return result
 
-    async def _scrape_charts_url(self, url: str) -> tuple[str | None, list[dict[str, Any]]]:
+    async def _scrape_charts_url(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[str | None, list[dict[str, Any]]]:
         """Scrape charts Markdown and try to extract rendered Highcharts series."""
         actions = [
             {"type": "wait", "milliseconds": 5000},
             {"type": "executeJavascript", "script": self.HIGHCHARTS_EXTRACT_SCRIPT},
         ]
-        markdown, action_payload = await self._scrape_url_with_actions(url, actions=actions)
+        markdown, action_payload = await self._scrape_url_with_actions(url, actions=actions, headers=headers)
         return markdown, _extract_highcharts_action_payload(action_payload)
 
-    async def _scrape_url(self, url: str) -> str | None:
+    async def _scrape_url(self, url: str, *, headers: dict[str, str] | None = None) -> str | None:
         """Call Firecrawl and return Markdown content for a single URL."""
-        markdown, _ = await self._scrape_url_with_actions(url, actions=None)
+        markdown, _ = await self._scrape_url_with_actions(url, actions=None, headers=headers)
         return markdown
 
     async def _scrape_url_with_actions(
@@ -129,6 +152,7 @@ class FirecrawlFallback:
         url: str,
         *,
         actions: list[dict[str, Any]] | None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[str | None, Any]:
         """Call Firecrawl and return Markdown plus optional action output."""
         logger.info(f"[Firecrawl] Scrape: {url}")
@@ -140,6 +164,8 @@ class FirecrawlFallback:
                 kwargs: dict[str, Any] = {"formats": ["markdown"]}
                 if actions:
                     kwargs["actions"] = actions
+                if headers:
+                    kwargs["headers"] = headers
                 result = await asyncio.to_thread(
                     scrape_fn,
                     url,
@@ -152,6 +178,8 @@ class FirecrawlFallback:
                 params: dict[str, Any] = {"formats": ["markdown"]}
                 if actions:
                     params["actions"] = actions
+                if headers:
+                    params["headers"] = headers
                 result = await asyncio.to_thread(
                     legacy_scrape_fn,
                     url,
@@ -169,6 +197,25 @@ class FirecrawlFallback:
         except Exception as exc:
             logger.error(f"[Firecrawl] Scrape failed: {exc}")
             return None, None
+
+    def _request_headers(
+        self,
+        *,
+        headers: dict[str, str] | None = None,
+        cookie: str = "",
+    ) -> dict[str, str]:
+        merged = dict(self._headers)
+        if isinstance(headers, dict):
+            merged.update(
+                {
+                    str(key): str(value)
+                    for key, value in headers.items()
+                    if key not in (None, "") and value not in (None, "")
+                }
+            )
+        if cookie:
+            merged["Cookie"] = cookie
+        return merged
 
 
 def _parse_steamdb_markdown(
@@ -236,6 +283,55 @@ def _parse_steamdb_markdown(
     return data
 
 
+def _parse_steamdb_top_sellers(markdown: str, app_id: str | int) -> dict[str, Any]:
+    """Extract the target game's current global top-sellers rank from SteamDB."""
+    target_app_id = str(app_id)
+    tables = _extract_markdown_tables(markdown)
+    for table in tables:
+        rank_headers = [header for header in table["normalized_headers"] if header in {"rank", "col_1"}]
+        if not rank_headers:
+            continue
+        for index, row_raw in enumerate(table["rows_raw"], start=1):
+            raw_text = " ".join(str(value) for value in row_raw.values())
+            if f"/app/{target_app_id}/" not in raw_text:
+                continue
+            row = table["rows"][index - 1]
+            rank = _extract_rank_from_top_sellers_row(row, row_raw, index)
+            name = _extract_top_seller_name(row, row_raw)
+            return {
+                "source": "steamdb_globaltopsellers",
+                "url": "https://steamdb.info/stats/globaltopsellers/",
+                "rank": rank,
+                "name": name,
+            }
+    return {
+        "source": "steamdb_globaltopsellers",
+        "url": "https://steamdb.info/stats/globaltopsellers/",
+        "rank": "",
+        "matched": False,
+    }
+
+
+def _extract_rank_from_top_sellers_row(row: dict[str, str], row_raw: dict[str, str], fallback_rank: int) -> int | None:
+    for candidate_row in (row, row_raw):
+        for key, value in candidate_row.items():
+            if key not in {"rank", "col_1", ""}:
+                continue
+            parsed = _parse_int(str(value))
+            if parsed is not None:
+                return parsed
+    return fallback_rank
+
+
+def _extract_top_seller_name(row: dict[str, str], row_raw: dict[str, str]) -> str:
+    for candidate_row in (row, row_raw):
+        for key in ("name", "col_3", "col_2"):
+            value = _strip_markdown(str(candidate_row.get(key, "")))
+            if value:
+                return value
+    return ""
+
+
 def _normalize_markdown(markdown: str) -> str:
     """Normalize Firecrawl Markdown to make regex extraction less fragile."""
     normalized = markdown.replace("\r\n", "\n")
@@ -249,7 +345,7 @@ def _normalize_markdown(markdown: str) -> str:
 
 
 def _build_charts_url(base_url: str, app_id: str | int, time_slice: str = "monthly_peak_1y") -> str:
-    fragment = "#1m" if time_slice == "daily_precise_30d" else ""
+    fragment = "#1m" if time_slice in {"daily_precise_30d", "daily_precise_90d"} else ""
     return f"{base_url}/app/{app_id}/charts/{fragment}"
 
 
@@ -260,10 +356,11 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: list[dict[str, An
 
     merge_payload(charts, payload)
     availability = charts.get("online_history_availability")
-    if isinstance(availability, dict) and availability.get("daily_precise_30d"):
+    if isinstance(availability, dict) and (availability.get("daily_precise_30d") or availability.get("daily_precise_90d")):
         reasons = charts.get("online_history_unavailable_reasons")
         if isinstance(reasons, dict):
             reasons.pop("daily_precise_30d", None)
+            reasons.pop("daily_precise_90d", None)
             if not reasons:
                 charts.pop("online_history_unavailable_reasons", None)
 

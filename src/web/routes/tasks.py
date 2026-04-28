@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
+from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskTarget, TaskStatus
 
 router = APIRouter(tags=["tasks"])
@@ -212,8 +213,8 @@ def _task_to_detail_response(task: Task) -> TaskDetailResponse:
     return TaskDetailResponse(
         **base.model_dump(),
         description=task.description,
-        targets=[target.model_dump() for target in task.targets],
-        config=task.config,
+        targets=redact_sensitive([target.model_dump() for target in task.targets]),
+        config=redact_sensitive(task.config),
         retry_count=task.retry_count,
         max_retries=task.max_retries,
         step_logs=[_log_to_response(log) for log in task.step_logs],

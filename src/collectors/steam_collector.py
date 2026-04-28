@@ -81,6 +81,19 @@ class SteamCollector(BaseCollector):
         if api_key.startswith("${"):
             api_key = ""
 
+        self.config.setdefault("max_reviews", int(steam_cfg.get("max_reviews", 200)))
+        self.config.setdefault("review_language", steam_cfg.get("review_language", "all"))
+        self.config.setdefault("review_trend_days", int(steam_cfg.get("review_trend_days", 90)))
+        self.config.setdefault("review_trend_mode", steam_cfg.get("review_trend_mode", "summary"))
+        self.config.setdefault(
+            "review_summary_concurrency",
+            int(steam_cfg.get("review_summary_concurrency", 4)),
+        )
+        self.config.setdefault(
+            "max_review_trend_reviews",
+            int(steam_cfg.get("max_review_trend_reviews", 10000)),
+        )
+
         self._steam_api = SteamAPIClient(
             api_key=api_key,
             request_delay=float(
@@ -98,6 +111,8 @@ class SteamCollector(BaseCollector):
                 headless=steamdb_cfg.get("headless", True),
                 timeout=steamdb_cfg.get("timeout", 30000),
                 request_delay=float(steamdb_cfg.get("request_delay", 3.0)),
+                cookie=str(steamdb_cfg.get("cookie", "") or ""),
+                extra_headers=_clean_headers(steamdb_cfg.get("headers", {})),
             )
             # 延迟初始化: 不在 setup 时启动浏览器，在首次使用时启动
 
@@ -107,6 +122,8 @@ class SteamCollector(BaseCollector):
             self._firecrawl = FirecrawlFallback(
                 api_key=fc_key,
                 timeout=int(firecrawl_cfg.get("timeout", 30)),
+                headers=_clean_headers(firecrawl_cfg.get("headers", {})),
+                cookie=str(firecrawl_cfg.get("cookie", "") or steamdb_cfg.get("cookie", "") or ""),
             )
 
         logger.info(
@@ -140,7 +157,31 @@ class SteamCollector(BaseCollector):
         # ── 阶段1: 官方 API（必执行）──
         logger.info("[Steam] 阶段1: 官方 API 采集")
         try:
-            steam_data = await self._steam_api.collect_all(app_id)
+            max_reviews = int(target.params.get("max_reviews", self.config.get("max_reviews", 200)))
+            review_language = str(target.params.get("review_language", self.config.get("review_language", "all")))
+            review_trend_days = int(target.params.get("review_trend_days", self.config.get("review_trend_days", 90)))
+            review_trend_mode = str(target.params.get("review_trend_mode", self.config.get("review_trend_mode", "summary")))
+            review_summary_concurrency = int(
+                target.params.get(
+                    "review_summary_concurrency",
+                    self.config.get("review_summary_concurrency", 4),
+                )
+            )
+            max_review_trend_reviews = int(
+                target.params.get(
+                    "max_review_trend_reviews",
+                    self.config.get("max_review_trend_reviews", 10000),
+                )
+            )
+            steam_data = await self._steam_api.collect_all(
+                app_id,
+                max_reviews=max_reviews,
+                review_language=review_language,
+                review_trend_days=review_trend_days,
+                max_review_trend_reviews=max_review_trend_reviews,
+                review_trend_mode=review_trend_mode,
+                review_summary_concurrency=review_summary_concurrency,
+            )
         except Exception as e:
             logger.error(f"[Steam] 官方 API 采集失败: {e}")
             steam_data = {"source": "steam_api", "error": str(e)}
@@ -171,6 +212,10 @@ class SteamCollector(BaseCollector):
 
         if not skip_steamdb:
             requested_time_slice = target.params.get("steamdb_time_slice", "monthly_peak_1y")
+            steamdb_cookie = str(target.params.get("steamdb_cookie", "") or "")
+            steamdb_headers = _clean_headers(target.params.get("steamdb_headers", {}))
+            firecrawl_cookie = str(target.params.get("firecrawl_cookie", "") or "")
+            firecrawl_headers = _clean_headers(target.params.get("firecrawl_headers", {}))
             if self._steamdb:
                 logger.info("[Steam] 阶段2: SteamDB Playwright 采集")
                 try:
@@ -285,18 +330,23 @@ def _apply_steamdb_time_slice(steamdb_data: dict[str, Any], requested_slice: str
         return
 
     monthly = charts.get("online_history_monthly_peak_1y") or charts.get("online_history_1y") or []
-    daily = charts.get("online_history_daily_precise_30d") or []
+    daily90 = charts.get("online_history_daily_precise_90d") or []
+    daily = daily90 or charts.get("online_history_daily_precise_30d") or []
     availability = charts.get("online_history_availability") or {
         "monthly_peak_1y": bool(monthly),
+        "daily_precise_90d": bool(daily90),
         "daily_precise_30d": bool(daily),
     }
     unavailable_reasons = charts.get("online_history_unavailable_reasons") or {}
 
     slices = {
         "monthly_peak_1y": monthly,
+        "daily_precise_90d": daily90 or daily,
         "daily_precise_30d": daily,
     }
-    selected_slice = requested_slice if requested_slice in slices else "monthly_peak_1y"
+    selected_slice = requested_slice if requested_slice in slices else "daily_precise_90d"
+    if selected_slice == "daily_precise_90d" and not slices[selected_slice]:
+        selected_slice = "monthly_peak_1y"
     selected_records = slices[selected_slice]
 
     charts["requested_time_slice"] = selected_slice
@@ -307,4 +357,14 @@ def _apply_steamdb_time_slice(steamdb_data: dict[str, Any], requested_slice: str
         "record_count": len(selected_records),
         "is_available": bool(availability.get(selected_slice)),
         "unavailable_reason": unavailable_reasons.get(selected_slice),
+    }
+
+
+def _clean_headers(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): str(header_value)
+        for key, header_value in value.items()
+        if key not in (None, "") and header_value not in (None, "")
     }

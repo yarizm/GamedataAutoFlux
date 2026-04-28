@@ -49,7 +49,7 @@ llm:
     max_input_chars: 18000
     retry_count: 2
     retry_delay: 2.0
-    timeout: 90
+    timeout: 180
     fallback_to_stub: true
   deepseek:
     api_key: "${DEEPSEEK_API_KEY}"
@@ -71,11 +71,17 @@ steam:
   request_delay: 1.5
   max_reviews: 200
   review_language: "all"
+  review_trend_mode: "summary"
+  review_trend_days: 90
+  review_summary_concurrency: 4
+  max_review_trend_reviews: 10000
   steamdb:
     enabled: true
     request_delay: 3.0
     headless: true
     timeout: 30000
+    cookie: "${STEAMDB_COOKIE}"
+    headers: {}
 
 steam_discussions:
   request_delay: 2.0
@@ -99,6 +105,16 @@ taptap:
   reviews_pages_default: 1
   save_raw_snapshots: true
 
+qimai:
+  headless: true
+  timeout: 45000
+  # 七麦有较严格的访问频控。页面间延迟、点击后等待和随机抖动会显著降低连续请求特征。
+  request_delay: 8.0
+  request_jitter: 4.0
+  click_delay: 1.5
+  scroll_delay: 2.0
+  max_api_payloads: 80
+
 monitor:
   default_days: 30
   timezone: "Asia/Shanghai"
@@ -112,6 +128,8 @@ monitor:
 firecrawl:
   api_key: "${FIRECRAWL_API_KEY}"
   timeout: 30
+  cookie: "${STEAMDB_COOKIE}"
+  headers: {}
 
 gtrends:
   geo: "" # Default to global

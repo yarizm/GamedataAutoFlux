@@ -29,6 +29,7 @@ from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskStatus
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 from src.storage.base import BaseStorage, StorageRecord
@@ -402,8 +403,8 @@ def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, A
         "collector_name": task.collector_name,
         "target": enriched.get("target", ""),
         "target_type": enriched.get("target_type", ""),
-        "target_params": target_params,
-        "task_config": task.config,
+        "target_params": redact_sensitive(target_params),
+        "task_config": redact_sensitive(task.config),
         "created_at": task.created_at.isoformat(),
     }
     if group_name or group_id:

@@ -23,6 +23,7 @@ from loguru import logger
 
 from src.core.config import get as get_config
 from src.core.pipeline import Pipeline, PipelineResult
+from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskStatus
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
@@ -503,13 +504,13 @@ class Scheduler:
             return
             
         # 提取给前端的简明数据
-        task_payload = task.to_storage_payload()
+        task_payload = redact_sensitive(task.to_storage_payload())
         
         # 保存到数据库
         await self._task_store.save(
             StorageRecord(
                 key=f"task:{task.id}",
-                data=task.to_storage_payload(),
+                data=task_payload,
                 metadata={
                     "kind": "task",
                     "status": task.status.value,

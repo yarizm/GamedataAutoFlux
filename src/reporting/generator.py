@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from datetime import datetime
 from typing import Any
@@ -528,7 +529,7 @@ class ReportGenerator:
         model = get_config(f"llm.{provider}.model", default_model)
         temperature = float(get_config(f"llm.{provider}.temperature", 0.3))
         max_tokens = int(get_config(f"llm.{provider}.max_tokens", 2000))
-        timeout = float(get_config(f"llm.{provider}.timeout", 90))
+        timeout = float(get_config(f"llm.{provider}.timeout", 180 if provider == "qwen" else 90))
         retry_count = int(get_config(f"llm.{provider}.retry_count", 2))
         retry_delay = float(get_config(f"llm.{provider}.retry_delay", 2.0))
 
@@ -577,8 +578,11 @@ class ReportGenerator:
         for attempt in range(1, attempts + 1):
             try:
                 logger.info("[Report][LLM] attempt {}/{} provider={} model={}", attempt, attempts, provider_label, model)
-                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout), limits=limits) as client:
+                attempt_started_at = time.monotonic()
+                request_timeout = httpx.Timeout(connect=20.0, read=timeout, write=60.0, pool=20.0)
+                async with httpx.AsyncClient(timeout=request_timeout, limits=limits) as client:
                     response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                elapsed = time.monotonic() - attempt_started_at
                 if response.is_error:
                     try:
                         error_payload = response.json()
@@ -599,23 +603,28 @@ class ReportGenerator:
                         f"{request_stats}, body={error_payload}"
                     )
                 data = response.json()
-                logger.info("[Report][LLM] response received provider={} attempt={}", provider_label, attempt)
+                logger.info("[Report][LLM] response received provider={} attempt={} elapsed={:.2f}s", provider_label, attempt, elapsed)
                 break
             except httpx.TransportError as exc:
                 last_error = exc
+                elapsed = time.monotonic() - attempt_started_at if "attempt_started_at" in locals() else 0.0
                 if attempt < attempts:
                     logger.warning(
-                        "[Report][LLM] transport error attempt={}/{} error={} {}",
+                        "[Report][LLM] transport error attempt={}/{} type={} repr={} elapsed={:.2f}s read_timeout={} {}",
                         attempt,
                         attempts,
-                        exc,
+                        exc.__class__.__name__,
+                        repr(exc),
+                        elapsed,
+                        timeout,
                         request_stats,
                     )
                     await asyncio.sleep(retry_delay * attempt)
                     continue
                 raise ValueError(
                     f"{provider_label} report request failed after {attempt} attempts: "
-                    f"{exc.__class__.__name__}: {exc}; {request_stats}"
+                    f"{exc.__class__.__name__}: {repr(exc)}; elapsed={elapsed:.2f}s; "
+                    f"read_timeout={timeout}; {request_stats}"
                 ) from exc
 
         if data is None:

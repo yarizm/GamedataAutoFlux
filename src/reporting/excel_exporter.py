@@ -91,7 +91,9 @@ def export_to_excel(
         _write_reviews_sheet(wb, data.reviews)
 
     # Sheet 3: 趋势数据
-    if data.trends:
+    if template_id in {"general_game", "steam_game"}:
+        _write_unified_trends_sheet(wb, data)
+    elif data.trends:
         _write_trends_sheet(wb, data.trends)
 
     # Sheet 4: 相关搜索词
@@ -127,6 +129,9 @@ def _export_structured_template(
     wb.remove(wb.active)
 
     template = get_report_template(template_id)
+    if template_id == "general_game":
+        _write_operations_monitor_sheet(wb, data)
+
     _write_template_summary_sheet(wb, title, template_id, template_validation)
 
     if llm_content:
@@ -179,7 +184,9 @@ def _export_structured_template(
     if data.related_queries:
         _write_related_queries_sheet(wb, data.related_queries)
 
-    if data.trends:
+    if template_id in {"general_game", "steam_game"}:
+        _write_unified_trends_sheet(wb, data)
+    elif data.trends:
         _write_trends_sheet(wb, data.trends)
 
     _write_raw_appendices(wb, data.raw_sources)
@@ -233,6 +240,342 @@ def _write_template_summary_sheet(
         },
     ]
     _write_table_sheet(wb, "报告摘要", rows, max_width=80)
+
+
+def _write_operations_monitor_sheet(wb: Workbook, data: ExtractedData) -> None:
+    """Write the A 在运营产品监测 sheet based on the reference brief template."""
+    ws = wb.create_sheet("A 在运营产品监测", 0)
+    _setup_operations_monitor_layout(ws)
+
+    game_name = _first_non_empty(row.get("游戏名") for row in data.overview) or _first_non_empty(
+        row.get("游戏名") for row in data.events
+    )
+    steam_row = _find_overview_row(data.overview, "Steam")
+    qimai_row = _find_overview_row(data.overview, "Qimai")
+    monitor_row = _find_overview_row(data.overview, "Monitor")
+    gtrends_row = _find_overview_row(data.overview, "Google Trends")
+
+    pc_headers = [
+        "产品",
+        "整体好评率",
+        "近期好评率(30 Days)",
+        "3个月好评率趋势图",
+        "7日ccu peak",
+        "30日CCU peak",
+        "3个月ccu趋势",
+        "Google Trends（3个月趋势图）",
+        "twitch tracker(7天平均观看人数)",
+        "twitch tracker(90天趋势)",
+        "steam畅销榜",
+        " Wishlist Activity(7d Gain)/Follower(7d Gain)",
+    ]
+    mobile_headers = [
+        "产品",
+        "iOS畅销榜CN",
+        "iOS畅销榜CN趋势图",
+        "App Store 评分CN",
+        "App Store 每日评价趋势图",
+        "DAU（30日平均）",
+        "DAU 趋势（90日）",
+        "下载（30日平均）",
+        "下载 趋势（90日）",
+        "收入（30日平均）",
+        "收入USD趋势（90日）",
+    ]
+    event_headers = [
+        "产品",
+        "事件日期",
+        "时间节点",
+        "事件类型",
+        "事件摘要",
+        "一句话概括",
+        "来源平台",
+        "来源链接",
+        "原文摘录",
+    ]
+
+    _write_operations_title(ws, 1, "在营产品", "A1:M1", font_size=20)
+    _write_operations_title(ws, 3, "本期在营竞品总览（PC）", "A3:C3")
+    _write_operations_header(ws, 4, pc_headers)
+    _write_operations_row(
+        ws,
+        5,
+        [
+            game_name,
+            _first_non_empty([steam_row.get("整体好评率"), steam_row.get("好评率")]),
+            steam_row.get("近期好评率(30 Days)", ""),
+            "",
+            steam_row.get("7日ccu peak", ""),
+            steam_row.get("30日CCU peak", ""),
+            "",
+            "",
+            monitor_row.get("twitch tracker(7天平均观看人数)", ""),
+            "",
+            steam_row.get("steam畅销榜", ""),
+            steam_row.get("WishList Activity(7d Gain)/Follower(7d Gain)", ""),
+        ],
+        len(pc_headers),
+    )
+    _add_operations_trend_chart(wb, ws, "Steam好评率", _operations_steam_review_rows(data), "D5")
+    _add_operations_trend_chart(wb, ws, "Steam CCU", _operations_steam_ccu_rows(data), "G5")
+    _add_operations_trend_chart(wb, ws, "Google Trends", _operations_google_rows(data), "H5")
+    _add_operations_trend_chart(wb, ws, "Twitch", _operations_twitch_rows(data), "J5")
+
+    _write_operations_title(ws, 8, "本期在营竞品总览（移动端）", "A8:C8")
+    _write_operations_header(ws, 9, mobile_headers)
+    _write_operations_row(
+        ws,
+        10,
+        [
+            game_name,
+            qimai_row.get("Qimai grossing rank CN", ""),
+            "",
+            qimai_row.get("Qimai AppStore rating CN", ""),
+            "",
+            qimai_row.get("Qimai DAU avg 30d", ""),
+            "",
+            qimai_row.get("Qimai downloads avg 30d", ""),
+            "",
+            qimai_row.get("Qimai revenue avg 30d", ""),
+            "",
+        ],
+        len(mobile_headers),
+    )
+    _add_operations_trend_chart(wb, ws, "iOS畅销榜", _operations_qimai_rows(data, "iOS grossing rank"), "C10")
+    _add_operations_trend_chart(wb, ws, "AppStore评价", _operations_qimai_rows(data, "AppStore reviews"), "E10")
+    _add_operations_trend_chart(wb, ws, "DAU", _operations_qimai_rows(data, "DAU"), "G10")
+    _add_operations_trend_chart(wb, ws, "下载", _operations_qimai_rows(data, "Downloads"), "I10")
+    _add_operations_trend_chart(wb, ws, "收入", _operations_qimai_rows(data, "Revenue"), "K10")
+
+    _write_operations_title(ws, 14, "产品事件数据信息", "A14:J14")
+    _write_operations_title(ws, 15, game_name or "", "A15:J15", fill_color="EAF2F8", font_color="000000", font_size=10)
+    _write_operations_header(ws, 16, event_headers)
+
+    row_index = 18
+    for event in data.events[:40]:
+        _write_operations_row(
+            ws,
+            row_index,
+            [
+                event.get("游戏名", game_name),
+                event.get("日期", ""),
+                event.get("时间节点", ""),
+                event.get("事件类型", ""),
+                event.get("摘要", ""),
+                event.get("一句话概括", event.get("标题", "")),
+                event.get("来源", event.get("来源平台", "")),
+                event.get("URL", event.get("来源链接", "")),
+                event.get("原文摘录", ""),
+            ],
+            len(event_headers),
+            align="left",
+        )
+        row_index += 1
+
+    ws.freeze_panes = "A4"
+
+
+def _setup_operations_monitor_layout(ws) -> None:
+    widths = {
+        "A": 18,
+        "B": 16.625,
+        "C": 27.25,
+        "D": 31.375,
+        "E": 33.625,
+        "F": 17.625,
+        "G": 29.625,
+        "H": 22,
+        "I": 13,
+        "J": 22,
+        "K": 22,
+        "L": 19.875,
+        "M": 9,
+    }
+    for column, width in widths.items():
+        ws.column_dimensions[column].width = width
+    for row, height in {1: 58.5, 2: 24, 3: 24, 4: 49.5, 5: 132, 8: 24, 10: 132}.items():
+        ws.row_dimensions[row].height = height
+
+
+def _write_operations_title(
+    ws,
+    row: int,
+    text: str,
+    merge_range: str,
+    *,
+    fill_color: str = "1F4E78",
+    font_color: str = "FFFFFF",
+    font_size: int = 14,
+) -> None:
+    ws.merge_cells(merge_range)
+    cell = ws.cell(row=row, column=1, value=text)
+    cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+    cell.font = Font(name="微软雅黑", size=font_size, bold=True, color=font_color)
+    cell.alignment = Alignment(horizontal="center" if row == 1 else "left", vertical="center", wrap_text=True)
+
+
+def _write_operations_header(ws, row: int, headers: list[str]) -> None:
+    for col_index, header in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=col_index, value=header)
+        cell.fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+        cell.font = Font(name="微软雅黑", size=10, bold=True)
+        cell.alignment = Alignment(vertical="top", wrap_text=True)
+        cell.border = DATA_BORDER
+
+
+def _write_operations_row(
+    ws,
+    row: int,
+    values: list[Any],
+    width: int,
+    *,
+    align: str = "center",
+) -> None:
+    for col_index in range(1, width + 1):
+        value = values[col_index - 1] if col_index <= len(values) else ""
+        cell = ws.cell(row=row, column=col_index, value=value)
+        cell.font = DATA_FONT
+        cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
+        cell.border = DATA_BORDER
+
+
+def _find_overview_row(rows: list[dict[str, Any]], source_keyword: str) -> dict[str, Any]:
+    source_keyword = source_keyword.lower()
+    exact_matches = {
+        "steam": {"steam"},
+        "qimai": {"qimai", "qimai(appstore)"},
+        "monitor": {"monitor"},
+        "google trends": {"google trends"},
+    }
+    allowed = exact_matches.get(source_keyword)
+    if allowed:
+        for row in rows:
+            source = str(row.get("数据来源", "")).lower().strip()
+            source_base = source.split("(", 1)[0].strip()
+            if source in allowed or source_base in allowed:
+                return row
+    for row in rows:
+        source = str(row.get("数据来源", "")).lower()
+        if source_keyword in source:
+            return row
+    return {}
+
+
+def _trend_reference(value: Any, fallback_sheet: str) -> str:
+    if value not in (None, ""):
+        text = str(value)
+        if fallback_sheet and "见《" not in text:
+            return f"{text} / 见《{fallback_sheet}》"
+        return text
+    return f"见《{fallback_sheet}》" if fallback_sheet else ""
+
+
+def _add_operations_trend_chart(
+    wb: Workbook,
+    target_ws,
+    title: str,
+    rows: list[tuple[Any, Any]],
+    anchor: str,
+) -> None:
+    cleaned = [(date, _numeric_value(value)) for date, value in rows if date not in (None, "")]
+    cleaned = [(date, value) for date, value in cleaned if value is not None]
+    if len(cleaned) < 2:
+        return
+
+    data_ws = _ensure_operations_trend_data_sheet(wb)
+    start_row = data_ws.max_row + 2 if data_ws.max_row > 1 or data_ws["A1"].value else 1
+    data_ws.cell(row=start_row, column=1, value=title)
+    data_ws.cell(row=start_row + 1, column=1, value="日期")
+    data_ws.cell(row=start_row + 1, column=2, value="值")
+    for row_index, (date_value, numeric_value) in enumerate(cleaned, start=start_row + 2):
+        data_ws.cell(row=row_index, column=1, value=str(date_value))
+        data_ws.cell(row=row_index, column=2, value=numeric_value)
+
+    chart = LineChart()
+    chart.title = title
+    chart.style = 2
+    chart.legend = None
+    chart.width = 4.6
+    chart.height = 2.8
+    chart.y_axis.majorGridlines = None
+    chart.x_axis.tickLblPos = "none"
+    chart.y_axis.tickLblPos = "none"
+    chart.x_axis.majorTickMark = "none"
+    chart.y_axis.majorTickMark = "none"
+    chart.graphical_properties = None
+    data_ref = Reference(data_ws, min_col=2, min_row=start_row + 1, max_row=start_row + 1 + len(cleaned))
+    cats_ref = Reference(data_ws, min_col=1, min_row=start_row + 2, max_row=start_row + 1 + len(cleaned))
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+    target_ws.add_chart(chart, anchor)
+
+
+def _ensure_operations_trend_data_sheet(wb: Workbook):
+    sheet_name = "_A趋势图数据"
+    if sheet_name in wb.sheetnames:
+        return wb[sheet_name]
+    ws = wb.create_sheet(sheet_name)
+    ws.sheet_state = "hidden"
+    return ws
+
+
+def _numeric_value(value: Any) -> float | int | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).strip().replace(",", "").replace("%", "")
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _operations_steam_review_rows(data: ExtractedData) -> list[tuple[Any, Any]]:
+    rows = [
+        (row.get("日期"), row.get("热度值"))
+        for row in data.trends
+        if row.get("类型") == "Steam好评率(90天)"
+    ]
+    return sorted(rows, key=lambda item: _series_sort_key(item[0]))
+
+
+def _operations_steam_ccu_rows(data: ExtractedData) -> list[tuple[Any, Any]]:
+    rows = [(row.get("日期"), row.get("在线峰值")) for row in data.steam_player_peaks]
+    return sorted(rows, key=lambda item: _series_sort_key(item[0]))
+
+
+def _operations_google_rows(data: ExtractedData) -> list[tuple[Any, Any]]:
+    rows = [(row.get("日期"), row.get("热度值")) for row in data.google_trends]
+    return sorted(rows, key=lambda item: _series_sort_key(item[0]))
+
+
+def _operations_twitch_rows(data: ExtractedData) -> list[tuple[Any, Any]]:
+    rows = [
+        (row.get("日期"), row.get("Twitch平均观看"))
+        for row in data.monitor_metrics
+        if row.get("Twitch平均观看") not in (None, "")
+    ]
+    return sorted(rows, key=lambda item: _series_sort_key(item[0]))
+
+
+def _operations_qimai_rows(data: ExtractedData, metric_name: str) -> list[tuple[Any, Any]]:
+    rows = [
+        (row.get("日期"), row.get("值"))
+        for row in data.trends
+        if row.get("数据源") == "Qimai(AppStore)" and row.get("指标") == metric_name
+    ]
+    return sorted(rows, key=lambda item: _series_sort_key(item[0]))
+
+
+def _qimai_trend_count(data: ExtractedData, metric_name: str) -> str:
+    count = sum(
+        1
+        for row in data.trends
+        if row.get("数据源") == "Qimai(AppStore)" and row.get("指标") == metric_name
+    )
+    return f"{count} points" if count else ""
 
 
 def _write_table_sheet(
@@ -535,6 +878,236 @@ def _write_reviews_sheet(wb: Workbook, rows: list[dict[str, Any]]) -> None:
 
     _auto_column_width(ws, headers, max_width=60)
     ws.freeze_panes = "A2"
+
+
+def _write_unified_trends_sheet(wb: Workbook, data: ExtractedData) -> None:
+    """写入结构化模板使用的统一趋势数据 Sheet。
+
+    A 在运营产品监测页的多个指标都会指向本 Sheet，因此这里按数据源拆成多个表：
+    Steam 好评率、Steam CCU、Google Trends、Twitch Tracker、Qimai/AppStore。
+    """
+    sections: list[tuple[str, list[dict[str, Any]], list[str], list[str]]] = []
+
+    steam_review_rows = [
+        {
+            "日期": row.get("日期", ""),
+            "好评率": row.get("热度值", ""),
+            "好评数/总数": row.get("标题", ""),
+            "游戏名": row.get("关键词", ""),
+        }
+        for row in data.trends
+        if row.get("类型") == "Steam好评率(90天)"
+    ]
+    if steam_review_rows:
+        sections.append(
+            (
+                "Steam好评率(90天)",
+                sorted(steam_review_rows, key=lambda row: _series_sort_key(row.get("日期"))),
+                ["日期", "好评率", "好评数/总数", "游戏名"],
+                ["好评率"],
+            )
+        )
+
+    if data.steam_player_peaks:
+        steam_ccu_rows = [
+            {
+                "日期": row.get("日期", ""),
+                "CCU Peak": row.get("在线峰值", ""),
+                "时间戳(UTC)": row.get("时间戳(UTC)", ""),
+                "游戏名": row.get("游戏名", ""),
+                "App ID": row.get("App ID", ""),
+            }
+            for row in data.steam_player_peaks
+        ]
+        sections.append(
+            (
+                "Steam CCU Peak趋势",
+                sorted(steam_ccu_rows, key=lambda row: _series_sort_key(row.get("日期"))),
+                ["日期", "CCU Peak", "时间戳(UTC)", "游戏名", "App ID"],
+                ["CCU Peak"],
+            )
+        )
+
+    if data.google_trends:
+        google_rows = [
+            {
+                "日期": row.get("日期", ""),
+                "热度值": row.get("热度值", ""),
+                "关键词": row.get("关键词", ""),
+                "地区": row.get("地区", ""),
+                "时间范围": row.get("时间范围", ""),
+            }
+            for row in data.google_trends
+        ]
+        sections.append(
+            (
+                "Google Trends搜索热度",
+                sorted(google_rows, key=lambda row: _series_sort_key(row.get("日期"))),
+                ["日期", "热度值", "关键词", "地区", "时间范围"],
+                ["热度值"],
+            )
+        )
+
+    if data.monitor_metrics:
+        twitch_rows = [
+            {
+                "日期": row.get("日期", ""),
+                "Twitch平均观看": row.get("Twitch平均观看", ""),
+                "Twitch峰值观看": row.get("Twitch峰值观看", ""),
+                "游戏名": row.get("游戏名", ""),
+                "App ID": row.get("App ID", ""),
+            }
+            for row in data.monitor_metrics
+            if row.get("Twitch平均观看") not in (None, "") or row.get("Twitch峰值观看") not in (None, "")
+        ]
+        if twitch_rows:
+            sections.append(
+                (
+                    "Twitch Tracker观看趋势",
+                    sorted(twitch_rows, key=lambda row: _series_sort_key(row.get("日期"))),
+                    ["日期", "Twitch平均观看", "Twitch峰值观看", "游戏名", "App ID"],
+                    ["Twitch平均观看", "Twitch峰值观看"],
+                )
+            )
+
+    qimai_rows = [
+        {
+            "日期": row.get("日期", ""),
+            "指标": row.get("指标", ""),
+            "值": row.get("值", ""),
+            "游戏名": row.get("游戏名", ""),
+        }
+        for row in data.trends
+        if row.get("数据源") == "Qimai(AppStore)"
+    ]
+    if qimai_rows:
+        sections.append(
+            (
+                "Qimai/AppStore趋势",
+                sorted(qimai_rows, key=lambda row: (str(row.get("指标", "")), _series_sort_key(row.get("日期")))),
+                ["日期", "指标", "值", "游戏名"],
+                ["值"],
+            )
+        )
+
+    other_trend_rows = [
+        row
+        for row in data.trends
+        if row.get("类型") not in {"Steam好评率(90天)", "搜索热度"}
+        and row.get("数据源") != "Qimai(AppStore)"
+    ]
+    if other_trend_rows:
+        sections.append(
+            (
+                "其他趋势数据",
+                sorted(other_trend_rows, key=lambda row: _series_sort_key(row.get("日期"))),
+                _collect_headers(other_trend_rows),
+                ["热度值", "值"],
+            )
+        )
+
+    if not sections:
+        if data.trends:
+            _write_trends_sheet(wb, data.trends)
+        return
+
+    ws = wb.create_sheet(_unique_sheet_title(wb, "趋势数据"))
+    current_row = 1
+    for title, rows, headers, chart_value_headers in sections:
+        current_row = _write_trend_section(
+            ws,
+            title=title,
+            rows=rows,
+            headers=headers,
+            numeric_headers=chart_value_headers,
+            start_row=current_row,
+        )
+        current_row += 3
+
+    ws.freeze_panes = "A3"
+    max_header_count = max((len(headers) for _, _, headers, _ in sections), default=1)
+    _auto_column_width(ws, [f"col_{index}" for index in range(max_header_count)], max_width=28)
+
+
+def _write_trend_section(
+    ws,
+    *,
+    title: str,
+    rows: list[dict[str, Any]],
+    headers: list[str],
+    numeric_headers: list[str],
+    start_row: int,
+) -> int:
+    title_width = max(len(headers), 4)
+    ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=title_width)
+    title_cell = ws.cell(row=start_row, column=1, value=f"{title}（{len(rows)}条）")
+    title_cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    title_cell.font = Font(name="微软雅黑", size=12, bold=True, color="FFFFFF")
+    title_cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    header_row = start_row + 1
+    _write_header_row(ws, headers, row_num=header_row)
+    for row_index, row in enumerate(rows, start=header_row + 1):
+        for col_index, header in enumerate(headers, start=1):
+            cell = ws.cell(row=row_index, column=col_index, value=row.get(header, ""))
+            cell.font = DATA_FONT
+            cell.alignment = DATA_ALIGNMENT
+            cell.border = DATA_BORDER
+            if row_index % 2 == 0:
+                cell.fill = ALT_ROW_FILL
+
+    if len(rows) >= 2 and "日期" in headers:
+        _add_section_line_chart(
+            ws,
+            title=title,
+            headers=headers,
+            numeric_headers=numeric_headers,
+            header_row=header_row,
+            row_count=len(rows),
+        )
+
+    return header_row + len(rows)
+
+
+def _add_section_line_chart(
+    ws,
+    *,
+    title: str,
+    headers: list[str],
+    numeric_headers: list[str],
+    header_row: int,
+    row_count: int,
+) -> None:
+    date_col = headers.index("日期") + 1
+    value_cols = [
+        headers.index(header) + 1
+        for header in numeric_headers
+        if header in headers and _column_has_numeric_values(ws, headers.index(header) + 1, header_row + 1, header_row + row_count)
+    ]
+    if not value_cols:
+        return
+
+    chart = LineChart()
+    chart.title = title
+    chart.y_axis.title = "Value"
+    chart.x_axis.title = "日期"
+    chart.style = 10
+    chart.width = 22
+    chart.height = 10
+    for value_col in value_cols:
+        data_ref = Reference(ws, min_col=value_col, min_row=header_row, max_row=header_row + row_count)
+        chart.add_data(data_ref, titles_from_data=True)
+    cats_ref = Reference(ws, min_col=date_col, min_row=header_row + 1, max_row=header_row + row_count)
+    chart.set_categories(cats_ref)
+    chart_anchor = f"{get_column_letter(len(headers) + 2)}{header_row}"
+    ws.add_chart(chart, chart_anchor)
+
+
+def _column_has_numeric_values(ws, column: int, start_row: int, end_row: int) -> bool:
+    for row_index in range(start_row, end_row + 1):
+        if isinstance(ws.cell(row=row_index, column=column).value, (int, float)):
+            return True
+    return False
 
 
 def _write_trends_sheet(wb: Workbook, rows: list[dict[str, Any]]) -> None:
