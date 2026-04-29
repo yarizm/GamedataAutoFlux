@@ -345,7 +345,12 @@ def _normalize_markdown(markdown: str) -> str:
 
 
 def _build_charts_url(base_url: str, app_id: str | int, time_slice: str = "monthly_peak_1y") -> str:
-    fragment = "#1m" if time_slice in {"daily_precise_30d", "daily_precise_90d"} else ""
+    if time_slice == "daily_precise_30d":
+        fragment = "#1m"
+    elif time_slice == "daily_precise_90d":
+        fragment = "#3m"
+    else:
+        fragment = ""
     return f"{base_url}/app/{app_id}/charts/{fragment}"
 
 

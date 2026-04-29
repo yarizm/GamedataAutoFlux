@@ -77,7 +77,13 @@ steam:
   max_review_trend_reviews: 10000
   steamdb:
     enabled: true
-    request_delay: 3.0
+    cdp_enabled: true
+    cdp_port: 9222
+    cdp_profile_dir: "data/steamdb_profile"
+    request_delay: 8.0
+    request_jitter: 4.0
+    page_delay: 5.0
+    max_games_per_session: 10
     headless: true
     timeout: 30000
     cookie: "${STEAMDB_COOKIE}"
@@ -128,7 +134,7 @@ monitor:
 firecrawl:
   api_key: "${FIRECRAWL_API_KEY}"
   timeout: 30
-  cookie: "${STEAMDB_COOKIE}"
+  cookie: "${FIRECRAWL_COOKIE}"
   headers: {}
 
 gtrends:

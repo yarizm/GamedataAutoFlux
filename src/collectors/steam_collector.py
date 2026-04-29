@@ -113,6 +113,11 @@ class SteamCollector(BaseCollector):
                 request_delay=float(steamdb_cfg.get("request_delay", 3.0)),
                 cookie=str(steamdb_cfg.get("cookie", "") or ""),
                 extra_headers=_clean_headers(steamdb_cfg.get("headers", {})),
+                cdp_enabled=bool(steamdb_cfg.get("cdp_enabled", True)),
+                cdp_port=int(steamdb_cfg.get("cdp_port", 9222)),
+                request_jitter=float(steamdb_cfg.get("request_jitter", 4.0)),
+                page_delay=float(steamdb_cfg.get("page_delay", 5.0)),
+                max_games_per_session=int(steamdb_cfg.get("max_games_per_session", 10)),
             )
             # 延迟初始化: 不在 setup 时启动浏览器，在首次使用时启动
 
@@ -219,19 +224,42 @@ class SteamCollector(BaseCollector):
             if self._steamdb:
                 logger.info("[Steam] 阶段2: SteamDB Playwright 采集")
                 try:
-                    steamdb_data = await self._steamdb.scrape(app_id, time_slice=requested_time_slice)
+                    steamdb_data = await self._steamdb.scrape(
+                        app_id,
+                        time_slice=requested_time_slice,
+                        cookie=steamdb_cookie,
+                        extra_headers=steamdb_headers,
+                    )
                     logger.info("[Steam] SteamDB Playwright ✓")
                 except SteamDBScrapeFailed as e:
                     steamdb_warning = f"SteamDB Playwright 失败: {e}"
                     logger.warning(f"[Steam] Playwright 失败: {e}")
-                    steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
+                    steamdb_data = await self._run_firecrawl_fallback(
+                        app_id,
+                        steamdb_warning,
+                        requested_time_slice,
+                        cookie=firecrawl_cookie,
+                        headers=firecrawl_headers,
+                    )
                 except Exception as e:
                     steamdb_warning = f"SteamDB 可选采集异常: {e}"
                     logger.warning(f"[Steam] SteamDB 可选采集异常，保留官方 API 结果: {e}")
-                    steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
+                    steamdb_data = await self._run_firecrawl_fallback(
+                        app_id,
+                        steamdb_warning,
+                        requested_time_slice,
+                        cookie=firecrawl_cookie,
+                        headers=firecrawl_headers,
+                    )
             elif self._firecrawl:
                 steamdb_warning = "SteamDB Playwright 未启用，直接使用 Firecrawl 兜底"
-                steamdb_data = await self._run_firecrawl_fallback(app_id, steamdb_warning, requested_time_slice)
+                steamdb_data = await self._run_firecrawl_fallback(
+                    app_id,
+                    steamdb_warning,
+                    requested_time_slice,
+                    cookie=firecrawl_cookie,
+                    headers=firecrawl_headers,
+                )
 
         # ── 合并结果 ──
         merged_data = {
@@ -273,13 +301,24 @@ class SteamCollector(BaseCollector):
         )
 
     async def _run_firecrawl_fallback(
-        self, app_id: str | int, warning_message: str, requested_time_slice: str = "monthly_peak_1y"
+        self,
+        app_id: str | int,
+        warning_message: str,
+        requested_time_slice: str = "monthly_peak_1y",
+        *,
+        cookie: str = "",
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """SteamDB 失败时尝试 Firecrawl，失败则保留错误信息。"""
         if self._firecrawl:
             logger.info("[Steam] 切换到 Firecrawl 兜底采集")
             try:
-                result = await self._firecrawl.scrape(app_id, time_slice=requested_time_slice)
+                result = await self._firecrawl.scrape(
+                    app_id,
+                    time_slice=requested_time_slice,
+                    cookie=cookie,
+                    headers=headers,
+                )
                 logger.info("[Steam] Firecrawl 兜底 ✓")
                 return result
             except Exception as fc_err:
