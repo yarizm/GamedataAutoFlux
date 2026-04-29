@@ -33,6 +33,7 @@ COLLECTOR_LABELS: dict[str, str] = {
     "monitor": "Monitor",
     "events": "事件数据",
     "steam_discussions": "Steam Community Discussions",
+    "official_site": "官方网站",
     "qimai": "七麦数据(AppStore)",
 }
 
@@ -78,6 +79,8 @@ COLLECTOR_ALIASES: dict[str, str] = {
     "event": "events",
     "event_data": "events",
     "steam_news": "events",
+    "official_website": "official_site",
+    "official": "official_site",
 }
 
 

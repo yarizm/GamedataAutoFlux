@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -393,7 +394,7 @@ def _setup_operations_monitor_layout(ws) -> None:
     }
     for column, width in widths.items():
         ws.column_dimensions[column].width = width
-    for row, height in {1: 58.5, 2: 24, 3: 24, 4: 49.5, 5: 132, 8: 24, 10: 132}.items():
+    for row, height in {1: 58.5, 2: 24, 3: 24, 4: 49.5, 5: 176, 8: 24, 10: 176}.items():
         ws.row_dimensions[row].height = height
 
 
@@ -482,32 +483,74 @@ def _add_operations_trend_chart(
     if len(cleaned) < 2:
         return
 
+    chart_rows = _sample_operations_trend_points(cleaned, max_points=32)
+    axis_min, axis_max = _adaptive_axis_bounds([value for _, value in cleaned])
+
     data_ws = _ensure_operations_trend_data_sheet(wb)
     start_row = data_ws.max_row + 2 if data_ws.max_row > 1 or data_ws["A1"].value else 1
     data_ws.cell(row=start_row, column=1, value=title)
     data_ws.cell(row=start_row + 1, column=1, value="日期")
     data_ws.cell(row=start_row + 1, column=2, value="值")
-    for row_index, (date_value, numeric_value) in enumerate(cleaned, start=start_row + 2):
+    for row_index, (date_value, numeric_value) in enumerate(chart_rows, start=start_row + 2):
         data_ws.cell(row=row_index, column=1, value=str(date_value))
         data_ws.cell(row=row_index, column=2, value=numeric_value)
 
     chart = LineChart()
-    chart.title = title
+    chart.title = None
     chart.style = 2
     chart.legend = None
-    chart.width = 4.6
-    chart.height = 2.8
+    chart.width = 7.2
+    chart.height = 4.8
+    chart.y_axis.scaling.min = axis_min
+    chart.y_axis.scaling.max = axis_max
     chart.y_axis.majorGridlines = None
-    chart.x_axis.tickLblPos = "none"
-    chart.y_axis.tickLblPos = "none"
+    chart.y_axis.numFmt = "0.##"
+    chart.x_axis.tickLblPos = "low"
+    chart.y_axis.tickLblPos = "low"
     chart.x_axis.majorTickMark = "none"
-    chart.y_axis.majorTickMark = "none"
+    chart.y_axis.majorTickMark = "out"
+    tick_skip = max(1, ceil(len(chart_rows) / 6))
+    chart.x_axis.tickLblSkip = tick_skip
+    chart.x_axis.tickMarkSkip = tick_skip
     chart.graphical_properties = None
-    data_ref = Reference(data_ws, min_col=2, min_row=start_row + 1, max_row=start_row + 1 + len(cleaned))
-    cats_ref = Reference(data_ws, min_col=1, min_row=start_row + 2, max_row=start_row + 1 + len(cleaned))
+    data_ref = Reference(data_ws, min_col=2, min_row=start_row + 1, max_row=start_row + 1 + len(chart_rows))
+    cats_ref = Reference(data_ws, min_col=1, min_row=start_row + 2, max_row=start_row + 1 + len(chart_rows))
     chart.add_data(data_ref, titles_from_data=True)
     chart.set_categories(cats_ref)
     target_ws.add_chart(chart, anchor)
+
+
+def _sample_operations_trend_points(
+    rows: list[tuple[Any, float | int]],
+    *,
+    max_points: int = 32,
+) -> list[tuple[Any, float | int]]:
+    """Keep the overall shape while avoiding overcrowded tiny operation charts."""
+    if len(rows) <= max_points:
+        return rows
+    indexes = {
+        round(index * (len(rows) - 1) / (max_points - 1))
+        for index in range(max_points)
+    }
+    return [rows[index] for index in sorted(indexes)]
+
+
+def _adaptive_axis_bounds(values: list[float | int]) -> tuple[float, float]:
+    """Zoom the operation chart y-axis to the observed fluctuation range."""
+    numeric_values = [float(value) for value in values if isinstance(value, (int, float))]
+    if not numeric_values:
+        return 0.0, 1.0
+    low = min(numeric_values)
+    high = max(numeric_values)
+    if low == high:
+        padding = max(abs(low) * 0.05, 1.0)
+    else:
+        padding = max((high - low) * 0.12, abs(high) * 0.01, 1.0)
+    axis_min = low - padding
+    axis_max = high + padding
+    if low >= 0 and axis_min < 0 and low <= padding:
+        axis_min = 0.0
+    return round(axis_min, 4), round(axis_max, 4)
 
 
 def _ensure_operations_trend_data_sheet(wb: Workbook):

@@ -202,6 +202,28 @@ PIPELINE_TEMPLATES = [
             {"type": "storage", "name": "vector", "config": {}},
         ],
     },
+    {
+        "id": "official_site_basic",
+        "name": "游戏官网基础采集",
+        "description": "official_site -> cleaner -> local，适合官网新闻、公告、版本更新和活动采集",
+        "steps": [
+            {"type": "collector", "name": "official_site", "config": {}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+        ],
+    },
+    {
+        "id": "official_site_full_report",
+        "name": "游戏官网检索报告链路",
+        "description": "official_site -> cleaner -> embedding -> local -> vector，适合官网正文检索与报告",
+        "steps": [
+            {"type": "collector", "name": "official_site", "config": {}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "processor", "name": "embedding", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+            {"type": "storage", "name": "vector", "config": {}},
+        ],
+    },
 ]
 
 

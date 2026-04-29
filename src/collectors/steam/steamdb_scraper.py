@@ -12,8 +12,9 @@ import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -29,6 +30,26 @@ class SteamDBScrapeFailed(Exception):
 _HIGHCHARTS_EXTRACT_SCRIPT = """
 () => {
   const charts = (window.Highcharts && window.Highcharts.charts || []).filter(Boolean);
+  const pairColumns = (xs, ys) => {
+    if (!Array.isArray(xs) || !Array.isArray(ys)) return [];
+    const len = Math.min(xs.length, ys.length);
+    const rows = [];
+    for (let i = 0; i < len; i += 1) rows.push([xs[i], ys[i]]);
+    return rows;
+  };
+  const expandData = (series) => {
+    const data = (series.options && series.options.data || []);
+    if (!Array.isArray(data)) return [];
+    const pointStart = series.options && series.options.pointStart;
+    const pointInterval = series.options && series.options.pointInterval;
+    return data.slice(0, 5000).map((point, index) => {
+      if (Array.isArray(point) || (point && typeof point === "object")) return point;
+      if (pointStart !== undefined && pointInterval !== undefined) {
+        return [pointStart + index * pointInterval, point];
+      }
+      return point;
+    });
+  };
   return charts.map((chart) => ({
     title: chart.title && chart.title.textStr || "",
     series: (chart.series || []).map((series) => ({
@@ -38,10 +59,22 @@ _HIGHCHARTS_EXTRACT_SCRIPT = """
         y: point.y,
         name: point.name || "",
       })),
+      raw_data: expandData(series),
       data: (series.options && series.options.data || []).slice(0, 5000),
+      user_data: (series.userOptions && series.userOptions.data || []).slice(0, 5000),
+      x_y_data: pairColumns(series.xData || [], series.yData || []).slice(0, 5000),
+      processed_data: pairColumns(series.processedXData || [], series.processedYData || []).slice(0, 5000),
     })),
   }));
 }
+"""
+
+_REVIEW_HISTORY_READY_SCRIPT = """
+() => (window.Highcharts && window.Highcharts.charts || []).filter(Boolean).some((chart) => {
+  const title = (chart.title && chart.title.textStr || '').toLowerCase();
+  const seriesNames = (chart.series || []).map((series) => (series.name || '').toLowerCase()).join(' ');
+  return title.includes('review') || (seriesNames.includes('positive') && seriesNames.includes('negative'));
+})
 """
 
 
@@ -58,6 +91,7 @@ class SteamDBScraper:
         cookie: str = "",
         extra_headers: dict[str, str] | None = None,
         cdp_enabled: bool = True,
+        cdp_required: bool = False,
         cdp_port: int = 9222,
         request_jitter: float = 4.0,
         page_delay: float = 5.0,
@@ -69,6 +103,7 @@ class SteamDBScraper:
         self._jitter = request_jitter
         self._page_delay = page_delay
         self._cdp_enabled = cdp_enabled
+        self._cdp_required = cdp_required
         self._cdp_port = cdp_port
         self._max_games_per_session = max_games_per_session
         self._extra_headers = dict(extra_headers or {})
@@ -104,6 +139,8 @@ class SteamDBScraper:
                 return
             except Exception as exc:
                 logger.warning(f"[SteamDB] CDP connection failed, falling back to new browser: {exc}")
+                if self._cdp_required:
+                    raise SteamDBScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
         self._browser = await self._playwright.chromium.launch(
             headless=self._headless,
             args=[
@@ -250,6 +287,8 @@ class SteamDBScraper:
                         logger.info(f"[SteamDB] Connected to local browser over CDP port {self._cdp_port}")
                     except Exception as exc:
                         logger.warning(f"[SteamDB] CDP connection failed, falling back to new browser: {exc}")
+                        if self._cdp_required:
+                            raise SteamDBScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
                         browser = None
                 else:
                     browser = None
@@ -360,7 +399,18 @@ class SteamDBScraper:
         logger.info(f"[SteamDB] 璁块棶 charts: {url}")
 
         try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = await _navigate_by_click_async(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/charts/"]',
+                    f'a[href*="/app/{app_id}/charts"]',
+                    'a:has-text("Charts")',
+                ],
+                label="charts",
+            )
         except Exception as e:
             raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
 
@@ -378,7 +428,7 @@ class SteamDBScraper:
 
         await page.wait_for_timeout(2000)
         await _wait_for_highcharts_async(page)
-        await self._behavior.after_navigation(page)
+        await _activate_lazy_charts_async(page)
 
         charts: dict[str, Any] = {
             "requested_time_slice": time_slice,
@@ -405,6 +455,7 @@ class SteamDBScraper:
         try:
             page_text = await page.inner_text("body")
             charts.update(_extract_numbers_from_text(page_text))
+            charts.update(_extract_review_stats_from_text(page_text))
         except Exception:
             pass
 
@@ -413,6 +464,8 @@ class SteamDBScraper:
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
             logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {e}")
+
+        await self._behavior.after_navigation(page)
 
         if not _has_meaningful_chart_data(charts):
             # Fallback: extract a few visible tables.
@@ -439,7 +492,19 @@ class SteamDBScraper:
         url = f"{self.BASE_URL}/app/{app_id}/patchnotes/"
         logger.info(f"[SteamDB] visit patchnotes: {url}")
         try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = await _navigate_by_click_async(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/patchnotes/"]',
+                    f'a[href*="/app/{app_id}/patchnotes"]',
+                    'a:has-text("Patches")',
+                    'a:has-text("Update history")',
+                ],
+                label="patchnotes",
+            )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
         if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "patchnotes"):
@@ -462,7 +527,19 @@ class SteamDBScraper:
         url = f"{self.BASE_URL}/app/{app_id}/sales/"
         logger.info(f"[SteamDB] visit sales: {url}")
         try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = await _navigate_by_click_async(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/sales/"]',
+                    f'a[href*="/app/{app_id}/sales"]',
+                    'a:has-text("Sales")',
+                    'a:has-text("Price history")',
+                ],
+                label="sales",
+            )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
         if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "sales"):
@@ -489,7 +566,19 @@ class SteamDBScraper:
         logger.info(f"[SteamDB] 璁块棶 info: {url}")
 
         try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = await _navigate_by_click_async(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/info/"]',
+                    f'a[href*="/app/{app_id}/info"]',
+                    'a:has-text("Metadata")',
+                    'a:has-text("Store info")',
+                ],
+                label="info",
+            )
         except Exception as e:
             raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
 
@@ -530,6 +619,7 @@ class SteamDBScraper:
         try:
             page_text = await page.inner_text("body")
             info["steamdb_signed_in"] = not _looks_signed_out(page_text)
+            info.update(_extract_review_stats_from_text(page_text))
             info["page_text_preview"] = page_text[:2000]
         except Exception:
             pass
@@ -540,11 +630,36 @@ class SteamDBScraper:
         """閲囬泦 SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶃€"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
         logger.info(f"[SteamDB] 璁块棶 global top sellers: {url}")
-        try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
-        except Exception as e:
-            logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
-            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": str(e)}
+        resp = None
+        navigation_error = ""
+        for timeout in (self._timeout, max(self._timeout * 2, 60000)):
+            try:
+                resp = await _navigate_by_click_async(
+                    page,
+                    url,
+                    timeout=timeout,
+                    entry_url=self.BASE_URL,
+                    link_selectors=[
+                        'a[href="/stats/globaltopsellers/"]',
+                        'a[href*="/stats/globaltopsellers"]',
+                        'a:has-text("Top Sellers")',
+                        'a:has-text("Sales")',
+                    ],
+                    label="top_sellers",
+                )
+                navigation_error = ""
+                break
+            except Exception as e:
+                navigation_error = str(e)
+                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
+                await page.wait_for_timeout(3000)
+        if navigation_error:
+            rows = await page.query_selector_all("table tbody tr")
+            parsed = await _parse_top_sellers_rows_async(rows, app_id, url)
+            if parsed.get("matched"):
+                parsed["warning"] = navigation_error
+                return parsed
+            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
 
         if resp and resp.status == 403:
             if await self._wait_out_cloudflare_async(page, "top_sellers"):
@@ -570,7 +685,18 @@ class SteamDBScraper:
         logger.info(f"[SteamDB] 璁块棶 charts: {url}")
 
         try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = _navigate_by_click_sync(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/charts/"]',
+                    f'a[href*="/app/{app_id}/charts"]',
+                    'a:has-text("Charts")',
+                ],
+                label="charts",
+            )
         except Exception as e:
             raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
 
@@ -589,7 +715,7 @@ class SteamDBScraper:
 
         page.wait_for_timeout(2000)
         _wait_for_highcharts_sync(page)
-        self._behavior.after_navigation_sync(page)
+        _activate_lazy_charts_sync(page)
 
         charts: dict[str, Any] = {
             "requested_time_slice": time_slice,
@@ -611,6 +737,7 @@ class SteamDBScraper:
         try:
             page_text = page.inner_text("body")
             charts.update(_extract_numbers_from_text(page_text))
+            charts.update(_extract_review_stats_from_text(page_text))
         except Exception:
             pass
 
@@ -619,6 +746,8 @@ class SteamDBScraper:
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
             logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {e}")
+
+        self._behavior.after_navigation_sync(page)
 
         if not _has_meaningful_chart_data(charts):
             try:
@@ -642,7 +771,19 @@ class SteamDBScraper:
         url = f"{self.BASE_URL}/app/{app_id}/patchnotes/"
         logger.info(f"[SteamDB] visit patchnotes: {url}")
         try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = _navigate_by_click_sync(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/patchnotes/"]',
+                    f'a[href*="/app/{app_id}/patchnotes"]',
+                    'a:has-text("Patches")',
+                    'a:has-text("Update history")',
+                ],
+                label="patchnotes",
+            )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
         if resp and resp.status == 403:
@@ -658,7 +799,19 @@ class SteamDBScraper:
         url = f"{self.BASE_URL}/app/{app_id}/sales/"
         logger.info(f"[SteamDB] visit sales: {url}")
         try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = _navigate_by_click_sync(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/sales/"]',
+                    f'a[href*="/app/{app_id}/sales"]',
+                    'a:has-text("Sales")',
+                    'a:has-text("Price history")',
+                ],
+                label="sales",
+            )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
         if resp and resp.status == 403:
@@ -678,7 +831,19 @@ class SteamDBScraper:
         logger.info(f"[SteamDB] 璁块棶 info: {url}")
 
         try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            resp = _navigate_by_click_sync(
+                page,
+                url,
+                timeout=self._timeout,
+                entry_url=f"{self.BASE_URL}/app/{app_id}/",
+                link_selectors=[
+                    f'a[href="/app/{app_id}/info/"]',
+                    f'a[href*="/app/{app_id}/info"]',
+                    'a:has-text("Metadata")',
+                    'a:has-text("Store info")',
+                ],
+                label="info",
+            )
         except Exception as e:
             raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
 
@@ -715,6 +880,7 @@ class SteamDBScraper:
         try:
             page_text = page.inner_text("body")
             info["steamdb_signed_in"] = not _looks_signed_out(page_text)
+            info.update(_extract_review_stats_from_text(page_text))
             info["page_text_preview"] = page_text[:2000]
         except Exception:
             pass
@@ -725,11 +891,36 @@ class SteamDBScraper:
         """鍚屾鐗堟湰鐨?SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶉噰闆嗐€"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
         logger.info(f"[SteamDB] 璁块棶 global top sellers: {url}")
-        try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
-        except Exception as e:
-            logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
-            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": str(e)}
+        resp = None
+        navigation_error = ""
+        for timeout in (self._timeout, max(self._timeout * 2, 60000)):
+            try:
+                resp = _navigate_by_click_sync(
+                    page,
+                    url,
+                    timeout=timeout,
+                    entry_url=self.BASE_URL,
+                    link_selectors=[
+                        'a[href="/stats/globaltopsellers/"]',
+                        'a[href*="/stats/globaltopsellers"]',
+                        'a:has-text("Top Sellers")',
+                        'a:has-text("Sales")',
+                    ],
+                    label="top_sellers",
+                )
+                navigation_error = ""
+                break
+            except Exception as e:
+                navigation_error = str(e)
+                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
+                page.wait_for_timeout(3000)
+        if navigation_error:
+            rows = page.query_selector_all("table tbody tr")
+            parsed = _parse_top_sellers_rows_sync(rows, app_id, url)
+            if parsed.get("matched"):
+                parsed["warning"] = navigation_error
+                return parsed
+            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "top_sellers"):
@@ -749,6 +940,193 @@ class SteamDBScraper:
 
 
 # 鈹€鈹€ 宸ュ叿鍑芥暟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+async def _navigate_by_click_async(
+    page: Any,
+    target_url: str,
+    *,
+    timeout: int,
+    entry_url: str,
+    link_selectors: list[str],
+    label: str,
+) -> Any:
+    """Navigate like a user: enter SteamDB once, then click an in-page link."""
+    response = None
+    target_path = urlparse(str(target_url or "")).path
+    if not _is_steamdb_page(page.url) or (
+        target_path.startswith("/stats/") and not _path_matches(page.url, target_url)
+    ):
+        logger.debug(f"[SteamDB] open entry before {label}: {entry_url}")
+        response = await page.goto(entry_url, wait_until="domcontentloaded", timeout=timeout)
+        await page.wait_for_timeout(1200)
+
+    if _path_matches(page.url, target_url):
+        await _apply_target_hash_async(page, target_url)
+        return response
+
+    for selector in link_selectors:
+        try:
+            locator = await _first_visible_locator_async(page, selector)
+            if locator is None:
+                continue
+            await locator.scroll_into_view_if_needed(timeout=3000)
+            await page.wait_for_timeout(random.randint(400, 1200))
+            before_url = page.url
+            await locator.click(timeout=7000)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=timeout)
+            except Exception:
+                pass
+            await page.wait_for_timeout(1200)
+            if _path_matches(page.url, target_url):
+                await _apply_target_hash_async(page, target_url)
+                logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
+                return None
+        except Exception as exc:
+            logger.debug(f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}")
+
+    logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
+    response = await page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
+    await page.wait_for_timeout(1200)
+    return response
+
+
+def _navigate_by_click_sync(
+    page: Any,
+    target_url: str,
+    *,
+    timeout: int,
+    entry_url: str,
+    link_selectors: list[str],
+    label: str,
+) -> Any:
+    """Synchronous variant of _navigate_by_click_async."""
+    response = None
+    target_path = urlparse(str(target_url or "")).path
+    if not _is_steamdb_page(page.url) or (
+        target_path.startswith("/stats/") and not _path_matches(page.url, target_url)
+    ):
+        logger.debug(f"[SteamDB] open entry before {label}: {entry_url}")
+        response = page.goto(entry_url, wait_until="domcontentloaded", timeout=timeout)
+        page.wait_for_timeout(1200)
+
+    if _path_matches(page.url, target_url):
+        _apply_target_hash_sync(page, target_url)
+        return response
+
+    for selector in link_selectors:
+        try:
+            locator = _first_visible_locator_sync(page, selector)
+            if locator is None:
+                continue
+            locator.scroll_into_view_if_needed(timeout=3000)
+            page.wait_for_timeout(random.randint(400, 1200))
+            before_url = page.url
+            locator.click(timeout=7000)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=timeout)
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            if _path_matches(page.url, target_url):
+                _apply_target_hash_sync(page, target_url)
+                logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
+                return None
+        except Exception as exc:
+            logger.debug(f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}")
+
+    logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
+    response = page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
+    page.wait_for_timeout(1200)
+    return response
+
+
+def _is_steamdb_page(url: str) -> bool:
+    parsed = urlparse(str(url or ""))
+    return parsed.netloc.endswith("steamdb.info")
+
+
+def _path_matches(current_url: str, target_url: str) -> bool:
+    current = urlparse(str(current_url or ""))
+    target = urlparse(str(target_url or ""))
+    current_path = current.path.rstrip("/") + "/"
+    target_path = target.path.rstrip("/") + "/"
+    return current.netloc.endswith("steamdb.info") and current_path == target_path
+
+
+async def _first_visible_locator_async(page: Any, selector: str) -> Any | None:
+    locator = page.locator(selector)
+    count = await locator.count()
+    for index in range(min(count, 8)):
+        candidate = locator.nth(index)
+        try:
+            if await candidate.is_visible(timeout=1000):
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
+def _first_visible_locator_sync(page: Any, selector: str) -> Any | None:
+    locator = page.locator(selector)
+    count = locator.count()
+    for index in range(min(count, 8)):
+        candidate = locator.nth(index)
+        try:
+            if candidate.is_visible(timeout=1000):
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
+async def _apply_target_hash_async(page: Any, target_url: str) -> None:
+    fragment = urlparse(str(target_url or "")).fragment
+    if not fragment:
+        return
+    try:
+        changed = await page.evaluate(
+            """
+            (hash) => {
+              const changed = window.location.hash !== hash;
+              if (changed) window.location.hash = hash;
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+              return changed;
+            }
+            """,
+            f"#{fragment}",
+        )
+        await page.wait_for_timeout(800)
+        if changed:
+            await page.reload(wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(1200)
+    except Exception:
+        pass
+
+
+def _apply_target_hash_sync(page: Any, target_url: str) -> None:
+    fragment = urlparse(str(target_url or "")).fragment
+    if not fragment:
+        return
+    try:
+        changed = page.evaluate(
+            """
+            (hash) => {
+              const changed = window.location.hash !== hash;
+              if (changed) window.location.hash = hash;
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+              return changed;
+            }
+            """,
+            f"#{fragment}",
+        )
+        page.wait_for_timeout(800)
+        if changed:
+            page.reload(wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1200)
+    except Exception:
+        pass
+
 
 def _build_charts_url(base_url: str, app_id: str | int, time_slice: str = "monthly_peak_1y") -> str:
     fragment = _chart_fragment_for_time_slice(time_slice)
@@ -858,17 +1236,28 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
     if wishlist_records:
         charts["wishlist_history"] = wishlist_records
     if review_history_records:
-        charts["user_reviews_history_90d"] = review_history_records[-90:]
-        charts["user_reviews_history"] = review_history_records
+        recent_review_history = _filter_recent_records(review_history_records, days=90)
+        charts["user_reviews_history_90d"] = recent_review_history
+        charts["user_reviews_history"] = recent_review_history
         charts["user_reviews_history_availability"] = {
-            "positive_rate_90d": bool(charts["user_reviews_history_90d"]),
+            "positive_rate_90d": bool(recent_review_history),
+            "raw_record_count": len(review_history_records),
+            "record_count_90d": len(recent_review_history),
+            "granularity": _infer_record_granularity(recent_review_history),
             "source": "steamdb_user_reviews_history",
+            **(
+                {}
+                if recent_review_history
+                else {"reason": "SteamDB User reviews history had no records in the last 90 days."}
+            ),
         }
     else:
         charts["user_reviews_history_90d"] = []
         charts["user_reviews_history"] = []
         charts["user_reviews_history_availability"] = {
             "positive_rate_90d": False,
+            "raw_record_count": 0,
+            "record_count_90d": 0,
             "source": "steamdb_user_reviews_history",
             "reason": "SteamDB charts page did not expose User reviews history. This commonly requires a signed-in SteamDB browser session.",
         }
@@ -897,7 +1286,7 @@ def _extract_highcharts_series_records(payload: list[Any]) -> list[dict[str, Any
             name = str(series.get("name") or "").lower()
             if name and not any(token in name for token in ("player", "online", "playing")):
                 continue
-            records = _series_to_daily_records(series.get("points") or series.get("data") or [])
+            records = _series_to_daily_records(_best_series_points(series))
             if len(records) > len(best):
                 best = records
     return best
@@ -925,7 +1314,7 @@ def _extract_user_reviews_history(payload: list[Any]) -> list[dict[str, Any]]:
                 bucket_name = "negative"
             else:
                 continue
-            for point in series.get("points") or series.get("data") or []:
+            for point in _best_series_points(series):
                 x_value, y_value = _extract_point_xy(point)
                 if x_value is None or y_value is None:
                     continue
@@ -941,6 +1330,7 @@ def _extract_user_reviews_history(payload: list[Any]) -> list[dict[str, Any]]:
                         "positive": 0,
                         "negative": 0,
                         "timestamp": dt.isoformat(),
+                        "metric": "bucket",
                         "source": "steamdb_user_reviews_history",
                     },
                 )
@@ -972,10 +1362,90 @@ def _extract_named_series(payload: list[Any], name_tokens: tuple[str, ...]) -> l
             name = str(series.get("name") or "").lower()
             if not any(token in name for token in name_tokens):
                 continue
-            records = _series_to_daily_records(series.get("points") or series.get("data") or [])
+            records = _series_to_daily_records(_best_series_points(series))
             if len(records) > len(best):
                 best = records
     return best
+
+
+def _best_series_points(series: dict[str, Any]) -> list[Any]:
+    candidates = [
+        series.get("raw_data"),
+        series.get("x_y_data"),
+        series.get("user_data"),
+        series.get("data"),
+        series.get("processed_data"),
+        series.get("points"),
+    ]
+    usable = [candidate for candidate in candidates if isinstance(candidate, list) and candidate]
+    if not usable:
+        return []
+    return max(usable, key=_valid_xy_count)
+
+
+def _valid_xy_count(points: list[Any]) -> int:
+    count = 0
+    for point in points:
+        x_value, y_value = _extract_point_xy(point)
+        if _timestamp_to_datetime(x_value) is not None and _safe_int(y_value) is not None:
+            count += 1
+    return count
+
+
+def _filter_recent_records(records: list[dict[str, Any]], days: int) -> list[dict[str, Any]]:
+    parsed_dates = [
+        parsed.date()
+        for record in records
+        if (parsed := _parse_record_date(record)) is not None
+    ]
+    if not parsed_dates:
+        return []
+    cutoff = max(parsed_dates) - timedelta(days=days - 1)
+    recent: list[dict[str, Any]] = []
+    for record in records:
+        dt = _parse_record_date(record)
+        if dt is None or dt.date() < cutoff:
+            continue
+        recent.append(record)
+    return recent
+
+
+def _parse_record_date(record: dict[str, Any]) -> datetime | None:
+    for key in ("timestamp", "date"):
+        value = record.get(key)
+        if not value:
+            continue
+        if isinstance(value, datetime):
+            return value
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _infer_record_granularity(records: list[dict[str, Any]]) -> str:
+    dates = [
+        parsed.date()
+        for record in records
+        if (parsed := _parse_record_date(record)) is not None
+    ]
+    dates = sorted(set(dates))
+    if len(dates) < 2:
+        return "unknown"
+    gaps = [(right - left).days for left, right in zip(dates, dates[1:]) if right > left]
+    if not gaps:
+        return "unknown"
+    if max(gaps) <= 1:
+        return "daily"
+    if max(gaps) <= 2:
+        return "near_daily"
+    if min(gaps) >= 6 and max(gaps) <= 8:
+        return "weekly"
+    return "irregular"
 
 
 def _series_to_daily_records(points: list[Any]) -> list[dict[str, Any]]:
@@ -1049,12 +1519,98 @@ async def _wait_for_highcharts_async(page: Any) -> None:
         pass
 
 
+async def _activate_lazy_charts_async(page: Any) -> None:
+    try:
+        await page.evaluate(
+            """
+            async () => {
+              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+              const viewport = Math.max(window.innerHeight || 800, 600);
+              const step = Math.max(Math.floor(viewport * 0.8), 500);
+              let previousMaxY = 0;
+              for (let pass = 0; pass < 3; pass += 1) {
+                const maxY = Math.max(document.body.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+                for (let y = 0; y <= maxY; y += step) {
+                  window.scrollTo(0, y);
+                  await sleep(300);
+                }
+                if (maxY === previousMaxY) break;
+                previousMaxY = maxY;
+              }
+              const candidates = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,.card-header,.tab-pane,section,div'));
+              const reviews = candidates
+                .filter((el) => /user reviews history/i.test(el.textContent || ''))
+                .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
+              if (reviews) {
+                reviews.scrollIntoView({ block: 'center' });
+                await sleep(1800);
+              }
+            }
+            """
+        )
+        await page.wait_for_timeout(1000)
+        await _wait_for_highcharts_async(page)
+        await _wait_for_review_history_chart_async(page)
+    except Exception:
+        pass
+
+
+def _activate_lazy_charts_sync(page: Any) -> None:
+    try:
+        page.evaluate(
+            """
+            async () => {
+              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+              const viewport = Math.max(window.innerHeight || 800, 600);
+              const step = Math.max(Math.floor(viewport * 0.8), 500);
+              let previousMaxY = 0;
+              for (let pass = 0; pass < 3; pass += 1) {
+                const maxY = Math.max(document.body.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+                for (let y = 0; y <= maxY; y += step) {
+                  window.scrollTo(0, y);
+                  await sleep(300);
+                }
+                if (maxY === previousMaxY) break;
+                previousMaxY = maxY;
+              }
+              const candidates = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,.card-header,.tab-pane,section,div'));
+              const reviews = candidates
+                .filter((el) => /user reviews history/i.test(el.textContent || ''))
+                .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
+              if (reviews) {
+                reviews.scrollIntoView({ block: 'center' });
+                await sleep(1800);
+              }
+            }
+            """
+        )
+        page.wait_for_timeout(1000)
+        _wait_for_highcharts_sync(page)
+        _wait_for_review_history_chart_sync(page)
+    except Exception:
+        pass
+
+
 def _wait_for_highcharts_sync(page: Any) -> None:
     try:
         page.wait_for_function(
             "() => window.Highcharts && window.Highcharts.charts && window.Highcharts.charts.some(Boolean)",
             timeout=5000,
         )
+    except Exception:
+        pass
+
+
+async def _wait_for_review_history_chart_async(page: Any) -> None:
+    try:
+        await page.wait_for_function(_REVIEW_HISTORY_READY_SCRIPT, timeout=8000)
+    except Exception:
+        pass
+
+
+def _wait_for_review_history_chart_sync(page: Any) -> None:
+    try:
+        page.wait_for_function(_REVIEW_HISTORY_READY_SCRIPT, timeout=8000)
     except Exception:
         pass
 
@@ -1097,6 +1653,85 @@ def _extract_numbers_from_text(text: str) -> dict[str, Any]:
                 pass
     return result
 
+
+def _extract_review_stats_from_text(text: str) -> dict[str, Any]:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    result: dict[str, Any] = {}
+
+    rating = _first_float_match(
+        normalized,
+        (
+            r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+SteamDB Rating",
+            r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+[0-9][0-9,.\s]*[KMBkmb]?\s+reviews\b",
+        ),
+    )
+    if rating is not None:
+        result["steamdb_rating_percent"] = rating
+        result["review_score_percent"] = rating
+
+    positive_match = re.search(
+        r"([0-9][0-9,.\s]*[KMBkmb]?)\s+([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+positive reviews",
+        normalized,
+        re.IGNORECASE,
+    )
+    negative_match = re.search(
+        r"([0-9][0-9,.\s]*[KMBkmb]?)\s+([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+negative reviews",
+        normalized,
+        re.IGNORECASE,
+    )
+    if positive_match:
+        result["positive_reviews"] = _parse_compact_number(positive_match.group(1))
+        result["positive_reviews_percent"] = _safe_float(positive_match.group(2))
+    if negative_match:
+        result["negative_reviews"] = _parse_compact_number(negative_match.group(1))
+        result["negative_reviews_percent"] = _safe_float(negative_match.group(2))
+
+    total_reviews = _parse_compact_number_from_match(
+        re.search(r"([0-9][0-9,.\s]*[KMBkmb]?)\s+reviews\b", normalized, re.IGNORECASE)
+    )
+    if total_reviews is not None:
+        result["total_reviews"] = total_reviews
+
+    return {key: value for key, value in result.items() if value not in (None, "")}
+
+
+def _first_float_match(text: str, patterns: tuple[str, ...]) -> float | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return _safe_float(match.group(1))
+    return None
+
+
+def _parse_compact_number_from_match(match: re.Match[str] | None) -> int | None:
+    if not match:
+        return None
+    return _parse_compact_number(match.group(1))
+
+
+def _parse_compact_number(value: str) -> int | None:
+    text = re.sub(r"\s+", "", str(value or "")).replace(",", "")
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([KMBkmb])?", text)
+    if not match:
+        parsed = _safe_int(text)
+        return parsed
+    number = _safe_float(match.group(1))
+    if number is None:
+        return None
+    multiplier = {
+        "": 1,
+        "k": 1_000,
+        "m": 1_000_000,
+        "b": 1_000_000_000,
+    }.get((match.group(2) or "").lower(), 1)
+    return int(number * multiplier)
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
 
 
 

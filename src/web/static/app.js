@@ -364,19 +364,21 @@ function renderTaskActions(task) {
 }
 
 function showCreateTaskModal() {
-    loadPipelineSelect("task-pipeline").then(() => updateTaskTargetFields());
+    Promise.all([loadPipelineTemplates(), loadPipelineSelect("task-pipeline")]).then(() => updateTaskTargetFields());
     openModal("modal-create-task");
 }
 
 function getCollectorForPipeline(pipelineName) {
-    const pipeline = availablePipelines[pipelineName];
+    const pipeline = availablePipelines[pipelineName]
+        || pipelineTemplates.find((template) => template.id === pipelineName);
     const collectorStep = pipeline?.steps?.find((step) => step.type === "collector");
-    return collectorStep?.name || "";
+    return collectorStep?.name || collectorStep?.component_name || "";
 }
 
 function hasStorageStep(pipelineName, storageName) {
-    const pipeline = availablePipelines[pipelineName];
-    return Boolean(pipeline?.steps?.some((step) => step.type === "storage" && step.name === storageName));
+    const pipeline = availablePipelines[pipelineName]
+        || pipelineTemplates.find((template) => template.id === pipelineName);
+    return Boolean(pipeline?.steps?.some((step) => step.type === "storage" && (step.name || step.component_name) === storageName));
 }
 
 function updateTaskTargetFields() {
@@ -388,6 +390,7 @@ function updateTaskTargetFields() {
     const taptapFields = document.getElementById("task-taptap-fields");
     const monitorFields = document.getElementById("task-monitor-fields");
     const qimaiFields = document.getElementById("task-qimai-fields");
+    const officialSiteFields = document.getElementById("task-official-site-fields");
     const helper = document.getElementById("task-target-helper");
 
     if (steamFields) {
@@ -405,6 +408,9 @@ function updateTaskTargetFields() {
     if (qimaiFields) {
         qimaiFields.style.display = collector === "qimai" ? "block" : "none";
     }
+    if (officialSiteFields) {
+        officialSiteFields.style.display = collector === "official_site" ? "block" : "none";
+    }
     if (helper) {
         if (collector === "taptap") {
             helper.textContent = "TapTap v1 expects a public mainland page URL or app ID.";
@@ -414,6 +420,8 @@ function updateTaskTargetFields() {
             helper.textContent = "Monitor tasks use app id and optional Twitch/SullyGnome hints.";
         } else if (collector === "qimai") {
             helper.textContent = "Qimai tasks use qimai_app_id (App Store ID or Package Name).";
+        } else if (collector === "official_site") {
+            helper.textContent = "Official site tasks use target name plus official_url, or advanced JSON targets.";
         } else {
             helper.textContent = "Steam tasks use target name + app id, or advanced JSON targets.";
         }
@@ -449,6 +457,7 @@ function buildTaskTargetsFromForm(formState) {
         monitorTwitchName,
         monitorSiteurl,
         qimaiAppId,
+        officialSiteUrl,
     } = formState;
 
     if (collector === "steam_discussions") {
@@ -533,6 +542,22 @@ function buildTaskTargetsFromForm(formState) {
         ];
     }
 
+    if (collector === "official_site") {
+        if (!officialSiteUrl) {
+            return [];
+        }
+        return [
+            {
+                name: targetName || officialSiteUrl,
+                target_type: "game",
+                params: {
+                    official_url: officialSiteUrl,
+                    use_playwright: "auto",
+                },
+            },
+        ];
+    }
+
     if (!targetName && !appId) {
         return [];
     }
@@ -578,6 +603,7 @@ async function createTask() {
     const monitorTwitchName = document.getElementById("task-monitor-twitch-name")?.value.trim() || "";
     const monitorSiteurl = document.getElementById("task-monitor-siteurl")?.value.trim() || "";
     const qimaiAppId = document.getElementById("task-qimai-app-id")?.value.trim() || "";
+    const officialSiteUrl = document.getElementById("task-official-site-url")?.value.trim() || "";
     const enableReport = document.getElementById("task-enable-report")?.checked || false;
     const reportPromptRaw = document.getElementById("task-report-prompt")?.value.trim() || "";
     const reportTemplate = document.getElementById("task-report-template")?.value || "default";
@@ -612,6 +638,7 @@ async function createTask() {
         monitorTwitchName,
         monitorSiteurl,
         qimaiAppId,
+        officialSiteUrl,
     });
     if (targetsRaw) {
         try {
@@ -629,6 +656,7 @@ async function createTask() {
 
     const primarySubject = targetName
         || (collector === "taptap" ? taptapAppId : collector === "steam_discussions" ? steamDiscussionsAppId : steamAppId)
+        || (collector === "official_site" ? officialSiteUrl : "")
         || name;
     const reportPrompt = reportPromptRaw
         || `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`;
@@ -982,14 +1010,23 @@ async function deletePipeline(name) {
 
 async function loadPipelineSelect(selectId) {
     try {
-        const pipelines = await api("/pipelines");
-        availablePipelines = pipelines;
+        const [pipelines, templates] = await Promise.all([
+            api("/pipelines"),
+            pipelineTemplates.length ? Promise.resolve(pipelineTemplates) : api("/pipeline-templates"),
+        ]);
+        pipelineTemplates = templates;
+        availablePipelines = { ...pipelines };
+        for (const template of pipelineTemplates) {
+            if (!availablePipelines[template.id]) {
+                availablePipelines[template.id] = template;
+            }
+        }
         const select = document.getElementById(selectId);
         if (!select) return;
 
         const current = select.value;
         select.innerHTML = '<option value="">-- Select Pipeline --</option>';
-        for (const name of Object.keys(pipelines)) {
+        for (const name of Object.keys(availablePipelines)) {
             select.insertAdjacentHTML(
                 "beforeend",
                 `<option value="${name}" ${name === current ? "selected" : ""}>${name}</option>`

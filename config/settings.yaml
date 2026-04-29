@@ -113,13 +113,41 @@ taptap:
 
 qimai:
   headless: true
+  cdp_enabled: true
+  cdp_port: 9222
+  cdp_required: false
   timeout: 45000
   # 七麦有较严格的访问频控。页面间延迟、点击后等待和随机抖动会显著降低连续请求特征。
   request_delay: 8.0
   request_jitter: 4.0
   click_delay: 1.5
   scroll_delay: 2.0
-  max_api_payloads: 80
+  max_api_payloads: 180
+
+official_site:
+  timeout: 20
+  request_delay: 0.5
+  max_pages: 30
+  max_depth: 2
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  playwright_enabled: true
+  headless: true
+  playwright_timeout: 30000
+  include_patterns:
+    - "news"
+    - "update"
+    - "patch"
+    - "event"
+    - "notice"
+    - "announcement"
+  exclude_patterns:
+    - "privacy"
+    - "terms"
+    - "support"
+    - "login"
+    - "account"
+    - "shop"
+    - "cart"
 
 monitor:
   default_days: 30

@@ -9,6 +9,7 @@ its logged-in web session and request signing.
 from __future__ import annotations
 
 import asyncio
+import csv
 import os
 import random
 import re
@@ -16,6 +17,7 @@ import statistics
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 from loguru import logger
@@ -77,6 +79,9 @@ class QimaiCollector(BaseCollector):
             get_config("qimai.user_data_dir", os.path.join(os.getcwd(), "data", "qimai_profile")),
         )
         self._max_api_payloads = int(self.config.get("max_api_payloads", get_config("qimai.max_api_payloads", 80)))
+        self._cdp_enabled = bool(self.config.get("cdp_enabled", get_config("qimai.cdp_enabled", True)))
+        self._cdp_port = int(self.config.get("cdp_port", get_config("qimai.cdp_port", 9222)))
+        self._cdp_required = bool(self.config.get("cdp_required", get_config("qimai.cdp_required", False)))
 
     async def setup(self, config: dict[str, Any] | None = None) -> None:
         await super().setup(config)
@@ -156,6 +161,8 @@ class QimaiCollector(BaseCollector):
             ("rank", f"{self.BASE_URL}/app/rank/appid/{app_id}/country/{country}"),
             ("comment", f"{self.BASE_URL}/app/comment/appid/{app_id}/country/{country}"),
             ("appstatus", f"{self.BASE_URL}/app/appstatus/appid/{app_id}/country/{country}"),
+            ("download", f"{self.BASE_URL}/app/download/appid/{app_id}/country/{country}"),
+            ("income", f"{self.BASE_URL}/app/income/appid/{app_id}/country/{country}"),
         ]
 
     async def _scrape_async(self, app_id: str, country: str) -> dict[str, Any]:
@@ -165,14 +172,29 @@ class QimaiCollector(BaseCollector):
         state = _QimaiCaptureState(app_id=app_id, country=country, max_payloads=self._max_api_payloads)
 
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                self._user_data_dir,
-                headless=self._headless,
-                args=["--disable-blink-features=AutomationControlled"],
-                ignore_default_args=["--enable-automation"],
-                viewport={"width": 1920, "height": 1080},
-                user_agent=_desktop_user_agent(),
-            )
+            browser = None
+            context = None
+            is_cdp = False
+            if self._cdp_enabled:
+                try:
+                    browser = await p.chromium.connect_over_cdp(f"http://127.0.0.1:{self._cdp_port}")
+                    context = browser.contexts[0] if browser.contexts else await browser.new_context(accept_downloads=True)
+                    is_cdp = True
+                    logger.info("[Qimai] Connected to local browser over CDP port {}", self._cdp_port)
+                except Exception as exc:
+                    logger.warning("[Qimai] CDP connection failed, falling back to persistent profile: {}", exc)
+                    if self._cdp_required:
+                        raise QimaiScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
+            if context is None:
+                context = await p.chromium.launch_persistent_context(
+                    self._user_data_dir,
+                    headless=self._headless,
+                    accept_downloads=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                    ignore_default_args=["--enable-automation"],
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=_desktop_user_agent(),
+                )
             try:
                 page = await context.new_page()
                 await page.add_init_script(_stealth_script())
@@ -189,17 +211,21 @@ class QimaiCollector(BaseCollector):
                     await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
                     await self._configure_page_async(page, page_name)
                     await self._polite_wait_async(f"after configuring {page_name}")
+                    await self._capture_visible_chart_async(page, state, page_name)
+                    await self._capture_page_export_async(page, state, page_name)
                     await _safe_scroll_async(page)
                     await self._scroll_wait_async(page_name)
                     state.add_page_text(page_name, await page.locator("body").inner_text(timeout=5000))
                     state.add_page_url(page_name, page.url)
+                await self._capture_direct_metrics_async(page, state, app_id, country)
                 await self._capture_pred_estimates_async(page, state, app_id, country)
                 if country == "cn":
                     await self._capture_public_rank_async(page, state)
                 if capture_tasks:
                     await asyncio.gather(*capture_tasks, return_exceptions=True)
             finally:
-                await context.close()
+                if not is_cdp:
+                    await context.close()
 
         return state.build_result()
 
@@ -210,14 +236,29 @@ class QimaiCollector(BaseCollector):
         state = _QimaiCaptureState(app_id=app_id, country=country, max_payloads=self._max_api_payloads)
 
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                self._user_data_dir,
-                headless=self._headless,
-                args=["--disable-blink-features=AutomationControlled"],
-                ignore_default_args=["--enable-automation"],
-                viewport={"width": 1920, "height": 1080},
-                user_agent=_desktop_user_agent(),
-            )
+            browser = None
+            context = None
+            is_cdp = False
+            if self._cdp_enabled:
+                try:
+                    browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{self._cdp_port}")
+                    context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
+                    is_cdp = True
+                    logger.info("[Qimai] Connected to local browser over CDP port {}", self._cdp_port)
+                except Exception as exc:
+                    logger.warning("[Qimai] CDP connection failed, falling back to persistent profile: {}", exc)
+                    if self._cdp_required:
+                        raise QimaiScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
+            if context is None:
+                context = p.chromium.launch_persistent_context(
+                    self._user_data_dir,
+                    headless=self._headless,
+                    accept_downloads=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                    ignore_default_args=["--enable-automation"],
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=_desktop_user_agent(),
+                )
             try:
                 page = context.new_page()
                 page.add_init_script(_stealth_script())
@@ -229,36 +270,48 @@ class QimaiCollector(BaseCollector):
                     page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
                     self._configure_page_sync(page, page_name)
                     self._polite_wait_sync(f"after configuring {page_name}")
+                    self._capture_visible_chart_sync(page, state, page_name)
+                    self._capture_page_export_sync(page, state, page_name)
                     _safe_scroll_sync(page)
                     self._scroll_wait_sync(page_name)
                     state.add_page_text(page_name, page.locator("body").inner_text(timeout=5000))
                     state.add_page_url(page_name, page.url)
+                self._capture_direct_metrics_sync(page, state, app_id, country)
                 self._capture_pred_estimates_sync(page, state, app_id, country)
                 if country == "cn":
                     self._capture_public_rank_sync(page, state)
             finally:
-                context.close()
+                if not is_cdp:
+                    context.close()
 
         return state.build_result()
 
     async def _configure_page_async(self, page: Any, page_name: str) -> None:
         if page_name == "rank":
-            for label in ("\u7545\u9500", "\u6309\u5929", "\u8fd1\u4e09\u4e2a\u6708"):
-                await _click_text_async(page, label, self._click_delay, self._jitter)
-        elif page_name in {"comment", "appstatus", "download", "income"}:
-            for label in ("\u6309\u5929", "\u8fd1\u4e09\u4e2a\u6708"):
-                await _click_text_async(page, label, self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u699c\u5355\u7c7b\u578b", "\u7545\u9500", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u65e5\u671f", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
+        elif page_name == "comment":
+            await _click_filter_option_async(page, "\u7edf\u8ba1\u65b9\u5f0f", "\u6bcf\u65e5\u53d8\u52a8", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u65f6\u95f4", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
+        elif page_name in {"appstatus", "download", "income"}:
+            await _click_filter_option_async(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u65e5\u671f", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
         if page_name == "appstatus":
             for label in ("DAU", "\u65e5\u6d3b", "\u6d3b\u8dc3"):
                 await _click_text_async(page, label, self._click_delay, self._jitter)
 
     def _configure_page_sync(self, page: Any, page_name: str) -> None:
         if page_name == "rank":
-            for label in ("\u7545\u9500", "\u6309\u5929", "\u8fd1\u4e09\u4e2a\u6708"):
-                _click_text_sync(page, label, self._click_delay, self._jitter)
-        elif page_name in {"comment", "appstatus", "download", "income"}:
-            for label in ("\u6309\u5929", "\u8fd1\u4e09\u4e2a\u6708"):
-                _click_text_sync(page, label, self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u699c\u5355\u7c7b\u578b", "\u7545\u9500", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u65e5\u671f", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
+        elif page_name == "comment":
+            _click_filter_option_sync(page, "\u7edf\u8ba1\u65b9\u5f0f", "\u6bcf\u65e5\u53d8\u52a8", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u65f6\u95f4", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
+        elif page_name in {"appstatus", "download", "income"}:
+            _click_filter_option_sync(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u65e5\u671f", "\u8fd1\u4e09\u4e2a\u6708", self._click_delay, self._jitter)
         if page_name == "appstatus":
             for label in ("DAU", "\u65e5\u6d3b", "\u6d3b\u8dc3"):
                 _click_text_sync(page, label, self._click_delay, self._jitter)
@@ -284,11 +337,12 @@ class QimaiCollector(BaseCollector):
         time.sleep(delay)
 
     async def _capture_public_rank_async(self, page: Any, state: "_QimaiCaptureState") -> None:
-        url = f"{self.BASE_URL}/rank"
+        url = f"{self.BASE_URL}/rank/index/brand/grossing/device/iphone/country/{state.country}/genre/36"
         try:
             await self._polite_wait_async("before navigating public rank")
             await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
-            await _click_text_async(page, "\u7545\u9500", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            await _click_filter_option_async(page, "\u699c\u5355\u7c7b\u578b", "\u7545\u9500", self._click_delay, self._jitter)
             await _safe_scroll_async(page)
             await self._scroll_wait_async("public_rank")
             state.add_page_text("public_rank", await page.locator("body").inner_text(timeout=8000))
@@ -297,11 +351,12 @@ class QimaiCollector(BaseCollector):
             logger.debug("[Qimai] public rank fallback skipped: {}", exc)
 
     def _capture_public_rank_sync(self, page: Any, state: "_QimaiCaptureState") -> None:
-        url = f"{self.BASE_URL}/rank"
+        url = f"{self.BASE_URL}/rank/index/brand/grossing/device/iphone/country/{state.country}/genre/36"
         try:
             self._polite_wait_sync("before navigating public rank")
             page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
-            _click_text_sync(page, "\u7545\u9500", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u8bbe\u5907", "iPhone", self._click_delay, self._jitter)
+            _click_filter_option_sync(page, "\u699c\u5355\u7c7b\u578b", "\u7545\u9500", self._click_delay, self._jitter)
             _safe_scroll_sync(page)
             self._scroll_wait_sync("public_rank")
             state.add_page_text("public_rank", page.locator("body").inner_text(timeout=8000))
@@ -327,6 +382,73 @@ class QimaiCollector(BaseCollector):
             state.warnings.append(f"Qimai pred estimate request failed: {exc}")
             logger.debug("[Qimai] pred estimate request failed: {}", exc)
 
+    async def _capture_direct_metrics_async(self, page: Any, state: "_QimaiCaptureState", app_id: str, country: str) -> None:
+        try:
+            await self._polite_wait_async("before qimai direct metrics")
+            responses = await page.evaluate(_qimai_direct_metrics_script(), _qimai_direct_metric_params(app_id, country))
+            _append_direct_metric_payloads(state, responses)
+        except Exception as exc:
+            state.warnings.append(f"Qimai direct metric request failed: {exc}")
+            logger.debug("[Qimai] direct metric request failed: {}", exc)
+
+    def _capture_direct_metrics_sync(self, page: Any, state: "_QimaiCaptureState", app_id: str, country: str) -> None:
+        try:
+            self._polite_wait_sync("before qimai direct metrics")
+            responses = page.evaluate(_qimai_direct_metrics_script(), _qimai_direct_metric_params(app_id, country))
+            _append_direct_metric_payloads(state, responses)
+        except Exception as exc:
+            state.warnings.append(f"Qimai direct metric request failed: {exc}")
+            logger.debug("[Qimai] direct metric request failed: {}", exc)
+
+    async def _capture_visible_chart_async(self, page: Any, state: "_QimaiCaptureState", page_name: str) -> None:
+        if page_name not in {"rank", "comment", "appstatus", "download", "income"}:
+            return
+        try:
+            series = await page.evaluate(_qimai_echarts_extract_script(), page_name)
+            state.add_chart_series(page_name, series)
+        except Exception as exc:
+            logger.debug("[Qimai] visible chart capture skipped for {}: {}", page_name, exc)
+
+    def _capture_visible_chart_sync(self, page: Any, state: "_QimaiCaptureState", page_name: str) -> None:
+        if page_name not in {"rank", "comment", "appstatus", "download", "income"}:
+            return
+        try:
+            series = page.evaluate(_qimai_echarts_extract_script(), page_name)
+            state.add_chart_series(page_name, series)
+        except Exception as exc:
+            logger.debug("[Qimai] visible chart capture skipped for {}: {}", page_name, exc)
+
+    async def _capture_page_export_async(self, page: Any, state: "_QimaiCaptureState", page_name: str) -> None:
+        if page_name not in {"rank", "comment", "download", "income"}:
+            return
+        try:
+            await _click_table_view_async(page)
+            async with page.expect_download(timeout=3500) as download_info:
+                clicked = await _click_export_button_async(page)
+                if not clicked:
+                    return
+            download = await download_info.value
+            export_path = await download.path()
+            rows = _read_qimai_export_rows(export_path, download.suggested_filename)
+            state.add_export_rows(page_name, rows, download.suggested_filename)
+        except Exception as exc:
+            logger.debug("[Qimai] export capture skipped for {}: {}", page_name, exc)
+
+    def _capture_page_export_sync(self, page: Any, state: "_QimaiCaptureState", page_name: str) -> None:
+        if page_name not in {"rank", "comment", "download", "income"}:
+            return
+        try:
+            _click_table_view_sync(page)
+            with page.expect_download(timeout=3500) as download_info:
+                clicked = _click_export_button_sync(page)
+                if not clicked:
+                    return
+            download = download_info.value
+            rows = _read_qimai_export_rows(download.path(), download.suggested_filename)
+            state.add_export_rows(page_name, rows, download.suggested_filename)
+        except Exception as exc:
+            logger.debug("[Qimai] export capture skipped for {}: {}", page_name, exc)
+
 
 class _QimaiCaptureState:
     def __init__(self, *, app_id: str, country: str, max_payloads: int):
@@ -336,6 +458,8 @@ class _QimaiCaptureState:
         self.page_texts: dict[str, str] = {}
         self.page_urls: dict[str, str] = {}
         self.api_payloads: list[dict[str, Any]] = []
+        self.chart_series: dict[str, list[dict[str, Any]]] = {}
+        self.export_rows: dict[str, list[dict[str, Any]]] = {}
         self.warnings: list[str] = []
 
     def add_page_text(self, page_name: str, text: str) -> None:
@@ -347,6 +471,21 @@ class _QimaiCaptureState:
 
     def add_page_url(self, page_name: str, url: str) -> None:
         self.page_urls[page_name] = url
+
+    def add_export_rows(self, page_name: str, rows: list[dict[str, Any]], filename: str = "") -> None:
+        if not rows:
+            return
+        self.export_rows[page_name] = rows
+        logger.info("[Qimai] captured {} export rows for {} from {}", len(rows), page_name, filename or "download")
+
+    def add_chart_series(self, page_name: str, series: Any) -> None:
+        if not isinstance(series, list):
+            return
+        normalized = _normalize_series(series)
+        if not normalized:
+            return
+        self.chart_series[page_name] = normalized
+        logger.info("[Qimai] captured {} visible chart points for {}", len(normalized), page_name)
 
     async def capture_async(self, response: AsyncResponse) -> None:
         await self._capture_response(response, is_async=True)
@@ -398,6 +537,8 @@ class _QimaiCaptureState:
 
         self._extract_visible_base_fields(result)
         self._extract_api_fields(result)
+        self._extract_chart_fields(result)
+        self._extract_export_fields(result)
         self._finalize_derived_fields(result)
 
         missing = [
@@ -510,6 +651,8 @@ class _QimaiCaptureState:
 
         if not result.get("grossing_rank_cn"):
             rank = _find_scalar(scalar_candidates, ("grossing_rank", "grossing"))
+            if rank is None:
+                rank = _find_app_rank_in_payloads(self.api_payloads, self.app_id, result.get("app_name", ""))
             if rank is not None:
                 result["grossing_rank_cn"] = rank
                 result["grossing_rank"] = rank
@@ -520,10 +663,66 @@ class _QimaiCaptureState:
         if "api.qimai.cn" not in joined_by_url and not self.api_payloads:
             self.warnings.append("No api.qimai.cn JSON responses were captured.")
 
+    def _extract_chart_fields(self, result: dict[str, Any]) -> None:
+        if not self.chart_series:
+            return
+        result["qimai_chart_sources"] = {
+            page_name: len(series)
+            for page_name, series in sorted(self.chart_series.items())
+            if series
+        }
+        api_urls = list(result.get("api_urls", [])) if isinstance(result.get("api_urls"), list) else []
+        api_urls.extend(f"qimai_chart://{page_name}" for page_name, series in self.chart_series.items() if series)
+        result["api_urls"] = sorted(set(api_urls))
+        mapping = {
+            "rank": "ios_grossing_rank_trend",
+            "comment": "appstore_review_trend",
+            "appstatus": "dau_trend_90d",
+            "download": "downloads_trend_90d",
+            "income": "revenue_trend_90d",
+        }
+        for page_name, target_key in mapping.items():
+            if result.get(target_key):
+                continue
+            series = self.chart_series.get(page_name, [])
+            if series:
+                result[target_key] = series
+
+    def _extract_export_fields(self, result: dict[str, Any]) -> None:
+        if not self.export_rows:
+            return
+        result["qimai_export_sources"] = {
+            page_name: len(rows)
+            for page_name, rows in sorted(self.export_rows.items())
+            if rows
+        }
+        api_urls = list(result.get("api_urls", [])) if isinstance(result.get("api_urls"), list) else []
+        api_urls.extend(f"qimai_export://{page_name}" for page_name, rows in self.export_rows.items() if rows)
+        result["api_urls"] = sorted(set(api_urls))
+        mapping = {
+            "rank": "ios_grossing_rank_trend",
+            "comment": "appstore_review_trend",
+            "download": "downloads_trend_90d",
+            "income": "revenue_trend_90d",
+        }
+        for page_name, target_key in mapping.items():
+            if result.get(target_key):
+                continue
+            series = _series_from_export_rows(self.export_rows.get(page_name, []), page_name)
+            if series:
+                result[target_key] = series
+
     def _finalize_derived_fields(self, result: dict[str, Any]) -> None:
         for key in ("ios_grossing_rank_trend", "appstore_review_trend", "dau_trend_90d", "downloads_trend_90d", "revenue_trend_90d"):
             if result.get(key):
-                result[key] = _trim_series(_sort_series(result[key]), 90)
+                result[key] = _trim_series(_sort_series(_sanitize_qimai_metric_series(key, result[key])), 90)
+
+        if not result.get("grossing_rank_cn") and result.get("ios_grossing_rank_trend"):
+            latest_rank = _latest_series_value(result.get("ios_grossing_rank_trend", []))
+            if latest_rank is not None:
+                result["grossing_rank_cn"] = f"#{int(latest_rank)}"
+                result["grossing_rank"] = result["grossing_rank_cn"]
+                result["grossing_rank_source"] = "qimai_grossing_rank_trend_latest"
 
         result["dau_avg_30d"] = result.get("dau_avg_30d") or _average_last_n(result.get("dau_trend_90d", []), 30)
         result["downloads_avg_30d"] = result.get("downloads_avg_30d") or _average_last_n(result.get("downloads_trend_90d", []), 30)
@@ -563,6 +762,78 @@ def _qimai_pred_params(app_id: str, country: str) -> dict[str, Any]:
     }
 
 
+def _qimai_direct_metric_params(app_id: str, country: str) -> dict[str, Any]:
+    end_date = date.today()
+    start_date = end_date - timedelta(days=90)
+    return {
+        "appid": app_id,
+        "country": country,
+        "device": "iphone",
+        "sdate": start_date.isoformat(),
+        "edate": end_date.isoformat(),
+        "_timeout": 60000,
+    }
+
+
+def _qimai_direct_metrics_script() -> str:
+    return """
+        async (params) => {
+            const app = document.querySelector('#app');
+            const vm = app && app.__vue__;
+            const http = vm && (vm.$http || (vm.$root && vm.$root.$http));
+            if (!http) {
+                return { error: 'Qimai Vue $http is unavailable' };
+            }
+            const call = async (name, path, extra) => {
+                const requestParams = Object.assign({}, params, extra || {});
+                delete requestParams._timeout;
+                try {
+                    const response = await http.get(path, { params: requestParams, timeout: params._timeout || 60000 });
+                    return {
+                        url: 'https://api.qimai.cn' + path,
+                        payload: response && response.data ? response.data : response,
+                    };
+                } catch (error) {
+                    return {
+                        url: 'https://api.qimai.cn' + path,
+                        payload: error && error.response && error.response.data
+                            ? error.response.data
+                            : { code: 'client_error', msg: String(error) },
+                    };
+                }
+            };
+            return {
+                rankMoreGrossing: await call('rankMoreGrossing', '/app/rankMore', {
+                    export_type: 'app_rank',
+                    brand: 'grossing',
+                    day: 1,
+                    appRankShow: 1,
+                    subclass: 'all',
+                    simple: 1,
+                    rankEchartType: 1,
+                }),
+                rankGrossing: await call('rankGrossing', '/app/rank', {
+                    export_type: 'app_rank',
+                    brand: 'grossing',
+                    day: 0,
+                    appRankShow: 1,
+                    subclass: 'all',
+                    simple: 1,
+                }),
+                commentRateNum90d: await call('commentRateNum90d', '/app/commentRateNum', {
+                    export_type: 'comment_rate_num',
+                    typec: 'day',
+                }),
+                appStatus90d: await call('appStatus90d', '/app/appStatusList', {
+                    export_type: 'app_status',
+                    type: 'dau',
+                    typec: 'day',
+                }),
+            };
+        }
+    """
+
+
 def _qimai_pred_estimate_script() -> str:
     return """
         async (params) => {
@@ -591,7 +862,104 @@ def _qimai_pred_estimate_script() -> str:
             return {
                 download: await call('download', '/pred/download'),
                 revenue: await call('revenue', '/pred/revenue'),
+                income: await call('income', '/pred/income'),
             };
+        }
+    """
+
+
+def _qimai_echarts_extract_script() -> str:
+    return """
+        (pageName) => {
+            const echartsApi = window.echarts;
+            const isTimestampLike = (num) => {
+                const abs = Math.abs(Number(num));
+                return (abs >= 1000000000 && abs <= 4102444800)
+                    || (abs >= 1000000000000 && abs <= 4102444800000);
+            };
+            const valueOf = (item) => {
+                if (item == null) return null;
+                if (typeof item === 'number') return item;
+                if (Array.isArray(item)) {
+                    const nums = [];
+                    for (let i = 0; i < item.length; i += 1) {
+                        const num = Number(String(item[i]).replace(/,/g, ''));
+                        if (Number.isFinite(num)) nums.push(num);
+                    }
+                    if (!nums.length) return null;
+                    const nonTimestamp = nums.filter((num) => !isTimestampLike(num));
+                    if (pageName === 'rank') {
+                        return nonTimestamp.find((num) => num > 0 && num <= 2000) ?? null;
+                    }
+                    return nonTimestamp.length ? nonTimestamp[nonTimestamp.length - 1] : null;
+                }
+                if (typeof item === 'object') {
+                    if ('value' in item) return valueOf(item.value);
+                    for (const key of ['num', 'count', 'rank', 'income', 'revenue', 'download', 'dau', 'y']) {
+                        if (key in item) return valueOf(item[key]);
+                    }
+                }
+                const num = Number(String(item).replace(/,/g, ''));
+                return Number.isFinite(num) ? num : null;
+            };
+            const textOf = (value) => String(value == null ? '' : value).toLowerCase();
+            const chooseSeries = (series) => {
+                const tokens = {
+                    rank: ['畅销', 'grossing', 'rank'],
+                    appstatus: ['dau', '日活', '活跃'],
+                    download: ['下载', 'download'],
+                    income: ['收入', 'revenue', 'income'],
+                }[pageName] || [];
+                for (const token of tokens) {
+                    const found = series.find((item) => textOf(item.name).includes(textOf(token)));
+                    if (found) return found;
+                }
+                if (pageName === 'rank') {
+                    const ranked = series.find((item) => (item.data || []).some((point) => {
+                        const num = valueOf(point);
+                        return num != null && num > 0 && num <= 2000;
+                    }));
+                    if (ranked) return ranked;
+                }
+                return series.find((item) => Array.isArray(item.data) && item.data.length) || null;
+            };
+            const instances = [];
+            const nodes = Array.from(document.querySelectorAll('div, canvas'));
+            for (const node of nodes) {
+                const key = Object.keys(node).find((name) => name.indexOf('_echarts_instance_') >= 0);
+                const id = key ? node[key] : node.getAttribute && node.getAttribute('_echarts_instance_');
+                if (!id || !echartsApi || !echartsApi.getInstanceById) continue;
+                const instance = echartsApi.getInstanceById(id);
+                if (instance && !instances.includes(instance)) instances.push(instance);
+            }
+            const charts = instances.map((instance) => instance.getOption && instance.getOption()).filter(Boolean);
+            for (const option of charts) {
+                const xAxis = Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis;
+                const dates = xAxis && Array.isArray(xAxis.data) ? xAxis.data : [];
+                const series = Array.isArray(option.series) ? option.series : [];
+                if (!dates.length || !series.length) continue;
+                if (pageName === 'comment') {
+                    return dates.map((date, index) => {
+                        let total = 0;
+                        let seen = false;
+                        for (const item of series) {
+                            const num = valueOf((item.data || [])[index]);
+                            if (num != null) {
+                                total += num;
+                                seen = true;
+                            }
+                        }
+                        return seen ? { date, value: total } : null;
+                    }).filter(Boolean);
+                }
+                const selected = chooseSeries(series);
+                if (!selected) continue;
+                return dates.map((date, index) => {
+                    const value = valueOf((selected.data || [])[index]);
+                    return value == null ? null : { date, value };
+                }).filter(Boolean);
+            }
+            return [];
         }
     """
 
@@ -603,11 +971,32 @@ def _append_pred_estimate_payloads(state: "_QimaiCaptureState", responses: Any) 
     if responses.get("error"):
         state.warnings.append(str(responses["error"]))
         return
-    for key in ("download", "revenue"):
+    for key in ("download", "revenue", "income"):
         item = responses.get(key)
         if not isinstance(item, dict):
             continue
         url = str(item.get("url") or f"https://api.qimai.cn/pred/{key}")
+        state._append_payload(url, item.get("payload"))
+
+
+def _append_direct_metric_payloads(state: "_QimaiCaptureState", responses: Any) -> None:
+    if not isinstance(responses, dict):
+        state.warnings.append("Qimai direct metric request returned an invalid response.")
+        return
+    if responses.get("error"):
+        state.warnings.append(str(responses["error"]))
+        return
+    fallback_urls = {
+        "rankMoreGrossing": "https://api.qimai.cn/app/rankMore",
+        "rankGrossing": "https://api.qimai.cn/app/rank",
+        "commentRateNum90d": "https://api.qimai.cn/app/commentRateNum",
+        "appStatus90d": "https://api.qimai.cn/app/appStatusList",
+    }
+    for key, fallback_url in fallback_urls.items():
+        item = responses.get(key)
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or fallback_url)
         state._append_payload(url, item.get("payload"))
 
 
@@ -629,6 +1018,151 @@ def _click_text_sync(page: Any, text: str, delay: float = 0.7, jitter: float = 0
         time.sleep(wait_seconds)
     except Exception:
         return
+
+
+async def _click_filter_option_async(page: Any, group_label: str, option_label: str, delay: float = 0.7, jitter: float = 0.0) -> bool:
+    try:
+        clicked = await page.evaluate(_qimai_click_filter_script(), {"group": group_label, "option": option_label})
+        if clicked:
+            wait_seconds = _throttle_seconds(delay, min(jitter, delay))
+            logger.debug("[Qimai] throttle after filter click '{}:{}': {:.2f}s", group_label, option_label, wait_seconds)
+            await asyncio.sleep(wait_seconds)
+            return True
+    except Exception as exc:
+        logger.debug("[Qimai] filter click failed '{}:{}': {}", group_label, option_label, exc)
+    await _click_text_async(page, option_label, delay, jitter)
+    return False
+
+
+def _click_filter_option_sync(page: Any, group_label: str, option_label: str, delay: float = 0.7, jitter: float = 0.0) -> bool:
+    try:
+        clicked = page.evaluate(_qimai_click_filter_script(), {"group": group_label, "option": option_label})
+        if clicked:
+            wait_seconds = _throttle_seconds(delay, min(jitter, delay))
+            logger.debug("[Qimai] throttle after filter click '{}:{}': {:.2f}s", group_label, option_label, wait_seconds)
+            time.sleep(wait_seconds)
+            return True
+    except Exception as exc:
+        logger.debug("[Qimai] filter click failed '{}:{}': {}", group_label, option_label, exc)
+    _click_text_sync(page, option_label, delay, jitter)
+    return False
+
+
+def _qimai_click_filter_script() -> str:
+    return """
+        ({ group, option }) => {
+            const text = (node) => (node && node.innerText ? node.innerText : '').replace(/\\s+/g, ' ').trim();
+            const visible = (node) => {
+                if (!node) return false;
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+            };
+            const candidates = Array.from(document.querySelectorAll('section, .filter, .screen, .search-box, .rank-filter, .condition, .choose, .m-b, .item, .line, li, div'))
+                .filter((node) => visible(node) && text(node).includes(group) && text(node).includes(option))
+                .sort((a, b) => text(a).length - text(b).length);
+            for (const container of candidates) {
+                const nodes = Array.from(container.querySelectorAll('button, a, span, label, li, div'))
+                    .filter((node) => visible(node) && text(node) === option)
+                    .sort((a, b) => {
+                        const activeA = /active|selected|cur|on/.test(String(a.className || '')) ? 1 : 0;
+                        const activeB = /active|selected|cur|on/.test(String(b.className || '')) ? 1 : 0;
+                        return activeA - activeB;
+                    });
+                if (nodes.length) {
+                    nodes[0].click();
+                    return true;
+                }
+            }
+            const exact = Array.from(document.querySelectorAll('button, a, span, label, li, div'))
+                .find((node) => visible(node) && text(node) === option);
+            if (exact) {
+                exact.click();
+                return true;
+            }
+            return false;
+        }
+    """
+
+
+async def _click_export_button_async(page: Any) -> bool:
+    for locator in _export_button_locators(page):
+        try:
+            count = await locator.count()
+        except Exception:
+            continue
+        for index in reversed(range(min(count, 6))):
+            try:
+                candidate = locator.nth(index)
+                if not await candidate.is_visible(timeout=500):
+                    continue
+                await candidate.click(timeout=1500)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def _click_export_button_sync(page: Any) -> bool:
+    for locator in _export_button_locators(page):
+        try:
+            count = locator.count()
+        except Exception:
+            continue
+        for index in reversed(range(min(count, 6))):
+            try:
+                candidate = locator.nth(index)
+                if not candidate.is_visible(timeout=500):
+                    continue
+                candidate.click(timeout=1500)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def _export_button_locators(page: Any) -> list[Any]:
+    return [
+        page.get_by_text("\u5bfc\u51fa\u6570\u636e", exact=True),
+        page.get_by_text("\u5bfc\u51fa", exact=True),
+        page.locator("[title*='\u5bfc\u51fa'], [aria-label*='\u5bfc\u51fa']"),
+        page.locator(".icon-download, .el-icon-download, .download, .download-btn"),
+        page.locator("[class*='download'], [class*='export']"),
+        page.locator("button:has-text('\u5bfc\u51fa'), a:has-text('\u5bfc\u51fa')"),
+    ]
+
+
+async def _click_table_view_async(page: Any) -> None:
+    for locator in _table_view_locators(page):
+        try:
+            candidate = locator.first
+            if await candidate.is_visible(timeout=500):
+                await candidate.click(timeout=1000)
+                await asyncio.sleep(0.5)
+                return
+        except Exception:
+            continue
+
+
+def _click_table_view_sync(page: Any) -> None:
+    for locator in _table_view_locators(page):
+        try:
+            candidate = locator.first
+            if candidate.is_visible(timeout=500):
+                candidate.click(timeout=1000)
+                time.sleep(0.5)
+                return
+        except Exception:
+            continue
+
+
+def _table_view_locators(page: Any) -> list[Any]:
+    return [
+        page.get_by_text("\u8868\u683c", exact=True),
+        page.get_by_text("\u5217\u8868", exact=True),
+        page.locator("[title*='\u8868\u683c'], [aria-label*='\u8868\u683c'], [title*='\u5217\u8868'], [aria-label*='\u5217\u8868']"),
+        page.locator(".icon-table, .icon-list, .el-icon-s-grid, .el-icon-s-unfold"),
+    ]
 
 
 def _throttle_seconds(base_delay: float, jitter: float) -> float:
@@ -767,6 +1301,75 @@ def _find_scalar(candidates: Iterable[tuple[str, Any]], keys: tuple[str, ...], *
     return None
 
 
+def _find_app_rank_in_payloads(api_payloads: list[dict[str, Any]], app_id: str, app_name: str = "") -> int | None:
+    for item in api_payloads:
+        if _qimai_api_category(str(item.get("url", ""))) != "rank":
+            continue
+        rank = _find_app_rank_in_node(item.get("payload"), app_id, app_name)
+        if rank is not None:
+            return rank
+    return None
+
+
+def _find_app_rank_in_node(node: Any, app_id: str, app_name: str = "") -> int | None:
+    if isinstance(node, list):
+        for child in node:
+            rank = _find_app_rank_in_node(child, app_id, app_name)
+            if rank is not None:
+                return rank
+        return None
+    if not isinstance(node, dict):
+        return None
+
+    if _dict_matches_qimai_app(node, app_id, app_name):
+        rank = _rank_value_from_dict(node)
+        if rank is not None:
+            return rank
+
+    for child in node.values():
+        rank = _find_app_rank_in_node(child, app_id, app_name)
+        if rank is not None:
+            return rank
+    return None
+
+
+def _dict_matches_qimai_app(item: dict[str, Any], app_id: str, app_name: str = "") -> bool:
+    target_id = str(app_id or "").strip()
+    if target_id:
+        for key, value in item.items():
+            lowered = str(key).lower()
+            if lowered in {"appid", "app_id", "appstore_id", "apple_id", "trackid", "track_id", "id"} and _normalize_app_id(value) == target_id:
+                return True
+    target_name = str(app_name or "").strip()
+    if target_name and not _looks_like_navigation_text(target_name):
+        for key, value in item.items():
+            lowered = str(key).lower()
+            if lowered in {"name", "appname", "app_name", "title"} and target_name in str(value):
+                return True
+    return False
+
+
+def _rank_value_from_dict(item: dict[str, Any]) -> int | None:
+    rank_keys = (
+        "rank",
+        "ranking",
+        "rank_num",
+        "ranknum",
+        "current_rank",
+        "currentrank",
+        "sort",
+        "no",
+    )
+    for key in rank_keys:
+        for raw_key, value in item.items():
+            if str(raw_key).lower() != key:
+                continue
+            rank = _to_int(value)
+            if rank is not None and 0 < rank <= 2000:
+                return rank
+    return None
+
+
 def _extract_series_candidates(api_payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for item in api_payloads:
@@ -834,6 +1437,138 @@ def _first_metric(data: dict[str, Any], keys: tuple[str, ...]) -> int | float | 
     return None
 
 
+def _read_qimai_export_rows(path_value: Any, suggested_filename: str = "") -> list[dict[str, Any]]:
+    if not path_value:
+        return []
+    path = Path(str(path_value))
+    suffix = (path.suffix or Path(str(suggested_filename or "")).suffix).lower()
+    try:
+        if suffix in {".xlsx", ".xlsm", ".xltx", ".xltm"}:
+            return _read_qimai_xlsx_rows(path)
+        return _read_qimai_csv_rows(path)
+    except Exception as exc:
+        logger.debug("[Qimai] failed to parse export {}: {}", suggested_filename or path, exc)
+        return []
+
+
+def _read_qimai_xlsx_rows(path: Path) -> list[dict[str, Any]]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        logger.debug("[Qimai] openpyxl is unavailable; cannot parse xlsx export")
+        return []
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook.active
+        raw_rows = list(sheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+    return _table_rows_from_values(raw_rows)
+
+
+def _read_qimai_csv_rows(path: Path) -> list[dict[str, Any]]:
+    for encoding in ("utf-8-sig", "gb18030", "utf-16"):
+        try:
+            with open(path, "r", encoding=encoding, newline="") as handle:
+                sample = handle.read(2048)
+                handle.seek(0)
+                dialect = csv.Sniffer().sniff(sample) if sample else csv.excel
+                return _table_rows_from_values(list(csv.reader(handle, dialect)))
+        except Exception:
+            continue
+    return []
+
+
+def _table_rows_from_values(raw_rows: list[Any]) -> list[dict[str, Any]]:
+    rows = [
+        ["" if cell is None else cell for cell in row]
+        for row in raw_rows
+        if row and any(str(cell or "").strip() for cell in row)
+    ]
+    if not rows:
+        return []
+
+    header_index = 0
+    for index, row in enumerate(rows[:8]):
+        if any(_looks_like_date_header(cell) for cell in row):
+            header_index = index
+            break
+        if any(_normalize_date(cell) for cell in row):
+            header_index = max(index - 1, 0)
+            break
+
+    headers = [str(cell or "").strip() or f"column_{idx}" for idx, cell in enumerate(rows[header_index])]
+    normalized: list[dict[str, Any]] = []
+    for row in rows[header_index + 1 :]:
+        item = {
+            headers[index] if index < len(headers) else f"column_{index}": cell
+            for index, cell in enumerate(row)
+        }
+        if item:
+            normalized.append(item)
+    return normalized
+
+
+def _looks_like_date_header(value: Any) -> bool:
+    lowered = str(value or "").strip().lower()
+    return lowered in {"date", "day", "time", "\u65e5\u671f", "\u65f6\u95f4"} or "\u65e5\u671f" in lowered
+
+
+def _series_from_export_rows(rows: list[dict[str, Any]], page_name: str) -> list[dict[str, Any]]:
+    series: list[dict[str, Any]] = []
+    for row in rows:
+        point = _point_from_export_row(row, page_name)
+        if point:
+            series.append(point)
+    return _dedupe_series(series)
+
+
+def _point_from_export_row(row: dict[str, Any], page_name: str) -> dict[str, Any] | None:
+    date_text = ""
+    for key, value in row.items():
+        if _looks_like_date_header(key) or _normalize_date(value):
+            date_text = _normalize_date(value)
+            if date_text:
+                break
+    if not date_text:
+        return None
+
+    value = _export_metric_value(row, page_name)
+    if value is None:
+        return None
+    return {"date": date_text, "value": value}
+
+
+def _export_metric_value(row: dict[str, Any], page_name: str) -> int | float | None:
+    preferences = {
+        "rank": ("rank", "ranking", "\u6392\u540d", "\u7545\u9500"),
+        "download": ("download", "downloads", "\u4e0b\u8f7d"),
+        "income": ("income", "revenue", "sales", "\u6536\u5165", "\u9500\u552e"),
+        "comment": ("\u5408\u8ba1", "total", "comment", "review", "\u8bc4\u8bba", "\u8bc4\u5206"),
+    }
+    for key, value in row.items():
+        key_lower = str(key or "").lower()
+        if _looks_like_date_header(key_lower):
+            continue
+        if any(token.lower() in key_lower for token in preferences.get(page_name, ())):
+            number = _to_number(value)
+            if number is not None:
+                return number
+
+    numeric_values: list[int | float] = []
+    for key, value in row.items():
+        if _looks_like_date_header(key):
+            continue
+        number = _to_number(value)
+        if number is not None:
+            numeric_values.append(number)
+    if not numeric_values:
+        return None
+    if page_name == "comment":
+        return sum(numeric_values)
+    return numeric_values[0]
+
+
 def _qimai_api_category(url: str) -> str:
     lowered = (url or "").lower()
     category_tokens = {
@@ -865,20 +1600,39 @@ def _normalize_point(item: Any) -> dict[str, Any] | None:
             item,
             ("value", "num", "count", "rank", "ranking", "income", "revenue", "download", "downloads", "dau", "y"),
         )
-        if metric_value is None:
+        value = _to_number(metric_value)
+        if metric_value is None or (value is not None and _looks_like_timestamp_number(value)):
+            fallback_value = None
             for key, value in item.items():
-                if key == date_value:
+                if value == date_value:
                     continue
-                if _to_number(value) is not None:
-                    metric_value = value
+                fallback_number = _first_non_timestamp_number(value)
+                if fallback_number is not None:
+                    fallback_value = fallback_number
                     break
+            if fallback_value is not None:
+                metric_value = fallback_value
         date_text = _normalize_date(date_value)
         value = _to_number(metric_value)
         if date_text and value is not None:
             return {"date": date_text, "value": value}
     elif isinstance(item, (list, tuple)) and len(item) >= 2:
-        date_text = _normalize_date(item[0])
-        value = _to_number(item[1])
+        date_text = ""
+        date_index = -1
+        for index, raw_value in enumerate(item):
+            candidate_date = _normalize_date(raw_value)
+            if candidate_date:
+                date_text = candidate_date
+                date_index = index
+                break
+        value = None
+        for index, raw_value in enumerate(item):
+            if index == date_index:
+                continue
+            candidate_value = _to_number(raw_value)
+            if candidate_value is not None and not _looks_like_timestamp_number(candidate_value):
+                value = candidate_value
+                break
         if date_text and value is not None:
             return {"date": date_text, "value": value}
     return None
@@ -903,6 +1657,8 @@ def _normalize_date(value: Any) -> str:
         return value.isoformat()
     if isinstance(value, (int, float)):
         timestamp = float(value)
+        if not _looks_like_timestamp_number(timestamp):
+            return ""
         if timestamp > 10_000_000_000:
             timestamp = timestamp / 1000
         try:
@@ -919,7 +1675,59 @@ def _normalize_date(value: Any) -> str:
     if match:
         current_year = date.today().year
         return f"{current_year}-{int(match.group(1)):02d}-{int(match.group(2)):02d}"
+    match = re.search(r"(\d{1,2})\s*\u6708\s*(\d{1,2})\s*\u65e5?", text)
+    if match:
+        current_year = date.today().year
+        return f"{current_year}-{int(match.group(1)):02d}-{int(match.group(2)):02d}"
     return ""
+
+
+def _looks_like_timestamp_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        number = abs(float(value))
+    except (TypeError, ValueError):
+        return False
+    return (1_000_000_000 <= number <= 4_102_444_800) or (1_000_000_000_000 <= number <= 4_102_444_800_000)
+
+
+def _first_non_timestamp_number(value: Any) -> int | float | None:
+    if isinstance(value, dict):
+        for key in ("rank", "ranking", "value", "num", "count", "income", "revenue", "download", "downloads", "dau", "y"):
+            if key in value:
+                number = _first_non_timestamp_number(value.get(key))
+                if number is not None:
+                    return number
+        for child in value.values():
+            number = _first_non_timestamp_number(child)
+            if number is not None:
+                return number
+        return None
+    if isinstance(value, (list, tuple)):
+        for child in value:
+            number = _first_non_timestamp_number(child)
+            if number is not None:
+                return number
+        return None
+    number = _to_number(value)
+    if number is None or _looks_like_timestamp_number(number):
+        return None
+    return number
+
+
+def _sanitize_qimai_metric_series(metric_key: str, series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for point in series:
+        if not isinstance(point, dict):
+            continue
+        value = _to_number(point.get("value"))
+        if value is None or _looks_like_timestamp_number(value):
+            continue
+        if metric_key == "ios_grossing_rank_trend" and not (0 < float(value) <= 2000):
+            continue
+        sanitized.append({"date": point.get("date", ""), "value": value})
+    return sanitized
 
 
 def _to_number(value: Any) -> float | int | None:
@@ -1029,6 +1837,16 @@ def _average_last_n(series: list[dict[str, Any]], n: int) -> float | None:
     if not values:
         return None
     return round(statistics.fmean(values), 2)
+
+
+def _latest_series_value(series: list[dict[str, Any]]) -> int | float | None:
+    for point in reversed(_sort_series(series)):
+        if not isinstance(point, dict):
+            continue
+        value = point.get("value")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value
+    return None
 
 
 def _series_debug_summary(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:

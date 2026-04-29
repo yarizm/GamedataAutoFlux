@@ -90,6 +90,8 @@ def extract_from_records(
                 _extract_events(record_data, result)
             elif collector == "qimai":
                 _extract_qimai(record_data, result)
+            elif collector == "official_site":
+                _extract_official_site(record_data, result)
             else:
                 _extract_generic(record_data, result)
         except Exception as exc:
@@ -119,6 +121,10 @@ def _detect_collector(data: dict[str, Any]) -> str:
         return "steam"
     if "qimai" in data:
         return "qimai"
+    if data.get("collector") == "official_site":
+        return "official_site"
+    if "official_url" in data and "news" in data:
+        return "official_site"
     if "discussions" in data:
         return "steam_discussions"
     if "reviews_summary" in data or "availability" in data:
@@ -134,6 +140,71 @@ def _detect_collector(data: dict[str, Any]) -> str:
 
 
 # ==================== Qimai 提取 ====================
+
+def _extract_official_site(data: dict[str, Any], result: ExtractedData) -> None:
+    """从游戏官网采集结果中提取官网动态、版本更新和活动。"""
+    snapshot = data.get("snapshot", {}) if isinstance(data.get("snapshot"), dict) else {}
+    game_name = data.get("game_name") or snapshot.get("name", "")
+    official_url = data.get("official_url", "")
+    news_items = _list_items((data.get("news") or {}).get("items", []))
+    patch_items = _list_items((data.get("patch_notes") or {}).get("items", []))
+    event_items = _list_items((data.get("events") or {}).get("items", []))
+
+    result.overview.append(
+        {
+            "游戏名": game_name or "未知",
+            "数据来源": "官方网站",
+            "官网URL": official_url,
+            "官网新闻数": len(news_items),
+            "官网版本更新数": len(patch_items),
+            "官网活动数": len(event_items),
+            "最新官网动态": snapshot.get("latest_news_title", ""),
+            "最新动态时间": snapshot.get("latest_news_date", ""),
+            "采集时间": _extract_time(data),
+        }
+    )
+
+    def append_event(item: dict[str, Any], fallback_type: str) -> None:
+        result.events.append(
+            {
+                "游戏名": game_name,
+                "App ID": data.get("app_id", ""),
+                "日期": item.get("date", ""),
+                "事件类型": item.get("category") or item.get("type") or fallback_type,
+                "标题": item.get("title", ""),
+                "摘要": _truncate(item.get("summary") or item.get("content", ""), 800),
+                "来源": "官方网站",
+                "作者/来源名": "official_site",
+                "URL": item.get("url", ""),
+                "原始ID": item.get("id", ""),
+            }
+        )
+
+    for item in news_items[:200]:
+        append_event(item, "官网动态")
+        if item.get("date"):
+            result.trends.append(
+                {
+                    "游戏名": game_name,
+                    "数据源": "官方网站",
+                    "指标": "官网动态",
+                    "日期": item.get("date", ""),
+                    "值": 1,
+                    "标题": item.get("title", ""),
+                    "URL": item.get("url", ""),
+                }
+            )
+    for item in patch_items[:200]:
+        append_event(item, "版本更新")
+    for item in event_items[:200]:
+        append_event(item, "官网活动")
+
+
+def _list_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
 
 def _extract_qimai(data: dict[str, Any], result: ExtractedData) -> None:
     """从七麦数据中提取结构化字段。"""
@@ -183,6 +254,7 @@ def _append_qimai_series(
         return
     if not _qimai_series_has_required_source(api_urls, required_api):
         return
+    series = _sanitize_qimai_report_series(metric, series)
     if _looks_like_qimai_activity_series(series):
         return
     for point in series:
@@ -199,8 +271,26 @@ def _append_qimai_series(
         )
 
 
+def _sanitize_qimai_report_series(metric: str, series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for point in series:
+        if not isinstance(point, dict):
+            continue
+        value = _safe_float(point.get("value"))
+        if value is None or _looks_like_timestamp_number(value):
+            continue
+        if metric == "iOS grossing rank" and not (0 < value <= 2000):
+            continue
+        sanitized.append({**point, "value": int(value) if value.is_integer() else value})
+    return sanitized
+
+
 def _qimai_grossing_rank_cn(qimai_data: dict[str, Any], snapshot: dict[str, Any], api_urls: list[str]) -> Any:
     value = qimai_data.get("grossing_rank_cn", snapshot.get("grossing_rank_cn", ""))
+    if value in (None, ""):
+        latest_rank = _latest_qimai_series_value(qimai_data.get("ios_grossing_rank_trend", []))
+        if latest_rank is not None:
+            value = f"#{int(latest_rank)}"
     if value in (None, ""):
         return ""
     free_rank = qimai_data.get("free_rank", snapshot.get("free_rank", ""))
@@ -231,6 +321,18 @@ def _normalize_rank_value(value: Any) -> str:
     return match.group(0) if match else text
 
 
+def _latest_qimai_series_value(series: Any) -> float | None:
+    if not isinstance(series, list):
+        return None
+    for point in reversed(series):
+        if not isinstance(point, dict):
+            continue
+        value = _safe_float(point.get("value"))
+        if value is not None and not _looks_like_timestamp_number(value):
+            return value
+    return None
+
+
 def _qimai_series_has_required_source(api_urls: list[str], required_api: str) -> bool:
     if not isinstance(api_urls, list):
         return False
@@ -249,6 +351,16 @@ def _looks_like_qimai_activity_series(series: list[dict[str, Any]]) -> bool:
     values = [point.get("value") for point in series if isinstance(point, dict)]
     dates = [str(point.get("date", "")) for point in series if isinstance(point, dict)]
     return values == [2, 72600, -2493] and dates == ["2026-01-29", "2026-02-10", "2026-04-10"]
+
+
+def _looks_like_timestamp_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        number = abs(float(value))
+    except (TypeError, ValueError):
+        return False
+    return (1_000_000_000 <= number <= 4_102_444_800) or (1_000_000_000_000 <= number <= 4_102_444_800_000)
 
 
 # ==================== Steam Community Discussions 提取 ====================
@@ -333,7 +445,12 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
         else {}
     )
     steamdb = data.get("steamdb", {})
+    steamdb_present = isinstance(steamdb, dict) and not steamdb.get("error")
+    steamdb_review_score_text = ""
+    steamdb_overall_positive_rate = None
     if isinstance(steamdb, dict):
+        steamdb_overall_positive_rate = _steamdb_overall_positive_rate(steamdb)
+        steamdb_review_score_text = _steamdb_review_score_text(steamdb)
         charts_for_review = steamdb.get("charts", {})
         if isinstance(charts_for_review, dict):
             steamdb_review_trend = _steamdb_user_review_trend(charts_for_review)
@@ -345,12 +462,23 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
                     "reviews_fetched": int(sum(_safe_float(row.get("total")) or 0 for row in steamdb_review_trend)),
                     "source": "steamdb_user_reviews_history",
                 }
-    overall_positive_rate = _first_present(
-        overall_summary.get("review_score_percent"),
-        reviews_data.get("review_score_percent"),
-    )
+            elif steamdb_present:
+                review_trend_90d = []
+                review_trend_summary = {
+                    "days": 90,
+                    "complete": False,
+                    "reviews_fetched": 0,
+                    "source": "steamdb_user_reviews_history",
+                }
+    if steamdb_present:
+        overall_positive_rate = steamdb_overall_positive_rate
+    else:
+        overall_positive_rate = _first_present(
+            overall_summary.get("review_score_percent"),
+            reviews_data.get("review_score_percent"),
+        )
     recent_positive_rate = _review_rate_from_trend(review_trend_90d, days=30)
-    if recent_positive_rate in (None, ""):
+    if recent_positive_rate in (None, "") and not steamdb_present:
         recent_positive_rate = recent_30d_summary.get("review_score_percent")
 
     overview_row = {
@@ -358,7 +486,7 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
         "数据来源": "Steam",
         "当前在线": _safe_int(snapshot.get("current_players")),
         "评论总量": _safe_int(snapshot.get("total_reviews")),
-        "好评率": snapshot.get("review_score", ""),
+        "好评率": steamdb_review_score_text or ("" if steamdb_present else snapshot.get("review_score", "")),
         "整体好评率": _format_percent(overall_positive_rate),
         "近期好评率(30 Days)": _format_percent(recent_positive_rate),
         "3个月好评率趋势图": _review_trend_summary_text(review_trend_90d, review_trend_summary),
@@ -932,11 +1060,67 @@ def _steamdb_user_review_trend(charts: dict[str, Any]) -> list[dict[str, Any]]:
                 "negative": int(negative),
                 "total": int(total),
                 "positive_rate": round((positive / total) * 100, 2),
+                "metric": row.get("metric", "bucket"),
                 "source": row.get("source", "steamdb_user_reviews_history"),
             }
         )
     normalized.sort(key=lambda item: item.get("date", ""))
     return normalized[-90:]
+
+
+def _steamdb_overall_positive_rate(steamdb: dict[str, Any]) -> float | None:
+    charts = steamdb.get("charts", {}) if isinstance(steamdb.get("charts"), dict) else {}
+    for container in (charts, steamdb.get("info", {}), steamdb):
+        if not isinstance(container, dict):
+            continue
+        direct = _first_present(
+            container.get("steamdb_rating_percent"),
+            container.get("review_score_percent"),
+            container.get("positive_reviews_percent"),
+        )
+        parsed = _safe_float(direct)
+        if parsed is not None:
+            return parsed
+
+    text_blobs = []
+    for container in (steamdb.get("info", {}), charts, steamdb.get("sales", {})):
+        if not isinstance(container, dict):
+            continue
+        for key in ("page_text_preview", "raw_preview", "text_preview"):
+            value = container.get(key)
+            if isinstance(value, str) and value:
+                text_blobs.append(value)
+    for text in text_blobs:
+        parsed = _parse_steamdb_rating_from_text(text)
+        if parsed is not None:
+            return parsed
+    trend = _steamdb_user_review_trend(charts)
+    if trend:
+        return _review_rate_from_trend(trend, days=len(trend))
+    return None
+
+
+def _steamdb_review_score_text(steamdb: dict[str, Any]) -> str:
+    rate = _steamdb_overall_positive_rate(steamdb)
+    if rate is None:
+        return ""
+    return f"{rate:.2f}% (SteamDB)"
+
+
+def _parse_steamdb_rating_from_text(text: str) -> float | None:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    patterns = (
+        r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+SteamDB Rating",
+        r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+[0-9][0-9,.\s]*[KMBkmb]?\s+reviews\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if not match:
+            continue
+        parsed = _safe_float(match.group(1))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _review_trend_summary_text(rows: list[dict[str, Any]], summary: dict[str, Any]) -> str:
@@ -958,6 +1142,22 @@ def _review_rate_from_trend(rows: list[dict[str, Any]], *, days: int) -> float |
         (row for row in rows if isinstance(row, dict)),
         key=lambda row: str(row.get("date", "")),
     )
+    if _is_cumulative_review_series(sorted_rows):
+        window = sorted_rows[-days:]
+        if len(window) >= 2:
+            first = window[0]
+            last = window[-1]
+            positive_delta = (_safe_float(last.get("positive")) or 0) - (
+                _safe_float(first.get("positive")) or 0
+            )
+            total_delta = (_safe_float(last.get("total")) or 0) - (
+                _safe_float(first.get("total")) or 0
+            )
+            if positive_delta >= 0 and total_delta > 0:
+                return round((positive_delta / total_delta) * 100, 2)
+        latest_rate = _safe_float(sorted_rows[-1].get("positive_rate"))
+        return round(latest_rate, 2) if latest_rate is not None else None
+
     positive_total = 0.0
     review_total = 0.0
     for row in sorted_rows[-days:]:
@@ -970,6 +1170,21 @@ def _review_rate_from_trend(rows: list[dict[str, Any]], *, days: int) -> float |
     if review_total <= 0:
         return None
     return round((positive_total / review_total) * 100, 2)
+
+
+def _is_cumulative_review_series(rows: list[dict[str, Any]]) -> bool:
+    if any(row.get("metric") == "cumulative" for row in rows):
+        return True
+    comparable = [
+        (_safe_float(row.get("positive")), _safe_float(row.get("total")))
+        for row in rows
+    ]
+    comparable = [pair for pair in comparable if pair[0] is not None and pair[1] is not None]
+    if len(comparable) < 3:
+        return False
+    positives = [pair[0] for pair in comparable]
+    totals = [pair[1] for pair in comparable]
+    return positives == sorted(positives) and totals == sorted(totals)
 
 
 def _max_peak_last_days(charts: dict[str, Any], days: int) -> int | float | str:

@@ -278,11 +278,14 @@ class SteamCollector(BaseCollector):
         review_score_percent = reviews.get("review_score_percent", 0)
         review_score_desc = reviews.get("review_score_desc", "")
         review_score_formatted = f"{review_score_percent}% ({review_score_desc})" if review_score_percent else review_score_desc
+        steamdb_review_summary = _extract_steamdb_review_summary(steamdb_data)
+        if steamdb_review_summary.get("score_text"):
+            review_score_formatted = steamdb_review_summary["score_text"]
 
         merged_data["snapshot"] = {
             "name": details.get("name", target.name),
             "current_players": steam_data.get("current_players", 0),
-            "total_reviews": reviews.get("total_reviews", 0),
+            "total_reviews": steamdb_review_summary.get("total_reviews") or reviews.get("total_reviews", 0),
             "review_score": review_score_formatted,
             "price": details.get("price"),
         }
@@ -399,6 +402,41 @@ def _apply_steamdb_time_slice(steamdb_data: dict[str, Any], requested_slice: str
     }
 
 
+def _extract_steamdb_review_summary(steamdb_data: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(steamdb_data, dict) or steamdb_data.get("error"):
+        return {}
+    charts = steamdb_data.get("charts") if isinstance(steamdb_data.get("charts"), dict) else {}
+    info = steamdb_data.get("info") if isinstance(steamdb_data.get("info"), dict) else {}
+    rows = []
+    if isinstance(charts, dict):
+        rows = charts.get("user_reviews_history_90d") or charts.get("user_reviews_history") or []
+    if isinstance(rows, list) and rows:
+        latest = rows[-1]
+        if isinstance(latest, dict):
+            rate = _safe_float(latest.get("positive_rate"))
+            total = _safe_int(latest.get("total"))
+            return {
+                "score_text": f"{rate:.2f}% (SteamDB)" if rate is not None else "",
+                "total_reviews": total,
+            }
+
+    for container in (charts, info, steamdb_data):
+        if not isinstance(container, dict):
+            continue
+        rate = _safe_float(
+            container.get("steamdb_rating_percent")
+            or container.get("review_score_percent")
+            or container.get("positive_reviews_percent")
+        )
+        total = _safe_int(container.get("total_reviews"))
+        if rate is not None or total is not None:
+            return {
+                "score_text": f"{rate:.2f}% (SteamDB)" if rate is not None else "",
+                "total_reviews": total,
+            }
+    return {}
+
+
 def _clean_headers(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -407,3 +445,17 @@ def _clean_headers(value: Any) -> dict[str, str]:
         for key, header_value in value.items()
         if key not in (None, "") and header_value not in (None, "")
     }
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(float(str(value).replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None

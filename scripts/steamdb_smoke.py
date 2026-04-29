@@ -20,6 +20,7 @@ async def main() -> None:
 
     scraper = SteamDBScraper(
         cdp_enabled=True,
+        cdp_required=True,
         cdp_port=args.cdp_port,
         request_delay=5.0,
         request_jitter=2.0,
