@@ -1108,13 +1108,21 @@ function renderDataGames(games) {
         const activeClass = selectedDataGame?.game_key === game.game_key ? "active" : "";
         const sourceText = (game.sources || []).map((source) => `${source.name} ${source.count}`).join(" / ");
         return `
-            <button class="data-game-item ${activeClass}" onclick="selectDataGame('${escapeJs(game.game_key)}')">
+            <div class="data-game-item ${activeClass}" role="button" tabindex="0" onclick="selectDataGame('${escapeJs(game.game_key)}')" onkeydown="handleDataGameKeydown(event, '${escapeJs(game.game_key)}')">
+                <button class="data-game-delete" type="button" title="Delete category" onclick="deleteDataGame(event, '${escapeJs(game.game_key)}')">Delete</button>
                 <span class="data-game-name">${escapeHtml(game.game_name)}</span>
                 <span class="data-game-meta">App ID: ${escapeHtml(game.app_id || "-")} | Group: ${escapeHtml(game.group_name || "-")} | ${game.total_records} records</span>
                 <span class="data-game-sources">${escapeHtml(sourceText || "No source")}</span>
-            </button>
+            </div>
         `;
     }).join("");
+}
+
+function handleDataGameKeydown(event, gameKey) {
+    if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectDataGame(gameKey);
+    }
 }
 
 async function selectDataGame(gameKey) {
@@ -1256,6 +1264,34 @@ async function deleteDataRecord(key) {
         }
     } catch (err) {
         toast(`Delete failed: ${err.message}`, "error");
+    }
+}
+
+async function deleteDataGame(event, gameKey) {
+    event?.stopPropagation();
+    const game = dataGames.find((item) => item.game_key === gameKey);
+    if (!game) return;
+    const name = game.group_name || game.game_name || game.game_key;
+    const message = `Delete category "${name}" and all related records, vector data, tasks, schedules, and reports?`;
+    if (!confirm(message)) return;
+    try {
+        const resp = await api(`/data/games/${encodeURIComponent(gameKey)}`, { method: "DELETE" });
+        toast(`Category deleted: ${resp.records_deleted} records`, "success");
+        if (selectedDataGame?.game_key === gameKey) {
+            selectedDataGame = null;
+            currentDataRecords = [];
+            renderDataRecords([]);
+            const title = document.getElementById("data-records-title");
+            const summary = document.getElementById("data-selected-summary");
+            if (title) title.textContent = "Choose a game category";
+            if (summary) summary.textContent = "";
+        }
+        await loadDataGames();
+        await loadDataGroups();
+        loadTasks();
+        loadReports();
+    } catch (err) {
+        toast(`Delete category failed: ${err.message}`, "error");
     }
 }
 

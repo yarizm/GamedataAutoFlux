@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import copy
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from loguru import logger
@@ -117,6 +117,8 @@ def _detect_collector(data: dict[str, Any]) -> str:
             return collector
 
     # 特征检测
+    if "steamdb" in data or "steam_api" in data:
+        return "steam"
     if "snapshot" in data and "current_players" in data.get("snapshot", {}):
         return "steam"
     if "qimai" in data:
@@ -505,6 +507,7 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
         # 计算畅销榜 (Steam关注增量 7日)
         charts = steamdb.get("charts", {})
         if isinstance(charts, dict):
+            ccu_excluded_date = _steam_ccu_excluded_date(data, steamdb)
             followers = charts.get("followers_history", [])
             if isinstance(followers, list) and len(followers) > 0:
                 follower_gain = _series_gain_last_days(followers, 7)
@@ -516,9 +519,9 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
                 wishlist_gain,
                 follower_gain,
             )
-            overview_row["7日ccu peak"] = _max_peak_last_days(charts, 7)
-            overview_row["30日CCU peak"] = _max_peak_last_days(charts, 30)
-            overview_row["3个月ccu趋势"] = _ccu_trend_summary(charts)
+            overview_row["7日ccu peak"] = _max_peak_last_days(charts, 7, excluded_date=ccu_excluded_date)
+            overview_row["30日CCU peak"] = _max_peak_last_days(charts, 30, excluded_date=ccu_excluded_date)
+            overview_row["3个月ccu趋势"] = _ccu_trend_summary(charts, excluded_date=ccu_excluded_date)
             overview_row["steam畅销榜"] = _extract_steam_top_sellers_rank(steamdb, charts)
 
         result.steam_player_peaks.extend(_extract_steam_peak_rows(data, steamdb, game_name, snapshot))
@@ -953,12 +956,15 @@ def _extract_steam_peak_rows(
 
     rows: list[dict[str, Any]] = []
     app_id = data.get("app_id") or snapshot.get("app_id", "")
+    excluded_date = _steam_ccu_excluded_date(data, steamdb)
     for record in records:
         if not isinstance(record, dict):
             continue
         date_value = record.get("date") or record.get("month") or record.get("label")
         peak_value = _first_number(record, "peak_players", "peak", "players", "max_players", "daily_peak_players")
         if date_value in (None, "") or peak_value is None:
+            continue
+        if _is_excluded_steam_ccu_day(record, excluded_date):
             continue
         rows.append(
             {
@@ -1187,7 +1193,12 @@ def _is_cumulative_review_series(rows: list[dict[str, Any]]) -> bool:
     return positives == sorted(positives) and totals == sorted(totals)
 
 
-def _max_peak_last_days(charts: dict[str, Any], days: int) -> int | float | str:
+def _max_peak_last_days(
+    charts: dict[str, Any],
+    days: int,
+    *,
+    excluded_date: date | None = None,
+) -> int | float | str:
     online_history = charts.get("online_history", {})
     daily = charts.get("online_history_daily_precise_90d") or charts.get("online_history_daily_precise_30d") or []
     if not daily and isinstance(online_history, dict):
@@ -1195,7 +1206,8 @@ def _max_peak_last_days(charts: dict[str, Any], days: int) -> int | float | str:
     if not isinstance(daily, list):
         return ""
     values: list[int | float] = []
-    cutoff = datetime.now(timezone.utc).date() - timedelta(days=days)
+    anchor_date = excluded_date or datetime.now(timezone.utc).date()
+    cutoff = anchor_date - timedelta(days=days)
     for record in daily:
         if not isinstance(record, dict):
             continue
@@ -1203,15 +1215,22 @@ def _max_peak_last_days(charts: dict[str, Any], days: int) -> int | float | str:
         peak = _first_number(record, "peak_players", "peak", "players", "max_players")
         if day is None or peak is None:
             continue
+        if excluded_date is not None and day == excluded_date:
+            continue
         if day >= cutoff:
             values.append(peak)
     return max(values) if values else ""
 
 
-def _ccu_trend_summary(charts: dict[str, Any]) -> str:
+def _ccu_trend_summary(charts: dict[str, Any], *, excluded_date: date | None = None) -> str:
     daily = charts.get("online_history_daily_precise_90d") or charts.get("online_history_daily_precise_30d") or []
     if isinstance(daily, list) and daily:
-        return f"{min(len(daily), 90)} daily points"
+        complete_daily = [
+            row
+            for row in daily
+            if not (isinstance(row, dict) and _is_excluded_steam_ccu_day(row, excluded_date))
+        ]
+        return f"{min(len(complete_daily), 90)} daily points"
     monthly = charts.get("online_history_monthly_peak_1y") or charts.get("online_history_1y") or []
     if isinstance(monthly, list) and monthly:
         return f"{min(len(monthly), 3)} monthly points"
@@ -1239,6 +1258,34 @@ def _extract_steam_top_sellers_rank(steamdb: dict[str, Any], charts: dict[str, A
     if fallback not in (None, ""):
         return str(fallback)
     return "未采集"
+
+
+def _steam_ccu_excluded_date(data: dict[str, Any], steamdb: dict[str, Any]) -> date:
+    """Return the collection day whose Steam CCU data should be excluded from reports."""
+    candidates: list[Any] = [
+        _extract_time(data),
+        data.get("collected_at"),
+        steamdb.get("collected_at") if isinstance(steamdb, dict) else None,
+    ]
+    source_meta = data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+    if isinstance(source_meta, dict):
+        candidates.append(source_meta.get("collected_at"))
+    steamdb_meta = steamdb.get("source_meta", {}) if isinstance(steamdb.get("source_meta"), dict) else {}
+    if isinstance(steamdb_meta, dict):
+        candidates.append(steamdb_meta.get("collected_at"))
+
+    for value in candidates:
+        parsed = _parse_datetime_value(value)
+        if parsed is not None:
+            return parsed.date()
+    return datetime.now(timezone.utc).date()
+
+
+def _is_excluded_steam_ccu_day(record: dict[str, Any], excluded_date: date | None) -> bool:
+    if excluded_date is None:
+        return False
+    record_date = _parse_date_only(record.get("date") or record.get("timestamp"))
+    return record_date == excluded_date
 
 
 def _series_gain_last_days(series: list[Any], days: int) -> int | float | None:

@@ -15,12 +15,13 @@ async def main() -> None:
     parser.add_argument("--app-id", default="730")
     parser.add_argument("--time-slice", default="daily_precise_90d")
     parser.add_argument("--cdp-port", type=int, default=9222)
+    parser.add_argument("--cdp-optional", action="store_true", help="Fall back to a new browser when CDP is not reachable.")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
     scraper = SteamDBScraper(
         cdp_enabled=True,
-        cdp_required=True,
+        cdp_required=not args.cdp_optional,
         cdp_port=args.cdp_port,
         request_delay=5.0,
         request_jitter=2.0,

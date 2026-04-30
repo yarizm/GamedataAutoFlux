@@ -127,7 +127,7 @@ qimai:
 official_site:
   timeout: 20
   request_delay: 0.5
-  max_pages: 30
+  max_pages: 80
   max_depth: 2
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
   playwright_enabled: true
@@ -140,6 +140,12 @@ official_site:
     - "event"
     - "notice"
     - "announcement"
+    - "新闻"
+    - "资讯"
+    - "公告"
+    - "活动"
+    - "更新"
+    - "赛事"
   exclude_patterns:
     - "privacy"
     - "terms"
@@ -148,6 +154,150 @@ official_site:
     - "account"
     - "shop"
     - "cart"
+  recipes:
+    "三角洲行动":
+      official_url: "https://df.qq.com/"
+      use_playwright: "auto"
+      max_pages: 80
+      max_depth: 2
+      since_days: 90
+      validation_status: "verified"
+      validation_notes: "已验证可采集近 90 天新闻、版本更新和活动。"
+    "永劫无间":
+      official_url: "https://www.yjwujian.cn/news/"
+      use_playwright: "never"
+      max_pages: 60
+      max_depth: 1
+      since_days: 90
+      validation_status: "partial"
+      validation_notes: "可采集新闻和版本更新，官网可见范围不足完整 90 天时按页面实际内容返回。"
+    "Arc Raiders":
+      official_url: "https://arcraiders.com/news/"
+      use_playwright: "never"
+      max_pages: 25
+      max_depth: 1
+      since_days: 90
+      validation_status: "verified"
+      validation_notes: "已验证可采集近 90 天 patch/news 页面。"
+    "失落飞船：马拉松":
+      official_url: "https://www.bungie.net/7/zh-chs/News/Marathon"
+      use_playwright: "auto"
+      max_pages: 12
+      max_depth: 1
+      since_days: 90
+      listing_only: true
+      validation_status: "needs_adapter"
+      validation_notes: "官方新闻入口已确认在 Bungie 中文 Marathon 新闻页；列表页为 JS 渲染，必要时接 Bungie Content API。"
+    "Deadlock":
+      official_url: "https://store.steampowered.com/news/app/1422450"
+      use_playwright: "never"
+      max_pages: 10
+      max_depth: 1
+      since_days: 90
+      validation_status: "needs_adapter"
+      validation_notes: "官方动态入口为 Steam News Hub；建议后续接 Steam 新闻接口解析。"
+    "黑夜君临":
+      official_url: "https://nightreign.eldenring.jp/news.html"
+      use_playwright: "auto"
+      max_pages: 12
+      max_depth: 1
+      since_days: 90
+      listing_only: true
+      validation_status: "needs_adapter"
+      validation_notes: "官方新闻入口已确认在日服 Nightreign news.html。"
+    "超自然行动组":
+      official_url: "https://www.chaoziran.com/"
+      use_playwright: "auto"
+      max_pages: 20
+      max_depth: 2
+      since_days: 90
+      validation_status: "partial"
+      validation_notes: "可采集 SSR/动态卡片新闻，日期覆盖取决于首页和新闻列表暴露内容。"
+    "第五人格":
+      official_url: "https://id5.163.com/news/official/"
+      use_playwright: "never"
+      max_pages: 30
+      max_depth: 1
+      since_days: 90
+      validation_status: "verified"
+      validation_notes: "已验证可采集近 90 天官方新闻。"
+    "燕云十六声":
+      official_url: "https://www.yysls.cn/m/pz/"
+      use_playwright: "never"
+      max_pages: 40
+      max_depth: 2
+      since_days: 90
+      validation_status: "verified"
+      validation_notes: "已验证可采集近 90 天公告和更新。"
+    "命运2":
+      official_url: "https://www.mingyun2.com/news/official/"
+      use_playwright: "never"
+      max_pages: 25
+      max_depth: 1
+      since_days: 90
+      validation_status: "needs_adapter"
+      validation_notes: "国服官方新闻入口已确认。"
+    "Helldivers 2":
+      official_url: "https://arrowhead.zendesk.com/hc/en-us/categories/12532454295708-Helldivers-2-Patch-notes"
+      use_playwright: "auto"
+      max_pages: 15
+      max_depth: 1
+      since_days: 90
+      validation_status: "partial"
+      validation_notes: "官方补丁入口在 Arrowhead Support；活动新闻可补充 PlayStation Blog。"
+    "怪物猎人：荒野":
+      official_url: "https://www.monsterhunter.com/wilds/zh-hans/update/"
+      use_playwright: "auto"
+      max_pages: 15
+      max_depth: 1
+      since_days: 90
+      listing_only: true
+      validation_status: "partial"
+      validation_notes: "官方简中更新入口已确认。"
+    "星际战甲":
+      official_url: "https://www.warframe.com/news"
+      use_playwright: "never"
+      max_pages: 20
+      max_depth: 2
+      since_days: 90
+      validation_status: "partial"
+      validation_notes: "可采集部分 patch notes，新闻列表分页仍需专项优化。"
+    "碧蓝幻想 relink":
+      official_url: "https://relink-ragnarok.granbluefantasy.com/en"
+      use_playwright: "never"
+      max_pages: 15
+      max_depth: 1
+      since_days: 90
+      validation_status: "partial"
+      validation_notes: "Relink 新内容 Endless Ragnarok 官方站已确认；公司新闻可补充 Cygames News。"
+    "FF14":
+      official_url: "https://ff.web.sdo.com/web8/index.html#/newstab/newslist"
+      use_playwright: "auto"
+      max_pages: 15
+      max_depth: 1
+      since_days: 90
+      listing_only: true
+      validation_status: "needs_adapter"
+      validation_notes: "国服 web8 新闻列表 hash 路由入口已确认。"
+    "永恒之塔2":
+      official_url: "https://aion2.plaync.com/ko-kr/board/notice/list"
+      use_playwright: "auto"
+      max_pages: 15
+      max_depth: 1
+      since_days: 90
+      validation_status: "inaccessible"
+      validation_notes: "当前环境访问超时，需要换网络或站点适配后复测。"
+  recipe_aliases:
+    "delta_force": "三角洲行动"
+    "Delta Force": "三角洲行动"
+    "ARC Raiders": "Arc Raiders"
+    "Marathon": "失落飞船：马拉松"
+    "ELDEN RING NIGHTREIGN": "黑夜君临"
+    "Identity V": "第五人格"
+    "Warframe": "星际战甲"
+    "Granblue Fantasy Relink": "碧蓝幻想 relink"
+    "FINAL FANTASY XIV": "FF14"
+    "AION2": "永恒之塔2"
 
 monitor:
   default_days: 30

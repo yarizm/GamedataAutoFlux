@@ -12,7 +12,6 @@ data/
 logs/
 outputs/
 tmp/
-tests/
 node_modules/
 gamedata_autoflux.egg-info/
 

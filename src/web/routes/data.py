@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from src.core.task import Task, TaskTarget
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
+from src.storage.vector_store import VectorStorage
 
 router = APIRouter(tags=["data"])
 
@@ -68,6 +69,17 @@ class DataGroupSummary(BaseModel):
     group_name: str
     count: int
     latest_stored_at: str | None = None
+
+
+class DeleteDataCategoryResponse(BaseModel):
+    message: str
+    game_key: str = ""
+    group_id: str = ""
+    records_deleted: int = 0
+    vector_records_deleted: int = 0
+    tasks_deleted: int = 0
+    cron_jobs_deleted: int = 0
+    reports_deleted: int = 0
 
 
 class UpdateRecordRequest(BaseModel):
@@ -166,6 +178,11 @@ async def list_data_groups(
     ]
 
 
+@router.delete("/data/groups/{group_id}", response_model=DeleteDataCategoryResponse)
+async def delete_data_group(group_id: Annotated[str, Path(description="Data group id")]):
+    return await _delete_data_category(group_id=group_id.strip())
+
+
 @router.get("/data/search", response_model=list[DataRecordSummary])
 async def search_data_records(
     q: Annotated[str, Query(description="Search text for key, task id/name, game or group")],
@@ -217,6 +234,11 @@ async def list_game_records(
 
     summaries.sort(key=lambda item: item.stored_at, reverse=True)
     return summaries
+
+
+@router.delete("/data/games/{game_key}", response_model=DeleteDataCategoryResponse)
+async def delete_data_game(game_key: Annotated[str, Path(description="Game grouping key")]):
+    return await _delete_data_category(game_key=game_key.strip())
 
 
 @router.get("/data/records/{record_key}", response_model=DataRecordDetail)
@@ -281,6 +303,230 @@ async def delete_data_record(record_key: Annotated[str, Path(description="Storag
     finally:
         await store.close()
     return {"message": f"Data record deleted: {record_key}"}
+
+
+async def _delete_data_category(*, game_key: str = "", group_id: str = "") -> DeleteDataCategoryResponse:
+    if not game_key and not group_id:
+        raise HTTPException(400, "Missing game_key or group_id")
+
+    matched_records: list[StorageRecord] = []
+    matched_summaries: list[DataRecordSummary] = []
+    for record in await _load_source_records(limit=100000):
+        summary = _record_summary(record)
+        if not summary:
+            continue
+        if group_id and summary.group_id != group_id:
+            continue
+        if game_key and summary.game_key != game_key:
+            continue
+        matched_records.append(record)
+        matched_summaries.append(summary)
+
+    if not matched_records:
+        label = group_id or game_key
+        raise HTTPException(404, f"Data category not found: {label}")
+
+    record_keys = {record.key for record in matched_records}
+    task_ids = {summary.task_id for summary in matched_summaries if summary.task_id}
+    group_ids = {summary.group_id for summary in matched_summaries if summary.group_id}
+    group_names = {summary.group_name for summary in matched_summaries if summary.group_name}
+
+    await _ensure_related_tasks_are_not_running(task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+
+    records_deleted = await _delete_local_records(record_keys)
+    vector_deleted = await _delete_vector_records(record_keys=record_keys, game_key=game_key, group_ids=group_ids, group_names=group_names)
+    tasks_deleted = await _delete_related_tasks(task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+    cron_deleted = _delete_related_cron_jobs(group_ids=group_ids, group_names=group_names)
+    reports_deleted = await _delete_related_reports(
+        record_keys=record_keys,
+        task_ids=task_ids,
+        group_ids=group_ids,
+        group_names=group_names,
+        game_key=game_key,
+    )
+
+    return DeleteDataCategoryResponse(
+        message="Data category deleted",
+        game_key=game_key,
+        group_id=group_id or next(iter(group_ids), ""),
+        records_deleted=records_deleted,
+        vector_records_deleted=vector_deleted,
+        tasks_deleted=tasks_deleted,
+        cron_jobs_deleted=cron_deleted,
+        reports_deleted=reports_deleted,
+    )
+
+
+async def _delete_local_records(record_keys: set[str]) -> int:
+    store = LocalStorage()
+    await store.initialize()
+    deleted = 0
+    try:
+        for key in record_keys:
+            if await store.delete(key):
+                deleted += 1
+    finally:
+        await store.close()
+    return deleted
+
+
+async def _delete_vector_records(
+    *,
+    record_keys: set[str],
+    game_key: str,
+    group_ids: set[str],
+    group_names: set[str],
+) -> int:
+    vector = VectorStorage()
+    await vector.initialize()
+    deleted = 0
+    deleted_keys: set[str] = set()
+    try:
+        for key in record_keys:
+            if await vector.delete(key):
+                deleted += 1
+                deleted_keys.add(key)
+
+        for key in await vector.list_keys(limit=100000):
+            if key in deleted_keys:
+                continue
+            record = await vector.load(key)
+            if record is None:
+                continue
+            if _record_matches_category(record, game_key=game_key, group_ids=group_ids, group_names=group_names):
+                if await vector.delete(key):
+                    deleted += 1
+                    deleted_keys.add(key)
+    finally:
+        await vector.close()
+    return deleted
+
+
+async def _ensure_related_tasks_are_not_running(
+    *,
+    task_ids: set[str],
+    group_ids: set[str],
+    group_names: set[str],
+) -> None:
+    from src.web.app import scheduler
+
+    running = [
+        task.id
+        for task in scheduler.get_all_tasks()
+        if _task_matches_category(task, task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+        and not task.is_terminal
+    ]
+    if running:
+        raise HTTPException(409, f"Cannot delete category while related tasks are running: {', '.join(running)}")
+
+
+async def _delete_related_tasks(
+    *,
+    task_ids: set[str],
+    group_ids: set[str],
+    group_names: set[str],
+) -> int:
+    from src.web.app import scheduler
+
+    related_ids = [
+        task.id
+        for task in scheduler.get_all_tasks()
+        if _task_matches_category(task, task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+    ]
+    deleted = 0
+    for task_id in related_ids:
+        if await scheduler.delete_task(task_id):
+            deleted += 1
+    return deleted
+
+
+def _delete_related_cron_jobs(*, group_ids: set[str], group_names: set[str]) -> int:
+    from src.web.app import scheduler
+
+    deleted = 0
+    for job in scheduler.list_cron_jobs():
+        template = job.get("task_template", {}) if isinstance(job, dict) else {}
+        config = template.get("config", {}) if isinstance(template, dict) else {}
+        if _data_group_matches(config.get("data_group", {}), group_ids=group_ids, group_names=group_names):
+            if scheduler.remove_cron_job(str(job.get("name") or job.get("id") or "")):
+                deleted += 1
+    return deleted
+
+
+async def _delete_related_reports(
+    *,
+    record_keys: set[str],
+    task_ids: set[str],
+    group_ids: set[str],
+    group_names: set[str],
+    game_key: str,
+) -> int:
+    from src.web.app import report_generator
+
+    deleted = 0
+    for summary in await report_generator.list_reports(limit=100000):
+        report = await report_generator.get_report(summary.id)
+        if report is None:
+            continue
+        metadata = report.metadata if isinstance(report.metadata, dict) else {}
+        selected_keys = metadata.get("selected_record_keys", [])
+        if not isinstance(selected_keys, list):
+            selected_keys = []
+        matches = (
+            bool(record_keys.intersection(str(key) for key in selected_keys))
+            or str(metadata.get("task_id") or "") in task_ids
+            or str(metadata.get("group_id") or "") in group_ids
+            or str(metadata.get("group_name") or "") in group_names
+            or (game_key and report.data_source == game_key)
+            or (report.data_source in group_ids)
+        )
+        if matches and await report_generator.delete_report(summary.id):
+            deleted += 1
+    return deleted
+
+
+def _record_matches_category(
+    record: StorageRecord,
+    *,
+    game_key: str,
+    group_ids: set[str],
+    group_names: set[str],
+) -> bool:
+    summary = _record_summary(record)
+    if not summary:
+        group = _record_group(record)
+        return bool(
+            (group.get("group_id") and group["group_id"] in group_ids)
+            or (group.get("group_name") and group["group_name"] in group_names)
+        )
+    return bool(
+        (game_key and summary.game_key == game_key)
+        or (summary.group_id and summary.group_id in group_ids)
+        or (summary.group_name and summary.group_name in group_names)
+    )
+
+
+def _task_matches_category(
+    task: Task,
+    *,
+    task_ids: set[str],
+    group_ids: set[str],
+    group_names: set[str],
+) -> bool:
+    if task.id in task_ids:
+        return True
+    return _data_group_matches(task.config.get("data_group", {}), group_ids=group_ids, group_names=group_names)
+
+
+def _data_group_matches(value: Any, *, group_ids: set[str], group_names: set[str]) -> bool:
+    if not isinstance(value, dict):
+        return False
+    current_id = str(value.get("id") or value.get("group_id") or "").strip()
+    current_name = str(value.get("name") or value.get("group_name") or "").strip()
+    return bool(
+        (current_id and current_id in group_ids)
+        or (current_name and current_name in group_names)
+    )
 
 
 @router.post("/data/records/{record_key}/refresh")

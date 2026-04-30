@@ -365,30 +365,30 @@ class SteamDBScraper:
 
     async def _wait_out_cloudflare_async(self, page: Any, label: str) -> bool:
         logger.info(f"[SteamDB] Cloudflare/403 detected on {label}; waiting for browser session")
+        content = await page.content()
+        if _steamdb_content_ready(content):
+            logger.info(f"[SteamDB] Browser content is already usable after 403/challenge: {label}")
+            return True
         for wait_ms in (5000, 10000, 15000, 30000):
             await page.wait_for_timeout(wait_ms)
             content = await page.content()
-            if "challenge-platform" not in content and "Just a moment" not in content:
-                try:
-                    response = await page.goto(page.url, wait_until="domcontentloaded", timeout=self._timeout)
-                    if not response or response.status != 403:
-                        return True
-                except Exception:
-                    return True
+            if _steamdb_content_ready(content):
+                logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                return True
         return False
 
     def _wait_out_cloudflare_sync(self, page: Any, label: str) -> bool:
         logger.info(f"[SteamDB] Cloudflare/403 detected on {label}; waiting for browser session")
+        content = page.content()
+        if _steamdb_content_ready(content):
+            logger.info(f"[SteamDB] Browser content is already usable after 403/challenge: {label}")
+            return True
         for wait_ms in (5000, 10000, 15000, 30000):
             page.wait_for_timeout(wait_ms)
             content = page.content()
-            if "challenge-platform" not in content and "Just a moment" not in content:
-                try:
-                    response = page.goto(page.url, wait_until="domcontentloaded", timeout=self._timeout)
-                    if not response or response.status != 403:
-                        return True
-                except Exception:
-                    return True
+            if _steamdb_content_ready(content):
+                logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                return True
         return False
 
     async def _scrape_charts(
@@ -786,9 +786,13 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
+        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "patchnotes"):
+            resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
+        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "patchnotes"):
+            content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
         page.wait_for_timeout(1500)
@@ -814,9 +818,13 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
+        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "sales"):
+            resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
+        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "sales"):
+            content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
         page.wait_for_timeout(1500)
@@ -1044,6 +1052,34 @@ def _navigate_by_click_sync(
 def _is_steamdb_page(url: str) -> bool:
     parsed = urlparse(str(url or ""))
     return parsed.netloc.endswith("steamdb.info")
+
+
+def _steamdb_content_ready(content: str) -> bool:
+    lowered = (content or "").lower()
+    if not lowered.strip():
+        return False
+    blocked_markers = (
+        "challenge-platform",
+        "just a moment",
+        "cf-challenge",
+        "cf-browser-verification",
+        "access denied",
+        "error 1020",
+    )
+    if any(marker in lowered for marker in blocked_markers):
+        return False
+    if "403 forbidden" in lowered and "steamdb" not in lowered:
+        return False
+    usable_markers = (
+        "steamdb",
+        "highcharts",
+        "app-chart",
+        "charts",
+        "patchnotes",
+        "top sellers",
+        "user reviews",
+    )
+    return len(lowered) > 2000 and any(marker in lowered for marker in usable_markers)
 
 
 def _path_matches(current_url: str, target_url: str) -> bool:

@@ -196,11 +196,15 @@ class QimaiCollector(BaseCollector):
                     user_agent=_desktop_user_agent(),
                 )
             try:
+                page = None
+                on_response = None
                 page = await context.new_page()
                 await page.add_init_script(_stealth_script())
                 capture_tasks: list[asyncio.Task[Any]] = []
 
                 def on_response(response: Any) -> None:
+                    if not state.accepting_responses:
+                        return
                     capture_tasks.append(asyncio.create_task(state.capture_async(response)))
 
                 page.on("response", on_response)
@@ -224,6 +228,14 @@ class QimaiCollector(BaseCollector):
                 if capture_tasks:
                     await asyncio.gather(*capture_tasks, return_exceptions=True)
             finally:
+                state.stop_capture()
+                try:
+                    if page is not None and on_response is not None:
+                        page.remove_listener("response", on_response)
+                except Exception:
+                    pass
+                if "capture_tasks" in locals() and capture_tasks:
+                    await asyncio.gather(*capture_tasks, return_exceptions=True)
                 if not is_cdp:
                     await context.close()
 
@@ -260,6 +272,7 @@ class QimaiCollector(BaseCollector):
                     user_agent=_desktop_user_agent(),
                 )
             try:
+                page = None
                 page = context.new_page()
                 page.add_init_script(_stealth_script())
                 page.on("response", state.capture_sync)
@@ -281,6 +294,12 @@ class QimaiCollector(BaseCollector):
                 if country == "cn":
                     self._capture_public_rank_sync(page, state)
             finally:
+                state.stop_capture()
+                try:
+                    if page is not None:
+                        page.remove_listener("response", state.capture_sync)
+                except Exception:
+                    pass
                 if not is_cdp:
                     context.close()
 
@@ -455,12 +474,16 @@ class _QimaiCaptureState:
         self.app_id = app_id
         self.country = country
         self.max_payloads = max_payloads
+        self.accepting_responses = True
         self.page_texts: dict[str, str] = {}
         self.page_urls: dict[str, str] = {}
         self.api_payloads: list[dict[str, Any]] = []
         self.chart_series: dict[str, list[dict[str, Any]]] = {}
         self.export_rows: dict[str, list[dict[str, Any]]] = {}
         self.warnings: list[str] = []
+
+    def stop_capture(self) -> None:
+        self.accepting_responses = False
 
     def add_page_text(self, page_name: str, text: str) -> None:
         self.page_texts[page_name] = text or ""
@@ -488,16 +511,41 @@ class _QimaiCaptureState:
         logger.info("[Qimai] captured {} visible chart points for {}", len(normalized), page_name)
 
     async def capture_async(self, response: AsyncResponse) -> None:
-        await self._capture_response(response, is_async=True)
+        try:
+            await self._capture_response(response, is_async=True)
+        except asyncio.CancelledError as exc:
+            logger.debug("[Qimai] async response capture cancelled: {}", exc)
+        except Exception as exc:
+            if _is_ignorable_playwright_capture_error(exc):
+                logger.debug("[Qimai] async response capture skipped after page close: {}", exc)
+                return
+            logger.debug("[Qimai] async response capture skipped: {}", exc)
+        except BaseException as exc:
+            if _is_ignorable_playwright_capture_error(exc):
+                logger.debug("[Qimai] async response capture skipped after page close: {}", exc)
+                return
+            raise
 
     def capture_sync(self, response: SyncResponse) -> None:
         try:
             self._capture_response_sync(response)
+        except asyncio.CancelledError as exc:
+            logger.debug("[Qimai] response capture cancelled: {}", exc)
         except Exception as exc:
+            if _is_ignorable_playwright_capture_error(exc):
+                logger.debug("[Qimai] response capture skipped after page close: {}", exc)
+                return
             logger.debug("[Qimai] response capture skipped: {}", exc)
+        except BaseException as exc:
+            if _is_ignorable_playwright_capture_error(exc):
+                logger.debug("[Qimai] response capture skipped after page close: {}", exc)
+                return
+            raise
 
     async def _capture_response(self, response: Any, *, is_async: bool) -> None:
         try:
+            if not self.accepting_responses:
+                return
             if "api.qimai.cn" not in response.url or len(self.api_payloads) >= self.max_payloads:
                 return
             content_type = response.headers.get("content-type", "")
@@ -505,10 +553,14 @@ class _QimaiCaptureState:
                 return
             payload = await response.json() if is_async else response.json()
             self._append_payload(response.url, payload)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.debug("[Qimai] async response capture skipped: {}", exc)
 
     def _capture_response_sync(self, response: Any) -> None:
+        if not self.accepting_responses:
+            return
         if "api.qimai.cn" not in response.url or len(self.api_payloads) >= self.max_payloads:
             return
         content_type = response.headers.get("content-type", "")
@@ -1847,6 +1899,22 @@ def _latest_series_value(series: list[dict[str, Any]]) -> int | float | None:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return value
     return None
+
+
+def _is_ignorable_playwright_capture_error(exc: BaseException) -> bool:
+    if isinstance(exc, asyncio.CancelledError):
+        return True
+    name = exc.__class__.__name__
+    text = str(exc).lower()
+    return (
+        name in {"TargetClosedError", "Error"}
+        and (
+            "target page, context or browser has been closed" in text
+            or "browser has been closed" in text
+            or "context has been closed" in text
+            or "page has been closed" in text
+        )
+    )
 
 
 def _series_debug_summary(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
