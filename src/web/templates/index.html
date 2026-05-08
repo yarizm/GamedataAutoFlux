@@ -8,9 +8,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=3">
+    <link rel="stylesheet" href="/static/style.css?v=5">
     
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
 </head>
@@ -28,6 +30,7 @@
             <a href="#" class="nav-link" data-tab="data">数据浏览</a>
             <a href="#" class="nav-link" data-tab="reports">报告</a>
             <a href="#" class="nav-link" data-tab="cron">定时任务</a>
+            <a href="#" class="nav-link" data-tab="agent">AI 助手</a>
         </div>
     </nav>
 
@@ -311,6 +314,50 @@
                 </div>
             </div>
         </section>
+
+        <section class="tab-content" id="tab-agent">
+            <div class="section-header">
+                <h1>AI 助手</h1>
+                <div class="agent-toolbar">
+                    <select id="agent-provider-select" onchange="onAgentProviderChange()" title="选择 LLM 模型">
+                        <option value="">加载中...</option>
+                    </select>
+                    <button class="btn btn-ghost btn-sm" onclick="showProviderConfigModal()" title="配置模型供应商">⚙ 配置</button>
+                    <button class="btn btn-ghost" onclick="clearAgentHistory()" id="btn-clear-agent">清空对话</button>
+                </div>
+            </div>
+            <div class="agent-layout">
+                <div class="agent-sidebar">
+                    <div class="agent-sidebar-header">
+                        <h3>会话</h3>
+                        <button class="agent-sidebar-new" onclick="createAgentSession()">+ 新建</button>
+                    </div>
+                    <div class="agent-session-list" id="agent-session-list"></div>
+                </div>
+                <div class="card agent-chat-panel">
+                    <div class="agent-messages" id="agent-messages">
+                        <div class="agent-message assistant">
+                            <div class="agent-avatar assistant">AI</div>
+                            <div class="agent-bubble assistant">
+                                <p>你好！我是游戏数据助手，可以帮你：</p>
+                                <ul>
+                                    <li>查看任务状态和系统概览</li>
+                                    <li>创建数据采集任务</li>
+                                    <li>配置 Pipeline 和定时任务</li>
+                                    <li>浏览和搜索已采集数据</li>
+                                    <li>生成数据分析报告</li>
+                                </ul>
+                                <p>请告诉我你需要什么帮助？</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="agent-input-area">
+                        <textarea id="agent-input" rows="2" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据"></textarea>
+                        <button class="btn btn-primary" onclick="sendAgentMessage()" id="btn-send-agent">发送</button>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div class="modal-overlay" id="modal-create-task">
@@ -579,8 +626,29 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="modal-provider-config">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>LLM 模型配置</h2>
+                <button class="btn-close" onclick="closeModal('modal-provider-config')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>默认 Provider</label>
+                    <select id="provider-config-default"></select>
+                </div>
+                <div id="provider-config-list"></div>
+                <button class="btn btn-ghost btn-sm" onclick="addProviderConfigRow()" style="margin-top:0.5rem">+ 添加供应商</button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('modal-provider-config')">取消</button>
+                <button class="btn btn-primary" onclick="saveProviderConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js?v=3"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>

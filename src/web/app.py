@@ -28,6 +28,25 @@ from src.reporting.generator import ReportGenerator
 scheduler = Scheduler()
 report_generator = ReportGenerator()
 
+# Agent 服务单例（延迟初始化）
+_agent_service = None
+
+
+def get_agent_service():
+    """获取 Agent 服务实例，未启用时返回 None"""
+    global _agent_service
+    if not get_config("agent.enabled", True):
+        return None
+    if _agent_service is None:
+        try:
+            from src.agent.agent import AgentService
+            _agent_service = AgentService()
+            logger.info("Agent 服务已初始化")
+        except Exception as e:
+            logger.warning(f"Agent 服务初始化失败: {e}")
+            return None
+    return _agent_service
+
 # 模板引擎
 _WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
@@ -104,12 +123,14 @@ def create_app() -> FastAPI:
     from src.web.routes.reports import router as reports_router
     from src.web.routes.data import router as data_router
     from src.web.routes.ws import router as ws_router
+    from src.web.routes.agent import router as agent_router
 
     app.include_router(tasks_router, prefix="/api")
     app.include_router(pipelines_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
     app.include_router(data_router, prefix="/api")
     app.include_router(ws_router, prefix="/api")
+    app.include_router(agent_router, prefix="/api")
 
     # 注册页面路由
     from src.web.routes.pages import router as pages_router

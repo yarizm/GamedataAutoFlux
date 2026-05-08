@@ -80,6 +80,7 @@ class ReportGenerator:
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> GeneratedReport:
+        self._llm_provider = get_config("llm.provider", "stub")
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -140,6 +141,7 @@ class ReportGenerator:
         Flow: load records, extract structured fields, optionally ask the LLM,
         then write the .xlsx file.
         """
+        self._llm_provider = get_config("llm.provider", "stub")
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -426,7 +428,8 @@ class ReportGenerator:
         template: str,
         records: list[StorageRecord],
     ) -> str:
-        if self._llm_provider in {"deepseek", "qwen"}:
+        provider_config = get_config(f"llm.{self._llm_provider}", {})
+        if isinstance(provider_config, dict) and provider_config.get("model"):
             try:
                 return await self._render_report_with_openai_compatible(
                     provider=self._llm_provider,
@@ -439,7 +442,7 @@ class ReportGenerator:
                 fallback_enabled = bool(get_config(f"llm.{self._llm_provider}.fallback_to_stub", True))
                 if not fallback_enabled:
                     raise
-                provider_label = "Qwen" if self._llm_provider == "qwen" else "DeepSeek"
+                provider_label = self._provider_label(self._llm_provider)
                 return self._render_stub_report(
                     prompt=prompt,
                     data_source=data_source,
@@ -514,19 +517,33 @@ class ReportGenerator:
         template: str,
         records: list[StorageRecord],
     ) -> str:
-        provider_label = "Qwen" if provider == "qwen" else provider
+        provider_label = self._provider_label(provider)
         api_key = get_config(f"llm.{provider}.api_key", "")
+        if provider == "local" and not api_key:
+            api_key = "local"
         if not api_key or api_key.startswith("${"):
             raise ValueError(f"llm.{provider}.api_key is not configured")
 
-        default_base_url = (
-            "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            if provider == "qwen"
-            else "https://api.deepseek.com"
-        )
-        default_model = "qwen-max" if provider == "qwen" else "deepseek-chat"
+        default_base_urls = {
+            "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "deepseek": "https://api.deepseek.com",
+            "openai": "https://api.openai.com/v1",
+            "local": "http://localhost:11434/v1",
+        }
+        default_models = {
+            "qwen": "qwen-max",
+            "deepseek": "deepseek-chat",
+            "openai": "gpt-4o-mini",
+            "local": "qwen2.5",
+        }
+        default_base_url = default_base_urls.get(provider, "")
+        default_model = default_models.get(provider, "")
         base_url = get_config(f"llm.{provider}.base_url", default_base_url).rstrip("/")
+        if not base_url:
+            raise ValueError(f"llm.{provider}.base_url is not configured")
         model = get_config(f"llm.{provider}.model", default_model)
+        if not model:
+            raise ValueError(f"llm.{provider}.model is not configured")
         temperature = float(get_config(f"llm.{provider}.temperature", 0.3))
         max_tokens = int(get_config(f"llm.{provider}.max_tokens", 2000))
         timeout = float(get_config(f"llm.{provider}.timeout", 180 if provider == "qwen" else 90))
@@ -639,6 +656,17 @@ class ReportGenerator:
         if not content:
             raise ValueError(f"{provider_label} returned empty content")
         return content
+
+    @staticmethod
+    def _provider_label(provider: str) -> str:
+        labels = {
+            "qwen": "Qwen",
+            "deepseek": "DeepSeek",
+            "openai": "OpenAI",
+            "local": "Local",
+            "sense": "SenseNova",
+        }
+        return labels.get(provider, provider)
 
     def _build_record_context(self, records: list[StorageRecord], provider: str = "") -> str:
         if not records:

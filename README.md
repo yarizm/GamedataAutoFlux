@@ -1,277 +1,156 @@
 # GamedataAutoFlux
 
-GamedataAutoFlux 是一个面向游戏数据采集、整理和报告生成的本地工作流项目。项目提供 FastAPI WebUI，用于配置采集管线、提交任务、浏览已落库 JSON 数据、按数据源生成 Excel 报告，以及配置定时任务。
+GamedataAutoFlux 是一个基于 Python 的游戏数据自动化采集与分析工作流。项目提供基于 FastAPI 的可视化 WebUI，支持配置数据采集管线、执行定时或手动任务、浏览并管理数据，以及生成结构化的 Excel 分析报告。
 
-当前项目仍依赖多个外部站点和第三方接口。部分数据源需要 API Key、登录态或较长等待时间；外部站点页面结构、权限和风控策略变化时，采集结果可能为空或不完整。
+本项目主要面向本地和私有化部署。由于依赖多个外部站点和第三方接口，部分数据源需要 API Key 或浏览器登录态。如果目标站点的页面结构或风控策略发生变化，相应的采集节点可能需要调整或排查。
 
-## 功能范围
+## 核心功能
 
-### WebUI
+- **可视化任务管理**：通过 WebUI 创建、查看和管理采集任务，支持实时查看运行日志。
+- **多数据源集成**：
+  - **Steam 生态**：Steam 官方 API、社区讨论、SteamDB 补充数据等。
+  - **其他平台**：TapTap 数据、Google Trends 搜索趋势、七麦数据 (Qimai)、外围监控（如 Twitch 等）。
+- **模块化采集管线 (Pipeline)**：支持按需组合“采集器 -> 清洗器 -> 存储/向量化”流水线。
+- **数据管理与检索**：按游戏、App ID、数据分组等维度浏览并管理已落库的 JSON 数据。
+- **自动化报告生成**：整合多源数据并借助大语言模型 (LLM)，自动生成包含数据图表和分析文本的 Excel 报告。
+- **定时调度机制**：内置基于 cron 表达式的定时任务系统，适用于周期性的数据监控任务。
 
-启动后访问 `http://localhost:8000`，当前页面包含：
+## 安装与启动
 
-- 仪表盘：查看任务数量、运行状态和近期任务。
-- 任务管理：创建采集任务，选择 Pipeline，填写 App ID、URL、时间区间、数据分组等参数。
-- Pipeline：创建或删除采集管线，可从预设模板生成。
-- 数据浏览：按游戏、App ID、数据分组查看已落库 JSON；支持预览、导出、编辑、删除、更新内容、按任务名或 ID 搜索。
-- 报告：选择或上传多个 JSON 数据源，选择报告模板并生成 Excel 报告；支持报告历史编辑、删除和下载。
-- 定时任务：通过 cron 表达式定期提交采集任务，也可用于数据更新任务。
+项目支持 Docker 快速部署或本地物理环境运行。
 
-### 数据源
+### 方式一：Docker 部署（推荐）
 
-已注册的采集器包括：
+如果只需运行使用环境，推荐使用 Docker 一键部署：
 
-| 采集器 | 说明 | 常用参数 |
-| --- | --- | --- |
-| `steam` | Steam 官方 API、评论摘要、新闻事件、SteamDB 补充数据、Steam 畅销榜等 | `app_id`、`time_slice`、`start_date`、`end_date` |
-| `steam_discussions` | Steam Community Discussions 论坛讨论采集 | `app_id`、`start_date`、`end_date`、`include_replies` |
-| `taptap` | TapTap 游戏详情、评分、评论等公开页面数据 | `taptap_app_id`、`url`、`reviews_pages`、`reviews_limit` |
-| `gtrends` | Google Trends 搜索趋势 | `keyword`、`geo`、`timeframe` |
-| `monitor` | 外围监控指标，目前包括 Twitch/SullyGnome 观看趋势等 | `app_id`、`days`、`twitch_name`、`siteurl` |
-| `qimai` | 七麦/App Store 排名、评分、下载/收入预估等页面数据 | `qimai_app_id`、`country` |
+1. 克隆或下载本项目源码到本地。
+2. 复制环境变量配置文件并填写必要的密钥（如 API Key 等）：
+   ```bash
+   cp .env.example .env
+   ```
+3. 启动容器：
+   ```bash
+   docker-compose up -d
+   ```
+4. 启动完成后，在浏览器访问 `http://localhost:8000` 即可进入 WebUI。
 
-处理器：
+### 方式二：本地运行
 
-- `cleaner`：清洗采集结果，统一补充 `game_name`、`app_id`、`group_id`、`task_id` 等字段。
-- `embedding`：将文本内容向量化，供语义检索或后续报告检索使用。
+#### 环境要求
+- Python >= 3.12
+- Windows PowerShell、CMD 或 Linux/macOS 终端
+- Chromium/Chrome/Edge（用于 Playwright 动态网页抓取）
 
-存储：
+#### 安装步骤
 
-- `local`：将清洗后的 JSON 存到 `data/results`，同时维护本地索引。
-- `vector`：将向量记录写入本地向量存储。未配置真实向量库时可按配置回退到本地 stub。
+1. 进入项目根目录并创建 Python 虚拟环境：
+   ```powershell
+   cd GamedataAutoFlux
+   python -m venv .venv
 
-### 报告模板
+   # Windows 激活虚拟环境
+   .\.venv\Scripts\activate
 
-报告页面支持从数据浏览页选择 JSON、按分组导入 JSON、手动上传 JSON，再生成 Excel 报告。
+   # Linux/macOS 激活虚拟环境
+   source .venv/bin/activate
+   ```
+2. 安装项目依赖：
+   ```powershell
+   # 安装项目核心依赖及附加模块
+   pip install -e .[dev,embedding]
 
-当前结构化模板包括：
+   # 安装 Playwright 运行所需的 Chromium 浏览器
+   playwright install chromium
+   ```
 
-- `general_game`：通用游戏模板。目标数据源包括 Steam、TapTap、Google Trends、Monitor、事件数据、Steam 社区讨论；七麦为可选数据源。
-- `taptap_game`：TapTap 游戏模板。主要使用 TapTap 数据。
-- `steam_game`：Steam 游戏模板。目标数据源包括 Steam、Google Trends、Monitor、事件数据、Steam 社区讨论。
-
-涉及 Steam 在线人数、SteamDB、Google Trends、Twitch/Monitor、七麦趋势等时序数据时，报告生成器会在 Excel 中写入趋势数据附表，并按模板生成折线图。报告文本部分默认调用 Qwen 兼容接口；失败时会回退到模板化报告。
-
-## 环境要求
-
-- Python `>=3.12`
-- Windows PowerShell 或其他可运行 Python 的终端
-- Chromium/Chrome/Edge，用于 Playwright 采集动态页面
-- 可选：Steam Web API Key、DashScope/Qwen API Key、Firecrawl API Key、Google Trends 可访问网络环境
-
-## 安装
-
+#### 启动服务
 ```powershell
-cd C:\Users\YARIZM\PycharmProjects\GamedataAutoFlux
-
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-pip install -e .[dev,embedding]
-playwright install chromium
-```
-
-如果只运行基础 WebUI，可以先安装：
-
-```powershell
-pip install -e .
-playwright install chromium
-```
-
-## 配置
-
-主配置文件为 `config/settings.yaml`。敏感信息建议通过环境变量设置，不要直接写入仓库文件。
-
-常用环境变量：
-
-```powershell
-$env:STEAM_API_KEY="your_steam_api_key"
-$env:DASHSCOPE_API_KEY="your_dashscope_api_key"
-$env:FIRECRAWL_API_KEY="your_firecrawl_api_key"
-$env:FIRECRAWL_COOKIE="optional_cookie_string"
-$env:OPENAI_API_KEY="optional_openai_key"
-$env:DEEPSEEK_API_KEY="optional_deepseek_key"
-```
-
-也可以参考 `.env.example`。当前项目不会自动加载 `.env` 文件；如果需要使用 `.env`，请在启动前自行加载到进程环境变量。
-
-## 启动 WebUI
-
-```powershell
-.\.venv\Scripts\Activate.ps1
+# 确保在已激活的虚拟环境中运行：
 python -m src.web.app
-```
 
-或在安装项目脚本后运行：
-
-```powershell
+# 或者直接使用快捷命令（前提是 pip install -e . 已成功安装）：
 autoflux
 ```
+启动后在浏览器访问 `http://localhost:8000`。
 
-默认监听地址来自 `config/settings.yaml`：
+## 环境变量与配置
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8000
-```
+主配置文件位于 `config/settings.yaml`。为了安全，API Key 等敏感凭证建议写入 `.env` 文件或配置在系统的环境变量中。
 
-浏览器访问：
+常用环境变量说明（可参考 `.env.example`）：
+- `STEAM_API_KEY`：Steam Web API 密钥，用于获取官方数据。
+- `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` / `SENSE_API_KEY` / `OPENAI_API_KEY`：用于 Agent 或报告生成的语言模型 API 密钥（按所选 provider 填写）。
+- `FIRECRAWL_API_KEY`：用于复杂网页的兜底抓取服务。
 
-```text
-http://localhost:8000
-```
+项目启动时会自动读取项目根目录的 `.env` 文件；也可以直接使用系统环境变量覆盖。
 
-## 基本使用流程
+## 核心使用流程
 
-1. 打开 WebUI。
-2. 在 `Pipeline` 页面创建或选择预设 Pipeline，例如 `steam_basic`、`steam_discussions_basic`、`gtrends_basic`、`monitor_basic`、`qimai_basic`。
-3. 在 `任务管理` 页面创建任务，填写目标游戏名称、App ID、时间区间和数据分组。
-4. 等待任务完成。运行中的任务可在任务列表中查看状态和日志。
-5. 在 `数据浏览` 页面按游戏或分组查看结果，预览原始 JSON，必要时编辑、删除或导出。
-6. 在 `报告` 页面添加多个 JSON 数据源，选择模板后生成 Excel 报告。
-7. 如需周期性采集，在 `定时任务` 页面配置 cron 任务。
+1. **配置 Pipeline**：进入 WebUI 的 `Pipeline` 页面，点击预设模板（如 `steam_basic`、`qimai_basic` 等）快速生成数据管线。
+2. **提交任务**：进入 `任务管理`，填写目标游戏名称、游戏 ID、时间范围和分组名等信息，并选择对应的管线进行采集。
+3. **查看结果**：任务完成后，在 `数据浏览` 页面可查看、搜索落库结果，支持直接预览原始 JSON 格式。
+4. **生成报告**：进入 `报告` 页面，勾选刚刚采集的数据记录，选择相应的分析模板，即可生成并下载包含图表与文本的 Excel 文件。
+5. **周期任务**：针对需要长期追踪的数据，可在 `定时任务` 页面配置基于 cron 的自动化调度规则。
 
-## SteamDB 登录态采集
+## 高级采集：维护登录态
 
-SteamDB 的部分图表和历史数据可能需要登录态，也可能触发 Cloudflare。项目支持通过本地 Chrome/Edge 的 CDP 端口复用人工登录后的浏览器会话。
+针对反爬严格或必须登录才能查看数据的站点（如 SteamDB、七麦数据），项目采用本地浏览器复用用户会话（Profile）的解决方案。
 
-启动登录浏览器：
-
+### 1. SteamDB 登录态采集
+SteamDB 有较强的反爬与 Cloudflare 限制，项目支持通过 CDP 端口连接人工已登录的 Chrome 实例。
 ```powershell
-.\.venv\Scripts\Activate.ps1
+# 启动本地登录专用浏览器窗口
 python scripts\steamdb_login.py --port 9222
 ```
+操作说明：
+1. 脚本会打开一个独立浏览器窗口，请手动登录 SteamDB 并完成可能出现的验证码。
+2. **登录完成后不要关闭该浏览器窗口**。
+3. 此时在 WebUI 提交包含 SteamDB 节点的采集任务，后台会自动连接该浏览器并进行数据抓取。
 
-操作步骤：
-
-1. 脚本会打开一个独立浏览器窗口，用户数据目录为 `data/steamdb_profile`。
-2. 在该窗口中手动登录 SteamDB。
-3. 登录完成后按回车，保持该浏览器窗口打开。
-4. 再提交 Steam 采集任务，或运行 smoke 脚本验证。
-
-验证 SteamDB CDP 采集：
-
+### 2. 七麦数据 (Qimai) 采集
+七麦采集基于 Playwright 的持久化目录运行，仅需先手动登录一次：
 ```powershell
-python scripts\steamdb_smoke.py --app-id 2507950 --time-slice daily_precise_90d --cdp-port 9222
-```
-
-输出 JSON 会写入 `tmp/steamdb_cdp_smoke_<app_id>.json`。摘要中会包含：
-
-- `steamdb_signed_in`：当前 CDP 浏览器是否看起来处于登录态。
-- `daily90_count`：90 天在线人数趋势点数。
-- `review_history_count`：SteamDB User reviews history 解析出的点数。
-- `review_history_reason`：评论历史为空时的原因说明。
-
-注意：`data/steamdb_profile` 是独立浏览器配置。日常 Chrome 已登录 SteamDB，不代表这个 profile 已登录。
-
-## 七麦登录态
-
-七麦采集使用 Playwright 持久化目录 `data/qimai_profile`。如需先人工登录：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
+# 启动七麦登录辅助脚本
 python scripts\qimai_login.py
 ```
+操作说明：在弹出的窗口中扫码或输入密码完成登录，页面加载完毕后直接关闭浏览器即可。后续自动化任务将默认复用此登录状态。
 
-登录完成后关闭脚本提示的浏览器。后续七麦采集会复用该 profile。七麦存在访问频率和权限限制，部分下载量、收入、DAU、趋势数据可能需要账号权限或页面接口返回支持。
+## 数据存储目录
 
-## 常用 Pipeline 模板
+默认情况下的主要存储路径说明：
+- `data/autoflux.db`：SQLite 本地数据库（存储系统任务状态、定时配置等元数据）。
+- `data/results/`：清洗后生成的结构化 JSON 数据目录。
+- `logs/`：系统与各采集任务的运行日志。
+- `tmp/`：生成的 Excel 报告及各类临时中转文件。
+- `data/steamdb_profile/` & `data/qimai_profile/`：用于高级采集的浏览器独立用户配置目录。
 
-WebUI 的 Pipeline 页面会从后端返回预设模板。常用模板包括：
+## 注意事项与限制
 
-- `steam_basic`：`steam -> cleaner -> local`
-- `steam_full_report`：`steam -> cleaner -> embedding -> local -> vector`
-- `steam_discussions_basic`：`steam_discussions -> cleaner -> local`
-- `taptap_basic`：`taptap -> cleaner -> local`
-- `gtrends_basic`：`gtrends -> cleaner -> local`
-- `monitor_basic`：`monitor -> cleaner -> local`
-- `qimai_basic`：`qimai -> cleaner -> local`
+- **风控策略变化**：外部站点的页面结构和反爬策略随时可能变化。若遇到抓取失败、超时或返回空数据的情况，请优先排查本地登录态是否失效、访问频率是否过快（例如 Google Trends 返回 429 错误）或网络环境问题。
+- **大批量抓取建议**：由于依赖单点请求及本地性能，提交大批量或时间跨度极长的时间段前，强烈建议先用单个游戏 ID 进行小范围测试，确认链路正常。
+- **网络连通性**：部分数据源（如 Google Trends、Twitch、Firecrawl）要求网络具备海外连通能力，如果在没有代理的国内直连环境下运行，会导致这些站点的采集任务直接超时或失败。
+- **模型生成报告**：报告中文本的生成质量受限于所用大模型的能力与上下文长度。若调用大模型接口超时或发生异常，报告系统会自动回退到仅包含基础图表和固定版式的离线模板。
 
-实际可用模板以 `/api/pipeline-templates` 返回结果为准。
+## AI Agent 对话助手
 
-## 数据文件位置
+WebUI 内置基于 LangChain 的 AI Agent，支持自然语言驱动的数据采集与分析操作。
 
-默认路径：
+### 核心能力
 
-- SQLite 数据库：`data/autoflux.db`
-- JSON 结果：`data/results`
-- 调度持久化数据：`data/scheduler_tasks`
-- 日志：`logs`
-- 临时输出：`tmp`
-- 七麦浏览器 profile：`data/qimai_profile`
-- SteamDB 浏览器 profile：`data/steamdb_profile`
+| 功能 | 说明 |
+|------|------|
+| 多会话管理 | 支持创建/切换/删除对话会话，消息按会话隔离 |
+| LLM 动态切换 | WebUI 中可视化管理 provider 和模型配置，运行时热切换 |
+| 任务进度追踪 | Agent 创建的任务在对话中实时显示进度卡片 |
+| 分段输出 | LLM 输出按执行流程分段展示，每次工具调用的前后文字独立成段 |
+| 思考过程 | 可折叠抽屉展示推理过程，支持 DeepSeek-R1/Qwen-QwQ 的原生 reasoning_content，普通模型展示工具决策描述 |
 
-## API 入口
+### 可用工具
 
-WebUI 使用的主要 API：
+Agent 可调用的工具包括：任务管理（创建/查看/取消）、数据浏览与搜索、Pipeline 管理、定时任务管理、报告生成与查看、Steam App ID 解析。
 
-- `GET /api/components`：查看已注册组件。
-- `GET /api/pipeline-templates`：查看预设 Pipeline。
-- `GET /api/pipelines`、`POST /api/pipelines`、`DELETE /api/pipelines/{name}`：管理 Pipeline。
-- `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`：提交和查看任务。
-- `GET /api/data/games`、`GET /api/data/records` 等：浏览已落库数据。
-- `POST /api/reports/generate-excel`：生成 Excel 报告。
-- `GET /api/reports/{id}/download`：下载报告文件。
-- `POST /api/cron-jobs`、`GET /api/cron-jobs`、`DELETE /api/cron-jobs/{name}`：管理定时任务。
+### 报告生成修复（2026-05-08）
 
-具体请求结构以 `src/web/routes/` 中的 Pydantic 模型为准。
-
-## 测试
-
-运行全部测试：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pytest tests -q
-```
-
-运行指定测试文件时，替换为当前工作区实际存在的测试路径：
-
-```powershell
-python -m pytest tests\<test_file>.py -q
-```
-
-编译检查：
-
-```powershell
-python -m compileall -q src scripts tests
-```
-
-真实外部访问测试不要默认放入单元测试流程。涉及 SteamDB、七麦、TapTap、Google Trends、Firecrawl 的真实访问会受到网络、登录态、账号权限和访问频率影响。
-
-## 开发说明
-
-项目核心目录：
-
-```text
-src/
-  collectors/      数据采集器
-  processors/      清洗、向量化等处理器
-  storage/         本地 JSON、SQLite、向量存储
-  core/            Pipeline、Task、Scheduler、Registry
-  reporting/       报告模板、数据抽取、Excel 生成、LLM 调用
-  web/             FastAPI 路由、页面模板、前端静态资源
-scripts/           登录态辅助脚本和 smoke 脚本
-tests/             单元测试和 Web API 测试
-config/            默认配置
-data/              运行时数据目录
-logs/              日志目录
-tmp/               临时文件和测试输出
-```
-
-新增采集器的一般步骤：
-
-1. 在 `src/collectors/` 中实现 `BaseCollector`。
-2. 使用 `@registry.register("collector", "<name>")` 注册。
-3. 如需 WebUI 预设，在 `src/web/routes/pipelines.py` 中添加 Pipeline 模板。
-4. 如需进入结构化报告，在 `src/reporting/data_extractor.py` 中增加数据抽取逻辑，并在 `src/reporting/report_templates.py` 中声明模板依赖。
-5. 增加对应测试。
-
-## 使用限制
-
-- SteamDB、七麦、TapTap 等页面采集依赖页面结构和登录状态，失败时应优先检查登录态、网络、权限和访问频率。
-- Firecrawl 作为兜底采集时，返回内容取决于 Firecrawl 的抓取能力、配置和目标站点限制。
-- Google Trends 可能出现 429 或地区网络不可达，可在配置中设置代理或降低频率。
-- LLM 报告生成受模型上下文长度和接口稳定性影响；项目会在失败时保留模板化报告结果。
-- 本项目默认用于本地分析流程。提交大批量任务前，应先用小时间区间或单个 App ID 验证数据源可用性。
+- **数据过滤**：`generate_report` 工具现在从 prompt 中提取游戏名关键词并过滤记录，不再将所有数据写入报告。关键词提取支持中英文，双向子串匹配确保 "三角洲行动数据分析" 能匹配到 "三角洲行动"。
+- **报告内容可见**：`generate_report` 返回值直接附带报告正文（上限 4000 字符），新增 `get_report_content` 工具可按 ID 获取完整内容。
+- **Excel 导出**：修复嵌套 dict（如价格数据 `{"currency":"GBP","initial":3999,...}`）导致 `Cannot convert dict to Excel` 错误，自动序列化为 JSON 字符串写入单元格。

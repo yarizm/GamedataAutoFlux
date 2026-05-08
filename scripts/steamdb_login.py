@@ -34,8 +34,24 @@ def main() -> int:
         str(browser_path),
         f"--remote-debugging-port={args.port}",
         f"--user-data-dir={profile_dir}",
+        # 基础：避免首次启动、默认浏览器检查
         "--no-first-run",
         "--no-default-browser-check",
+        # 减少后台联网与组件自动下载
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-domain-reliability",
+        "--disable-sync",
+        "--metrics-recording-only",
+        "--safebrowsing-disable-auto-update",
+        # 禁用 Optimization Guide / 本地 AI 模型相关功能
+        "--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OptimizationTargetPrediction,OptimizationGuideOnDeviceModel,OnDeviceModelExecution,PromptAPI,TextSafetyClassifier",
+        "--disable-client-side-phishing-detection",
+        "--disable-default-apps",
+        "--disable-extensions",
+        "--disable-popup-blocking",
+
+
         "https://steamdb.info/login/",
     ]
     print(f"Starting browser: {browser_path}")

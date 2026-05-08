@@ -363,33 +363,57 @@ class SteamDBScraper:
             headers["Cookie"] = cookie
         return headers
 
-    async def _wait_out_cloudflare_async(self, page: Any, label: str) -> bool:
+    async def _wait_out_cloudflare_async(self, page: Any, label: str, reload_url: str = "") -> bool:
         logger.info(f"[SteamDB] Cloudflare/403 detected on {label}; waiting for browser session")
         content = await page.content()
         if _steamdb_content_ready(content):
             logger.info(f"[SteamDB] Browser content is already usable after 403/challenge: {label}")
+            if reload_url:
+                await self._reload_target_async(page, reload_url)
             return True
         for wait_ms in (5000, 10000, 15000, 30000):
             await page.wait_for_timeout(wait_ms)
             content = await page.content()
             if _steamdb_content_ready(content):
                 logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                if reload_url:
+                    await self._reload_target_async(page, reload_url)
                 return True
         return False
 
-    def _wait_out_cloudflare_sync(self, page: Any, label: str) -> bool:
+    def _wait_out_cloudflare_sync(self, page: Any, label: str, reload_url: str = "") -> bool:
         logger.info(f"[SteamDB] Cloudflare/403 detected on {label}; waiting for browser session")
         content = page.content()
         if _steamdb_content_ready(content):
             logger.info(f"[SteamDB] Browser content is already usable after 403/challenge: {label}")
+            if reload_url:
+                self._reload_target_sync(page, reload_url)
             return True
         for wait_ms in (5000, 10000, 15000, 30000):
             page.wait_for_timeout(wait_ms)
             content = page.content()
             if _steamdb_content_ready(content):
                 logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                if reload_url:
+                    self._reload_target_sync(page, reload_url)
                 return True
         return False
+
+    async def _reload_target_async(self, page: Any, url: str) -> None:
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            await page.wait_for_timeout(3000)
+            logger.info(f"[SteamDB] Re-navigated to {url}")
+        except Exception as e:
+            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {e}")
+
+    def _reload_target_sync(self, page: Any, url: str) -> None:
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
+            page.wait_for_timeout(3000)
+            logger.info(f"[SteamDB] Re-navigated to {url}")
+        except Exception as e:
+            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {e}")
 
     async def _scrape_charts(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
@@ -414,14 +438,14 @@ class SteamDBScraper:
         except Exception as e:
             raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
 
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "charts"):
+        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "charts", reload_url=url):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         # 妫€娴?Cloudflare challenge
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "charts"):
+        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "charts", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -507,13 +531,13 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "patchnotes"):
+        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url):
             resp = None
         if resp and resp.status == 403:
             self._rate_limiter.report_blocked()
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "patchnotes"):
+        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             self._rate_limiter.report_challenge()
@@ -542,13 +566,13 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "sales"):
+        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "sales", reload_url=url):
             resp = None
         if resp and resp.status == 403:
             self._rate_limiter.report_blocked()
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "sales"):
+        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "sales", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             self._rate_limiter.report_challenge()
@@ -583,14 +607,14 @@ class SteamDBScraper:
             raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
 
         if resp and resp.status == 403:
-            if await self._wait_out_cloudflare_async(page, "info"):
+            if await self._wait_out_cloudflare_async(page, "info", reload_url=url):
                 resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
-            if await self._wait_out_cloudflare_async(page, "info"):
+            if await self._wait_out_cloudflare_async(page, "info", reload_url=url):
                 content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -662,14 +686,14 @@ class SteamDBScraper:
             return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
 
         if resp and resp.status == 403:
-            if await self._wait_out_cloudflare_async(page, "top_sellers"):
+            if await self._wait_out_cloudflare_async(page, "top_sellers", reload_url=url):
                 resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
-            if await self._wait_out_cloudflare_async(page, "top_sellers"):
+            if await self._wait_out_cloudflare_async(page, "top_sellers", reload_url=url):
                 content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -701,14 +725,14 @@ class SteamDBScraper:
             raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
 
         if resp and resp.status == 403:
-            if self._wait_out_cloudflare_sync(page, "charts"):
+            if self._wait_out_cloudflare_sync(page, "charts", reload_url=url):
                 resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
-            if self._wait_out_cloudflare_sync(page, "charts"):
+            if self._wait_out_cloudflare_sync(page, "charts", reload_url=url):
                 content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -786,12 +810,12 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
-        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "patchnotes"):
+        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "patchnotes"):
+        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url):
             content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
@@ -818,12 +842,12 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
-        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "sales"):
+        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "sales", reload_url=url):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "sales"):
+        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "sales", reload_url=url):
             content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
@@ -856,14 +880,14 @@ class SteamDBScraper:
             raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
 
         if resp and resp.status == 403:
-            if self._wait_out_cloudflare_sync(page, "info"):
+            if self._wait_out_cloudflare_sync(page, "info", reload_url=url):
                 resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
-            if self._wait_out_cloudflare_sync(page, "info"):
+            if self._wait_out_cloudflare_sync(page, "info", reload_url=url):
                 content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -931,14 +955,14 @@ class SteamDBScraper:
             return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
 
         if resp and resp.status == 403:
-            if self._wait_out_cloudflare_sync(page, "top_sellers"):
+            if self._wait_out_cloudflare_sync(page, "top_sellers", reload_url=url):
                 resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
-            if self._wait_out_cloudflare_sync(page, "top_sellers"):
+            if self._wait_out_cloudflare_sync(page, "top_sellers", reload_url=url):
                 content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")

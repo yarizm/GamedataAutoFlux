@@ -1,5 +1,6 @@
 .venv/
 .idea/
+.claude/
 .pytest_cache/
 __pycache__/
 *.pyc
@@ -20,3 +21,4 @@ gamedata_autoflux.egg-info/
 /【原始需求文档】监控需求.xlsx
 /原始计划.md
 /流程.drawio.xml
+/implementation_plan.md

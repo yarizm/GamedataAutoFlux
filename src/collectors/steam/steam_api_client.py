@@ -120,10 +120,17 @@ class SteamAPIClient:
         获取当前在线人数。
 
         Endpoint: ISteamUserStats/GetNumberOfCurrentPlayers/v1/
+        注意：部分 app_id 会返回 404（非游戏类或未追踪玩家数），此时返回 0。
         """
         url = f"{self.API_BASE}/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
-        data = await self._request(url, params={"appid": str(app_id)})
-        return data.get("response", {}).get("player_count", 0)
+        try:
+            data = await self._request(url, params={"appid": str(app_id)})
+            return data.get("response", {}).get("player_count", 0)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.debug(f"[SteamAPI] current_players 404 (no data) for app_id={app_id}")
+                return 0
+            raise
 
     async def get_reviews(
         self,
@@ -478,7 +485,10 @@ class SteamAPIClient:
             f"{self.API_BASE}/ISteamUserStats"
             f"/GetGlobalAchievementPercentagesForApp/v2/"
         )
-        data = await self._request(url, params={"gameid": str(app_id)})
+        params: dict[str, Any] = {"gameid": str(app_id)}
+        if self._api_key:
+            params["key"] = self._api_key
+        data = await self._request(url, params=params)
         achievements = (
             data.get("achievementpercentages", {}).get("achievements", [])
         )

@@ -39,32 +39,60 @@ embedding:
     model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
 llm:
-  provider: "qwen"
+  provider: sense
   qwen:
-    api_key: "${DASHSCOPE_API_KEY}"
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model: "qwen-max"
+    model: qwen-max
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key: ${DASHSCOPE_API_KEY}
     temperature: 0.3
     max_tokens: 2000
-    max_input_chars: 18000
+    fallback_to_stub: true
     retry_count: 2
     retry_delay: 2.0
     timeout: 180
-    fallback_to_stub: true
+    max_input_chars: 18000
   deepseek:
-    api_key: "${DEEPSEEK_API_KEY}"
-    base_url: "https://api.deepseek.com"
-    model: "deepseek-chat"
+    model: deepseek-chat
+    base_url: https://api.deepseek.com
+    api_key: ${DEEPSEEK_API_KEY}
     temperature: 0.3
-    max_tokens: 1200
-    timeout: 60
+    max_tokens: 2000
     fallback_to_stub: true
-  openai:
-    api_key: "${OPENAI_API_KEY}"
-    model: "gpt-4o"
+    timeout: 60
+  sense:
+    model: sensenova-6.7-flash-lite
+    base_url: https://token.sensenova.cn/v1
+    api_key: ${SENSE_API_KEY}
+    temperature: 0.3
+    max_tokens: 2000
+    fallback_to_stub: true
+    retry_count: 2
+    retry_delay: 2.0
+    timeout: 180
+    max_input_chars: 18000
   local:
-    base_url: "http://localhost:11434/v1"
-    model: "qwen2.5"
+    model: qwen2.5
+    base_url: http://localhost:11434/v1
+    temperature: 0.3
+    max_tokens: 2000
+
+agent:
+  enabled: true
+  max_iterations: 10
+  session_timeout_minutes: 60
+  system_prompt: |-
+    你是一个游戏数据采集与分析系统的 AI 助手。
+    你可以帮助用户查看和管理任务、配置 Pipeline、设置定时采集、
+    浏览数据以及生成报告。
+    请根据用户的自然语言指令，选择合适的工具完成任务。
+
+    重要规则 —— 创建 Steam 采集任务时：
+    1. 必须先调用 resolve_steam_app_id 搜索正确的 app_id
+    2. 不要凭记忆猜测 app_id，LLM 记忆经常出错
+    3. 如果搜索结果有多个匹配，选择匹配度最高的（精确匹配 > 模糊匹配）
+
+    如果意图不明确，请主动询问细节。
+    所有响应请使用中文。
 
 steam:
   api_key: "${STEAM_API_KEY}"

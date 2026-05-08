@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import re
 from pathlib import Path
@@ -14,6 +15,23 @@ from typing import Any
 
 import yaml
 from loguru import logger
+
+
+# 项目启动时自动加载 .env 文件
+def _load_dotenv() -> None:
+    """尝试加载项目根目录的 .env 文件到环境变量"""
+    try:
+        from dotenv import load_dotenv as _load
+
+        env_file = Path(__file__).resolve().parent.parent.parent / ".env"
+        if env_file.exists():
+            _load(env_file)
+            logger.info(f".env 文件已加载: {env_file}")
+    except Exception:
+        pass
+
+
+_load_dotenv()
 
 
 _ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -105,3 +123,76 @@ def get_data_dir() -> Path:
     data_dir = _ROOT_DIR / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_raw_section(key: str) -> dict[str, Any]:
+    """读取原始配置 section（不解析 ${ENV_VAR}），返回原始占位符文本"""
+    path = _DEFAULT_SETTINGS_FILE
+    if not path.exists():
+        return {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    value = raw.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def save_section(key: str, value: Any, config_path: str | Path | None = None) -> None:
+    """将某个顶级 section 写回 settings.yaml，保留其他 section 和注释。
+
+    通过替换 YAML 文本中对应 section 来实现，尽可能保留原始格式。
+    """
+    path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
+
+    if not path.exists():
+        logger.warning(f"配置文件不存在: {path}，无法保存")
+        return
+
+    original = path.read_text(encoding="utf-8")
+
+    buf = io.StringIO()
+    yaml.dump({key: value}, buf, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    dumped = buf.getvalue()
+
+    # 去掉顶层 key 那一行（由 yaml.dump 生成），剩余行作为 section body
+    dumped_lines = dumped.splitlines(True)
+    if dumped_lines and dumped_lines[0].startswith(key + ":"):
+        dumped_body = "".join(dumped_lines[1:])
+    else:
+        dumped_body = dumped
+
+    new_content = _replace_top_level_section(original, key, dumped_body)
+
+    if new_content != original:
+        path.write_text(new_content, encoding="utf-8")
+        # 刷新内存缓存，下次 get 时重新加载
+        global _settings
+        _settings = None
+        logger.info(f"配置 section '{key}' 已保存到 {path}")
+    else:
+        logger.warning(f"未找到 section '{key}' 或内容未变化，跳过保存")
+
+
+def _replace_top_level_section(original: str, key: str, dumped_body: str) -> str:
+    """替换顶层 YAML section，允许 section 内包含空行或 block scalar。"""
+    lines = original.splitlines(keepends=True)
+    start = None
+    for index, line in enumerate(lines):
+        if re.match(rf"^{re.escape(key)}\s*:", line):
+            start = index
+            break
+
+    replacement = [f"{key}:\n", dumped_body]
+    if start is None:
+        suffix = "" if original.endswith(("\n", "\r\n")) or not original else "\n"
+        return original + suffix + "".join(replacement)
+
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line.startswith((" ", "\t", "#")):
+            end = index
+            break
+
+    return "".join(lines[:start] + replacement + lines[end:])

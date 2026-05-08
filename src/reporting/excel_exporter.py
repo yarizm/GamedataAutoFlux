@@ -637,7 +637,7 @@ def _write_table_sheet(
 
     for row_index, row in enumerate(rows, start=2):
         for col_index, header in enumerate(headers, start=1):
-            cell = ws.cell(row=row_index, column=col_index, value=row.get(header, ""))
+            cell = ws.cell(row=row_index, column=col_index, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER
@@ -841,6 +841,15 @@ def _flatten_json(value: Any, path: str = "$", max_rows: int = 5000):
         yield "$.__truncated__", f"原始 JSON 过大，仅写入前 {max_rows} 个叶子节点"
 
 
+def _excel_safe(value: Any) -> Any:
+    """将嵌套 dict/list 转为 JSON 字符串，确保 openpyxl 可以写入单元格。"""
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
 def _cell_text(value: Any) -> str:
     if value is None:
         return ""
@@ -889,7 +898,7 @@ def _write_overview_sheet(wb: Workbook, rows: list[dict[str, Any]], title: str) 
     # 写数据行
     for i, row in enumerate(rows, start=2):
         for j, header in enumerate(headers, start=1):
-            cell = ws.cell(row=i, column=j, value=row.get(header, ""))
+            cell = ws.cell(row=i, column=j, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER
@@ -912,7 +921,7 @@ def _write_reviews_sheet(wb: Workbook, rows: list[dict[str, Any]]) -> None:
 
     for i, row in enumerate(rows, start=2):
         for j, header in enumerate(headers, start=1):
-            cell = ws.cell(row=i, column=j, value=row.get(header, ""))
+            cell = ws.cell(row=i, column=j, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER
@@ -1092,7 +1101,7 @@ def _write_trend_section(
     _write_header_row(ws, headers, row_num=header_row)
     for row_index, row in enumerate(rows, start=header_row + 1):
         for col_index, header in enumerate(headers, start=1):
-            cell = ws.cell(row=row_index, column=col_index, value=row.get(header, ""))
+            cell = ws.cell(row=row_index, column=col_index, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER
@@ -1162,7 +1171,7 @@ def _write_trends_sheet(wb: Workbook, rows: list[dict[str, Any]]) -> None:
 
     for i, row in enumerate(rows, start=2):
         for j, header in enumerate(headers, start=1):
-            cell = ws.cell(row=i, column=j, value=row.get(header, ""))
+            cell = ws.cell(row=i, column=j, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER
@@ -1185,7 +1194,7 @@ def _write_related_queries_sheet(wb: Workbook, rows: list[dict[str, Any]]) -> No
 
     for i, row in enumerate(rows, start=2):
         for j, header in enumerate(headers, start=1):
-            cell = ws.cell(row=i, column=j, value=row.get(header, ""))
+            cell = ws.cell(row=i, column=j, value=_excel_safe(row.get(header, "")))
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGNMENT
             cell.border = DATA_BORDER

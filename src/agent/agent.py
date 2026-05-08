@@ -1,0 +1,306 @@
+"""LangChain Agent 服务 —— 自然语言驱动的数据采集助手"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections.abc import AsyncIterator
+from typing import Any
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+
+from loguru import logger
+
+from src.agent.tools import ALL_TOOLS
+from src.core.config import get as get_config
+
+
+class AgentService:
+    """管理 LangChain Agent 会话和流式调用"""
+
+    def __init__(self) -> None:
+        self._llm: ChatOpenAI | None = None
+        self._agent_executor: Any = None
+        self._histories: dict[str, list[BaseMessage]] = {}
+        self._sessions_timestamps: dict[str, float] = {}
+        self._initialized: bool = False
+        self._provider_override: str | None = None
+        self._lock = asyncio.Lock()
+
+        self._max_iterations: int = get_config("agent.max_iterations", 10)
+        self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
+
+        self._system_prompt: str = get_config(
+            "agent.system_prompt",
+            _default_system_prompt(),
+        )
+
+    def _ensure_initialized(self) -> None:
+        """延迟初始化 LLM 和 AgentExecutor"""
+        if self._initialized:
+            return
+
+        provider = self._provider_override or get_config("llm.provider", "qwen")
+        api_key = get_config(f"llm.{provider}.api_key", "")
+        base_url = get_config(f"llm.{provider}.base_url", "")
+        model = get_config(f"llm.{provider}.model", "qwen-max")
+        temperature = get_config(f"llm.{provider}.temperature", 0.3)
+        max_tokens = get_config(f"llm.{provider}.max_tokens", 2000)
+
+        if not api_key:
+            if provider == "local":
+                api_key = "local"
+            else:
+                raise ValueError(
+                    f"LLM provider '{provider}' 的 api_key 为空，请检查系统环境变量或 .env 文件中是否设置了对应的 key"
+                )
+
+        self._llm = ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key=api_key,
+            base_url=base_url if base_url else None,
+            streaming=True,
+        )
+
+        try:
+            from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+        except ImportError:
+            from langchain.agents import AgentExecutor, create_openai_tools_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self._system_prompt),
+            MessagesPlaceholder("chat_history", optional=True),
+            ("human", "{input}"),
+            MessagesPlaceholder("agent_scratchpad"),
+        ])
+
+        agent = create_openai_tools_agent(self._llm, ALL_TOOLS, prompt)
+        self._agent_executor = AgentExecutor(
+            agent=agent,
+            tools=ALL_TOOLS,
+            max_iterations=self._max_iterations,
+            handle_parsing_errors=True,
+            verbose=False,
+        )
+
+        self._initialized = True
+        logger.info(f"Agent 初始化完成 (provider={provider}, model={model})")
+
+    def _get_history(self, session_id: str) -> list[BaseMessage]:
+        """获取指定会话的聊天历史"""
+        if session_id not in self._histories:
+            self._histories[session_id] = []
+        self._sessions_timestamps[session_id] = time.time()
+        return self._histories[session_id]
+
+    async def ainvoke(self, user_input: str, session_id: str = "default") -> AsyncIterator[dict]:
+        """流式执行 Agent，逐步 yield 事件
+
+        事件类型:
+          {"type": "thinking", "content": "..."}         — 思考过程
+          {"type": "tool_call", "name": "...", "args": {...}} — 工具调用开始
+          {"type": "tool_result", "name": "...", "content": "..."} — 工具执行结果
+          {"type": "final", "content": "..."}            — 最终文本回复
+          {"type": "error", "content": "..."}            — 错误信息
+        """
+        history = self._get_history(session_id)
+
+        # 清理超时会话
+        self._cleanup_stale_sessions()
+
+        try:
+            self._ensure_initialized()
+            final_output: str = ""
+
+            async for event in self._agent_executor.astream_events(
+                {
+                    "input": user_input,
+                    "chat_history": history,
+                },
+                config={"configurable": {"session_id": session_id}},
+                version="v2",
+            ):
+                kind = event.get("event")
+
+                if kind == "on_chat_model_start":
+                    yield {"type": "thinking", "content": "正在分析您的请求..."}
+
+                elif kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk is None:
+                        continue
+
+                    # 提取 reasoning/thinking 内容（DeepSeek-R1 / Qwen-QwQ 等推理模型）
+                    reasoning = None
+                    if hasattr(chunk, "additional_kwargs"):
+                        ak = chunk.additional_kwargs
+                        if isinstance(ak, dict):
+                            reasoning = ak.get("reasoning_content") or ak.get("thinking") or ak.get("thoughts")
+                    if reasoning:
+                        yield {"type": "thinking", "content": str(reasoning)}
+
+                    # 提取正文内容
+                    if hasattr(chunk, "content") and chunk.content:
+                        if isinstance(chunk.content, str):
+                            final_output += chunk.content
+                            yield {"type": "final", "content": chunk.content}
+                        elif isinstance(chunk.content, list):
+                            for item in chunk.content:
+                                if isinstance(item, dict):
+                                    if item.get("type") == "text":
+                                        final_output += item["text"]
+                                        yield {"type": "final", "content": item["text"]}
+                                    elif item.get("type") == "reasoning" or item.get("type") == "thinking":
+                                        yield {"type": "thinking", "content": item.get("text", "")}
+
+                elif kind == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    tool_input = event.get("data", {}).get("input", {})
+                    args = tool_input if isinstance(tool_input, dict) else {}
+                    # 生成描述性的思考内容
+                    thinking_desc = _describe_tool_action(tool_name, args)
+                    if thinking_desc:
+                        yield {"type": "thinking", "content": thinking_desc}
+                    yield {
+                        "type": "tool_call",
+                        "name": tool_name,
+                        "args": args,
+                    }
+
+                elif kind == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    tool_output = event.get("data", {}).get("output", "")
+                    # 截断过长的工具输出，保留足够长度以展示报告内容
+                    output_str = str(tool_output)
+                    if len(output_str) > 4000:
+                        output_str = output_str[:4000] + "...(已截断)"
+                    yield {"type": "tool_result", "name": tool_name, "content": output_str}
+
+            # 保存对话历史
+            history.append(HumanMessage(content=user_input))
+            history.append(AIMessage(content=final_output or "已处理"))
+
+            # 限制每条会话的历史长度，避免 token 超限
+            if len(history) > 40:
+                self._histories[session_id] = history[-20:]
+
+        except Exception as e:
+            logger.error(f"Agent 执行出错: {e}")
+            yield {"type": "error", "content": f"执行出错: {e}"}
+
+    async def clear_history(self, session_id: str = "default") -> None:
+        """清除指定会话的对话记忆"""
+        self._histories.pop(session_id, None)
+        self._sessions_timestamps.pop(session_id, None)
+
+    def _cleanup_stale_sessions(self) -> None:
+        """清理超时的会话记忆"""
+        if not self._session_timeout:
+            return
+        now = time.time()
+        stale = [
+            sid
+            for sid, ts in list(self._sessions_timestamps.items())
+            if now - ts > self._session_timeout
+        ]
+        for sid in stale:
+            self._histories.pop(sid, None)
+            self._sessions_timestamps.pop(sid, None)
+        if stale:
+            logger.debug(f"清理了 {len(stale)} 个超时会话")
+
+    def list_sessions(self) -> list[str]:
+        """返回当前有聊天历史的 session ID 列表"""
+        return list(self._histories.keys())
+
+    def get_active_provider(self) -> str:
+        """返回当前生效的 LLM provider 名称"""
+        return self._provider_override or get_config("llm.provider", "qwen")
+
+    def set_provider(self, provider_name: str) -> None:
+        """运行时切换 LLM provider，下次 ainvoke 生效"""
+        available = self.get_available_providers()
+        if provider_name not in {p["key"] for p in available}:
+            raise ValueError(f"未知的 provider: {provider_name}")
+        self._provider_override = provider_name
+        self.reset_runtime()
+        logger.info(f"Agent LLM provider 已切换: {provider_name}")
+
+    def reload_config(self, provider_name: str | None = None) -> None:
+        """重新读取配置并丢弃已初始化的 LLM/AgentExecutor。"""
+        if provider_name:
+            available = self.get_available_providers()
+            if provider_name not in {p["key"] for p in available}:
+                raise ValueError(f"未知的 provider: {provider_name}")
+            self._provider_override = provider_name
+        else:
+            self._provider_override = None
+
+        self._max_iterations = get_config("agent.max_iterations", 10)
+        self._session_timeout = get_config("agent.session_timeout_minutes", 60) * 60
+        self._system_prompt = get_config("agent.system_prompt", _default_system_prompt())
+        self.reset_runtime()
+        logger.info(f"Agent 配置已重新加载 (provider={self.get_active_provider()})")
+
+    def reset_runtime(self) -> None:
+        """丢弃运行时 LLM 实例，让下一次调用按最新配置重新初始化。"""
+        self._initialized = False
+        self._llm = None
+        self._agent_executor = None
+
+    @staticmethod
+    def get_available_providers() -> list[dict]:
+        """从 settings.yaml 动态扫描所有可用的 LLM provider"""
+        llm_config = get_config("llm", {})
+        providers: list[dict] = []
+        for key, cfg in llm_config.items():
+            if key == "provider" or not isinstance(cfg, dict):
+                continue
+            model = cfg.get("model")
+            if model:
+                providers.append({
+                    "key": key,
+                    "label": key.capitalize(),
+                    "model": str(model),
+                })
+        return providers
+
+
+def _describe_tool_action(tool_name: str, args: dict) -> str:
+    """根据工具名和参数生成描述性的思考内容"""
+    descriptions = {
+        "generate_report": f"决定生成报告，分析: {args.get('prompt', '')[:80]}",
+        "get_report_content": f"获取报告 {args.get('report_id', '')} 的详细内容",
+        "list_tasks": "查看当前任务列表",
+        "get_task_detail": f"查看任务 {args.get('task_id', '')} 的详情",
+        "create_task": f"创建采集任务: {args.get('name', '')}",
+        "cancel_task": f"取消任务 {args.get('task_id', '')}",
+        "list_pipeline_templates": "查看可用的 Pipeline 模板",
+        "list_pipelines": "查看已创建的 Pipeline",
+        "create_pipeline": f"创建 Pipeline: {args.get('name', '')}",
+        "delete_pipeline": f"删除 Pipeline: {args.get('name', '')}",
+        "list_cron_jobs": "查看定时任务列表",
+        "create_cron_job": f"创建定时任务: {args.get('name', '')}",
+        "delete_cron_job": f"删除定时任务: {args.get('name', '')}",
+        "list_data_games": "浏览已采集的游戏数据",
+        "search_data": f"搜索数据: {args.get('query', '')}",
+        "get_system_stats": "查看系统运行状态",
+        "resolve_steam_app_id": f"搜索 Steam App ID: {args.get('game_name', '')}",
+        "verify_steam_app_id": f"验证 Steam App ID: {args.get('app_id', '')}",
+    }
+    return descriptions.get(tool_name, f"调用工具 {tool_name}")
+
+
+def _default_system_prompt() -> str:
+    return (
+        "你是一个游戏数据采集与分析系统的 AI 助手。"
+        "你可以帮助用户查看和管理任务、配置 Pipeline、设置定时采集、"
+        "浏览数据以及生成报告。"
+        "请根据用户的自然语言指令，选择合适的工具完成任务。"
+        "如果意图不明确，请主动询问细节。"
+        "所有响应请使用中文。"
+    )
