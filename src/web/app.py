@@ -47,6 +47,18 @@ def get_agent_service():
             return None
     return _agent_service
 
+
+# Service layer singletons (lazy init)
+_task_service = None
+
+
+def get_task_service():
+    global _task_service
+    if _task_service is None:
+        from src.services.task_service import TaskService
+        _task_service = TaskService(scheduler=scheduler)
+    return _task_service
+
 # 模板引擎
 _WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
@@ -124,6 +136,7 @@ def create_app() -> FastAPI:
     from src.web.routes.data import router as data_router
     from src.web.routes.ws import router as ws_router
     from src.web.routes.agent import router as agent_router
+    from src.web.routes.health import router as health_router
 
     app.include_router(tasks_router, prefix="/api")
     app.include_router(pipelines_router, prefix="/api")
@@ -131,6 +144,7 @@ def create_app() -> FastAPI:
     app.include_router(data_router, prefix="/api")
     app.include_router(ws_router, prefix="/api")
     app.include_router(agent_router, prefix="/api")
+    app.include_router(health_router, prefix="/api")
 
     # 注册页面路由
     from src.web.routes.pages import router as pages_router

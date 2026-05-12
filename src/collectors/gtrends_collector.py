@@ -19,7 +19,6 @@ if not hasattr(urllib3.util.retry.Retry, 'DEFAULT_METHOD_WHITELIST'):
         _original_init(self, *args, **kwargs)
     urllib3.util.retry.Retry.__init__ = _patched_init
 
-import pytrends
 from pytrends.request import TrendReq
 
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult

@@ -53,6 +53,7 @@ class DeletePipelineInput(BaseModel):
     """删除 Pipeline 输入"""
 
     name: str = Field(..., description="Pipeline 名称")
+    confirm: bool = Field(default=False, description="高风险操作确认，必须为 true 才会执行删除")
 
 
 class CreateCronJobInput(BaseModel):
@@ -74,6 +75,7 @@ class DeleteCronJobInput(BaseModel):
     """删除定时任务输入"""
 
     name: str = Field(..., description="定时任务名称")
+    confirm: bool = Field(default=False, description="高风险操作确认，必须为 true 才会执行删除")
 
 
 class SearchDataInput(BaseModel):

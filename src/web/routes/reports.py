@@ -13,9 +13,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.reporting.generator import GeneratedReport, ReportSummary
+from src.reporting.data_extractor import extract_from_records
 from src.reporting.report_templates import list_report_templates, normalize_collector
+from src.reporting.report_templates import validate_template_sources
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
+from src.services._utils import source_label
+from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["reports"])
 
@@ -68,6 +72,20 @@ class UploadedJsonResponse(BaseModel):
     collector: str
     game_name: str
     app_id: str | None = None
+
+
+class ReportPrecheckResponse(BaseModel):
+    status: str
+    message: str
+    selected_records: int
+    usable_records: int
+    template: str
+    known_template: bool = False
+    required_collectors: list[str] = Field(default_factory=list)
+    available_collectors: list[str] = Field(default_factory=list)
+    missing_collectors: list[str] = Field(default_factory=list)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    recommendations: list[str] = Field(default_factory=list)
 
 
 # ==================== 路由 ====================
@@ -187,6 +205,14 @@ async def list_group_records_for_report(
     return records
 
 
+@router.post("/reports/precheck", response_model=ReportPrecheckResponse)
+async def precheck_report(
+    req: Annotated[GenerateReportRequest, Body(description="Report data completeness check")]
+):
+    records = await _load_report_precheck_records(req)
+    return _build_report_precheck(req.template, records)
+
+
 @router.get("/reports/{report_id}", response_model=ReportResponse)
 async def get_report(
     report_id: Annotated[str, Path(description="报告 ID")]
@@ -224,9 +250,11 @@ async def update_report(
 @router.delete("/reports/{report_id}")
 async def delete_report(
     report_id: Annotated[str, Path(description="Report ID")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
     from src.web.app import report_generator
 
+    require_explicit_confirmation(confirm, "report deletion")
     if not await report_generator.delete_report(report_id):
         raise HTTPException(404, f"Report not found: {report_id}")
     return {"message": f"Report deleted: {report_id}"}
@@ -317,6 +345,78 @@ async def _load_selected_records(record_keys: list[str]):
         return records
     finally:
         await store.close()
+
+
+async def _load_report_precheck_records(req: GenerateReportRequest) -> list[StorageRecord]:
+    if req.record_keys:
+        return await _load_selected_records(req.record_keys)
+
+    limit = max(1, min(int(req.params.get("limit", 100) or 100), 1000))
+    store = LocalStorage()
+    await store.initialize()
+    try:
+        if req.data_source:
+            result = await store.query(f"source:{req.data_source}", limit=limit)
+        else:
+            result = await store.query("key:", limit=limit)
+        return result.records
+    finally:
+        await store.close()
+
+
+def _build_report_precheck(template: str, records: list[StorageRecord]) -> ReportPrecheckResponse:
+    usable_records = [record for record in records if isinstance(record.data, dict)]
+    if not usable_records:
+        validation = validate_template_sources(template, {})
+        missing = list(validation.get("missing_collectors") or [])
+        return ReportPrecheckResponse(
+            status="empty",
+            message="No usable JSON records found for this report.",
+            selected_records=len(records),
+            usable_records=0,
+            template=str(validation.get("template") or template),
+            known_template=bool(validation.get("known_template", False)),
+            required_collectors=list(validation.get("required_collectors") or []),
+            missing_collectors=missing,
+            recommendations=[
+                "Select records from Data Browser or upload JSON files before generating.",
+                *[
+                    f"Add {source_label(collector)} data before generating for better report coverage."
+                    for collector in missing
+                ],
+            ],
+        )
+
+    extracted = extract_from_records(
+        [record.data for record in usable_records],
+        record_keys=[record.key for record in usable_records],
+        metadata_list=[record.metadata for record in usable_records],
+    )
+    validation = validate_template_sources(template, extracted.source_coverage)
+    missing = list(validation.get("missing_collectors") or [])
+    status = "complete" if not missing else "partial"
+    recommendations = [
+        f"Add {source_label(collector)} data before generating for better report coverage."
+        for collector in missing
+    ]
+    message = (
+        "Report data coverage is complete."
+        if status == "complete"
+        else "Report can be generated, but some expected data sources are missing."
+    )
+    return ReportPrecheckResponse(
+        status=status,
+        message=message,
+        selected_records=len(records),
+        usable_records=len(usable_records),
+        template=str(validation.get("template") or template),
+        known_template=bool(validation.get("known_template", False)),
+        required_collectors=list(validation.get("required_collectors") or []),
+        available_collectors=list(validation.get("available_collectors") or []),
+        missing_collectors=missing,
+        source_counts=dict(validation.get("source_counts") or {}),
+        recommendations=recommendations,
+    )
 
 
 def _looks_like_download_wrapper(payload: dict[str, Any]) -> bool:

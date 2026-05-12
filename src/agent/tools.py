@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Optional, Type
+from typing import Any, ClassVar, Type
 
 from langchain_core.tools import BaseTool
 from loguru import logger
@@ -24,6 +24,7 @@ from src.agent.schemas import (
     SearchDataInput,
     VerifySteamAppIdInput,
 )
+from src.services._utils import extract_record_identity
 
 
 def _safe_json(obj: Any) -> str:
@@ -33,6 +34,39 @@ def _safe_json(obj: Any) -> str:
     elif isinstance(obj, list):
         obj = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in obj]
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _format_result(
+    status: str,
+    summary: str,
+    data: Any = None,
+    *,
+    record_count: int | None = None,
+    warnings: list[str] | None = None,
+    suggestion: str = "",
+    max_data_length: int = 4000,
+) -> str:
+    """构建结构化的工具返回结果，提供 summary/data/suggestion 三层可读性"""
+    result: dict[str, Any] = {
+        "status": status,
+        "summary": summary,
+    }
+    if record_count is not None:
+        result["record_count"] = record_count
+    if warnings:
+        result["warnings"] = warnings
+    if suggestion:
+        result["suggestion"] = suggestion
+
+    if data is not None:
+        serialized = _safe_json(data)
+        if len(serialized) > max_data_length:
+            result["data_truncated"] = True
+            result["summary"] = summary + "（数据量过大，已截断，请进一步查询）"
+        else:
+            result["data"] = data
+
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 # ==================== 任务相关工具 ====================
@@ -47,20 +81,26 @@ class ListTasksTool(BaseTool):
     args_schema: Type[BaseModel] = ListTasksInput
 
     async def _arun(self, status: str | None = None) -> str:
-        from src.core.task import TaskStatus
-        from src.web.app import scheduler
+        from src.web.app import get_task_service
 
-        if status:
-            try:
-                tasks = scheduler.get_tasks_by_status(TaskStatus(status))
-            except ValueError:
-                return f"无效的状态: {status}"
-        else:
-            tasks = scheduler.get_all_tasks()
+        try:
+            tasks = get_task_service().list_tasks(status)
+        except ValueError:
+            return _format_result("error", f"无效的状态: {status}", suggestion="status 可选: pending / running / success / failed / cancelled")
 
-        tasks = sorted(tasks, key=lambda t: t.created_at, reverse=True)
         summaries = [t.to_summary() for t in tasks[:50]]
-        return _safe_json(summaries)
+        status_counts = {}
+        for t in tasks:
+            s = t.status.value if hasattr(t.status, "value") else str(t.status)
+            status_counts[s] = status_counts.get(s, 0) + 1
+        count_desc = ", ".join(f"{v} {k}" for k, v in sorted(status_counts.items()))
+        return _format_result(
+            "ok",
+            f"共 {len(tasks)} 个任务（{count_desc}），展示最近 {len(summaries)} 个",
+            summaries,
+            record_count=len(summaries),
+            suggestion="使用 get_task_detail 查看任意任务详情",
+        )
 
     def _run(self, status: str | None = None) -> str:
         raise NotImplementedError("Use _arun")
@@ -72,12 +112,20 @@ class GetTaskDetailTool(BaseTool):
     args_schema: Type[BaseModel] = GetTaskDetailInput
 
     async def _arun(self, task_id: str) -> str:
-        from src.web.app import scheduler
+        from src.web.app import get_task_service
 
-        task = scheduler.get_task(task_id)
+        task = get_task_service().get_task(task_id)
         if not task:
-            return f"任务不存在: {task_id}"
-        return _safe_json(task.to_storage_payload())
+            return _format_result("error", f"任务不存在: {task_id}", suggestion="使用 list_tasks 查看所有任务")
+        payload = task.to_storage_payload()
+        status = payload.get("status", "unknown")
+        return _format_result(
+            "ok",
+            f"任务 '{payload.get('name', task_id)}' 当前状态: {status}",
+            payload,
+            record_count=1,
+            suggestion="使用 generate_report 为此任务的数据生成报告" if status == "success" else "",
+        )
 
     def _run(self, task_id: str) -> str:
         raise NotImplementedError("Use _arun")
@@ -101,48 +149,66 @@ class CreateTaskTool(BaseTool):
         collector_name: str = "",
         config: dict | None = None,
     ) -> str:
-        from src.core.task import Task, TaskTarget
-        from src.web.app import scheduler
+        from src.web.app import get_task_service
 
         targets = targets or []
         config = config or {}
 
-        # 推断 collector_name
-        if not collector_name:
-            pipeline = scheduler.get_pipeline(pipeline_name)
-            if pipeline:
-                collector_step = next(
-                    (s for s in pipeline.steps if s.step_type.value == "collector"), None
-                )
-                if collector_step:
-                    collector_name = collector_step.component_name
+        ts = get_task_service()
 
-        task_targets = [
-            TaskTarget(
-                name=t.get("name", ""),
-                target_type=t.get("target_type", "default"),
-                params=t.get("params", {}),
-            )
-            for t in targets
-        ]
-
-        task = Task(
+        # 提交前预校验
+        precheck = ts.precheck(
             name=name,
             pipeline_name=pipeline_name,
             collector_name=collector_name,
-            targets=task_targets,
-            config=config,
+            targets=targets,
         )
+        if not precheck.can_submit:
+            issues_desc = "; ".join(
+                f"[{i.level}] {i.field}: {i.message}" for i in precheck.issues
+            )
+            return _format_result(
+                "error",
+                f"任务创建预校验失败: {issues_desc}",
+                [{"level": i.level, "code": i.code, "field": i.field, "message": i.message} for i in precheck.issues],
+                warnings=[i.message for i in precheck.issues if i.level == "warning"],
+                suggestion="请补充必填字段后重试。必填字段: " + ", ".join(precheck.required_fields),
+            )
 
         try:
-            task_id = await scheduler.submit(task, pipeline_name=pipeline_name)
-            return json.dumps(
-                {"success": True, "task_id": task_id, "task_name": name, "pipeline": pipeline_name},
-                ensure_ascii=False,
+            task = await ts.create(
+                name=name,
+                pipeline_name=pipeline_name,
+                collector_name=collector_name,
+                targets=targets,
+                config=config,
+            )
+            response = {
+                "success": True,
+                "task_id": task.id,
+                "task_name": name,
+                "pipeline": pipeline_name,
+            }
+            warnings = [i.message for i in precheck.issues if i.level == "warning"]
+            return _format_result(
+                "ok",
+                f"任务 '{name}' 已创建并提交，task_id: {task.id}",
+                response,
+                record_count=1,
+                warnings=warnings if warnings else None,
+                suggestion="使用 list_tasks 查看任务状态，或使用 get_task_detail 查看详情",
             )
         except Exception as e:
-            logger.error(f"Agent 创建任务失败: {e}")
-            return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+            from src.core.errors import classify_exception, error_summary
+
+            code = classify_exception(e)
+            logger.error(f"Agent 创建任务失败: [{code.value}] {e}")
+            return _format_result(
+                "error",
+                f"任务提交失败: {e}",
+                error_summary(code, str(e)),
+                suggestion=error_summary(code)["suggestion"],
+            )
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -154,10 +220,12 @@ class CancelTaskTool(BaseTool):
     args_schema: Type[BaseModel] = CancelTaskInput
 
     async def _arun(self, task_id: str) -> str:
-        from src.web.app import scheduler
+        from src.web.app import get_task_service
 
-        ok = await scheduler.cancel(task_id)
-        return "任务已取消" if ok else "取消失败（任务可能已结束或不存在）"
+        ok = await get_task_service().cancel(task_id)
+        if ok:
+            return _format_result("ok", f"任务已取消: {task_id}")
+        return _format_result("error", f"取消失败（任务可能已结束或不存在）: {task_id}")
 
     def _run(self, task_id: str) -> str:
         raise NotImplementedError("Use _arun")
@@ -171,7 +239,7 @@ class ListPipelineTemplatesTool(BaseTool):
     description: str = "获取所有可用的 Pipeline 模板列表，包含模板 ID、名称、描述和步骤配置"
 
     async def _arun(self) -> str:
-        from src.web.routes.pipelines import PIPELINE_TEMPLATES
+        from src.core.pipeline_templates import PIPELINE_TEMPLATES
 
         # 只返回摘要信息，不包含完整 steps
         summaries = [
@@ -226,9 +294,14 @@ class CreatePipelineTool(BaseTool):
 
         try:
             await scheduler.save_pipeline(pipeline)
-            return f"Pipeline '{name}' 已创建，包含 {len(steps)} 个步骤"
+            return _format_result(
+                "ok",
+                f"Pipeline '{name}' 已创建，包含 {len(steps)} 个步骤",
+                {"name": name, "steps_count": len(steps)},
+                record_count=1,
+            )
         except Exception as e:
-            return f"创建 Pipeline 失败: {e}"
+            return _format_result("error", f"创建 Pipeline 失败: {e}")
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -239,13 +312,17 @@ class DeletePipelineTool(BaseTool):
     description: str = "删除一个已保存的 Pipeline"
     args_schema: Type[BaseModel] = DeletePipelineInput
 
-    async def _arun(self, name: str) -> str:
+    async def _arun(self, name: str, confirm: bool = False) -> str:
         from src.web.app import scheduler
 
+        if not confirm:
+            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
         ok = await scheduler.delete_pipeline(name)
-        return f"Pipeline '{name}' 已删除" if ok else f"删除失败，Pipeline '{name}' 不存在"
+        if ok:
+            return _format_result("ok", f"Pipeline '{name}' 已删除")
+        return _format_result("error", f"删除失败，Pipeline '{name}' 不存在")
 
-    def _run(self, name: str) -> str:
+    def _run(self, name: str, confirm: bool = False) -> str:
         raise NotImplementedError("Use _arun")
 
 
@@ -281,9 +358,12 @@ class CreateCronJobTool(BaseTool):
         pipeline_name: str,
         cron_expr: str,
         task_template: dict | None = None,
+        confirm: bool = False,
     ) -> str:
         from src.web.app import scheduler
 
+        if not confirm:
+            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
         try:
             job_id = scheduler.add_cron_job(
                 name=name,
@@ -291,12 +371,14 @@ class CreateCronJobTool(BaseTool):
                 cron_expr=cron_expr,
                 task_template=task_template,
             )
-            return json.dumps(
-                {"success": True, "job_id": job_id, "name": name, "cron": cron_expr},
-                ensure_ascii=False,
+            return _format_result(
+                "ok",
+                f"定时任务 '{name}' 已创建",
+                {"job_id": job_id, "name": name, "cron": cron_expr},
+                record_count=1,
             )
         except Exception as e:
-            return f"创建定时任务失败: {e}"
+            return _format_result("error", f"创建定时任务失败: {e}")
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -307,82 +389,23 @@ class DeleteCronJobTool(BaseTool):
     description: str = "删除一个定时任务"
     args_schema: Type[BaseModel] = DeleteCronJobInput
 
-    async def _arun(self, name: str) -> str:
+    async def _arun(self, name: str, confirm: bool = False) -> str:
         from src.web.app import scheduler
 
+        if not confirm:
+            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
         ok = scheduler.remove_cron_job(name)
-        return f"定时任务 '{name}' 已删除" if ok else f"删除失败，定时任务 '{name}' 不存在"
+        if ok:
+            return _format_result("ok", f"定时任务 '{name}' 已删除")
+        return _format_result("error", f"删除失败，定时任务 '{name}' 不存在")
 
-    def _run(self, name: str) -> str:
+    def _run(self, name: str, confirm: bool = False) -> str:
         raise NotImplementedError("Use _arun")
 
 
 # ==================== 数据浏览相关工具 ====================
 
-# 记录身份提取辅助函数（与 data.py 的 _record_identity 逻辑一致）
-def _nested_val(data: dict[str, Any], *keys: str) -> Any:
-    node: Any = data
-    for k in keys:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(k)
-    return node
-
-
-def _first_val(*values: Any) -> str:
-    for v in values:
-        if v not in (None, ""):
-            return str(v)
-    return ""
-
-
-def _extract_record_identity(record: Any) -> dict[str, str] | None:
-    """从 StorageRecord 中提取 game_name、app_id、collector、source_label"""
-    data = record.data if hasattr(record, "data") else None
-    meta = record.metadata if isinstance(getattr(record, "metadata", None), dict) else {}
-
-    if not isinstance(data, dict):
-        return None
-
-    collector = _first_val(
-        data.get("collector"),
-        _nested_val(data, "content", "collector"),
-        _nested_val(data, "source_meta", "collector"),
-        meta.get("collector"),
-    )
-
-    app_id = _first_val(
-        data.get("app_id"),
-        _nested_val(data, "snapshot", "app_id"),
-        _nested_val(data, "source_meta", "app_id"),
-        _nested_val(data, "content", "app_id"),
-        _nested_val(data, "content", "snapshot", "app_id"),
-        _nested_val(data, "game", "app_id"),
-        _nested_val(data, "game", "id"),
-        meta.get("app_id"),
-    )
-
-    game_name = _first_val(
-        meta.get("display_name"),
-        data.get("game_name"),
-        _nested_val(data, "snapshot", "name"),
-        _nested_val(data, "content", "game_name"),
-        _nested_val(data, "content", "snapshot", "name"),
-        _nested_val(data, "game", "title"),
-        data.get("keyword"),
-        meta.get("target"),
-    )
-
-    if not app_id and not game_name:
-        return None
-
-    slabel = collector or getattr(record, "source", "") or "unknown"
-    return {
-        "game_name": game_name or app_id or "Unknown",
-        "app_id": app_id or "",
-        "collector": slabel,
-        "data_source": slabel,
-    }
+# extract_record_identity, nested_get, first_str are now in src.services._utils
 
 
 def _extract_prompt_keywords(prompt: str) -> list[str]:
@@ -427,7 +450,7 @@ def _filter_records_by_keywords(records: list, keywords: list[str]) -> list:
     """只保留 game_name 与任一关键词匹配的记录（双向子串匹配）"""
     matched = []
     for record in records:
-        identity = _extract_record_identity(record)
+        identity = extract_record_identity(record)
         if not identity:
             continue
         game_name = identity.get("game_name", "").lower()
@@ -444,7 +467,7 @@ def _list_available_games(records: list) -> str:
     """列出 records 中可用的游戏名（去重，最多 10 个）"""
     games: dict[str, str] = {}
     for record in records:
-        identity = _extract_record_identity(record)
+        identity = extract_record_identity(record)
         if not identity:
             continue
         name = identity.get("game_name", "")
@@ -470,7 +493,7 @@ class ListDataGamesTool(BaseTool):
             result = await store.query("key:", limit=limit)
             games: dict[str, list[str]] = {}
             for record in result.records:
-                identity = _extract_record_identity(record)
+                identity = extract_record_identity(record)
                 if not identity:
                     continue
                 name = identity["game_name"]
@@ -480,8 +503,19 @@ class ListDataGamesTool(BaseTool):
                 if src not in games[name]:
                     games[name].append(src)
 
-            return _safe_json(
-                [{"game": g, "sources": s} for g, s in sorted(games.items())[:limit]]
+            items = [{"game": g, "sources": s} for g, s in sorted(games.items())[:limit]]
+            if not items:
+                return _format_result(
+                    "empty",
+                    "系统中暂无已采集的数据",
+                    suggestion="使用 create_task 创建采集任务来获取数据",
+                )
+            return _format_result(
+                "ok",
+                f"共 {len(games)} 个游戏分类，展示前 {len(items)} 个",
+                items,
+                record_count=len(items),
+                suggestion="使用 search_data 按关键词搜索，或使用 generate_report 生成报告",
             )
         finally:
             await store.close()
@@ -504,7 +538,7 @@ class SearchDataTool(BaseTool):
             result = await store.query(query, limit=limit)
             summaries = []
             for record in result.records[:limit]:
-                identity = _extract_record_identity(record)
+                identity = extract_record_identity(record)
                 summaries.append({
                     "key": record.key,
                     "source": record.source,
@@ -512,7 +546,20 @@ class SearchDataTool(BaseTool):
                     "app_id": identity.get("app_id", "") if identity else "",
                     "stored_at": str(record.stored_at) if record.stored_at else "",
                 })
-            return _safe_json(summaries)
+            if not summaries:
+                return _format_result(
+                    "empty",
+                    f"未找到匹配 '{query}' 的数据记录",
+                    suggestion="尝试使用 list_data_games 查看可用游戏，或先执行采集任务",
+                )
+            games = list({s["game"] for s in summaries if s["game"]})
+            return _format_result(
+                "ok",
+                f"找到 {result.total} 条记录（展示前 {len(summaries)} 条），涉及游戏: {', '.join(games[:5])}",
+                summaries,
+                record_count=result.total,
+                suggestion="使用 generate_report 为这些数据生成分析报告",
+            )
         finally:
             await store.close()
 
@@ -703,11 +750,11 @@ class ResolveSteamAppIdTool(BaseTool):
             add_items(community_items, key_id="appid")
 
             # 方案 2: Store search English（最全面的英文游戏搜索）
-            store_en = await self._search_store(client, game_name, l="english", cc="us")
+            store_en = await self._search_store(client, game_name, language="english", cc="us")
             add_items(store_en, key_id="id")
 
             # 方案 3: Store search 简体中文（纯中文名搜索）
-            store_cn = await self._search_store(client, game_name, l="schinese", cc="cn")
+            store_cn = await self._search_store(client, game_name, language="schinese", cc="cn")
             add_items(store_cn, key_id="id")
 
         if all_items:
@@ -744,12 +791,12 @@ class ResolveSteamAppIdTool(BaseTool):
             pass
         return []
 
-    async def _search_store(self, client, game_name: str, l: str, cc: str) -> list[dict]:
+    async def _search_store(self, client, game_name: str, language: str, cc: str) -> list[dict]:
         """Steam 公开商店搜索 API"""
         try:
             resp = await client.get(
                 self.STORE_SEARCH_URL,
-                params={"term": game_name, "l": l, "cc": cc},
+                params={"term": game_name, "l": language, "cc": cc},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -845,7 +892,15 @@ class GetSystemStatsTool(BaseTool):
         from src.web.app import scheduler
 
         stats = scheduler.get_stats()
-        return _safe_json(stats)
+        total = stats.get("total_tasks", 0)
+        running = stats.get("running_tasks", 0)
+        return _format_result(
+            "ok",
+            f"系统概览: {total} 个任务记录，{running} 个运行中",
+            stats,
+            record_count=total,
+            suggestion="使用 list_tasks 查看任务列表，使用 list_data_games 浏览数据",
+        )
 
     def _run(self) -> str:
         raise NotImplementedError("Use _arun")

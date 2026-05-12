@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typing import Annotated
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 

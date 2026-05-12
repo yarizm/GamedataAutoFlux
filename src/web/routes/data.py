@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import date, datetime, timedelta
 from collections import defaultdict
 from typing import Annotated, Any
 
@@ -14,9 +13,18 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from src.core.task import Task, TaskTarget
+from src.services._utils import (
+    build_record_summary,
+    compute_record_completeness,
+    extract_record_identity,
+    max_iso,
+    record_group,
+    roll_time_params,
+)
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
 from src.storage.vector_store import VectorStorage
+from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["data"])
 
@@ -57,11 +65,20 @@ class DataRecordSummary(BaseModel):
     refresh_series_id: str = ""
     refresh_kind: str = ""
     summary: dict[str, Any] = Field(default_factory=dict)
+    completeness: str = "full"
 
 
 class DataRecordDetail(DataRecordSummary):
     metadata: dict[str, Any] = Field(default_factory=dict)
     data: Any = None
+
+
+class DataRecordPage(BaseModel):
+    items: list[DataRecordSummary] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 50
+    has_more: bool = False
 
 
 class DataGroupSummary(BaseModel):
@@ -101,6 +118,11 @@ class CreateRefreshScheduleRequest(BaseModel):
     rolling_window: bool = True
 
 
+class BatchRecordRequest(BaseModel):
+    keys: list[str] = Field(..., min_length=1, max_length=500, description="Record keys to operate on")
+    confirm: bool = Field(default=False, description="Must be true for destructive operations")
+
+
 @router.get("/data/games", response_model=list[DataGameSummary])
 async def list_data_games(
     limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
@@ -109,10 +131,10 @@ async def list_data_games(
     grouped: dict[str, dict[str, Any]] = {}
 
     for record in records:
-        identity = _record_identity(record)
+        identity = extract_record_identity(record)
         if not identity:
             continue
-        group = _record_group(record)
+        group = record_group(record)
         grouped_key = f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
         game = grouped.setdefault(
             grouped_key,
@@ -128,7 +150,7 @@ async def list_data_games(
             },
         )
         game["total_records"] += 1
-        game["latest_stored_at"] = _max_iso(game["latest_stored_at"], record.stored_at.isoformat())
+        game["latest_stored_at"] = max_iso(game["latest_stored_at"], record.stored_at.isoformat())
         if group.get("group_id"):
             game["app_id"] = _merge_app_id(game.get("app_id"), identity.get("app_id"))
         elif identity.get("app_id") and not game.get("app_id"):
@@ -138,7 +160,7 @@ async def list_data_games(
         source_bucket["name"] = identity["data_source"]
         source_bucket["collector"] = identity["collector"]
         source_bucket["count"] += 1
-        source_bucket["latest_stored_at"] = _max_iso(source_bucket["latest_stored_at"], record.stored_at.isoformat())
+        source_bucket["latest_stored_at"] = max_iso(source_bucket["latest_stored_at"], record.stored_at.isoformat())
 
     response: list[DataGameSummary] = []
     for game in grouped.values():
@@ -158,7 +180,7 @@ async def list_data_groups(
 ):
     groups: dict[str, dict[str, Any]] = {}
     for record in await _load_source_records(limit=limit):
-        group = _record_group(record)
+        group = record_group(record)
         if not group.get("group_id"):
             continue
         bucket = groups.setdefault(
@@ -171,15 +193,61 @@ async def list_data_groups(
             },
         )
         bucket["count"] += 1
-        bucket["latest_stored_at"] = _max_iso(bucket["latest_stored_at"], record.stored_at.isoformat())
+        bucket["latest_stored_at"] = max_iso(bucket["latest_stored_at"], record.stored_at.isoformat())
     return [
         DataGroupSummary(**item)
         for item in sorted(groups.values(), key=lambda item: item.get("latest_stored_at") or "", reverse=True)
     ]
 
 
+@router.get("/data/records", response_model=DataRecordPage)
+async def list_data_records(
+    q: Annotated[str, Query(description="Optional key/source search text")] = "",
+    source: Annotated[str, Query(description="Optional exact storage source filter")] = "",
+    collector: Annotated[str, Query(description="Optional collector filter")] = "",
+    game_name: Annotated[str, Query(description="Optional game name filter")] = "",
+    app_id: Annotated[str, Query(description="Optional app_id filter")] = "",
+    group_id: Annotated[str, Query(description="Optional group_id filter")] = "",
+    task_id: Annotated[str, Query(description="Optional task_id filter")] = "",
+    page: Annotated[int, Query(ge=1, description="Page number, starting from 1")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, description="Records per page")] = 50,
+    sort_order: Annotated[str, Query(pattern="^(asc|desc)$", description="stored_at order")] = "desc",
+):
+    query_text = f"source:{source.strip()}" if source.strip() else (q.strip() or "key:")
+    offset = (page - 1) * page_size
+    store = LocalStorage()
+    await store.initialize()
+    try:
+        result = await store.query(
+            query_text,
+            limit=page_size,
+            offset=offset,
+            order=sort_order,
+            collector=collector.strip(),
+            game_name=game_name.strip(),
+            app_id=app_id.strip(),
+            group_id=group_id.strip(),
+            task_id=task_id.strip(),
+        )
+    finally:
+        await store.close()
+
+    summaries = [summary for record in result.records if (summary := _record_summary(record))]
+    return DataRecordPage(
+        items=summaries,
+        total=result.total,
+        page=page,
+        page_size=page_size,
+        has_more=offset + len(result.records) < result.total,
+    )
+
+
 @router.delete("/data/groups/{group_id}", response_model=DeleteDataCategoryResponse)
-async def delete_data_group(group_id: Annotated[str, Path(description="Data group id")]):
+async def delete_data_group(
+    group_id: Annotated[str, Path(description="Data group id")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
+):
+    require_explicit_confirmation(confirm, "data group deletion")
     return await _delete_data_category(group_id=group_id.strip())
 
 
@@ -237,7 +305,11 @@ async def list_game_records(
 
 
 @router.delete("/data/games/{game_key}", response_model=DeleteDataCategoryResponse)
-async def delete_data_game(game_key: Annotated[str, Path(description="Game grouping key")]):
+async def delete_data_game(
+    game_key: Annotated[str, Path(description="Game grouping key")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
+):
+    require_explicit_confirmation(confirm, "data category deletion")
     return await _delete_data_category(game_key=game_key.strip())
 
 
@@ -292,7 +364,11 @@ async def update_data_record(
 
 
 @router.delete("/data/records/{record_key}")
-async def delete_data_record(record_key: Annotated[str, Path(description="Storage record key")]):
+async def delete_data_record(
+    record_key: Annotated[str, Path(description="Storage record key")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
+):
+    require_explicit_confirmation(confirm, "data record deletion")
     store = LocalStorage()
     await store.initialize()
     try:
@@ -303,6 +379,53 @@ async def delete_data_record(record_key: Annotated[str, Path(description="Storag
     finally:
         await store.close()
     return {"message": f"Data record deleted: {record_key}"}
+
+
+@router.post("/data/records/batch-delete")
+async def batch_delete_records(req: BatchRecordRequest):
+    require_explicit_confirmation(req.confirm, "batch data record deletion")
+    store = LocalStorage()
+    await store.initialize()
+    deleted_keys: list[str] = []
+    failed_keys: list[dict[str, str]] = []
+    try:
+        for key in req.keys:
+            try:
+                await store.delete(key)
+                deleted_keys.append(key)
+            except Exception as e:
+                failed_keys.append({"key": key, "error": str(e)})
+    finally:
+        await store.close()
+    return {
+        "message": f"Deleted {len(deleted_keys)} records, {len(failed_keys)} failed",
+        "deleted_keys": deleted_keys,
+        "failed_keys": failed_keys,
+    }
+
+
+@router.post("/data/records/batch-export")
+async def batch_export_records(req: BatchRecordRequest):
+    store = LocalStorage()
+    await store.initialize()
+    try:
+        records: list[dict[str, Any]] = []
+        for key in req.keys:
+            record = await store.load(key)
+            if record and record.data:
+                item: dict[str, Any] = {
+                    "key": record.key,
+                    "source": record.source,
+                    "stored_at": record.stored_at.isoformat() if record.stored_at else None,
+                }
+                if isinstance(record.data, dict):
+                    item["data"] = record.data
+                else:
+                    item["data"] = str(record.data)
+                records.append(item)
+    finally:
+        await store.close()
+    return {"count": len(records), "records": records}
 
 
 async def _delete_data_category(*, game_key: str = "", group_id: str = "") -> DeleteDataCategoryResponse:
@@ -494,7 +617,7 @@ def _record_matches_category(
 ) -> bool:
     summary = _record_summary(record)
     if not summary:
-        group = _record_group(record)
+        group = record_group(record)
         return bool(
             (group.get("group_id") and group["group_id"] in group_ids)
             or (group.get("group_name") and group["group_name"] in group_names)
@@ -619,10 +742,10 @@ async def _load_record(key: str) -> StorageRecord:
 
 
 def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
-    identity = _record_identity(record)
+    identity = extract_record_identity(record)
     if not identity:
         return None
-    group = _record_group(record)
+    group = record_group(record)
     source_task = record.metadata.get("source_task", {}) if isinstance(record.metadata, dict) else {}
     if not isinstance(source_task, dict):
         source_task = {}
@@ -644,90 +767,15 @@ def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
         refresh_parent_key=str(record.metadata.get("refresh_parent_key", "") or ""),
         refresh_series_id=str(record.metadata.get("refresh_series_id", "") or ""),
         refresh_kind=str(record.metadata.get("refresh_kind", "") or ""),
-        summary=_build_summary(record.data),
+        summary=build_record_summary(record.data),
+        completeness=compute_record_completeness(record),
     )
 
 
-def _record_group(record: StorageRecord) -> dict[str, str]:
-    metadata = record.metadata if isinstance(record.metadata, dict) else {}
-    group_id = str(metadata.get("group_id", "") or "").strip()
-    group_name = str(metadata.get("group_name", "") or "").strip()
-    return {"group_id": group_id or group_name, "group_name": group_name or group_id}
+# record_group, extract_record_identity, etc. are now in src.services._utils
 
 
-def _record_identity(record: StorageRecord) -> dict[str, str] | None:
-    data = record.data
-    if not isinstance(data, dict):
-        return None
-
-    collector = _first_str(
-        data.get("collector"),
-        _nested(data, "content", "collector"),
-        _nested(data, "source_meta", "collector"),
-        record.metadata.get("collector"),
-    ) or _detect_collector(data)
-
-    app_id = _first_str(
-        data.get("app_id"),
-        _nested(data, "snapshot", "app_id"),
-        _nested(data, "source_meta", "app_id"),
-        _nested(data, "content", "app_id"),
-        _nested(data, "content", "snapshot", "app_id"),
-        _nested(data, "game", "app_id"),
-        _nested(data, "game", "id"),
-        record.metadata.get("app_id"),
-    )
-    game_name = _first_str(
-        record.metadata.get("display_name"),
-        data.get("game_name"),
-        _nested(data, "snapshot", "name"),
-        _nested(data, "content", "game_name"),
-        _nested(data, "content", "snapshot", "name"),
-        _nested(data, "game", "title"),
-        data.get("keyword"),
-        record.metadata.get("target"),
-    )
-
-    if not app_id and not game_name:
-        return None
-
-    game_key = f"app:{app_id}" if app_id else f"name:{_normalize_key(game_name)}"
-    return {
-        "game_key": game_key,
-        "game_name": game_name or app_id or "Unknown",
-        "app_id": app_id or "",
-        "collector": collector or record.source or "unknown",
-        "data_source": _source_label(collector or record.source),
-    }
-
-
-def _build_summary(data: Any) -> dict[str, Any]:
-    if not isinstance(data, dict):
-        return {}
-    snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
-    discussions = data.get("discussions") if isinstance(data.get("discussions"), dict) else {}
-    reviews = data.get("reviews") if isinstance(data.get("reviews"), dict) else {}
-    monitor_metrics = data.get("monitor_metrics") if isinstance(data.get("monitor_metrics"), dict) else {}
-    summary: dict[str, Any] = {}
-
-    for key in ("current_players", "total_reviews", "review_score", "price", "score", "latest_topic_at"):
-        if snapshot.get(key) not in (None, ""):
-            summary[key] = snapshot[key]
-    if snapshot.get("latest_twitch_average_viewers") not in (None, ""):
-        summary["latest_twitch_average_viewers"] = snapshot.get("latest_twitch_average_viewers")
-    twitch = monitor_metrics.get("twitch_viewer_trend") if isinstance(monitor_metrics, dict) else {}
-    if isinstance(twitch, dict) and twitch.get("latest_average_viewers") not in (None, ""):
-        summary["latest_twitch_average_viewers"] = twitch.get("latest_average_viewers")
-    if discussions:
-        summary["topic_count"] = discussions.get("topic_count")
-        summary["post_count"] = discussions.get("post_count")
-    if reviews:
-        if reviews.get("total") is not None:
-            summary["review_count"] = reviews.get("total")
-        if reviews.get("ratings_count") is not None:
-            summary["ratings_count"] = reviews.get("ratings_count")
-    return {key: value for key, value in summary.items() if value not in (None, "")}
-
+# build_record_summary, compute_record_completeness in src.services._utils
 
 def _build_refresh_task(
     record: StorageRecord,
@@ -744,9 +792,9 @@ def _build_refresh_task(
     if not isinstance(target_params, dict):
         target_params = {}
     if rolling_window:
-        _roll_time_params(target_params)
+        roll_time_params(target_params)
 
-    group = _record_group(record)
+    group = record_group(record)
     config = copy.deepcopy(source_task.get("task_config", {}))
     if not isinstance(config, dict):
         config = {}
@@ -783,92 +831,9 @@ def _build_refresh_task(
     )
 
 
-def _roll_time_params(params: dict[str, Any]) -> None:
-    today = date.today()
-    for start_key, end_key in (("start_time", "end_time"), ("start_date", "end_date")):
-        start_raw = params.get(start_key)
-        end_raw = params.get(end_key)
-        if not start_raw or not end_raw:
-            continue
-        start_date = _parse_date_prefix(start_raw)
-        end_date = _parse_date_prefix(end_raw)
-        if start_date is None or end_date is None:
-            continue
-        window = max((end_date - start_date).days, 0)
-        params[start_key] = _replace_date_prefix(str(start_raw), today - timedelta(days=window))
-        params[end_key] = _replace_date_prefix(str(end_raw), today)
-
-
-def _parse_date_prefix(value: Any) -> date | None:
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def _replace_date_prefix(original: str, value: date) -> str:
-    if len(original) > 10:
-        return value.isoformat() + original[10:]
-    return value.isoformat()
-
-
-def _detect_collector(data: dict[str, Any]) -> str:
-    if "discussions" in data:
-        return "steam_discussions"
-    if "steamdb" in data or "news" in data:
-        return "steam"
-    if "reviews_summary" in data or "availability" in data:
-        return "taptap"
-    if "trend_history" in data:
-        return "gtrends"
-    if "events" in data or "event_history" in data:
-        return "events"
-    if "monitor_metrics" in data or "metrics" in data:
-        return "monitor"
-    return "unknown"
-
-
-def _source_label(collector: str) -> str:
-    labels = {
-        "steam": "Steam",
-        "steam_discussions": "Steam Community Discussions",
-        "taptap": "TapTap",
-        "gtrends": "Google Trends",
-        "monitor": "Monitor",
-        "events": "Events",
-    }
-    return labels.get(collector, collector or "unknown")
-
-
-def _nested(data: dict[str, Any], *keys: str) -> Any:
-    node: Any = data
-    for key in keys:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(key)
-    return node
-
-
-def _first_str(*values: Any) -> str:
-    for value in values:
-        if value not in (None, ""):
-            return str(value)
-    return ""
-
-
-def _normalize_key(value: str) -> str:
-    return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-") or "unknown"
-
-
-def _max_iso(left: str | None, right: str | None) -> str | None:
-    if not left:
-        return right
-    if not right:
-        return left
-    try:
-        return max(datetime.fromisoformat(left), datetime.fromisoformat(right)).isoformat()
-    except ValueError:
-        return max(left, right)
+# All utility functions (roll_time_params, parse_date_prefix, replace_date_prefix,
+# detect_collector, source_label, nested_get, first_str, normalize_key, max_iso)
+# are now imported from src.services._utils
 
 
 def _merge_app_id(current: str | None, incoming: str | None) -> str:

@@ -254,7 +254,6 @@ def _write_operations_monitor_sheet(wb: Workbook, data: ExtractedData) -> None:
     steam_row = _find_overview_row(data.overview, "Steam")
     qimai_row = _find_overview_row(data.overview, "Qimai")
     monitor_row = _find_overview_row(data.overview, "Monitor")
-    gtrends_row = _find_overview_row(data.overview, "Google Trends")
 
     pc_headers = [
         "产品",

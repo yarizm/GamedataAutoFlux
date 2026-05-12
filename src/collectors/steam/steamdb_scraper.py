@@ -11,7 +11,6 @@ import asyncio
 import random
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse

@@ -65,8 +65,58 @@ class LocalStorage(BaseStorage):
             CREATE INDEX IF NOT EXISTS idx_records_stored_at ON records(stored_at)
         """)
 
+        await self._migrate_schema()
+
         await self._db.commit()
         logger.info(f"本地存储已初始化: DB={self._db_path}, JSON={self._json_dir}")
+
+    async def _migrate_schema(self) -> None:
+        """添加 JSON 提取生成列和索引，对已有数据库幂等"""
+        # 获取已有列名，避免对不存在的列建索引
+        cursor = await self._db.execute("PRAGMA table_info(records)")
+        existing_cols = {row[1] async for row in cursor}
+
+        generated_columns = [
+            ("collector", "$.collector"),
+            ("game_name", "$.game_name"),
+            ("app_id", "$.app_id"),
+            ("group_id", "$.group_id"),
+            ("task_id", "$.task_id"),
+        ]
+        for col, json_path in generated_columns:
+            if col in existing_cols:
+                continue
+            try:
+                await self._db.execute(
+                    f'ALTER TABLE records ADD COLUMN {col} TEXT '
+                    f'GENERATED ALWAYS AS (json_extract(metadata, \'{json_path}\')) STORED'
+                )
+                existing_cols.add(col)
+            except Exception as e:
+                logger.warning(f"Schema migration: failed to add column '{col}': {e}")
+
+        # 确保 metadata 列有 JSON 合法性约束，防止非 JSON 数据导致生成列静默 NULL
+        try:
+            await self._db.execute(
+                "ALTER TABLE records ADD CONSTRAINT metadata_must_be_json "
+                "CHECK (json_valid(metadata))"
+            )
+        except Exception:
+            # 约束已存在或数据库不支持，忽略
+            pass
+
+        index_cols = ["collector", "game_name", "app_id"]
+        for col in index_cols:
+            if col not in existing_cols:
+                continue
+            try:
+                await self._db.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_records_{col} ON records({col})"
+                )
+            except Exception as e:
+                logger.warning(f"Schema migration: failed to create index on '{col}': {e}")
+
+        await self._db.commit()
 
     async def save(self, record: StorageRecord) -> None:
         """保存记录: 元数据入 SQLite，数据体存 JSON 文件"""
@@ -127,25 +177,55 @@ class LocalStorage(BaseStorage):
             query="source:steam"  → 按 source 筛选
             query="key:task123"   → 按 key 前缀筛选
             query="any text"     → 模糊搜索 key 和 source
+
+        额外精确过滤参数（通过生成列）:
+            collector, game_name, app_id, group_id, task_id
         """
         if self._db is None:
             await self.initialize()
 
+        offset = max(0, int(kwargs.get("offset", 0) or 0))
+        limit = max(0, int(limit or 0))
+        order = str(kwargs.get("order", "desc") or "desc").lower()
+        sort_dir = "ASC" if order == "asc" else "DESC"
+
+        conditions: list[str] = []
+        filter_params: list[Any] = []
+
         if query.startswith("source:"):
-            source = query[7:]
-            sql = "SELECT * FROM records WHERE source = ? ORDER BY stored_at DESC LIMIT ?"
-            params = (source, limit)
+            conditions.append("source = ?")
+            filter_params.append(query[7:])
         elif query.startswith("key:"):
-            prefix = query[4:]
-            sql = "SELECT * FROM records WHERE key LIKE ? ORDER BY stored_at DESC LIMIT ?"
-            params = (f"{prefix}%", limit)
-        else:
-            sql = """
+            conditions.append("key LIKE ?")
+            filter_params.append(f"{query[4:]}%")
+        elif query.strip():
+            conditions.append("(key LIKE ? OR source LIKE ?)")
+            filter_params.extend([f"%{query}%", f"%{query}%"])
+
+        # 精确字段过滤（通过生成列）
+        for field in ("collector", "game_name", "app_id", "group_id", "task_id"):
+            value = kwargs.get(field, "")
+            if value:
+                conditions.append(f"{field} = ?")
+                filter_params.append(str(value))
+
+        where_sql = " AND ".join(conditions) if conditions else "1=1"
+
+        if limit > 0:
+            sql = f"""
                 SELECT * FROM records
-                WHERE key LIKE ? OR source LIKE ?
-                ORDER BY stored_at DESC LIMIT ?
+                WHERE {where_sql}
+                ORDER BY stored_at {sort_dir}
+                LIMIT ? OFFSET ?
             """
-            params = (f"%{query}%", f"%{query}%", limit)
+            params = (*filter_params, limit, offset)
+        else:
+            sql = f"""
+                SELECT * FROM records
+                WHERE {where_sql}
+                ORDER BY stored_at {sort_dir}
+            """
+            params = (*filter_params,)
 
         cursor = await self._db.execute(sql, params)
         rows = await cursor.fetchall()
@@ -158,7 +238,8 @@ class LocalStorage(BaseStorage):
 
         # 获取总数
         count_cursor = await self._db.execute(
-            "SELECT COUNT(*) FROM records"
+            f"SELECT COUNT(*) FROM records WHERE {where_sql}",
+            filter_params,
         )
         total = (await count_cursor.fetchone())[0]
 
@@ -226,6 +307,6 @@ class LocalStorage(BaseStorage):
                 source=row["source"] or "",
                 tags=json.loads(row["tags"]) if row["tags"] else [],
             )
-        except Exception as e:
-            logger.warning(f"记录转换失败: {row['key']} - {e}")
+        except (json.JSONDecodeError, KeyError, ValueError, OSError) as e:
+            logger.error(f"记录数据损坏，无法转换: {row['key']} - {e}")
             return None

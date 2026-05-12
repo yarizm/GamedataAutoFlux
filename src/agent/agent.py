@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, FunctionMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from loguru import logger
 
 from src.agent.tools import ALL_TOOLS
-from src.core.config import get as get_config
+from src.core.config import get as get_config, get_data_dir
 
 
 class AgentService:
@@ -27,14 +29,17 @@ class AgentService:
         self._initialized: bool = False
         self._provider_override: str | None = None
         self._lock = asyncio.Lock()
+        self._last_save_time: float = 0
 
         self._max_iterations: int = get_config("agent.max_iterations", 10)
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
+        self._persist_path: Path = get_data_dir() / "agent_sessions.json"
 
         self._system_prompt: str = get_config(
             "agent.system_prompt",
             _default_system_prompt(),
         )
+        self._load_histories()
 
     def _ensure_initialized(self) -> None:
         """延迟初始化 LLM 和 AgentExecutor"""
@@ -90,12 +95,13 @@ class AgentService:
         self._initialized = True
         logger.info(f"Agent 初始化完成 (provider={provider}, model={model})")
 
-    def _get_history(self, session_id: str) -> list[BaseMessage]:
+    async def _get_history(self, session_id: str) -> list[BaseMessage]:
         """获取指定会话的聊天历史"""
-        if session_id not in self._histories:
-            self._histories[session_id] = []
-        self._sessions_timestamps[session_id] = time.time()
-        return self._histories[session_id]
+        async with self._lock:
+            if session_id not in self._histories:
+                self._histories[session_id] = []
+            self._sessions_timestamps[session_id] = time.time()
+            return self._histories[session_id]
 
     async def ainvoke(self, user_input: str, session_id: str = "default") -> AsyncIterator[dict]:
         """流式执行 Agent，逐步 yield 事件
@@ -107,10 +113,10 @@ class AgentService:
           {"type": "final", "content": "..."}            — 最终文本回复
           {"type": "error", "content": "..."}            — 错误信息
         """
-        history = self._get_history(session_id)
+        history = await self._get_history(session_id)
 
         # 清理超时会话
-        self._cleanup_stale_sessions()
+        await self._cleanup_stale_sessions()
 
         try:
             self._ensure_initialized()
@@ -181,12 +187,15 @@ class AgentService:
                     yield {"type": "tool_result", "name": tool_name, "content": output_str}
 
             # 保存对话历史
-            history.append(HumanMessage(content=user_input))
-            history.append(AIMessage(content=final_output or "已处理"))
+            async with self._lock:
+                history.append(HumanMessage(content=user_input))
+                history.append(AIMessage(content=final_output or "已处理"))
 
-            # 限制每条会话的历史长度，避免 token 超限
-            if len(history) > 40:
-                self._histories[session_id] = history[-20:]
+                # 限制每条会话的历史长度，避免 token 超限
+                if len(history) > 40:
+                    self._histories[session_id] = history[-20:]
+
+                await self._save_histories()
 
         except Exception as e:
             logger.error(f"Agent 执行出错: {e}")
@@ -194,24 +203,112 @@ class AgentService:
 
     async def clear_history(self, session_id: str = "default") -> None:
         """清除指定会话的对话记忆"""
-        self._histories.pop(session_id, None)
-        self._sessions_timestamps.pop(session_id, None)
+        async with self._lock:
+            self._histories.pop(session_id, None)
+            self._sessions_timestamps.pop(session_id, None)
+            await self._save_histories(force=True)
 
-    def _cleanup_stale_sessions(self) -> None:
+    MAX_PERSISTED_SESSIONS: int = 50
+
+    async def _save_histories(self, force: bool = False) -> None:
+        """持久化会话历史到 JSON 文件（最多保留 MAX_PERSISTED_SESSIONS 个会话）
+
+        调用者必须持有 self._lock。
+        """
+        now = time.time()
+        if not force and now - self._last_save_time < 5:
+            return
+
+        if len(self._histories) > self.MAX_PERSISTED_SESSIONS:
+            sorted_sids = sorted(
+                self._histories.keys(),
+                key=lambda sid: self._sessions_timestamps.get(sid, 0),
+                reverse=True,
+            )
+            stale = sorted_sids[self.MAX_PERSISTED_SESSIONS:]
+            for sid in stale:
+                self._histories.pop(sid, None)
+                self._sessions_timestamps.pop(sid, None)
+
+        data: dict[str, dict] = {}
+        for sid, msgs in self._histories.items():
+            data[sid] = {
+                "last_active_at": self._sessions_timestamps.get(sid, now),
+                "messages": [msg.model_dump(mode="json") for msg in msgs],
+            }
+        serialized = json.dumps(data, ensure_ascii=False)
+
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            self._persist_path.write_text(serialized, encoding="utf-8")
+        except OSError as exc:
+            logger.warning(f"保存 Agent 会话历史失败: {exc}")
+        else:
+            self._last_save_time = now
+
+    def _load_histories(self) -> None:
+        """从 JSON 文件恢复会话历史"""
+        if not self._persist_path.exists():
+            return
+        try:
+            data = json.loads(self._persist_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(f"加载 Agent 会话历史失败: {exc}")
+            return
+
+        _MSG_CLASSES: dict[str, type[BaseMessage]] = {
+            "human": HumanMessage,
+            "ai": AIMessage,
+            "system": SystemMessage,
+            "tool": ToolMessage,
+            "function": FunctionMessage,
+            "chat": ChatMessage,
+        }
+
+        for sid, blob in data.items():
+            if isinstance(blob, dict) and "messages" in blob:
+                # 新格式: {last_active_at, messages}
+                raw_msgs = blob.get("messages", [])
+                last_active = blob.get("last_active_at", time.time())
+            elif isinstance(blob, list):
+                # 旧格式兼容: 纯消息列表
+                raw_msgs = blob
+                last_active = time.time()
+            else:
+                continue
+
+            msgs: list[BaseMessage] = []
+            for raw in raw_msgs:
+                msg_type = raw.get("type", "")
+                cls = _MSG_CLASSES.get(msg_type)
+                if cls is not None:
+                    msgs.append(cls.model_validate(raw))
+                else:
+                    logger.warning(f"恢复会话时跳过未知消息类型: {msg_type!r}")
+
+            if msgs:
+                self._histories[sid] = msgs
+                self._sessions_timestamps[sid] = last_active
+
+        if self._histories:
+            logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
+
+    async def _cleanup_stale_sessions(self) -> None:
         """清理超时的会话记忆"""
         if not self._session_timeout:
             return
-        now = time.time()
-        stale = [
-            sid
-            for sid, ts in list(self._sessions_timestamps.items())
-            if now - ts > self._session_timeout
-        ]
-        for sid in stale:
-            self._histories.pop(sid, None)
-            self._sessions_timestamps.pop(sid, None)
-        if stale:
-            logger.debug(f"清理了 {len(stale)} 个超时会话")
+        async with self._lock:
+            now = time.time()
+            stale = [
+                sid
+                for sid, ts in list(self._sessions_timestamps.items())
+                if now - ts > self._session_timeout
+            ]
+            for sid in stale:
+                self._histories.pop(sid, None)
+                self._sessions_timestamps.pop(sid, None)
+            if stale:
+                logger.debug(f"清理了 {len(stale)} 个超时会话")
 
     def list_sessions(self) -> list[str]:
         """返回当前有聊天历史的 session ID 列表"""

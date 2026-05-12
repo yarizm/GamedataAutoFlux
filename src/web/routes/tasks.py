@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
 from src.core.sensitive import redact_sensitive
-from src.core.task import Task, TaskTarget, TaskStatus
+from src.core.task import Task
+from src.schemas.tasks import TaskPrecheckResponse
+from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["tasks"])
 
@@ -63,24 +65,37 @@ class TaskDetailResponse(TaskResponse):
 
 # ==================== 路由 ====================
 
+
 @router.get("/tasks", response_model=list[TaskResponse])
 async def list_tasks(
     status: Annotated[str | None, Query(description="按状态过滤任务")] = None
 ):
     """获取所有任务列表"""
-    from src.web.app import scheduler
+    from src.web.app import get_task_service
 
-    if status:
-        try:
-            task_status = TaskStatus(status)
-            tasks = scheduler.get_tasks_by_status(task_status)
-        except ValueError:
-            raise HTTPException(400, f"无效的状态: {status}")
-    else:
-        tasks = scheduler.get_all_tasks()
+    try:
+        tasks = get_task_service().list_tasks(status)
+    except ValueError:
+        raise HTTPException(400, f"无效的状态: {status}")
 
-    tasks = sorted(tasks, key=lambda task: task.created_at, reverse=True)
     return [_task_to_response(t) for t in tasks]
+
+
+@router.post("/tasks/precheck", response_model=TaskPrecheckResponse)
+async def precheck_task(
+    req: Annotated[CreateTaskRequest, Body(description="Task creation precheck")]
+):
+    """Validate task input before submitting it to the scheduler."""
+    from src.web.app import get_task_service
+    return get_task_service().precheck(
+        name=req.name,
+        pipeline_name=req.pipeline_name,
+        collector_name=req.collector_name,
+        targets=req.targets,
+    )
+
+
+# run_task_precheck and its helpers moved to TaskService in src.services.task_service
 
 
 @router.post("/tasks", response_model=TaskResponse)
@@ -88,36 +103,18 @@ async def create_task(
     req: Annotated[CreateTaskRequest, Body(description="任务创建信息")]
 ):
     """创建并提交新任务"""
-    from src.web.app import scheduler
-
-    collector_name = req.collector_name
-    pipeline = scheduler.get_pipeline(req.pipeline_name)
-    if not collector_name and pipeline is not None:
-        collector_step = next((step for step in pipeline.steps if step.step_type.value == "collector"), None)
-        if collector_step is not None:
-            collector_name = collector_step.component_name
-
-    targets = [
-        TaskTarget(
-            name=t.get("name", ""),
-            target_type=t.get("target_type", "default"),
-            params=t.get("params", {}),
-        )
-        for t in req.targets
-    ]
-
-    task = Task(
-        name=req.name,
-        description=req.description,
-        pipeline_name=req.pipeline_name,
-        collector_name=collector_name,
-        targets=targets,
-        config=req.config,
-    )
+    from src.web.app import get_task_service
 
     try:
-        await scheduler.submit(task, pipeline_name=req.pipeline_name)
-    except (ValueError, RuntimeError) as e:
+        task = await get_task_service().create(
+            name=req.name,
+            pipeline_name=req.pipeline_name,
+            collector_name=req.collector_name,
+            targets=req.targets,
+            config=req.config,
+            description=req.description,
+        )
+    except ValueError as e:
         raise HTTPException(400, str(e))
 
     return _task_to_response(task)
@@ -128,9 +125,9 @@ async def get_task(
     task_id: Annotated[str, Path(description="任务 ID")]
 ):
     """获取单个任务详情"""
-    from src.web.app import scheduler
+    from src.web.app import get_task_service
 
-    task = scheduler.get_task(task_id)
+    task = get_task_service().get_task(task_id)
     if task is None:
         raise HTTPException(404, f"任务不存在: {task_id}")
 
@@ -142,15 +139,16 @@ async def get_task_logs(
     task_id: Annotated[str, Path(description="任务 ID")]
 ):
     """获取任务步骤日志"""
-    from src.web.app import scheduler
+    from src.web.app import get_task_service
 
-    task = scheduler.get_task(task_id)
-    if task is None:
+    ts = get_task_service()
+    if ts.get_task(task_id) is None:
         raise HTTPException(404, f"任务不存在: {task_id}")
 
+    logs = ts.get_task_logs(task_id)
     return {
-        "task_id": task.id,
-        "logs": [_log_to_response(log) for log in task.step_logs],
+        "task_id": task_id,
+        "logs": logs,
     }
 
 
@@ -159,9 +157,9 @@ async def cancel_task(
     task_id: Annotated[str, Path(description="任务 ID")]
 ):
     """取消任务"""
-    from src.web.app import scheduler
+    from src.web.app import get_task_service
 
-    success = await scheduler.cancel(task_id)
+    success = await get_task_service().cancel(task_id)
     if not success:
         raise HTTPException(400, f"无法取消任务: {task_id}")
 
@@ -170,26 +168,31 @@ async def cancel_task(
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(
-    task_id: Annotated[str, Path(description="任务 ID")]
+    task_id: Annotated[str, Path(description="任务 ID")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    """鍒犻櫎浠诲姟"""
-    from src.web.app import scheduler
+    """删除任务"""
+    from src.web.app import get_task_service
 
-    success = await scheduler.delete_task(task_id)
+    require_explicit_confirmation(confirm, "task deletion")
+    success = await get_task_service().delete(task_id)
     if not success:
-        raise HTTPException(400, f"鏃犳硶鍒犻櫎浠诲姟: {task_id}")
+        raise HTTPException(400, f"无法删除任务: {task_id}")
 
-    return {"message": f"浠诲姟宸插垹闄? {task_id}"}
+    return {"message": f"任务已删除: {task_id}"}
 
 
 @router.get("/tasks/stats/summary")
 async def get_task_stats():
     """获取任务统计信息"""
-    from src.web.app import scheduler
-    return scheduler.get_stats()
+    from src.web.app import get_task_service
+    return get_task_service().get_stats()
 
 
 # ==================== 辅助函数 ====================
+
+# All precheck/creation helpers moved to src.services.task_service.TaskService
+
 
 def _task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(

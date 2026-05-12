@@ -31,6 +31,7 @@
             <a href="#" class="nav-link" data-tab="reports">报告</a>
             <a href="#" class="nav-link" data-tab="cron">定时任务</a>
             <a href="#" class="nav-link" data-tab="agent">AI 助手</a>
+            <a href="#" class="nav-link" data-tab="system">系统检查</a>
         </div>
     </nav>
 
@@ -188,7 +189,7 @@
                             <div class="text-muted" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
                         </div>
                         <div class="filter-bar">
-                            <select id="data-source-filter" onchange="loadSelectedGameRecords()">
+                            <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)">
                                 <option value="">全部数据源</option>
                             </select>
                             <button class="btn btn-ghost btn-sm" onclick="loadDataGroups()">Groups</button>
@@ -196,9 +197,21 @@
                         </div>
                     </div>
                     <div class="card-body">
+                        <div id="data-batch-bar" class="batch-action-bar" style="display:none;">
+                            <span id="data-batch-count">已选 0 条</span>
+                            <button class="btn btn-primary btn-sm" onclick="batchExportSelected()">导出选中</button>
+                            <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()">删除选中</button>
+                        </div>
+                        <div class="data-controls">
+                            <select id="data-sort-order" onchange="currentDataSortOrder=this.value;loadSelectedGameRecords(1)">
+                                <option value="desc">最新优先</option>
+                                <option value="asc">最早优先</option>
+                            </select>
+                        </div>
                         <table class="table" id="data-records-table">
                             <thead>
                                 <tr>
+                                    <th class="cell-checkbox"><input type="checkbox" id="data-select-all" onclick="toggleSelectAll(this)" /></th>
                                     <th>记录</th>
                                     <th>数据源</th>
                                     <th>摘要</th>
@@ -207,7 +220,7 @@
                                 </tr>
                             </thead>
                             <tbody id="data-records-body">
-                                <tr><td colspan="5" class="text-muted">请选择左侧游戏分类</td></tr>
+                                <tr><td colspan="6" class="text-muted">请选择左侧游戏分类</td></tr>
                             </tbody>
                         </table>
                         <h3 class="data-preview-title">原始 JSON 预览</h3>
@@ -273,6 +286,7 @@
                             </select>
                             <small class="text-muted" id="report-template-help"></small>
                         </div>
+                        <div class="report-precheck" id="report-precheck" style="display: none;"></div>
                         <div class="report-progress" id="report-progress" style="display: none;">
                             <div class="report-progress-row">
                                 <span id="report-progress-stage">Preparing</span>
@@ -354,6 +368,48 @@
                     <div class="agent-input-area">
                         <textarea id="agent-input" rows="2" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据"></textarea>
                         <button class="btn btn-primary" onclick="sendAgentMessage()" id="btn-send-agent">发送</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="tab-content" id="tab-system">
+            <div class="section-header">
+                <h1>系统检查</h1>
+                <button class="btn btn-ghost" onclick="loadSystemDiagnostics()" id="btn-refresh-system">刷新</button>
+            </div>
+
+            <div class="stats-grid" id="system-status-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="system-overall-status">-</div>
+                    <div class="stat-label">总体状态</div>
+                </div>
+                <div class="stat-card stat-failed">
+                    <div class="stat-value" id="system-error-count">-</div>
+                    <div class="stat-label">错误</div>
+                </div>
+                <div class="stat-card stat-running">
+                    <div class="stat-value" id="system-warning-count">-</div>
+                    <div class="stat-label">警告</div>
+                </div>
+                <div class="stat-card stat-success">
+                    <div class="stat-value" id="system-ok-count">-</div>
+                    <div class="stat-label">正常</div>
+                </div>
+            </div>
+
+            <div class="system-layout">
+                <div class="card">
+                    <div class="card-header"><h2>诊断项目</h2></div>
+                    <div class="card-body" id="system-checks-list">
+                        <p class="text-muted">尚未加载诊断结果</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>运行路径</h2></div>
+                    <div class="card-body" id="system-paths-list">
+                        <p class="text-muted">尚未加载路径信息</p>
                     </div>
                 </div>
             </div>
@@ -515,6 +571,7 @@
                         <option value="brief">brief</option>
                     </select>
                 </div>
+                <div class="task-precheck" id="task-precheck" style="display: none;"></div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-task')">取消</button>
@@ -649,6 +706,10 @@
 
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js?v=7"></script>
+    <!-- Core modules (must load before app.js) -->
+    <script src="/static/core/api.js?v=1"></script>
+    <script src="/static/core/websocket.js?v=1"></script>
+    <script src="/static/core/navigation.js?v=1"></script>
+    <script src="/static/app.js?v=10"></script>
 </body>
 </html>

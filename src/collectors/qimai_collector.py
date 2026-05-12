@@ -197,7 +197,6 @@ class QimaiCollector(BaseCollector):
                 )
             try:
                 page = None
-                on_response = None
                 page = await context.new_page()
                 await page.add_init_script(_stealth_script())
                 capture_tasks: list[asyncio.Task[Any]] = []

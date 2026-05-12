@@ -13,6 +13,7 @@ from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
+from src.core.errors import ErrorCode
 from src.core.registry import registry
 
 
@@ -106,6 +107,7 @@ class MonitorCollector(BaseCollector):
                 target=target,
                 success=False,
                 error="monitor collector failed for all requested metrics",
+                error_code=ErrorCode.empty_data.value,
                 metadata={"collector": "monitor", "warnings": warnings},
                 raw_data=metric_payloads,
             )

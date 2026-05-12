@@ -27,6 +27,7 @@ from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.collectors.steam.steam_api_client import SteamAPIClient
 from src.collectors.steam.steamdb_scraper import SteamDBScraper, SteamDBScrapeFailed
 from src.collectors.steam.firecrawl_fallback import FirecrawlFallback
+from src.core.errors import ErrorCode, classify_exception
 from src.core.registry import registry
 
 
@@ -155,6 +156,7 @@ class SteamCollector(BaseCollector):
                     target=target,
                     success=False,
                     error=f"无法解析游戏名称 '{target.name}' 的 app_id",
+                    error_code=ErrorCode.empty_data.value,
                 )
 
         logger.info(f"[Steam] === 开始采集: {target.name} (app_id={app_id}) ===")
@@ -189,7 +191,7 @@ class SteamCollector(BaseCollector):
             )
         except Exception as e:
             logger.error(f"[Steam] 官方 API 采集失败: {e}")
-            steam_data = {"source": "steam_api", "error": str(e)}
+            steam_data = {"source": "steam_api", "error": str(e), "_error_code": classify_exception(e).value}
 
         steam_api_ok = (
             not steam_data.get("error")
@@ -203,6 +205,7 @@ class SteamCollector(BaseCollector):
                 target=target,
                 success=False,
                 error=f"Steam 官方 API 采集失败: {steam_data.get('error', '未返回有效数据')}",
+                error_code=steam_data.get("_error_code", ErrorCode.unknown.value),
                 metadata={
                     "collector": "steam",
                     "data_sources": _list_sources(steam_data, None),

@@ -348,8 +348,8 @@ class VectorStorage(BaseStorage):
         if not left or not right or len(left) != len(right):
             return -1.0
 
-        numerator = sum(l * r for l, r in zip(left, right))
-        left_norm = math.sqrt(sum(l * l for l in left))
+        numerator = sum(lv * rv for lv, rv in zip(left, right))
+        left_norm = math.sqrt(sum(lv * lv for lv in left))
         right_norm = math.sqrt(sum(r * r for r in right))
         if left_norm == 0 or right_norm == 0:
             return -1.0
