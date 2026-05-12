@@ -10,6 +10,8 @@ from pydantic import BaseModel
 
 from src.agent.schemas import (
     CancelTaskInput,
+    CollectionReviewResult,
+    CollectionReviewIssue,
     CreateCronJobInput,
     CreatePipelineInput,
     CreateTaskInput,
@@ -18,13 +20,17 @@ from src.agent.schemas import (
     GenerateReportInput,
     GetReportContentInput,
     GetTaskDetailInput,
+    IdentifierConfidence,
     ListDataGamesInput,
     ListTasksInput,
     ResolveSteamAppIdInput,
+    ReviewCollectionResultsInput,
     SearchDataInput,
+    SearchGameIdentifiersInput,
+    VerifyGameIdentifierInput,
     VerifySteamAppIdInput,
 )
-from src.services._utils import extract_record_identity
+from src.services._utils import extract_record_identity, compute_record_completeness
 
 
 def _safe_json(obj: Any) -> str:
@@ -155,6 +161,9 @@ class CreateTaskTool(BaseTool):
         config = config or {}
 
         ts = get_task_service()
+
+        # 自动发现缺失的平台标识符
+        targets = await self._auto_fill_identifiers(targets, pipeline_name)
 
         # 提交前预校验
         precheck = ts.precheck(
@@ -906,7 +915,210 @@ class GetSystemStatsTool(BaseTool):
         raise NotImplementedError("Use _arun")
 
 
+# ==================== 游戏标识符自动发现工具 ====================
+
+
+class SearchGameIdentifiersTool(BaseTool):
+    name: str = "search_game_identifiers"
+    description: str = (
+        "给定游戏名称，自动搜索所有平台的标识符（Steam App ID, TapTap ID, "
+        "Qimai App ID, Monitor siteurl, 官网 URL 等）。"
+        "返回结构化结果，包含每个平台的置信度评分（high/medium/low）和可用候选项。"
+        "创建采集任务前如果缺少平台标识符，应优先调用此工具。"
+    )
+    args_schema: Type[BaseModel] = SearchGameIdentifiersInput
+
+    async def _arun(self, game_name: str, platforms: list[str] | None = None) -> str:
+        from src.services.game_resolver import GameIdentifierResolver
+
+        resolver = GameIdentifierResolver()
+        try:
+            result = await resolver.resolve_all(game_name, platforms)
+            data = result.model_dump(mode="json", exclude_none=True)
+            high = result.high_confidence()
+            missing = [p for p in ("steam", "taptap", "qimai", "monitor", "official_site")
+                       if getattr(result, p, None) is None]
+            return _format_result(
+                "ok",
+                f"已搜索 '{game_name}' 的平台标识符: {len(high)} 个高置信度, {len(missing)} 个未找到",
+                data,
+                record_count=len(result.found_platforms()),
+                suggestion=(
+                    f"高置信度平台: {', '.join(high)}。可直接创建采集任务。"
+                    if high else "部分平台置信度较低，建议向用户确认后创建任务"
+                ),
+            )
+        except Exception as e:
+            return _format_result("error", f"搜索标识符失败: {e}")
+        finally:
+            await resolver.teardown()
+
+    def _run(self, **kwargs) -> str:
+        raise NotImplementedError("Use _arun")
+
+
+class VerifyGameIdentifierTool(BaseTool):
+    name: str = "verify_game_identifier"
+    description: str = (
+        "验证单个平台的标识符是否有效并对应预期的游戏名称。"
+        "用于确认 search_game_identifiers 返回的标识符是否正确。"
+    )
+    args_schema: Type[BaseModel] = VerifyGameIdentifierInput
+
+    async def _arun(self, platform: str, identifier: str, game_name: str) -> str:
+        from src.services.game_resolver import GameIdentifierResolver
+
+        resolver = GameIdentifierResolver()
+        try:
+            await resolver.setup()
+            result = await resolver.verify_identifier(platform, identifier, game_name)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"valid": False, "error": str(e)}, ensure_ascii=False)
+        finally:
+            await resolver.teardown()
+
+    def _run(self, **kwargs) -> str:
+        raise NotImplementedError("Use _arun")
+
+
+class ReviewCollectionResultsTool(BaseTool):
+    name: str = "review_collection_results"
+    description: str = (
+        "审查已完成采集任务的结果完整性和正确性。"
+        "检查数据是否存在、关键字段是否缺失、标识符是否匹配。"
+        "如果 auto_retry=true 且发现问题，会自动创建修正后的重试任务。"
+    )
+    args_schema: Type[BaseModel] = ReviewCollectionResultsInput
+
+    async def _arun(self, task_id: str, auto_retry: bool = False) -> str:
+        from src.web.app import get_task_service
+        from src.storage.local_store import LocalStorage
+        from src.core.task import TaskStatus
+
+        task = get_task_service().get_task(task_id)
+        if task is None:
+            return _format_result("error", f"任务不存在: {task_id}")
+
+        store = LocalStorage()
+        await store.initialize()
+        try:
+            issues: list[CollectionReviewIssue] = []
+            records: list = []
+
+            # 检查任务状态
+            if task.status in (TaskStatus.FAILED, TaskStatus.CANCELLED):
+                issues.append(CollectionReviewIssue(
+                    level="error", category="task_failed",
+                    message=f"任务状态: {task.status.value}，错误: {task.error or '未知'}",
+                ))
+
+            # 查询关联的数据记录
+            result = await store.query(query=f"key:{task.id}", limit=50)
+            records = result.records
+
+            if not records:
+                issues.append(CollectionReviewIssue(
+                    level="error", category="empty_result",
+                    message="任务完成但未找到存储的数据记录",
+                ))
+            else:
+                for record in records:
+                    completeness = compute_record_completeness(record) or "unknown"
+                    if completeness == "empty":
+                        issues.append(CollectionReviewIssue(
+                            level="warning", category="empty_data",
+                            message=f"记录 {record.key} 数据为空",
+                        ))
+                    elif completeness == "partial":
+                        issues.append(CollectionReviewIssue(
+                            level="info", category="partial_data",
+                            message=f"记录 {record.key} 数据部分完整",
+                        ))
+
+            # 汇总
+            error_count = sum(1 for i in issues if i.level == "error")
+            warning_count = sum(1 for i in issues if i.level == "warning")
+
+            if error_count == 0 and warning_count == 0:
+                completeness = "full"
+            elif error_count == 0:
+                completeness = "partial"
+            else:
+                completeness = "empty"
+
+            suggestions: list[str] = []
+            if error_count > 0:
+                suggestions.append("使用 search_game_identifiers 重新发现正确的标识符后创建新任务")
+            if warning_count > 0:
+                suggestions.append("部分数据不完整，可考虑调整采集参数重新采集")
+
+            review = CollectionReviewResult(
+                task_id=task_id,
+                task_name=task.name,
+                completeness=completeness,
+                issues=issues,
+                suggestions=suggestions,
+                record_count=len(records),
+            )
+            return _safe_json(review.model_dump(mode="json", exclude_none=True))
+        finally:
+            await store.close()
+
+    def _run(self, **kwargs) -> str:
+        raise NotImplementedError("Use _arun")
+
+
 # ==================== 工具列表 ====================
+
+async def _auto_fill_identifiers(
+    targets: list[dict], pipeline_name: str
+) -> list[dict]:
+    """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。"""
+    from src.services.game_resolver import GameIdentifierResolver
+
+    resolver = GameIdentifierResolver()
+    try:
+        await resolver.setup()
+        for target in targets:
+            params = dict(target.get("params", {}) or {})
+            name = str(target.get("name", "") or "").strip()
+            if not name:
+                continue
+
+            if pipeline_name.startswith("steam") and not params.get("app_id"):
+                result = await resolver.resolve_steam(name)
+                if result and result.confidence == IdentifierConfidence.HIGH:
+                    params["app_id"] = int(result.identifier)
+                    target["params"] = params
+
+            elif pipeline_name.startswith("taptap") and not params.get("app_id") and not params.get("url"):
+                result = await resolver.resolve_taptap(name)
+                if result and result.confidence == IdentifierConfidence.HIGH:
+                    params["app_id"] = result.identifier
+                    target["params"] = params
+
+            elif pipeline_name.startswith("monitor") and not params.get("siteurl"):
+                result = await resolver.resolve_monitor_name(name)
+                if result and result.confidence == IdentifierConfidence.HIGH:
+                    params["siteurl"] = result.identifier
+                    target["params"] = params
+
+            elif pipeline_name.startswith("qimai") and not params.get("app_id") and not params.get("qimai_app_id"):
+                result = await resolver.resolve_qimai(name)
+                if result and result.confidence == IdentifierConfidence.HIGH:
+                    params["qimai_app_id"] = result.identifier
+                    target["params"] = params
+
+            elif pipeline_name.startswith("official_site") and not params.get("official_url"):
+                result = await resolver.resolve_official_site(name)
+                if result and result.confidence == IdentifierConfidence.HIGH:
+                    params["official_url"] = result.identifier
+                    target["params"] = params
+    finally:
+        await resolver.teardown()
+    return targets
+
 
 ALL_TOOLS: list[BaseTool] = [
     ResolveSteamAppIdTool(),
@@ -927,4 +1139,7 @@ ALL_TOOLS: list[BaseTool] = [
     GenerateReportTool(),
     GetReportContentTool(),
     GetSystemStatsTool(),
+    SearchGameIdentifiersTool(),
+    VerifyGameIdentifierTool(),
+    ReviewCollectionResultsTool(),
 ]

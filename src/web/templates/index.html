@@ -199,6 +199,7 @@
                     <div class="card-body">
                         <div id="data-batch-bar" class="batch-action-bar" style="display:none;">
                             <span id="data-batch-count">已选 0 条</span>
+                            <button class="btn btn-primary btn-sm" onclick="batchAddToReport()">加入报告</button>
                             <button class="btn btn-primary btn-sm" onclick="batchExportSelected()">导出选中</button>
                             <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()">删除选中</button>
                         </div>
@@ -417,49 +418,59 @@
     </main>
 
     <div class="modal-overlay" id="modal-create-task">
-        <div class="modal">
+        <div class="modal modal-wizard">
             <div class="modal-header">
                 <h2>创建任务</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-task')">&times;</button>
             </div>
+            <div class="wizard-steps" id="task-wizard-steps">
+                <div class="wizard-step active" data-step="1"><span class="wizard-step-num">1</span> 基础信息</div>
+                <div class="wizard-step" data-step="2"><span class="wizard-step-num">2</span> 采集配置</div>
+                <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span> 报告选项与提交</div>
+            </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="task-name">任务名称</label>
-                    <input type="text" id="task-name" placeholder="例如：TapTap 每日检查">
-                </div>
-                <div class="form-group">
-                    <label for="task-data-group">Data group</label>
-                    <input type="text" id="task-data-group" placeholder="Example: delta-force-april">
-                </div>
-                <div class="form-group">
-                    <label for="task-pipeline">Pipeline</label>
-                    <select id="task-pipeline" onchange="updateTaskTargetFields()">
-                        <option value="">-- 选择 Pipeline --</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="task-target-name">Target Name</label>
-                    <input type="text" id="task-target-name" placeholder="Counter-Strike 2 / Mobile Legends">
+                <!-- Step 1: Basic Info -->
+                <div class="wizard-panel" data-panel="1">
+                    <div class="form-group">
+                        <label for="task-name">任务名称</label>
+                        <input type="text" id="task-name" placeholder="例如：TapTap 每日检查">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-data-group">Data group</label>
+                        <input type="text" id="task-data-group" placeholder="Example: delta-force-april">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-pipeline">Pipeline</label>
+                        <select id="task-pipeline" onchange="updateTaskTargetFields()">
+                            <option value="">-- 选择 Pipeline --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-target-name">Target Name</label>
+                        <input type="text" id="task-target-name" placeholder="Counter-Strike 2 / Mobile Legends">
+                    </div>
                 </div>
 
-                <div id="task-steam-fields">
-                    <div class="form-group">
-                        <label for="task-app-id">Steam App ID</label>
-                        <input type="text" id="task-app-id" placeholder="730">
+                <!-- Step 2: Collector-specific fields -->
+                <div class="wizard-panel" data-panel="2" style="display:none;">
+                    <div id="task-steam-fields">
+                        <div class="form-group">
+                            <label for="task-app-id">Steam App ID</label>
+                            <input type="text" id="task-app-id" placeholder="730">
+                        </div>
+                        <div class="form-group checkbox-row">
+                            <label><input type="checkbox" id="task-skip-steamdb" checked> Skip SteamDB and use official API only</label>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-steamdb-time-slice">SteamDB online history slice</label>
+                            <select id="task-steamdb-time-slice">
+                                <option value="monthly_peak_1y">Monthly peak (12 months)</option>
+                                <option value="daily_precise_30d">Daily exact values (30 days, if source supports)</option>
+                                <option value="daily_precise_90d">Daily exact values (90 days, if source supports)</option>
+                            </select>
+                            <small class="text-muted">If daily values are unavailable, the result will explain why.</small>
+                        </div>
                     </div>
-                    <div class="form-group checkbox-row">
-                        <label><input type="checkbox" id="task-skip-steamdb" checked> Skip SteamDB and use official API only</label>
-                    </div>
-                    <div class="form-group">
-                        <label for="task-steamdb-time-slice">SteamDB online history slice</label>
-                        <select id="task-steamdb-time-slice">
-                            <option value="monthly_peak_1y">Monthly peak (12 months)</option>
-                            <option value="daily_precise_30d">Daily exact values (30 days, if source supports)</option>
-                            <option value="daily_precise_90d">Daily exact values (90 days, if source supports)</option>
-                        </select>
-                        <small class="text-muted">If daily values are unavailable, the result will explain why.</small>
-                    </div>
-                </div>
 
                 <div id="task-steam-discussions-fields" style="display: none;">
                     <div class="form-group">
@@ -548,6 +559,10 @@
                     </div>
                 </div>
 
+                </div>
+
+                <!-- Step 3: Report options + submit -->
+                <div class="wizard-panel" data-panel="3" style="display:none;">
                 <div class="form-group">
                     <label for="task-targets">Advanced Targets (JSON array, optional override)</label>
                     <textarea id="task-targets" rows="5" placeholder='[{"name": "Deadlock", "target_type": "game"}]'></textarea>
@@ -572,10 +587,13 @@
                     </select>
                 </div>
                 <div class="task-precheck" id="task-precheck" style="display: none;"></div>
+                </div>
             </div>
             <div class="modal-footer">
+                <button class="btn btn-ghost" id="btn-wizard-back" onclick="wizardPrev()" style="display:none;">上一步</button>
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-task')">取消</button>
-                <button class="btn btn-primary" onclick="createTask()" id="btn-submit-task">提交</button>
+                <button class="btn btn-primary" onclick="wizardNext()" id="btn-wizard-next">下一步</button>
+                <button class="btn btn-primary" onclick="createTask()" id="btn-submit-task" style="display:none;">提交</button>
             </div>
         </div>
     </div>
@@ -710,6 +728,9 @@
     <script src="/static/core/api.js?v=1"></script>
     <script src="/static/core/websocket.js?v=1"></script>
     <script src="/static/core/navigation.js?v=1"></script>
-    <script src="/static/app.js?v=10"></script>
+    <script src="/static/tasks.js?v=1"></script>
+    <script src="/static/reports.js?v=1"></script>
+    <script src="/static/agent.js?v=1"></script>
+    <script src="/static/app.js?v=11"></script>
 </body>
 </html>

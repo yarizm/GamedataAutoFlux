@@ -71,40 +71,128 @@ class LocalStorage(BaseStorage):
         logger.info(f"本地存储已初始化: DB={self._db_path}, JSON={self._json_dir}")
 
     async def _migrate_schema(self) -> None:
-        """添加 JSON 提取生成列和索引，对已有数据库幂等"""
-        # 获取已有列名，避免对不存在的列建索引
+        """添加元数据提取列和索引，对已有数据库幂等。"""
+        meta_columns = ["collector", "game_name", "app_id", "group_id", "task_id"]
+
         cursor = await self._db.execute("PRAGMA table_info(records)")
         existing_cols = {row[1] async for row in cursor}
 
-        generated_columns = [
-            ("collector", "$.collector"),
-            ("game_name", "$.game_name"),
-            ("app_id", "$.app_id"),
-            ("group_id", "$.group_id"),
-            ("task_id", "$.task_id"),
+        all_meta_present = all(col in existing_cols for col in meta_columns)
+        if all_meta_present:
+            # 检测是否有 STORED 生成列残留（生成列不允许 UPDATE）
+            has_generated = False
+            for col in meta_columns:
+                try:
+                    await self._db.execute(
+                        f"UPDATE records SET {col} = {col} WHERE key = "
+                        f"(SELECT key FROM records LIMIT 1) AND {col} IS NOT NULL LIMIT 1"
+                    )
+                except Exception as e:
+                    if "generated" in str(e).lower():
+                        has_generated = True
+                        break
+            if not has_generated:
+                await self._ensure_indexes(existing_cols)
+                await self._db.commit()
+                return
+
+        logger.info("Schema migration: rebuilding records table with correct schema")
+        await self._rebuild_table(meta_columns, existing_cols)
+        await self._db.commit()
+
+    async def _rebuild_table(
+        self, meta_columns: list[str], existing_cols: set[str]
+    ) -> None:
+        """通过 创建新表→复制数据→替换 的方式重建 records 表。
+
+        这是 SQLite 最兼容的 schema 变更方式，不依赖 DROP COLUMN 或 table_xinfo。
+        整个过程用一个显式事务包裹，防止中途崩溃导致数据丢失。
+        """
+        # 检测上次迁移是否中途崩溃（records_new 残留且有数据）
+        cursor = await self._db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='records_new'"
+        )
+        row = await cursor.fetchone()
+        if row and row[0] > 0:
+            stale_count = 0
+            try:
+                cnt_cursor = await self._db.execute("SELECT COUNT(*) FROM records_new")
+                stale_count = (await cnt_cursor.fetchone())[0]
+            except Exception:
+                pass
+            if stale_count > 0:
+                logger.warning(
+                    f"Found stale records_new with {stale_count} rows from interrupted migration, recovering"
+                )
+                await self._db.execute("DROP TABLE IF EXISTS records")
+                await self._db.execute("ALTER TABLE records_new RENAME TO records")
+                # 回填已在下面执行，继续正常流程
+                # existing_cols 需要更新为 records_new 的列
+                cursor2 = await self._db.execute("PRAGMA table_info(records)")
+                existing_cols = {r[1] async for r in cursor2}
+            else:
+                await self._db.execute("DROP TABLE IF EXISTS records_new")
+
+        base_cols = ["key", "source", "metadata", "tags", "data_file", "stored_at", "updated_at"]
+        all_cols = base_cols + meta_columns
+
+        # 确定实际可复制的列
+        src_cols = [c for c in all_cols if c in existing_cols]
+        src_placeholders = ", ".join(src_cols)
+
+        # 为新表生成列定义
+        col_defs = [
+            "key TEXT PRIMARY KEY",
+            "source TEXT DEFAULT ''",
+            "metadata TEXT DEFAULT '{}'",
+            "tags TEXT DEFAULT '[]'",
+            "data_file TEXT",
+            "stored_at TEXT NOT NULL",
+            "updated_at TEXT",
         ]
-        for col, json_path in generated_columns:
-            if col in existing_cols:
-                continue
+        for col in meta_columns:
+            col_defs.append(f"{col} TEXT DEFAULT ''")
+
+        await self._db.execute("BEGIN IMMEDIATE")
+        try:
+            await self._db.execute("DROP TABLE IF EXISTS records_new")
+            await self._db.execute(f"CREATE TABLE records_new ({', '.join(col_defs)})")
+
+            await self._db.execute(
+                f"INSERT INTO records_new ({src_placeholders}) "
+                f"SELECT {src_placeholders} FROM records"
+            )
+
+            await self._db.execute("DROP TABLE records")
+            await self._db.execute("ALTER TABLE records_new RENAME TO records")
+            await self._db.execute("COMMIT")
+        except Exception:
+            await self._db.execute("ROLLBACK")
+            raise
+
+        # 回填元数据列
+        for col in meta_columns:
             try:
                 await self._db.execute(
-                    f'ALTER TABLE records ADD COLUMN {col} TEXT '
-                    f'GENERATED ALWAYS AS (json_extract(metadata, \'{json_path}\')) STORED'
+                    f"UPDATE records SET {col} = "
+                    f"COALESCE(json_extract(metadata, '$.{col}'), '') "
+                    f"WHERE {col} IS NULL OR {col} = ''"
                 )
-                existing_cols.add(col)
-            except Exception as e:
-                logger.warning(f"Schema migration: failed to add column '{col}': {e}")
+            except Exception:
+                pass
 
-        # 确保 metadata 列有 JSON 合法性约束，防止非 JSON 数据导致生成列静默 NULL
-        try:
-            await self._db.execute(
-                "ALTER TABLE records ADD CONSTRAINT metadata_must_be_json "
-                "CHECK (json_valid(metadata))"
-            )
-        except Exception:
-            # 约束已存在或数据库不支持，忽略
-            pass
+        # 重建索引
+        for idx_col in ["source", "stored_at"] + meta_columns[:3]:
+            try:
+                await self._db.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_records_{idx_col} ON records({idx_col})"
+                )
+            except Exception:
+                pass
 
+        logger.info("Schema migration: table rebuilt successfully")
+
+    async def _ensure_indexes(self, existing_cols: set[str]) -> None:
         index_cols = ["collector", "game_name", "app_id"]
         for col in index_cols:
             if col not in existing_cols:
@@ -115,8 +203,6 @@ class LocalStorage(BaseStorage):
                 )
             except Exception as e:
                 logger.warning(f"Schema migration: failed to create index on '{col}': {e}")
-
-        await self._db.commit()
 
     async def save(self, record: StorageRecord) -> None:
         """保存记录: 元数据入 SQLite，数据体存 JSON 文件"""
@@ -135,23 +221,54 @@ class LocalStorage(BaseStorage):
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=2, default=str)
 
-        # 写 SQLite 索引
-        await self._db.execute(
-            """
-            INSERT OR REPLACE INTO records
-            (key, source, metadata, tags, data_file, stored_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record.key,
-                record.source,
-                json.dumps(record.metadata, ensure_ascii=False, default=str),
-                json.dumps(record.tags, ensure_ascii=False),
-                json_filename,
-                record.stored_at.isoformat(),
-                datetime.now().isoformat(),
-            ),
-        )
+        # 写 SQLite 索引（含元数据提取列，便于过滤查询）
+        metadata_json = json.dumps(record.metadata, ensure_ascii=False, default=str)
+        meta = record.metadata or {}
+        try:
+            await self._db.execute(
+                """
+                INSERT OR REPLACE INTO records
+                (key, source, metadata, tags, data_file, stored_at, updated_at,
+                 collector, game_name, app_id, group_id, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.key,
+                    record.source,
+                    metadata_json,
+                    json.dumps(record.tags, ensure_ascii=False),
+                    json_filename,
+                    record.stored_at.isoformat(),
+                    datetime.now().isoformat(),
+                    str(meta.get("collector", "")),
+                    str(meta.get("game_name", "")),
+                    str(meta.get("app_id", "")),
+                    str(meta.get("group_id", "")),
+                    str(meta.get("task_id", "")),
+                ),
+            )
+        except Exception as meta_insert_err:
+            # 防御：如果元数据列不存在或是生成列，回退到基础 INSERT
+            logger.warning(
+                f"Failed to insert with meta columns for {record.key}: {meta_insert_err}; "
+                f"falling back to basic INSERT"
+            )
+            await self._db.execute(
+                """
+                INSERT OR REPLACE INTO records
+                (key, source, metadata, tags, data_file, stored_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.key,
+                    record.source,
+                    metadata_json,
+                    json.dumps(record.tags, ensure_ascii=False),
+                    json_filename,
+                    record.stored_at.isoformat(),
+                    datetime.now().isoformat(),
+                ),
+            )
         await self._db.commit()
         logger.debug(f"记录已保存: {record.key}")
 

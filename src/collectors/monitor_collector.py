@@ -34,6 +34,10 @@ DEFAULT_SULLY_SITEURL_OVERRIDES = {
     "delta force hawk ops": "delta_force_hawk_ops",
     "delta force: hawk ops": "delta_force_hawk_ops",
     "三角洲行动": "delta_force_hawk_ops",
+    "730": "counter-strike_global_offensive",
+    "counter-strike 2": "counter-strike_global_offensive",
+    "counter strike 2": "counter-strike_global_offensive",
+    "cs2": "counter-strike_global_offensive",
 }
 
 
@@ -72,20 +76,26 @@ class MonitorCollector(BaseCollector):
         if self._client is None:
             raise RuntimeError("Monitor collector client is not initialized")
 
-        app_id = int(str(target.params.get("app_id") or "").strip() or 0)
-        if app_id <= 0:
-            raise ValueError("monitor target requires a valid app_id")
+        raw_app_id = str(target.params.get("app_id") or "").strip()
+        # app_id 支持两种形式：数字型（如 2507950）或字符串型 siteurl（如 delta_force_hawk_ops）
+        try:
+            app_id = int(raw_app_id) if raw_app_id else 0
+        except ValueError:
+            app_id = 0  # 非数字 app_id，后续通过 siteurl override 或搜索解析
+
+        siteurl = _optional_str(target.params.get("siteurl")) or (raw_app_id if app_id <= 0 and raw_app_id else "")
+        if app_id <= 0 and not siteurl:
+            raise ValueError("monitor target requires a valid app_id (numeric) or siteurl (string name)")
 
         metrics = _normalize_metrics(target.params.get("metrics"))
         days = int(target.params.get("days", get_config("monitor.default_days", 30)))
         days = max(7, min(days, 90))
         tz_name = str(target.params.get("timezone", get_config("monitor.timezone", "Asia/Shanghai")))
         twitch_name = _optional_str(target.params.get("twitch_name"))
-        siteurl = _optional_str(target.params.get("siteurl"))
 
         warnings: list[str] = []
 
-        logger.info(f"[Monitor] Start collect: {target.name} (app_id={app_id}) metrics={metrics}")
+        logger.info(f"[Monitor] Start collect: {target.name} (app_id={app_id}, siteurl={siteurl}) metrics={metrics}")
         metric_payloads = await self._collect_metrics_concurrently(
             metrics=metrics,
             app_id=app_id,
@@ -298,7 +308,7 @@ def _normalize_metrics(raw_metrics: Any) -> list[str]:
     return ["twitch_viewer_trend"]
 
 
-def _resolve_sully_siteurl_override(app_id: int, target_name: str, twitch_name: str | None) -> str | None:
+def _resolve_sully_siteurl_override(app_id: int | str, target_name: str, twitch_name: str | None) -> str | None:
     configured = get_config("monitor.sully_siteurl_overrides", {})
     overrides = dict(DEFAULT_SULLY_SITEURL_OVERRIDES)
     if isinstance(configured, dict):

@@ -31,6 +31,7 @@ from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskStatus
+from src.services._utils import normalize_key
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 from src.storage.base import BaseStorage, StorageRecord
 
@@ -395,6 +396,16 @@ def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, A
         data_group = {}
     group_name = str(data_group.get("name") or data_group.get("group_name") or "").strip()
     group_id = str(data_group.get("id") or data_group.get("group_id") or group_name).strip()
+
+    # 自动派生 group：如果没有显式指定 data_group，从该记录实际 target 名称推导
+    # 每条记录有自己的 target name（多目标任务中也能正确分组）
+    if not group_name and not group_id:
+        record_target = str(enriched.get("target", "") or target_name or "").strip()
+        if not record_target and task.targets:
+            record_target = str(task.targets[0].name or "").strip()
+        if record_target:
+            group_name = record_target
+            group_id = normalize_key(record_target)
 
     enriched["source_task"] = {
         "task_id": task.id,

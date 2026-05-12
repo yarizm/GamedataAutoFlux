@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, Field
 
 
@@ -150,3 +152,101 @@ class UpdateProviderConfigRequest(BaseModel):
 
     provider: str = Field(..., description="默认 provider")
     items: list[ProviderConfigItem] = Field(..., description="所有 provider 配置项")
+
+
+# ==================== 游戏标识符自动发现模型 ====================
+
+
+class IdentifierConfidence(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class IdentifierCandidate(BaseModel):
+    identifier: str = Field(..., description="标识符值，如 '730' 或 'https://...'")
+    identifier_type: str = Field(..., description="标识符类型: steam_app_id / taptap_app_id / siteurl / official_url / keyword")
+    name: str = Field("", description="该平台显示的名称")
+    similarity: float | None = Field(None, description="与输入游戏名的相似度 0-1")
+    source: str = Field("", description="数据来源: api / playwright / config / cache")
+
+
+class IdentifierResult(BaseModel):
+    platform: str = Field(..., description="平台名: steam / taptap / qimai / monitor / official_site / gtrends")
+    identifier: str = Field("", description="解析出的标识符值")
+    identifier_type: str = Field("", description="标识符类型")
+    game_name: str = Field("", description="该平台解析出的游戏名称")
+    confidence: IdentifierConfidence = IdentifierConfidence.LOW
+    source: str = Field("", description="数据来源")
+    candidates: list[IdentifierCandidate] = Field(default_factory=list)
+    url: str = Field("", description="该平台页面的完整 URL")
+    status: str = Field("", description="not_found / found / multiple_candidates")
+    detail: str = Field("", description="额外说明")
+
+
+class GameIdentifiers(BaseModel):
+    """一个游戏在所有平台的标识符汇总"""
+    game_name: str = Field(..., description="输入的游戏名")
+    steam: IdentifierResult | None = Field(None)
+    taptap: IdentifierResult | None = Field(None)
+    qimai: IdentifierResult | None = Field(None)
+    monitor: IdentifierResult | None = Field(None)
+    official_site: IdentifierResult | None = Field(None)
+    gtrends: IdentifierResult | None = Field(None)
+
+    def found_platforms(self) -> list[str]:
+        found = []
+        for key in ("steam", "taptap", "qimai", "monitor", "official_site", "gtrends"):
+            val = getattr(self, key, None)
+            if val is not None:
+                found.append(key)
+        return found
+
+    def high_confidence(self) -> list[str]:
+        result = []
+        for key in ("steam", "taptap", "qimai", "monitor", "official_site", "gtrends"):
+            val = getattr(self, key, None)
+            if val is not None and val.confidence == IdentifierConfidence.HIGH:
+                result.append(key)
+        return result
+
+
+# ==================== 新工具输入模型 ====================
+
+
+class SearchGameIdentifiersInput(BaseModel):
+    game_name: str = Field(..., description="游戏名称（中文或英文）")
+    platforms: list[str] | None = Field(
+        default=None,
+        description="要搜索的平台列表；为 None 时搜索所有平台",
+    )
+
+
+class VerifyGameIdentifierInput(BaseModel):
+    platform: str = Field(..., description="平台: steam / taptap / qimai / monitor / official_site")
+    identifier: str = Field(..., description="要验证的标识符值")
+    game_name: str = Field(..., description="预期的游戏名称，用于交叉验证")
+
+
+class ReviewCollectionResultsInput(BaseModel):
+    task_id: str = Field(..., description="要审查的采集任务 ID")
+    auto_retry: bool = Field(default=False, description="如果数据不完整，是否自动创建重试任务")
+
+
+# ==================== 采集结果复查模型 ====================
+
+
+class CollectionReviewIssue(BaseModel):
+    level: str = Field("info", description="error / warning / info")
+    category: str = Field("", description="missing_data / wrong_identifier / empty_result / task_failed")
+    message: str = Field("", description="问题描述")
+
+
+class CollectionReviewResult(BaseModel):
+    task_id: str = Field("", description="任务 ID")
+    task_name: str = Field("", description="任务名称")
+    completeness: str = Field("unknown", description="full / partial / empty")
+    issues: list[CollectionReviewIssue] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    identifiers_used: dict | None = Field(None)
+    record_count: int = Field(0)

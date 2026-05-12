@@ -212,7 +212,7 @@ class TaskService:
             "steam_discussions": ["target.params.app_id or target.params.forum_url"],
             "taptap": ["target.params.app_id or target.params.url"],
             "gtrends": ["target.name"],
-            "monitor": ["target.params.app_id or target.params.twitch_name or target.params.siteurl"],
+            "monitor": ["target.params.app_id", "target.params.twitch_name (optional)", "target.params.siteurl (optional)"],
             "qimai": ["target.params.app_id"],
             "official_site": ["target.params.official_url"],
         }.get(collector_name, ["target.name or target.params"])
@@ -241,8 +241,8 @@ class TaskService:
             if not name:
                 issues.append(TaskPrecheckIssue(level="error", code="missing_keyword", field=field, message="Google Trends target needs a keyword name."))
         elif collector_name == "monitor":
-            if not str(params.get("app_id") or params.get("twitch_name") or params.get("siteurl") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_monitor_target", field=field, message="Monitor target needs app_id, twitch_name, or siteurl."))
+            if not str(params.get("app_id") or "").strip():
+                issues.append(TaskPrecheckIssue(level="error", code="missing_monitor_app_id", field=field, message="Monitor target requires app_id (twitch_name and siteurl are optional supplements)."))
         elif collector_name == "qimai":
             if not str(params.get("app_id") or "").strip():
                 issues.append(TaskPrecheckIssue(level="error", code="missing_qimai_app_id", field=field, message="Qimai target needs app_id."))

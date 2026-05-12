@@ -388,6 +388,9 @@ def _describe_tool_action(tool_name: str, args: dict) -> str:
         "get_system_stats": "查看系统运行状态",
         "resolve_steam_app_id": f"搜索 Steam App ID: {args.get('game_name', '')}",
         "verify_steam_app_id": f"验证 Steam App ID: {args.get('app_id', '')}",
+        "search_game_identifiers": f"自动搜索游戏平台标识符: {args.get('game_name', '')}",
+        "verify_game_identifier": f"验证 {args.get('platform', '')} 标识符: {args.get('identifier', '')}",
+        "review_collection_results": f"复查采集结果: {args.get('task_id', '')}",
     }
     return descriptions.get(tool_name, f"调用工具 {tool_name}")
 
