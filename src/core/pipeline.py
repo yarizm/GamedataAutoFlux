@@ -204,7 +204,7 @@ class Pipeline:
                 success_count = sum(1 for r in collect_results if r.success)
                 failed_results = [r for r in collect_results if not r.success]
                 failed_error = "; ".join(
-                    f"{r.target.name}: {r.error or '未知错误'}"
+                    f"{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
                     for r in failed_results
                 )
                 task.add_step_log(
@@ -214,7 +214,7 @@ class Pipeline:
                     error=failed_error or None,
                 )
                 result.errors.extend(
-                    f"collect:{step.component_name}:{r.target.name}: {r.error or '未知错误'}"
+                    f"collect:{step.component_name}:{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
                     for r in failed_results
                 )
                 await collector.teardown()

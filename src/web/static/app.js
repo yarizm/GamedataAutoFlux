@@ -9,193 +9,18 @@ let dataGames = [];
 let dataGroups = [];
 let selectedDataGame = null;
 let currentDataRecords = [];
+let currentDataPage = 1;
+let currentDataPageSize = 50;
+let currentDataTotal = 0;
+let currentDataSourceFilter = "";
+let currentDataSortOrder = "desc";
+let selectedDataRecordKeys = new Set();
 let selectedReportRecordKeys = [];
 let selectedReportRecordMeta = {};
 let reportTemplates = [];
 let currentReportProgressId = "";
 
-async function api(path, options = {}) {
-    const resp = await fetch(`/api${path}`, {
-        headers: { "Content-Type": "application/json", ...options.headers },
-        ...options,
-    });
-
-    if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-        throw new Error(err.detail || `HTTP ${resp.status}`);
-    }
-
-    return resp.json();
-}
-
-function toast(message, type = "info") {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
-
-    const el = document.createElement("div");
-    el.className = `toast toast-${type}`;
-    el.textContent = message;
-    container.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-}
-
 let wsConnection = null;
-
-function initWebSocket() {
-    if (wsConnection) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/tasks`;
-    
-    wsConnection = new WebSocket(wsUrl);
-    
-    wsConnection.onopen = () => {
-        console.log("WebSocket connected");
-        toast("实时推送已连接", "success");
-    };
-    
-    wsConnection.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            if (data.type === "task_update" && data.task) {
-                handleTaskUpdate(data.task);
-            } else if (data.type === "stats_update" && data.stats) {
-                handleStatsUpdate(data.stats);
-            } else if (data.type === "report_progress") {
-                handleReportProgress(data);
-            }
-        } catch (e) {
-            console.error("WS message parse error:", e);
-        }
-    };
-    
-    wsConnection.onclose = () => {
-        console.log("WebSocket disconnected, retrying in 5s...");
-        wsConnection = null;
-        setTimeout(initWebSocket, 5000);
-    };
-    
-    wsConnection.onerror = (err) => {
-        console.error("WebSocket error:", err);
-    };
-}
-
-function handleTaskUpdate(task) {
-    // 1. 如果在大盘页，且任务是近期任务，刷新 Dashboard
-    if (activeTab === "dashboard") {
-        refreshDashboard();
-    }
-
-    // 2. 如果在任务列表页，更新对应行
-    if (activeTab === "tasks") {
-        loadTasks();
-    }
-
-    // 3. Agent 任务进度卡片更新
-    if (activeTab === "agent" && trackedAgentTaskIds.has(task.id)) {
-        updateAgentTaskCard(task);
-    }
-
-    // 4. 如果当前正打开此任务的详情页或日志页，刷新它们
-    const modalDetail = document.getElementById("modal-task-detail");
-    if (modalDetail && modalDetail.classList.contains("show")) {
-        // 判断当前查看的是否是这个 task（可以通过读取当前 DOM 里的 ID 判断，这里简化为重新加载当前 ID）
-        const currentIdEl = document.querySelector("#task-detail-content .detail-kv code");
-        if (currentIdEl && currentIdEl.textContent === task.id) {
-            viewTaskDetail(task.id);
-        }
-    }
-    
-    const modalLogs = document.getElementById("modal-task-logs");
-    if (modalLogs && modalLogs.classList.contains("show")) {
-        // 如果日志弹窗打开，且是当前任务，重新加载日志
-        // (为了精准可以把 currentTaskId 存成全局变量，这里为了简便直接调用 API)
-        // 简单实现：由于日志弹窗没有保存当前任务ID，如果想实时追加需要一点结构改动。
-        // 这里我们在 viewTaskLogs 时把 ID 存在弹窗上
-        if (modalLogs.dataset.taskId === task.id) {
-            viewTaskLogs(task.id);
-        }
-    }
-}
-
-function handleStatsUpdate(stats) {
-    if (activeTab === "dashboard") {
-        refreshDashboard();
-    }
-}
-
-function handleReportProgress(event) {
-    if (!event || event.progress_id !== currentReportProgressId) return;
-    setReportProgress(event.progress || 0, event.stage || "running", event.message || "");
-}
-
-function setReportProgress(progress, stage, message) {
-    const wrapper = document.getElementById("report-progress");
-    const fill = document.getElementById("report-progress-fill");
-    const percent = document.getElementById("report-progress-percent");
-    const stageEl = document.getElementById("report-progress-stage");
-    const messageEl = document.getElementById("report-progress-message");
-    const value = Math.max(0, Math.min(1, Number(progress) || 0));
-    if (wrapper) wrapper.style.display = "block";
-    if (fill) fill.style.width = `${Math.round(value * 100)}%`;
-    if (percent) percent.textContent = `${Math.round(value * 100)}%`;
-    if (stageEl) stageEl.textContent = stage;
-    if (messageEl) messageEl.textContent = message || stage;
-}
-
-function resetReportProgress() {
-    setReportProgress(0, "queued", "Report generation queued");
-}
-
-function openModal(id) {
-    const modal = document.getElementById(id);
-    if (modal) {
-        modal.classList.add("show");
-        // refresh CodeMirror to prevent UI bugs inside hidden elements
-        setTimeout(() => {
-            if (id === "modal-create-task" && taskTargetsEditor) {
-                taskTargetsEditor.refresh();
-            }
-            if (id === "modal-create-pipeline" && pipelineStepsEditor) {
-                pipelineStepsEditor.refresh();
-            }
-        }, 10);
-    }
-}
-
-function closeModal(id) {
-    const modal = document.getElementById(id);
-    if (modal) {
-        modal.classList.remove("show");
-    }
-}
-
-function loadTabData(tab) {
-    switch (tab) {
-        case "dashboard":
-            refreshDashboard();
-            break;
-        case "tasks":
-            loadTasks();
-            break;
-        case "pipelines":
-            loadComponents();
-            loadPipelines();
-            break;
-        case "data":
-            loadDataGames();
-            break;
-        case "reports":
-            loadReportTemplates();
-            loadDataGroups();
-            loadReports();
-            break;
-        case "cron":
-            loadCronJobs();
-            break;
-        default:
-            break;
-    }
-}
 
 let dashboardChart = null;
 let taskTargetsEditor = null;
@@ -582,6 +407,27 @@ function buildTaskTargetsFromForm(formState) {
     ];
 }
 
+function renderTaskPrecheck(precheck) {
+    const container = document.getElementById("task-precheck");
+    if (!container || !precheck) return;
+    const issues = precheck.issues || [];
+    const credentials = precheck.credential_status || {};
+    const dataSources = precheck.data_source_status || {};
+    const required = precheck.required_fields || [];
+    container.style.display = "block";
+    container.className = `task-precheck task-precheck-${precheck.status || "ok"}`;
+    container.innerHTML = `
+        <div class="task-precheck-title">Precheck: ${escapeHtml(precheck.status || "ok")}</div>
+        <div class="task-precheck-grid">
+            <span>Collector</span><strong>${escapeHtml(precheck.collector_name || "-")}</strong>
+            <span>Required</span><strong>${escapeHtml(required.join(" / ") || "-")}</strong>
+            <span>Credentials</span><strong>${escapeHtml(Object.entries(credentials).map(([key, value]) => `${key}: ${value}`).join(" / ") || "-")}</strong>
+            <span>Data source</span><strong>${escapeHtml(Object.entries(dataSources).map(([key, value]) => `${key}: ${value}`).join(" / ") || "-")}</strong>
+        </div>
+        ${issues.length ? `<ul>${issues.map((issue) => `<li class="task-precheck-${escapeHtml(issue.level)}">${escapeHtml(issue.field)}: ${escapeHtml(issue.message)}</li>`).join("")}</ul>` : ""}
+    `;
+}
+
 async function createTask() {
     const name = document.getElementById("task-name")?.value.trim() || "";
     const dataGroup = document.getElementById("task-data-group")?.value.trim() || "";
@@ -682,16 +528,36 @@ async function createTask() {
         config.data_group = { id: dataGroup, name: dataGroup };
     }
 
+    const requestPayload = {
+        name,
+        pipeline_name: pipelineName,
+        targets,
+        description,
+        config,
+    };
+
     try {
+        const precheck = await api("/tasks/precheck", {
+            method: "POST",
+            body: JSON.stringify(requestPayload),
+        });
+        renderTaskPrecheck(precheck);
+        if (!precheck.can_submit) {
+            toast("Task precheck failed", "error");
+            return;
+        }
+        if (precheck.status === "warning") {
+            const warningText = (precheck.issues || [])
+                .filter((issue) => issue.level === "warning")
+                .map((issue) => issue.message)
+                .join("\n");
+            if (!confirm(`Task precheck has warnings:\n${warningText}\n\nSubmit anyway?`)) {
+                return;
+            }
+        }
         await api("/tasks", {
             method: "POST",
-            body: JSON.stringify({
-                name,
-                pipeline_name: pipelineName,
-                targets,
-                description,
-                config,
-            }),
+            body: JSON.stringify(requestPayload),
         });
 
         toast("Task created", "success");
@@ -718,7 +584,7 @@ async function deleteTask(id) {
     if (!confirm(`Delete task "${id}"?`)) return;
 
     try {
-        await api(`/tasks/${id}`, { method: "DELETE" });
+        await api(`/tasks/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" });
         toast("Task deleted", "success");
         refreshDashboard();
         loadTasks();
@@ -1003,7 +869,7 @@ async function deletePipeline(name) {
     if (!confirm(`Delete pipeline "${name}"?`)) return;
 
     try {
-        await api(`/pipelines/${name}`, { method: "DELETE" });
+        await api(`/pipelines/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
         toast("Pipeline deleted", "success");
         loadPipelines();
         loadPipelineSelect("task-pipeline");
@@ -1089,12 +955,18 @@ async function searchDataRecords() {
     }
     try {
         selectedDataGame = null;
-        currentDataRecords = await api(`/data/search?q=${encodeURIComponent(q)}`);
+        selectedDataRecordKeys.clear();
+        const params = new URLSearchParams({ q, page: "1", page_size: String(currentDataPageSize) });
+        const result = await api(`/data/records?${params.toString()}`);
+        currentDataRecords = result.items;
+        currentDataTotal = result.total;
+        currentDataPage = result.page;
         const title = document.getElementById("data-records-title");
         const summary = document.getElementById("data-selected-summary");
         if (title) title.textContent = "Search results";
-        if (summary) summary.textContent = `${currentDataRecords.length} matching records`;
+        if (summary) summary.textContent = `${result.total} matching records`;
         renderDataRecords(currentDataRecords);
+        renderPagination(result);
     } catch (err) {
         toast(`Search failed: ${err.message}`, "error");
     }
@@ -1132,6 +1004,9 @@ function handleDataGameKeydown(event, gameKey) {
 
 async function selectDataGame(gameKey) {
     selectedDataGame = dataGames.find((game) => game.game_key === gameKey) || null;
+    currentDataPage = 1;
+    currentDataSourceFilter = "";
+    selectedDataRecordKeys.clear();
     renderDataGames(dataGames);
 
     const title = document.getElementById("data-records-title");
@@ -1160,16 +1035,30 @@ async function selectDataGame(gameKey) {
         sourceFilter.value = [...sourceFilter.options].some((option) => option.value === current) ? current : "";
     }
 
-    await loadSelectedGameRecords();
+    await loadSelectedGameRecords(1);
 }
 
-async function loadSelectedGameRecords() {
+async function loadSelectedGameRecords(page = 1) {
     if (!selectedDataGame) return;
-    const source = document.getElementById("data-source-filter")?.value || "";
-    const query = source ? `?source=${encodeURIComponent(source)}` : "";
+    const source = currentDataSourceFilter || document.getElementById("data-source-filter")?.value || "";
+    const sortOrder = document.getElementById("data-sort-order")?.value || currentDataSortOrder;
+    const pageSize = currentDataPageSize;
+    currentDataPage = page;
+
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("page_size", String(pageSize));
+    params.set("sort_order", sortOrder);
+    if (source) params.set("source", source);
+    if (selectedDataGame.app_id) params.set("app_id", selectedDataGame.app_id);
+
     try {
-        currentDataRecords = await api(`/data/games/${encodeURIComponent(selectedDataGame.game_key)}/records${query}`);
+        const result = await api(`/data/records?${params.toString()}`);
+        currentDataRecords = result.items;
+        currentDataTotal = result.total;
+        currentDataPage = result.page;
         renderDataRecords(currentDataRecords);
+        renderPagination(result);
     } catch (err) {
         toast(`Load records failed: ${err.message}`, "error");
     }
@@ -1180,15 +1069,24 @@ function renderDataRecords(records) {
     if (!tbody) return;
 
     if (!records.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted">该分类下暂无记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-muted">该分类下暂无记录</td></tr>';
         return;
     }
 
-    tbody.innerHTML = records.map((record) => `
+    const allChecked = records.length > 0 && records.every((r) => selectedDataRecordKeys.has(r.key));
+
+    tbody.innerHTML = records.map((record) => {
+        const checked = selectedDataRecordKeys.has(record.key) ? "checked" : "";
+        const comp = record.completeness || "full";
+        const compLabel = { full: "完整", partial: "部分", empty: "空" }[comp] || comp;
+        return `
         <tr>
+            <td class="cell-checkbox">
+                <input type="checkbox" class="record-checkbox" data-key="${escapeHtml(record.key)}" ${checked} onclick="toggleRecordSelect(this)" />
+            </td>
             <td><code>${escapeHtml(record.key)}</code></td>
             <td>${escapeHtml(record.data_source)}</td>
-            <td>${escapeHtml(formatDataSummary(record.summary || {}))}</td>
+            <td><span class="completeness-badge completeness-${comp}" title="数据完整度: ${compLabel}">${compLabel}</span> ${escapeHtml(formatDataSummary(record.summary || {}))}</td>
             <td>${formatTime(record.stored_at)}</td>
             <td>
                 <div class="action-buttons">
@@ -1202,7 +1100,150 @@ function renderDataRecords(records) {
                 </div>
             </td>
         </tr>
-    `).join("");
+    `}).join("");
+
+    const selectAll = document.getElementById("data-select-all");
+    if (selectAll) {
+        selectAll.checked = allChecked;
+        selectAll.indeterminate = !allChecked && selectedDataRecordKeys.size > 0;
+    }
+    updateBatchActionBar();
+}
+
+function toggleRecordSelect(el) {
+    const key = el.dataset.key;
+    if (el.checked) {
+        selectedDataRecordKeys.add(key);
+    } else {
+        selectedDataRecordKeys.delete(key);
+    }
+    updateBatchActionBar();
+}
+
+function toggleSelectAll(el) {
+    if (el.checked) {
+        currentDataRecords.forEach((r) => selectedDataRecordKeys.add(r.key));
+    } else {
+        currentDataRecords.forEach((r) => selectedDataRecordKeys.delete(r.key));
+    }
+    renderDataRecords(currentDataRecords);
+}
+
+function updateBatchActionBar() {
+    const bar = document.getElementById("data-batch-bar");
+    const countEl = document.getElementById("data-batch-count");
+    if (!bar) return;
+    if (selectedDataRecordKeys.size > 0) {
+        bar.style.display = "flex";
+        if (countEl) countEl.textContent = `已选 ${selectedDataRecordKeys.size} 条`;
+    } else {
+        bar.style.display = "none";
+    }
+}
+
+async function batchDeleteSelected() {
+    if (selectedDataRecordKeys.size === 0) return;
+    const keys = Array.from(selectedDataRecordKeys);
+    if (!confirm(`确定删除 ${keys.length} 条记录？此操作不可撤销。`)) return;
+    try {
+        const result = await api("/data/records/batch-delete", {
+            method: "POST",
+            body: JSON.stringify({ keys, confirm: true }),
+        });
+        toast(result.message, "success");
+        selectedDataRecordKeys.clear();
+        loadSelectedGameRecords(currentDataPage);
+    } catch (err) {
+        toast(`Batch delete failed: ${err.message}`, "error");
+    }
+}
+
+async function batchExportSelected() {
+    if (selectedDataRecordKeys.size === 0) return;
+    const keys = Array.from(selectedDataRecordKeys);
+    try {
+        const result = await api("/data/records/batch-export", {
+            method: "POST",
+            body: JSON.stringify({ keys, confirm: false }),
+        });
+        const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `batch_export_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast(`Exported ${result.count} records`, "success");
+    } catch (err) {
+        toast(`Batch export failed: ${err.message}`, "error");
+    }
+}
+
+function renderPagination(result) {
+    let container = document.getElementById("data-pagination");
+    if (!container) {
+        const table = document.getElementById("data-records-table");
+        if (!table) return;
+        container = document.createElement("div");
+        container.id = "data-pagination";
+        container.className = "pagination-bar";
+        table.parentNode.insertBefore(container, table.nextSibling);
+    }
+
+    const totalPages = Math.ceil(result.total / result.page_size);
+    if (totalPages <= 1 && result.page_size <= 50) {
+        container.innerHTML = `<span class="text-muted">共 ${result.total} 条</span>`;
+        return;
+    }
+
+    let pageBtns = "";
+    const maxVisible = 5;
+    let startPage = Math.max(1, result.page - Math.floor(maxVisible / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+    if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
+
+    for (let i = startPage; i <= endPage; i++) {
+        pageBtns += `<button class="btn btn-ghost btn-sm ${i === result.page ? "active" : ""}" onclick="goToPage(${i})">${i}</button>`;
+    }
+
+    container.innerHTML = `
+        <div class="pagination-controls">
+            <button class="btn btn-ghost btn-sm" onclick="goToPage(${result.page - 1})" ${result.page <= 1 ? "disabled" : ""}>上一页</button>
+            ${pageBtns}
+            <button class="btn btn-ghost btn-sm" onclick="goToPage(${result.page + 1})" ${!result.has_more ? "disabled" : ""}>下一页</button>
+            <span class="text-muted">共 ${result.total} 条</span>
+            <select class="page-size-select" onchange="changePageSize(this.value)">
+                <option value="20" ${result.page_size === 20 ? "selected" : ""}>20条/页</option>
+                <option value="50" ${result.page_size === 50 ? "selected" : ""}>50条/页</option>
+                <option value="100" ${result.page_size === 100 ? "selected" : ""}>100条/页</option>
+                <option value="200" ${result.page_size === 200 ? "selected" : ""}>200条/页</option>
+            </select>
+        </div>
+    `;
+}
+
+function goToPage(page) {
+    if (selectedDataGame) {
+        loadSelectedGameRecords(page);
+    } else {
+        const q = document.getElementById("data-search-query")?.value.trim() || "";
+        if (q) {
+            const params = new URLSearchParams({ q, page: String(page), page_size: String(currentDataPageSize) });
+            api(`/data/records?${params.toString()}`).then((result) => {
+                currentDataRecords = result.items;
+                currentDataTotal = result.total;
+                currentDataPage = result.page;
+                renderDataRecords(currentDataRecords);
+                renderPagination(result);
+            }).catch((err) => toast(`Load failed: ${err.message}`, "error"));
+        }
+    }
+}
+
+function changePageSize(size) {
+    currentDataPageSize = parseInt(size);
+    currentDataPage = 1;
+    goToPage(1);
 }
 
 function formatDataSummary(summary) {
@@ -1259,14 +1300,11 @@ async function editDataRecord(key) {
 async function deleteDataRecord(key) {
     if (!confirm(`Delete data record ${key}?`)) return;
     try {
-        await api(`/data/records/${encodeURIComponent(key)}`, { method: "DELETE" });
+        await api(`/data/records/${encodeURIComponent(key)}?confirm=true`, { method: "DELETE" });
         toast("Record deleted", "success");
+        selectedDataRecordKeys.delete(key);
         await loadDataGames();
-        if (selectedDataGame) {
-            await loadSelectedGameRecords();
-        } else {
-            renderDataRecords(currentDataRecords.filter((item) => item.key !== key));
-        }
+        loadSelectedGameRecords(currentDataPage);
     } catch (err) {
         toast(`Delete failed: ${err.message}`, "error");
     }
@@ -1280,7 +1318,7 @@ async function deleteDataGame(event, gameKey) {
     const message = `Delete category "${name}" and all related records, vector data, tasks, schedules, and reports?`;
     if (!confirm(message)) return;
     try {
-        const resp = await api(`/data/games/${encodeURIComponent(gameKey)}`, { method: "DELETE" });
+        const resp = await api(`/data/games/${encodeURIComponent(gameKey)}?confirm=true`, { method: "DELETE" });
         toast(`Category deleted: ${resp.records_deleted} records`, "success");
         if (selectedDataGame?.game_key === gameKey) {
             selectedDataGame = null;
@@ -1420,6 +1458,32 @@ function renderSelectedReportRecords() {
             </div>
         `;
     }).join("");
+}
+
+function renderReportPrecheck(precheck) {
+    const container = document.getElementById("report-precheck");
+    if (!container || !precheck) return;
+    const status = precheck.status || "unchecked";
+    const missing = precheck.missing_collectors || [];
+    const available = precheck.available_collectors || [];
+    const sourceCounts = precheck.source_counts || {};
+    const recommendations = precheck.recommendations || [];
+    const missingText = missing.length ? missing.map(labelCollector).join(" / ") : "None";
+    const availableText = available.length ? available.map((collector) => {
+        const count = sourceCounts[collector] || 0;
+        return `${labelCollector(collector)}${count ? ` (${count})` : ""}`;
+    }).join(" / ") : "None";
+    container.style.display = "block";
+    container.className = `report-precheck report-precheck-${status}`;
+    container.innerHTML = `
+        <div class="report-precheck-title">${escapeHtml(precheck.message || "Report precheck finished")}</div>
+        <div class="report-precheck-grid">
+            <span>Records</span><strong>${precheck.usable_records || 0}/${precheck.selected_records || 0}</strong>
+            <span>Available</span><strong>${escapeHtml(availableText)}</strong>
+            <span>Missing</span><strong>${escapeHtml(missingText)}</strong>
+        </div>
+        ${recommendations.length ? `<ul>${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+    `;
 }
 
 function removeReportRecordSelection(key) {
@@ -1621,6 +1685,14 @@ async function generateReport() {
         return;
     }
 
+    const requestPayload = {
+        prompt,
+        data_source: dataSource,
+        template,
+        record_keys: recordKeys,
+        params: {},
+    };
+
     currentReportProgressId = `report_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     resetReportProgress();
     const button = document.getElementById("btn-generate-report");
@@ -1630,16 +1702,28 @@ async function generateReport() {
     }
 
     try {
+        setReportProgress(0.04, "precheck", "Checking report data coverage");
+        const precheck = await api("/reports/precheck", {
+            method: "POST",
+            body: JSON.stringify(requestPayload),
+        });
+        renderReportPrecheck(precheck);
+        if (precheck.status === "empty") {
+            throw new Error(precheck.message || "No usable report data");
+        }
+        if (precheck.status === "partial") {
+            const missing = (precheck.missing_collectors || []).map(labelCollector).join(" / ");
+            const proceed = confirm(`Missing data sources: ${missing}. Generate report anyway?`);
+            if (!proceed) {
+                setReportProgress(0, "cancelled", "Report generation cancelled");
+                return;
+            }
+        }
         setReportProgress(0.08, "requesting", "Sending report request");
+        requestPayload.params = { progress_id: currentReportProgressId };
         const report = await api("/reports/generate-excel", {
             method: "POST",
-            body: JSON.stringify({
-                prompt,
-                data_source: dataSource,
-                template,
-                record_keys: recordKeys,
-                params: { progress_id: currentReportProgressId },
-            }),
+            body: JSON.stringify(requestPayload),
         });
         setReportProgress(1, "completed", "Report generated");
         renderReport(report);
@@ -1688,7 +1772,7 @@ async function editReport(id) {
 async function deleteReport(id) {
     if (!confirm(`Delete report ${id}?`)) return;
     try {
-        await api(`/reports/${id}`, { method: "DELETE" });
+        await api(`/reports/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" });
         toast("Report deleted", "success");
         loadReports();
         const container = document.getElementById("report-content");
@@ -1759,7 +1843,7 @@ async function deleteCronJob(name) {
     if (!confirm(`Delete cron job "${name}"?`)) return;
 
     try {
-        await api(`/cron-jobs/${name}`, { method: "DELETE" });
+        await api(`/cron-jobs/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
         toast("Cron job deleted", "success");
         loadCronJobs();
     } catch (err) {
@@ -1767,127 +1851,88 @@ async function deleteCronJob(name) {
     }
 }
 
-function renderBadge(status) {
-    const labels = {
-        pending: "Pending",
-        running: "Running",
-        success: "Success",
-        failed: "Failed",
-        cancelled: "Cancelled",
-        retrying: "Retrying",
-    };
+// ==================== 系统检查 ====================
 
-    return `<span class="badge badge-${status}">${labels[status] || status}</span>`;
-}
-
-function renderProgress(progress) {
-    const pct = Math.round((progress || 0) * 100);
-    return `
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <div class="progress-bar">
-                <div class="progress-bar-fill" style="width: ${pct}%"></div>
-            </div>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">${pct}%</span>
-        </div>
-    `;
-}
-
-function formatTime(isoStr) {
-    if (!isoStr) return "-";
-    const d = new Date(isoStr);
-    return d.toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-    });
-}
-
-function setText(id, value) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.textContent = value;
-    }
-}
-
-function setValue(id, value) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.value = value;
-    }
-}
-
-function setChecked(id, value) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.checked = value;
-    }
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-}
-
-function escapeJs(value) {
-    return String(value).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
-}
-
-function restartAutoRefresh() {
-    if (autoRefreshHandle) {
-        clearInterval(autoRefreshHandle);
-        autoRefreshHandle = null;
-    }
-
-    autoRefreshHandle = setInterval(() => {
-        if (activeTab === "dashboard") {
-            refreshDashboard();
-        } else if (activeTab === "tasks") {
-            loadTasks();
-        } else if (activeTab === "data") {
-            loadDataGames();
-        } else if (activeTab === "cron") {
-            loadCronJobs();
+async function loadSystemDiagnostics(options = {}) {
+    try {
+        const [health, diagnostics] = await Promise.all([
+            api("/health"),
+            api("/diagnostics/config"),
+        ]);
+        renderSystemStatus(health, diagnostics);
+        renderSystemChecks(diagnostics.checks || []);
+        renderSystemPaths(diagnostics.paths || {});
+    } catch (err) {
+        if (!options.silent) {
+            toast(`系统检查失败: ${err.message}`, "error");
         }
-    }, AUTO_REFRESH_INTERVAL_MS);
+        const list = document.getElementById("system-checks-list");
+        if (list) {
+            list.innerHTML = `<p class="text-muted">系统检查失败：${escapeHtml(err.message)}</p>`;
+        }
+    }
 }
 
-function activateTab(tab) {
-    activeTab = tab;
+function renderSystemStatus(health, diagnostics) {
+    const checks = diagnostics.checks || health.checks || [];
+    const counts = checks.reduce((acc, check) => {
+        acc[check.status] = (acc[check.status] || 0) + 1;
+        return acc;
+    }, {});
+    const status = diagnostics.status || health.status || "unknown";
 
-    document.querySelectorAll(".nav-link").forEach((item) => {
-        item.classList.toggle("active", item.dataset.tab === tab);
-    });
+    setText("system-overall-status", status.toUpperCase());
+    setText("system-error-count", counts.error || 0);
+    setText("system-warning-count", counts.warning || 0);
+    setText("system-ok-count", counts.ok || 0);
 
-    document.querySelectorAll(".tab-content").forEach((panel) => panel.classList.remove("active"));
-    document.getElementById(`tab-${tab}`)?.classList.add("active");
-
-    loadTabData(tab);
-    restartAutoRefresh();
+    const statusEl = document.getElementById("system-overall-status");
+    if (statusEl) {
+        statusEl.className = `stat-value system-status-${status}`;
+    }
 }
 
-function bindNavigation() {
-    document.querySelectorAll(".nav-link").forEach((link) => {
-        link.addEventListener("click", (e) => {
-            e.preventDefault();
-            activateTab(link.dataset.tab);
-        });
-    });
+function renderSystemChecks(checks) {
+    const list = document.getElementById("system-checks-list");
+    if (!list) return;
+    if (!checks.length) {
+        list.innerHTML = '<p class="text-muted">暂无诊断项目</p>';
+        return;
+    }
+
+    list.innerHTML = checks.map((check) => {
+        const details = check.details && Object.keys(check.details).length
+            ? `<pre class="system-check-details">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
+            : "";
+        return `
+            <div class="system-check-row system-check-${escapeHtml(check.status)}">
+                <div class="system-check-main">
+                    <span class="system-check-status">${escapeHtml(check.status)}</span>
+                    <div>
+                        <div class="system-check-name">${escapeHtml(check.name)}</div>
+                        <div class="system-check-message">${escapeHtml(check.message)}</div>
+                    </div>
+                </div>
+                ${details}
+            </div>
+        `;
+    }).join("");
 }
 
-function bindModalOverlayClose() {
-    document.querySelectorAll(".modal-overlay").forEach((overlay) => {
-        overlay.addEventListener("click", (e) => {
-            if (e.target === overlay) {
-                overlay.classList.remove("show");
-            }
-        });
-    });
+function renderSystemPaths(paths) {
+    const list = document.getElementById("system-paths-list");
+    if (!list) return;
+    const entries = Object.entries(paths);
+    if (!entries.length) {
+        list.innerHTML = '<p class="text-muted">暂无路径信息</p>';
+        return;
+    }
+    list.innerHTML = entries.map(([key, value]) => `
+        <div class="system-path-row">
+            <span>${escapeHtml(key)}</span>
+            <code>${escapeHtml(value)}</code>
+        </div>
+    `).join("");
 }
 
 // ==================== AI 助手 ====================
@@ -2561,12 +2606,6 @@ function _detectTaskCreation(content) {
             if (match) renderAgentTaskProgressCard(match[1], match[1]);
         }
     } catch { /* ignore */ }
-}
-
-function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 function clearAgentHistory() {

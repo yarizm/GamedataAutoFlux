@@ -18,6 +18,7 @@ from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
+from src.core.errors import ErrorCode
 from src.core.registry import registry
 
 
@@ -105,7 +106,7 @@ class OfficialSiteCollector(BaseCollector):
         params = {**recipe_params, **raw_params}
         entry_url = _canonical_url(params.get("official_url") or params.get("url") or getattr(target, "url", ""))
         if not entry_url:
-            return CollectResult(target=target, success=False, error="official_site requires official_url or url")
+            return CollectResult(target=target, success=False, error="official_site requires official_url or url", error_code=ErrorCode.empty_data.value)
 
         include_patterns = _patterns(params.get("include_patterns"), get_config("official_site.include_patterns", DEFAULT_INCLUDE_PATTERNS))
         exclude_patterns = _patterns(params.get("exclude_patterns"), get_config("official_site.exclude_patterns", DEFAULT_EXCLUDE_PATTERNS))
@@ -120,10 +121,17 @@ class OfficialSiteCollector(BaseCollector):
 
         home = await self._fetch_page(entry_url, use_playwright=use_playwright)
         if home.status_code < 200 or home.status_code >= 300 or not home.html:
+            if home.status_code in (403, 429):
+                err_code = ErrorCode.anti_bot_blocked if home.status_code == 403 else ErrorCode.rate_limited
+            elif home.status_code == 404:
+                err_code = ErrorCode.empty_data
+            else:
+                err_code = ErrorCode.network_unreachable
             return CollectResult(
                 target=target,
                 success=False,
                 error=home.error or f"Failed to fetch official site homepage: HTTP {home.status_code}",
+                error_code=err_code.value,
                 metadata={"collector": "official_site"},
             )
 

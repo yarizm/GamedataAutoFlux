@@ -39,6 +39,7 @@ _CONFIG_DIR = _ROOT_DIR / "config"
 _DEFAULT_SETTINGS_FILE = _CONFIG_DIR / "settings.yaml"
 
 _settings: dict[str, Any] | None = None
+_settings_validation: dict[str, Any] | None = None
 
 
 def _resolve_env_vars(value: Any) -> Any:
@@ -67,19 +68,26 @@ def load_settings(config_path: str | Path | None = None) -> dict[str, Any]:
     Returns:
         解析后的配置字典
     """
-    global _settings
+    global _settings, _settings_validation
 
     path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
 
     if not path.exists():
         logger.warning(f"配置文件不存在: {path}，使用默认配置")
         _settings = {}
+        _settings_validation = _validate_settings(_settings)
         return _settings
 
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     _settings = _resolve_env_vars(raw)
+    _settings_validation = _validate_settings(_settings)
+    if not _settings_validation["valid"]:
+        issue_text = "; ".join(
+            f"{issue['path']}: {issue['message']}" for issue in _settings_validation["issues"]
+        )
+        logger.warning(f"settings.yaml validation warnings: {issue_text}")
     logger.info(f"配置已加载: {path}")
     return _settings
 
@@ -90,6 +98,32 @@ def get_settings() -> dict[str, Any]:
     if _settings is None:
         load_settings()
     return _settings
+
+
+def get_settings_validation() -> dict[str, Any]:
+    """Return the latest settings.yaml validation summary."""
+    global _settings_validation
+    if _settings_validation is None:
+        load_settings()
+    return _settings_validation or {"valid": True, "issues": [], "normalized": {}}
+
+
+def _validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from src.core.config_schema import validate_settings_payload
+    except ImportError as exc:
+        return {
+            "valid": False,
+            "issues": [
+                {
+                    "path": "config_schema",
+                    "message": f"Unable to import settings schema: {exc}",
+                    "type": "schema_import_error",
+                }
+            ],
+            "normalized": {},
+        }
+    return validate_settings_payload(settings)
 
 
 def get(key: str, default: Any = None) -> Any:
@@ -143,6 +177,8 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
 
     通过替换 YAML 文本中对应 section 来实现，尽可能保留原始格式。
     """
+    global _settings, _settings_validation
+
     path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
 
     if not path.exists():
@@ -169,6 +205,7 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
         # 刷新内存缓存，下次 get 时重新加载
         global _settings
         _settings = None
+        _settings_validation = None
         logger.info(f"配置 section '{key}' 已保存到 {path}")
     else:
         logger.warning(f"未找到 section '{key}' 或内容未变化，跳过保存")

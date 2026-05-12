@@ -14,6 +14,7 @@ from src.collectors.taptap.playwright_scraper import (
     TapTapPlaywrightFailed,
     TapTapPlaywrightScraper,
 )
+from src.core.errors import ErrorCode
 from src.core.registry import registry
 
 
@@ -270,6 +271,7 @@ class TapTapCollector(BaseCollector):
                 target=target,
                 success=False,
                 error="TapTap collector did not extract any game details",
+                error_code=ErrorCode.empty_data.value,
                 metadata={
                     "collector": "taptap",
                     "warnings": warnings,

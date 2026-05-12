@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from loguru import logger
+
+from src.core.errors import ErrorCode, classify_exception
 
 
 class CollectTarget(BaseModel):
@@ -35,7 +37,39 @@ class CollectResult(BaseModel):
     collected_at: datetime = Field(default_factory=datetime.now, description="采集时间")
     success: bool = Field(default=True, description="是否成功")
     error: str | None = Field(default=None, description="错误信息")
+    error_code: str | None = Field(default=None, description="结构化错误码")
     raw_data: Any = Field(default=None, description="原始数据（用于调试）")
+
+    def to_summary(self) -> dict[str, Any]:
+        """生成带错误分类信息的摘要，供 Agent 工具和 WebUI 使用"""
+        base: dict[str, Any] = {
+            "target": self.target.name,
+            "target_type": self.target.target_type,
+            "success": self.success,
+            "collected_at": self.collected_at.isoformat(),
+        }
+
+        if self.success:
+            base["status"] = "ok"
+            return base
+
+        if self.error_code:
+            try:
+                code = ErrorCode(self.error_code)
+            except ValueError:
+                code = ErrorCode.unknown
+                logger.warning(f"Unknown error_code value: {self.error_code!r}")
+        else:
+            code = ErrorCode.unknown
+        base.update({
+            "status": "error",
+            "error": self.error or "",
+            "error_code": code.value,
+            "error_label": code.chinese_label,
+            "suggestion": code.suggestion,
+            "severity": code.severity,
+        })
+        return base
 
 
 class BaseCollector(ABC):
@@ -101,11 +135,13 @@ class BaseCollector(ABC):
                 result = await self.collect(target)
                 results.append(result)
             except Exception as e:
+                code = classify_exception(e)
                 results.append(
                     CollectResult(
                         target=target,
                         success=False,
                         error=str(e),
+                        error_code=code.value,
                     )
                 )
         return results
