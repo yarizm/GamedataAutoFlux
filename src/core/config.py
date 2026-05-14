@@ -203,7 +203,6 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
     if new_content != original:
         path.write_text(new_content, encoding="utf-8")
         # 刷新内存缓存，下次 get 时重新加载
-        global _settings
         _settings = None
         _settings_validation = None
         logger.info(f"配置 section '{key}' 已保存到 {path}")

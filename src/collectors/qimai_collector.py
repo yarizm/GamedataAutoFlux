@@ -74,9 +74,10 @@ class QimaiCollector(BaseCollector):
         self._jitter = float(self.config.get("request_jitter", get_config("qimai.request_jitter", 4.0)))
         self._click_delay = float(self.config.get("click_delay", get_config("qimai.click_delay", 1.5)))
         self._scroll_delay = float(self.config.get("scroll_delay", get_config("qimai.scroll_delay", 2.0)))
+        _project_root = Path(__file__).resolve().parent.parent.parent
         self._user_data_dir = self.config.get(
             "user_data_dir",
-            get_config("qimai.user_data_dir", os.path.join(os.getcwd(), "data", "qimai_profile")),
+            get_config("qimai.user_data_dir", str(_project_root / "data" / "qimai_profile")),
         )
         self._max_api_payloads = int(self.config.get("max_api_payloads", get_config("qimai.max_api_payloads", 80)))
         self._cdp_enabled = bool(self.config.get("cdp_enabled", get_config("qimai.cdp_enabled", True)))
@@ -195,11 +196,12 @@ class QimaiCollector(BaseCollector):
                     viewport={"width": 1920, "height": 1080},
                     user_agent=_desktop_user_agent(),
                 )
+            page = None
+            on_response = None
+            capture_tasks: list[asyncio.Task[Any]] = []
             try:
-                page = None
                 page = await context.new_page()
                 await page.add_init_script(_stealth_script())
-                capture_tasks: list[asyncio.Task[Any]] = []
 
                 def on_response(response: Any) -> None:
                     if not state.accepting_responses:
@@ -895,8 +897,10 @@ def _qimai_pred_estimate_script() -> str:
                 return { error: 'Qimai Vue $http is unavailable' };
             }
             const call = async (name, path) => {
+                const requestParams = Object.assign({}, params);
+                delete requestParams._timeout;
                 try {
-                    const response = await http.get(path, { params });
+                    const response = await http.get(path, { params: requestParams, timeout: params._timeout || 60000 });
                     return {
                         url: 'https://api.qimai.cn' + path,
                         payload: response && response.data ? response.data : response,
@@ -1651,13 +1655,13 @@ def _normalize_point(item: Any) -> dict[str, Any] | None:
             item,
             ("value", "num", "count", "rank", "ranking", "income", "revenue", "download", "downloads", "dau", "y"),
         )
-        value = _to_number(metric_value)
-        if metric_value is None or (value is not None and _looks_like_timestamp_number(value)):
+        initial_number = _to_number(metric_value)
+        if metric_value is None or (initial_number is not None and _looks_like_timestamp_number(initial_number)):
             fallback_value = None
-            for key, value in item.items():
-                if value == date_value:
+            for dict_key, dict_val in item.items():
+                if dict_val == date_value:
                     continue
-                fallback_number = _first_non_timestamp_number(value)
+                fallback_number = _first_non_timestamp_number(dict_val)
                 if fallback_number is not None:
                     fallback_value = fallback_number
                     break
@@ -1903,10 +1907,13 @@ def _latest_series_value(series: list[dict[str, Any]]) -> int | float | None:
 def _is_ignorable_playwright_capture_error(exc: BaseException) -> bool:
     if isinstance(exc, asyncio.CancelledError):
         return True
-    name = exc.__class__.__name__
+    mro_names = {cls.__name__ for cls in type(exc).__mro__}
     text = str(exc).lower()
+    is_playwright_type = bool(
+        mro_names & {"TargetClosedError", "Error", "PlaywrightError"}
+    )
     return (
-        name in {"TargetClosedError", "Error"}
+        is_playwright_type
         and (
             "target page, context or browser has been closed" in text
             or "browser has been closed" in text

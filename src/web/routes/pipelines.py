@@ -16,6 +16,12 @@ from src.web.safety import require_explicit_confirmation
 router = APIRouter(tags=["pipelines"])
 
 
+def _get_scheduler():
+    """Lazy import scheduler to avoid circular dependency."""
+    from src.web.app import scheduler
+    return scheduler
+
+
 class PipelineStepConfig(BaseModel):
     """Single pipeline step."""
 
@@ -52,7 +58,7 @@ async def list_pipeline_templates():
 
 @router.get("/pipelines")
 async def list_pipelines():
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     pipelines = {}
     for pipeline in scheduler.get_all_pipelines():
@@ -64,7 +70,7 @@ async def list_pipelines():
 async def create_pipeline(
     req: Annotated[CreatePipelineRequest, Body(description="Pipeline configuration")]
 ):
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     pipeline = Pipeline(req.name)
     for step in req.steps:
@@ -91,7 +97,7 @@ async def delete_pipeline(
     name: Annotated[str, Path(description="Pipeline name")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     require_explicit_confirmation(confirm, "pipeline deletion")
     if scheduler.get_pipeline(name) is None:
@@ -103,7 +109,7 @@ async def delete_pipeline(
 
 @router.get("/cron-jobs")
 async def list_cron_jobs():
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     return scheduler.list_cron_jobs()
 
@@ -112,7 +118,7 @@ async def list_cron_jobs():
 async def create_cron_job(
     req: Annotated[CronJobRequest, Body(description="Cron job setup")]
 ):
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     try:
         job_id = scheduler.add_cron_job(
@@ -131,7 +137,7 @@ async def delete_cron_job(
     name: Annotated[str, Path(description="Cron job ID/Name")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    from src.web.app import scheduler
+    scheduler = _get_scheduler()
 
     require_explicit_confirmation(confirm, "cron job deletion")
     if not scheduler.remove_cron_job(name):

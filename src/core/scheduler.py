@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import weakref
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -42,8 +43,8 @@ class Scheduler:
         default_retries: int | None = None,
         task_store_config: dict[str, Any] | None = None,
     ):
-        self._max_concurrent = max_concurrent or get_config("scheduler.max_concurrent_tasks", 5)
-        self._default_retries = default_retries or get_config("scheduler.default_retry_count", 3)
+        self._max_concurrent = max_concurrent if max_concurrent is not None else get_config("scheduler.max_concurrent_tasks", 5)
+        self._default_retries = default_retries if default_retries is not None else get_config("scheduler.default_retry_count", 3)
         self._task_store_config = task_store_config or {
             "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
             "json_dir": get_config("scheduler.persistence.json_dir", "scheduler_tasks"),
@@ -54,6 +55,7 @@ class Scheduler:
         self._pipelines: dict[str, Pipeline] = {}
         self._running_futures: dict[str, asyncio.Task] = {}
         self._task_store: LocalStorage | None = None
+        self._background_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
 
         # APScheduler 用于 cron 定时
         self._cron_scheduler = AsyncIOScheduler()
@@ -156,7 +158,7 @@ class Scheduler:
                 )
 
         task.pipeline_name = pipeline.name
-        if task.max_retries == 3:  # 使用默认值
+        if task.max_retries is None:  # 未显式设置，使用调度器默认值
             task.max_retries = self._default_retries
 
         self._tasks[task.id] = task
@@ -174,61 +176,65 @@ class Scheduler:
         return task.id
 
     async def _execute_task(self, task: Task, pipeline: Pipeline) -> PipelineResult | None:
-        """在信号量控制下执行任务"""
-        async with self._semaphore:
-            task.start()
-            await self._persist_task(task)
-            logger.info(f"任务开始执行: [{task.id}] {task.name}")
+        """在信号量控制下执行任务，使用循环实现重试"""
+        while True:
+            async with self._semaphore:
+                task.start()
+                await self._persist_task(task)
+                logger.info(f"任务开始执行: [{task.id}] {task.name}")
 
-            try:
-                result = await pipeline.execute(task)
+                should_retry = False
+                try:
+                    result = await pipeline.execute(task)
 
-                if result.success:
-                    if self._should_generate_report(task):
-                        await self._generate_report_for_task(task, pipeline, result)
-                    task.complete(result)
+                    if result.success:
+                        if self._should_generate_report(task):
+                            await self._generate_report_for_task(task, pipeline, result)
+                        task.complete(result)
+                        await self._persist_task(task)
+                        logger.info(f"任务执行成功: [{task.id}] {task.name}")
+                    else:
+                        error_msg = "; ".join(result.errors)
+                        if task.retry():
+                            await self._persist_task(task)
+                            logger.warning(
+                                f"任务失败，重试 ({task.retry_count}/{task.max_retries}): "
+                                f"[{task.id}] {task.name} - {error_msg}"
+                            )
+                            should_retry = True
+                            continue
+                        else:
+                            task.fail(error_msg)
+                            await self._persist_task(task)
+                            logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
+
+                    return result
+
+                except asyncio.CancelledError:
+                    task.cancel()
                     await self._persist_task(task)
-                    logger.info(f"任务执行成功: [{task.id}] {task.name}")
-                else:
-                    error_msg = "; ".join(result.errors)
-                    # 尝试重试
+                    logger.info(f"任务已取消: [{task.id}] {task.name}")
+                    return None
+
+                except Exception as e:
+                    error_msg = str(e)
                     if task.retry():
                         await self._persist_task(task)
                         logger.warning(
-                            f"任务失败，重试 ({task.retry_count}/{task.max_retries}): "
+                            f"任务异常，重试 ({task.retry_count}/{task.max_retries}): "
                             f"[{task.id}] {task.name} - {error_msg}"
                         )
-                        return await self._execute_task(task, pipeline)
+                        should_retry = True
+                        continue
                     else:
                         task.fail(error_msg)
                         await self._persist_task(task)
-                        logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
+                        logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
+                        return None
 
-                return result
-
-            except asyncio.CancelledError:
-                task.cancel()
-                await self._persist_task(task)
-                logger.info(f"任务已取消: [{task.id}] {task.name}")
-                return None
-
-            except Exception as e:
-                error_msg = str(e)
-                if task.retry():
-                    await self._persist_task(task)
-                    logger.warning(
-                        f"任务异常，重试 ({task.retry_count}/{task.max_retries}): "
-                        f"[{task.id}] {task.name} - {error_msg}"
-                    )
-                    return await self._execute_task(task, pipeline)
-                else:
-                    task.fail(error_msg)
-                    await self._persist_task(task)
-                    logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
-                    return None
-
-            finally:
-                self._running_futures.pop(task.id, None)
+                finally:
+                    if not should_retry:
+                        self._running_futures.pop(task.id, None)
 
     async def cancel(self, task_id: str) -> bool:
         """
@@ -525,12 +531,14 @@ class Scheduler:
         try:
             from src.web.routes.ws import manager
             # 防止阻塞持久化逻辑，采用 create_task 背景发送
-            asyncio.create_task(
+            bg_task = asyncio.create_task(
                 manager.broadcast({
                     "type": "task_update",
                     "task": task_payload
                 })
             )
+            bg_task.add_done_callback(_on_background_task_done)
+            self._background_tasks.add(bg_task)
         except Exception as exc:
             logger.debug(f"Failed to broadcast task update: {exc}")
 
@@ -637,6 +645,15 @@ class Scheduler:
                 )
             except Exception as exc:
                 logger.warning(f"Failed to restore cron job {name}: {exc}")
+
+
+def _on_background_task_done(task: asyncio.Task) -> None:
+    """Callback for fire-and-forget tasks to log exceptions."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.debug(f"Background broadcast task failed: {exc}")
 
 
 def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:

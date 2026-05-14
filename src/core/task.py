@@ -81,7 +81,7 @@ class Task(BaseModel):
 
     # 调度
     retry_count: int = Field(default=0, description="已重试次数")
-    max_retries: int = Field(default=3, description="最大重试次数")
+    max_retries: int | None = Field(default=None, description="最大重试次数, None 表示使用调度器默认值")
     cron_expr: str | None = Field(default=None, description="定时调度 cron 表达式")
 
     # 时间戳
@@ -120,7 +120,7 @@ class Task(BaseModel):
         Returns:
             是否可以重试（未超过最大次数）
         """
-        if self.retry_count >= self.max_retries:
+        if self.max_retries is None or self.retry_count >= self.max_retries:
             return False
         self.retry_count += 1
         self.status = TaskStatus.RETRYING

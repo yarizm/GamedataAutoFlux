@@ -75,7 +75,7 @@ COLLECTOR_ALIASES: dict[str, str] = {
     "pytrends": "gtrends",
     "steam_api": "steam",
     "steamdb": "steam",
-    "firecrawl": "steam",
+    "firecrawl": "firecrawl",
     "event": "events",
     "event_data": "events",
     "steam_news": "events",

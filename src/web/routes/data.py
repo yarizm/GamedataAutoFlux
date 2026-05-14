@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import uuid
 from collections import defaultdict
-from typing import Annotated, Any
+from typing import Annotated, Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Path, Query, Body
 from fastapi.responses import Response
@@ -27,6 +28,17 @@ from src.storage.vector_store import VectorStorage
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["data"])
+
+
+@contextlib.asynccontextmanager
+async def _local_store() -> AsyncIterator[LocalStorage]:
+    """Shared async context manager for LocalStorage connections."""
+    store = LocalStorage()
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await store.close()
 
 
 class DataSourceSummary(BaseModel):
@@ -327,9 +339,7 @@ async def update_data_record(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[UpdateRecordRequest, Body(description="Editable metadata fields")],
 ):
-    store = LocalStorage()
-    await store.initialize()
-    try:
+    async with _local_store() as store:
         record = await store.load(record_key)
         if record is None:
             raise HTTPException(404, f"Data record not found: {record_key}")
@@ -358,8 +368,6 @@ async def update_data_record(
             tags=tags,
         )
         await store.save(updated)
-    finally:
-        await store.close()
     return await get_data_record(record_key)
 
 
@@ -369,34 +377,26 @@ async def delete_data_record(
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
     require_explicit_confirmation(confirm, "data record deletion")
-    store = LocalStorage()
-    await store.initialize()
-    try:
+    async with _local_store() as store:
         record = await store.load(record_key)
         if record is None:
             raise HTTPException(404, f"Data record not found: {record_key}")
         await store.delete(record_key)
-    finally:
-        await store.close()
     return {"message": f"Data record deleted: {record_key}"}
 
 
 @router.post("/data/records/batch-delete")
 async def batch_delete_records(req: BatchRecordRequest):
     require_explicit_confirmation(req.confirm, "batch data record deletion")
-    store = LocalStorage()
-    await store.initialize()
     deleted_keys: list[str] = []
     failed_keys: list[dict[str, str]] = []
-    try:
+    async with _local_store() as store:
         for key in req.keys:
             try:
                 await store.delete(key)
                 deleted_keys.append(key)
             except Exception as e:
                 failed_keys.append({"key": key, "error": str(e)})
-    finally:
-        await store.close()
     return {
         "message": f"Deleted {len(deleted_keys)} records, {len(failed_keys)} failed",
         "deleted_keys": deleted_keys,
@@ -406,9 +406,7 @@ async def batch_delete_records(req: BatchRecordRequest):
 
 @router.post("/data/records/batch-export")
 async def batch_export_records(req: BatchRecordRequest):
-    store = LocalStorage()
-    await store.initialize()
-    try:
+    async with _local_store() as store:
         records: list[dict[str, Any]] = []
         for key in req.keys:
             record = await store.load(key)
@@ -423,8 +421,6 @@ async def batch_export_records(req: BatchRecordRequest):
                 else:
                     item["data"] = str(record.data)
                 records.append(item)
-    finally:
-        await store.close()
     return {"count": len(records), "records": records}
 
 
