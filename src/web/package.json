@@ -1,0 +1,23 @@
+{
+  "name": "gamedata-autoflux-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "codemirror": "^5.65.16",
+    "dompurify": "^3.2.6",
+    "echarts": "^5.5.0",
+    "marked": "^12.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.0.13"
+  }
+}

@@ -9,12 +9,18 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
     <link rel="stylesheet" href="/static/style.css?v=5">
-    
+    {% if vite_dev %}
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/main.js"></script>
+    {% elif vite_js %}
+    {% if vite_css %}<link rel="stylesheet" href="/static/dist/{{ vite_css }}">{% endif %}
+    {% else %}
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    {% endif %}
 </head>
 <body>
     <nav class="navbar" id="navbar">
@@ -724,7 +730,12 @@
 
     <div class="toast-container" id="toast-container"></div>
 
-    <!-- Core modules (must load before app.js) -->
+    {% if vite_dev %}
+    <!-- Vite dev mode: no legacy scripts needed -->
+    {% elif vite_js %}
+    <script type="module" src="/static/dist/{{ vite_js }}"></script>
+    {% else %}
+    <!-- Fallback: legacy scripts (no Vite build available) -->
     <script src="/static/core/api.js?v=1"></script>
     <script src="/static/core/websocket.js?v=1"></script>
     <script src="/static/core/navigation.js?v=1"></script>
@@ -732,5 +743,6 @@
     <script src="/static/reports.js?v=1"></script>
     <script src="/static/agent.js?v=1"></script>
     <script src="/static/app.js?v=11"></script>
+    {% endif %}
 </body>
 </html>
