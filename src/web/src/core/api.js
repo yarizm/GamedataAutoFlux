@@ -1,3 +1,5 @@
+import { getLanguage, t } from './i18n.js';
+
 export async function api(path, options = {}) {
   const resp = await fetch(`/api${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
@@ -39,18 +41,14 @@ export function escapeHtml(value) {
 export function formatTime(isoStr) {
   if (!isoStr) return '-';
   const d = new Date(isoStr);
-  return d.toLocaleString('zh-CN', {
+  return d.toLocaleString(getLanguage(), {
     month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 }
 
 export function renderBadge(status) {
-  const labels = {
-    pending: 'Pending', running: 'Running', success: 'Success',
-    failed: 'Failed', cancelled: 'Cancelled', retrying: 'Retrying',
-  };
-  return `<span class="badge badge-${status}">${labels[status] || status}</span>`;
+  return `<span class="badge badge-${status}">${t(`status.${status}`) || status}</span>`;
 }
 
 export function renderProgress(progress) {
@@ -68,7 +66,13 @@ export function setText(id, value) {
 
 export function setValue(id, value) {
   const el = document.getElementById(id);
-  if (el) el.value = value;
+  if (el) {
+    el.value = value;
+    const editor = el.nextElementSibling?.CodeMirror;
+    if (editor && editor.getValue() !== String(value ?? '')) {
+      editor.setValue(String(value ?? ''));
+    }
+  }
 }
 
 export function setChecked(id, value) {

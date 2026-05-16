@@ -1,6 +1,7 @@
 import { api, toast, escapeHtml } from '../../core/api.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { t } from '../../core/i18n.js';
 
 // ── State ──
 let agentSessionId = localStorage.getItem('agent_active_session') || 'default';
@@ -54,11 +55,16 @@ export default {
   init(container, store) {
     this.container = container;
     this.store = store;
+    this._unsub = store.subscribe((key, value) => {
+      if (key === 'taskUpdate' && trackedAgentTaskIds.has(value?.id)) {
+        this._updateTaskCard(value);
+      }
+    });
     this._init();
     return this;
   },
 
-  destroy() {},
+  destroy() { if (this._unsub) this._unsub(); },
 
   _init() {
     const input = document.getElementById('agent-input');
@@ -96,7 +102,7 @@ export default {
       const item = document.createElement('div');
       item.className = 'agent-session-item' + (s.id === agentSessionId ? ' active' : '');
       item.innerHTML = `<span class="agent-session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
-        <button class="agent-session-delete" title="删除会话">&times;</button>`;
+        <button class="agent-session-delete" title="${t('common.delete')}">&times;</button>`;
       item.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); this._deleteSession(s.id); });
       item.addEventListener('click', () => this._switchSession(s.id));
       listEl.appendChild(item);
@@ -121,7 +127,7 @@ export default {
     if (container) container.innerHTML = '';
     const cached = loadSessionMessages(id);
     if (cached.length > 0) cached.forEach(m => this._appendMessage(m.role, m.content));
-    else this._appendMessage('assistant', '你好！我是游戏数据助手，可以帮你：\n\n- 查看任务状态和系统概览\n- 创建数据采集任务\n- 配置 Pipeline 和定时任务\n- 浏览和搜索已采集数据\n- 生成数据分析报告\n\n请告诉我你需要什么帮助？');
+    else this._appendMessage('assistant', `${t('agent.welcome')}\n\n- ${t('agent.help.status')}\n- ${t('agent.help.create')}\n- ${t('agent.help.pipeline')}\n- ${t('agent.help.data')}\n- ${t('agent.help.report')}\n\n${t('agent.help.ask')}`);
   },
 
   _deleteSession(id) {
@@ -172,7 +178,7 @@ export default {
       await api('/agent/providers', { method: 'POST', body: JSON.stringify({ provider }) });
       localStorage.setItem('agent_provider', provider);
       toast('已切换到 ' + providerLabel(provider), 'success');
-    } catch (err) { toast('切换失败: ' + err.message, 'error'); select.value = prev; }
+    } catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); select.value = prev; }
   },
 
   // ── Provider Config Modal ──
@@ -195,7 +201,7 @@ export default {
         });
         defSel.value = data.active || '';
       }
-    } catch (err) { toast('加载配置失败: ' + err.message, 'error'); return; }
+    } catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); return; }
     modal.classList.add('show');
   },
 
@@ -210,7 +216,7 @@ export default {
       <div><label>模型</label><input type="text" class="prov-cfg-model" value="${escapeHtml(data.model || '')}" placeholder="qwen-max"></div>
       <div><label>Base URL</label><input type="text" class="prov-cfg-url" value="${escapeHtml(data.base_url || '')}" placeholder="https://..."></div>
       <div><label>API Key</label><input type="text" class="prov-cfg-keyval" value="${escapeHtml(data.api_key || '')}" placeholder="\${ENV_VAR} 或明文"></div>
-      <div><button class="provider-config-delete" title="删除">&times;</button></div>`;
+      <div><button class="provider-config-delete" title="${t('common.delete')}">&times;</button></div>`;
     row.querySelector('.provider-config-delete').addEventListener('click', () => { row.remove(); this._refreshDefaultSelect(); });
     listEl.appendChild(row);
     this._refreshDefaultSelect();
@@ -238,10 +244,10 @@ export default {
     if (!items.length) { toast('至少需要一个有效的 provider（key 和 model 必填）', 'error'); return; }
     try {
       await api('/agent/providers/config', { method: 'PUT', body: JSON.stringify({ provider: document.getElementById('provider-config-default').value, items }) });
-      toast('配置已保存', 'success');
+      toast(t('common.save'), 'success');
       window.closeModal('modal-provider-config');
       this._initProviderSelector();
-    } catch (err) { toast('保存失败: ' + err.message, 'error'); }
+    } catch (err) { toast(t('message.editFailed', { error: err.message }), 'error'); }
   },
 
   // ── Messages ──
@@ -274,7 +280,7 @@ export default {
     const resp = document.createElement('div'); resp.className = 'agent-response-container';
     currentResponseSteps = document.createElement('div'); currentResponseSteps.className = 'agent-response-steps';
     resp.appendChild(currentResponseSteps);
-    const status = document.createElement('div'); status.className = 'agent-status-indicator'; status.textContent = '思考中...';
+    const status = document.createElement('div'); status.className = 'agent-status-indicator'; status.textContent = t('agent.thinking');
     resp.appendChild(status); resp._statusEl = status;
     bubble.appendChild(resp); msgEl.appendChild(avatar); msgEl.appendChild(bubble);
     container.appendChild(msgEl);
@@ -299,7 +305,7 @@ export default {
     this._ensureStep();
     if (!currentThinkingDrawer) {
       const details = document.createElement('details'); details.className = 'agent-thinking-drawer';
-      const summary = document.createElement('summary'); summary.textContent = '思考过程';
+      const summary = document.createElement('summary'); summary.textContent = t('agent.thinkingProcess');
       details.appendChild(summary);
       currentThinkingBody = document.createElement('div'); currentThinkingBody.className = 'agent-thinking-body';
       details.appendChild(currentThinkingBody);
@@ -318,7 +324,7 @@ export default {
     badge.title = `${name}(${argsStr})`;
     currentToolLine.appendChild(badge);
     currentToolResult = document.createElement('span'); currentToolResult.className = 'agent-tool-result-inline';
-    currentToolResult.textContent = '执行中...';
+    currentToolResult.textContent = t('agent.running');
     currentToolLine.appendChild(currentToolResult);
     currentStepEl.appendChild(currentToolLine);
   },
@@ -330,7 +336,7 @@ export default {
     switch (event.type) {
       case 'thinking': {
         if (!currentResponseEl) return;
-        this._updateStatus('思考中...'); this._ensureThinking();
+        this._updateStatus(t('agent.thinking')); this._ensureThinking();
         if (event.content && currentThinkingBody) currentThinkingBody.textContent += event.content;
         scrollToBottom(); break;
       }
@@ -339,7 +345,7 @@ export default {
         if (currentThinkingDrawer) { currentThinkingDrawer.open = false; currentThinkingDrawer = null; currentThinkingBody = null; }
         currentTextBlock = null; currentStepEl = null;
         this._ensureStep(); this._ensureToolLine(event.name, event.args);
-        this._updateStatus('执行工具: ' + escapeHtml(event.name));
+        this._updateStatus(`${t('agent.running')}: ${escapeHtml(event.name)}`);
         scrollToBottom(); break;
       }
       case 'tool_result': {
@@ -348,14 +354,14 @@ export default {
           let parsed = null; try { parsed = JSON.parse(event.content || ''); } catch {}
           if (parsed && parsed.status && parsed.summary) {
             const sc = { success: 'success', ok: 'success', error: 'error', warning: 'warning' }[parsed.status] || '';
-            const sl = { success: '成功', ok: '成功', error: '失败', warning: '警告' }[parsed.status] || parsed.status;
+            const sl = { success: t('status.success'), ok: t('common.ok'), error: t('status.failed'), warning: t('common.warning') }[parsed.status] || parsed.status;
             let html = `<div class="tool-result-card ${sc}"><span class="tool-result-status">${escapeHtml(sl)}</span><span class="tool-result-summary">${escapeHtml(parsed.summary)}</span>`;
             if (parsed.record_count !== undefined) html += `<span class="tool-result-count">${parsed.record_count} 条</span>`;
             if (parsed.suggestion) html += `<div class="tool-result-suggestion">建议: ${escapeHtml(parsed.suggestion)}</div>`;
-            if (parsed.data_truncated) html += '<div class="tool-result-truncated">数据量过大已截断，请进一步查询</div>';
+            if (parsed.data_truncated) html += '<div class="tool-result-truncated">Data was truncated. Please narrow the query.</div>';
             else if (parsed.data !== undefined && parsed.data !== null) {
               const pv = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2);
-              html += `<details class="tool-result-data"><summary>数据预览 (${pv.length} 字符)</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
+              html += `<details class="tool-result-data"><summary>Data preview (${pv.length})</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
             }
             if (parsed.warnings?.length) { html += '<div class="tool-result-warnings">' + parsed.warnings.map(w => `<div class="tool-result-warning-item">⚠ ${escapeHtml(w)}</div>`).join('') + '</div>'; }
             currentToolResult.innerHTML = html + '</div>';
@@ -383,7 +389,7 @@ export default {
         this._hideStatus(); currentStepEl = null; currentTextBlock = null;
         this._ensureStep();
         const errEl = document.createElement('div'); errEl.className = 'agent-step-text'; errEl.style.color = 'var(--danger)';
-        errEl.textContent = '错误: ' + (event.content || '');
+        errEl.textContent = `${t('common.error')}: ${event.content || ''}`;
         currentStepEl.appendChild(errEl);
         scrollToBottom(); break;
       }
@@ -422,7 +428,7 @@ export default {
     fetch(`/api/agent/history?session_id=${encodeURIComponent(agentSessionId)}`, { method: 'DELETE' }).catch(() => {});
     localStorage.removeItem('agent_msgs_' + agentSessionId);
     const container = document.getElementById('agent-messages');
-    if (container) { container.innerHTML = ''; this._appendMessage('assistant', '对话已清空。请告诉我你需要什么帮助？'); }
+    if (container) { container.innerHTML = ''; this._appendMessage('assistant', t('agent.cleared')); }
   },
 
   // ── Send ──
@@ -448,7 +454,7 @@ export default {
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({ detail: response.statusText }));
-        this._appendMessage('assistant', `请求失败: ${errData.detail || response.status}`);
+        this._appendMessage('assistant', t('message.loadFailed', { error: errData.detail || response.status }));
         return;
       }
       const reader = response.body.getReader();

@@ -1,4 +1,6 @@
 import { api, toast, escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
+import { populatePipelineSelect } from '../../core/pipelines.js';
 
 export default {
   init(container, store) {
@@ -19,16 +21,16 @@ export default {
       if (!list) return;
 
       if (!jobs.length) {
-        list.innerHTML = '<p class="text-muted">No cron jobs</p>';
+        list.innerHTML = `<p class="text-muted">${t('cron.empty')}</p>`;
         return;
       }
       list.innerHTML = jobs.map((job) => `
         <div class="cron-item">
           <div class="cron-info">
             <span class="cron-name">${escapeHtml(job.name)}</span>
-            <span class="cron-detail">Trigger: ${escapeHtml(job.trigger)} | Next: ${job.next_run || '-'}</span>
+            <span class="cron-detail">${t('cron.trigger')}: ${escapeHtml(job.trigger)} | ${t('cron.next')}: ${job.next_run || '-'}</span>
           </div>
-          <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(job.id)}">Delete</button>
+          <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(job.id)}">${t('common.delete')}</button>
         </div>
       `).join('');
 
@@ -41,7 +43,7 @@ export default {
   },
 
   _showCreateModal() {
-    window.loadPipelineSelect && window.loadPipelineSelect('cron-pipeline');
+    populatePipelineSelect('cron-pipeline');
     window.openModal && window.openModal('modal-create-cron');
   },
 
@@ -51,7 +53,7 @@ export default {
     const cronExpr = document.getElementById('cron-expr')?.value.trim() || '';
 
     if (!name || !pipelineName || !cronExpr) {
-      toast('All cron fields are required', 'error');
+      toast(t('message.cronRequired'), 'error');
       return;
     }
     try {
@@ -59,22 +61,22 @@ export default {
         method: 'POST',
         body: JSON.stringify({ name, pipeline_name: pipelineName, cron_expr: cronExpr }),
       });
-      toast('Cron job created', 'success');
+      toast(t('message.cronCreated'), 'success');
       window.closeModal && window.closeModal('modal-create-cron');
       this.refresh();
     } catch (err) {
-      toast(`Create failed: ${err.message}`, 'error');
+      toast(t('message.createFailed', { error: err.message }), 'error');
     }
   },
 
   async _deleteJob(name) {
-    if (!confirm(`Delete cron job "${name}"?`)) return;
+    if (!confirm(t('confirm.deleteCron', { name }))) return;
     try {
       await api(`/cron-jobs/${encodeURIComponent(name)}?confirm=true`, { method: 'DELETE' });
-      toast('Cron job deleted', 'success');
+      toast(t('message.cronDeleted'), 'success');
       this.refresh();
     } catch (err) {
-      toast(`Delete failed: ${err.message}`, 'error');
+      toast(t('message.deleteFailed', { error: err.message }), 'error');
     }
   },
 };

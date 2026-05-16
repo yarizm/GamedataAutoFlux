@@ -1,3 +1,5 @@
+import { refreshEditorForModal } from './editors.js';
+
 const AUTO_REFRESH_INTERVAL_MS = 30000;
 let autoRefreshHandle = null;
 
@@ -53,12 +55,7 @@ export function openModal(id) {
   if (modal) {
     modal.classList.add('show');
     setTimeout(() => {
-      if (id === 'modal-create-task' && window.taskTargetsEditor) {
-        window.taskTargetsEditor.refresh();
-      }
-      if (id === 'modal-create-pipeline' && window.pipelineStepsEditor) {
-        window.pipelineStepsEditor.refresh();
-      }
+      refreshEditorForModal(id);
     }, 10);
   }
 }

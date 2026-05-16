@@ -1,14 +1,15 @@
 import { api, toast, escapeHtml, escapeJs, formatTime, setText } from '../../core/api.js';
 import { renderBadge, renderProgress } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 
 let dashboardChart = null;
 
 function renderTaskActions(task) {
   return `<div class="btn-group">
-    <button class="btn btn-sm" onclick="viewTaskDetail('${escapeJs(task.id)}')">详情</button>
-    <button class="btn btn-sm" onclick="viewTaskLogs('${escapeJs(task.id)}')">日志</button>
-    ${task.status === 'running' ? `<button class="btn btn-sm btn-danger" onclick="cancelTask('${escapeJs(task.id)}')">取消</button>` : ''}
-    <button class="btn btn-sm btn-danger" onclick="deleteTask('${escapeJs(task.id)}')">删除</button>
+    <button class="btn btn-sm" onclick="viewTaskDetail('${escapeJs(task.id)}')">${t('common.details')}</button>
+    <button class="btn btn-sm" onclick="viewTaskLogs('${escapeJs(task.id)}')">${t('common.logs')}</button>
+    ${task.status === 'running' ? `<button class="btn btn-sm btn-danger" onclick="cancelTask('${escapeJs(task.id)}')">${t('common.cancel')}</button>` : ''}
+    <button class="btn btn-sm btn-danger" onclick="deleteTask('${escapeJs(task.id)}')">${t('common.delete')}</button>
   </div>`;
 }
 
@@ -80,7 +81,7 @@ export default {
       tooltip: { trigger: 'item' },
       legend: { top: 'bottom' },
       series: [{
-        name: '任务分布',
+        name: t('dashboard.taskDistribution'),
         type: 'pie',
         radius: ['40%', '70%'],
         avoidLabelOverlap: false,
@@ -89,10 +90,10 @@ export default {
         emphasis: { label: { show: true, fontSize: 20, fontWeight: 'bold' } },
         labelLine: { show: false },
         data: [
-          { value: counts.success || 0, name: '已完成', itemStyle: { color: '#10b981' } },
-          { value: counts.running || 0, name: '运行中', itemStyle: { color: '#3b82f6' } },
-          { value: counts.failed || 0, name: '失败', itemStyle: { color: '#ef4444' } },
-          { value: counts.pending || 0, name: '等待中', itemStyle: { color: '#f59e0b' } },
+          { value: counts.success || 0, name: t('status.success'), itemStyle: { color: '#10b981' } },
+          { value: counts.running || 0, name: t('status.running'), itemStyle: { color: '#3b82f6' } },
+          { value: counts.failed || 0, name: t('status.failed'), itemStyle: { color: '#ef4444' } },
+          { value: counts.pending || 0, name: t('status.pending'), itemStyle: { color: '#f59e0b' } },
         ].filter(item => item.value > 0),
       }],
     });
@@ -103,7 +104,7 @@ export default {
     if (!tbody) return;
 
     if (tasks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No tasks</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="6" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
       return;
     }
     tbody.innerHTML = tasks.map((task) => `

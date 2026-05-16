@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/style.css?v=8">
     {% if vite_dev %}
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/main.js"></script>
@@ -23,25 +23,67 @@
     {% endif %}
 </head>
 <body>
-    <nav class="navbar" id="navbar">
-        <div class="nav-brand">
-            <span class="nav-icon">⚡</span>
-            <span class="nav-title">GamedataAutoFlux</span>
-            <span class="nav-version">v0.1.0</span>
-        </div>
-        <div class="nav-links">
-            <a href="#" class="nav-link active" data-tab="dashboard">仪表盘</a>
-            <a href="#" class="nav-link" data-tab="tasks">任务管理</a>
-            <a href="#" class="nav-link" data-tab="pipelines">Pipeline</a>
-            <a href="#" class="nav-link" data-tab="data">数据浏览</a>
-            <a href="#" class="nav-link" data-tab="reports">报告</a>
-            <a href="#" class="nav-link" data-tab="cron">定时任务</a>
-            <a href="#" class="nav-link" data-tab="agent">AI 助手</a>
-            <a href="#" class="nav-link" data-tab="system">系统检查</a>
-        </div>
-    </nav>
+    <div class="app-layout">
+        <aside class="app-sidebar" id="navbar">
+            <div class="h-16 flex items-center px-5 border-b border-slate-800 w-full shrink-0">
+                <span class="text-xl mr-2">⚡</span>
+                <span class="font-bold text-slate-100 text-[14px] tracking-tight truncate">GamedataAutoFlux</span>
+            </div>
+            <nav class="nav-links flex-1 overflow-y-auto py-4 px-3 space-y-1 w-full flex flex-col">
+                <a href="#" class="nav-link active" data-tab="dashboard">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    <span>仪表盘</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="tasks">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                    <span>任务管理</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="pipelines">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <span>Pipeline</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="data">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                    <span>数据浏览</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="reports">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <span>报告</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="cron">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span>定时任务</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="agent">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                    <span>AI 助手</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="system">
+                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span>系统检查</span>
+                </a>
+            </nav>
+            <div class="language-switcher" aria-label="Language selector">
+                <div class="language-switcher-label" data-i18n="common.language">语言</div>
+                <div class="language-switcher-controls">
+                    <button type="button" class="language-option" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
+                    <button type="button" class="language-option" data-lang="en-US" data-i18n="lang.en">EN</button>
+                </div>
+            </div>
+        </aside>
 
-    <main class="container">
+        <main class="app-main">
+            <header class="app-header">
+                <div class="text-slate-400 font-medium text-sm" id="header-title">工作区</div>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+                        <span class="text-xs text-slate-400 font-medium tracking-wide">System Online</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="app-content">
         <section class="tab-content active" id="tab-dashboard">
             <div class="section-header">
                 <h1>系统概览</h1>
@@ -215,21 +257,23 @@
                                 <option value="asc">最早优先</option>
                             </select>
                         </div>
-                        <table class="table" id="data-records-table">
-                            <thead>
-                                <tr>
-                                    <th class="cell-checkbox"><input type="checkbox" id="data-select-all" onclick="toggleSelectAll(this)" /></th>
-                                    <th>记录</th>
-                                    <th>数据源</th>
-                                    <th>摘要</th>
-                                    <th>时间</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="data-records-body">
-                                <tr><td colspan="6" class="text-muted">请选择左侧游戏分类</td></tr>
-                            </tbody>
-                        </table>
+                        <div class="overflow-x-auto min-w-0">
+                            <table class="table" id="data-records-table">
+                                <thead>
+                                    <tr>
+                                        <th class="cell-checkbox"><input type="checkbox" id="data-select-all" onclick="toggleSelectAll(this)" /></th>
+                                        <th>记录</th>
+                                        <th>数据源</th>
+                                        <th>摘要</th>
+                                        <th>时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="data-records-body">
+                                    <tr><td colspan="6" class="text-muted">请选择左侧游戏分类</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                         <h3 class="data-preview-title">原始 JSON 预览</h3>
                         <pre class="report-output data-preview" id="data-preview">选择一条记录后在这里预览</pre>
                     </div>
@@ -373,7 +417,7 @@
                         </div>
                     </div>
                     <div class="agent-input-area">
-                        <textarea id="agent-input" rows="2" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据"></textarea>
+                        <textarea id="agent-input" rows="1" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据"></textarea>
                         <button class="btn btn-primary" onclick="sendAgentMessage()" id="btn-send-agent">发送</button>
                     </div>
                 </div>
@@ -421,7 +465,9 @@
                 </div>
             </div>
         </section>
-    </main>
+            </div>
+        </main>
+    </div>
 
     <div class="modal-overlay" id="modal-create-task">
         <div class="modal modal-wizard">
@@ -736,6 +782,7 @@
     <script type="module" src="/static/dist/{{ vite_js }}"></script>
     {% else %}
     <!-- Fallback: legacy scripts (no Vite build available) -->
+    <script src="/static/i18n.js?v=1"></script>
     <script src="/static/core/api.js?v=1"></script>
     <script src="/static/core/websocket.js?v=1"></script>
     <script src="/static/core/navigation.js?v=1"></script>

@@ -1,4 +1,5 @@
 import { api, escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 
 function setText(id, value) {
   const el = document.getElementById(id);
@@ -30,7 +31,7 @@ export default {
     } catch (err) {
       if (!silent) {
         const list = this.container.querySelector('#system-checks-list');
-        if (list) list.innerHTML = `<p class="text-muted">系统检查失败：${escapeHtml(err.message)}</p>`;
+        if (list) list.innerHTML = `<p class="text-muted">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`;
       }
     }
   },
@@ -56,7 +57,7 @@ export default {
     const list = this.container.querySelector('#system-checks-list');
     if (!list) return;
     if (!checks.length) {
-      list.innerHTML = '<p class="text-muted">暂无诊断项目</p>';
+      list.innerHTML = `<p class="text-muted">${t('system.empty.checks')}</p>`;
       return;
     }
     list.innerHTML = checks.map((check) => {
@@ -81,7 +82,7 @@ export default {
     if (!list) return;
     const entries = Object.entries(paths);
     if (!entries.length) {
-      list.innerHTML = '<p class="text-muted">暂无路径信息</p>';
+      list.innerHTML = `<p class="text-muted">${t('system.empty.paths')}</p>`;
       return;
     }
     list.innerHTML = entries.map(([key, value]) =>

@@ -10,6 +10,9 @@ __pycache__/
 !.env.example
 
 data/
+!src/web/src/pages/data/
+!src/web/src/pages/data/index.js
+!src/web/src/pages/data/style.css
 logs/
 outputs/
 tmp/

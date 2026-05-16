@@ -1,8 +1,16 @@
 import { api, toast, escapeHtml, setValue, setChecked } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
+import {
+  getCachedPipelineTemplates,
+  invalidatePipelineCache,
+  loadAvailablePipelines,
+  loadPipelineTemplates,
+  loadPipelines,
+  populatePipelineSelect,
+} from '../../core/pipelines.js';
 
 let pipelineTemplates = [];
 let availableComponents = {};
-let pipelineStepsEditor = null;
 
 export default {
   init(container, store) {
@@ -26,7 +34,7 @@ export default {
       if (!list) return;
 
       if (!Object.keys(components).length) {
-        list.innerHTML = '<p class="text-muted">No components</p>';
+        list.innerHTML = `<p class="text-muted">${t('pipelines.empty.components')}</p>`;
         return;
       }
       list.innerHTML = Object.entries(components).map(([type, names]) => `
@@ -43,10 +51,10 @@ export default {
 
   async _loadTemplates() {
     try {
-      pipelineTemplates = await api('/pipeline-templates');
+      pipelineTemplates = await loadPipelineTemplates();
       const select = document.getElementById('pipeline-template');
       if (!select) return;
-      select.innerHTML = '<option value="">-- Custom --</option>';
+      select.innerHTML = `<option value="">${t('pipelines.custom')}</option>`;
       for (const template of pipelineTemplates) {
         select.insertAdjacentHTML('beforeend',
           `<option value="${template.id}">${escapeHtml(template.name)}</option>`);
@@ -56,20 +64,20 @@ export default {
 
   async _loadPipelines() {
     try {
-      const pipelines = await api('/pipelines');
+      const pipelines = await loadPipelines();
       const list = this.container.querySelector('#pipelines-list');
       if (!list) return;
 
       const entries = Object.entries(pipelines);
       if (!entries.length) {
-        list.innerHTML = '<p class="text-muted">No pipelines</p>';
+        list.innerHTML = `<p class="text-muted">${t('pipelines.empty.pipelines')}</p>`;
         return;
       }
       list.innerHTML = entries.map(([name, config]) => `
         <div class="pipeline-item">
           <div class="pipeline-item-header">
             <span class="pipeline-item-name">${escapeHtml(name)}</span>
-            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(name)}">Delete</button>
+            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(name)}">${t('common.delete')}</button>
           </div>
           <div class="pipeline-steps">
             ${(config.steps || []).map((step, index) => `
@@ -133,55 +141,43 @@ export default {
     const cmEditor = document.querySelector('#pipeline-steps + .CodeMirror')?.CodeMirror;
     const stepsRaw = cmEditor ? cmEditor.getValue().trim() : (document.getElementById('pipeline-steps')?.value.trim() || '');
 
-    if (!name) { toast('Pipeline name is required', 'error'); return; }
+    if (!name) { toast(t('message.pipelineNameRequired'), 'error'); return; }
 
     let steps = this._buildStepsFromForm();
     if (stepsRaw) {
       try { steps = JSON.parse(stepsRaw); }
-      catch { toast('Pipeline steps JSON is invalid', 'error'); return; }
+      catch { toast(t('message.pipelineJsonInvalid'), 'error'); return; }
     }
-    if (!steps.length) { toast('Choose at least one collector and one storage step', 'error'); return; }
+    if (!steps.length) { toast(t('message.pipelineStepsRequired'), 'error'); return; }
 
     try {
       await api('/pipelines', { method: 'POST', body: JSON.stringify({ name, steps }) });
-      toast('Pipeline created', 'success');
+      toast(t('message.pipelineCreated'), 'success');
       window.closeModal && window.closeModal('modal-create-pipeline');
-      this.refresh();
-      window.loadPipelineSelect && window.loadPipelineSelect('task-pipeline');
-      window.loadPipelineSelect && window.loadPipelineSelect('cron-pipeline');
-    } catch (err) { toast(`Create failed: ${err.message}`, 'error'); }
+      invalidatePipelineCache();
+      await this.refresh();
+      await populatePipelineSelect('task-pipeline');
+      await populatePipelineSelect('cron-pipeline');
+    } catch (err) { toast(t('message.createFailed', { error: err.message }), 'error'); }
   },
 
   async _deletePipeline(name) {
-    if (!confirm(`Delete pipeline "${name}"?`)) return;
+    if (!confirm(t('confirm.deletePipeline', { name }))) return;
     try {
       await api(`/pipelines/${encodeURIComponent(name)}?confirm=true`, { method: 'DELETE' });
-      toast('Pipeline deleted', 'success');
-      this.refresh();
-      window.loadPipelineSelect && window.loadPipelineSelect('task-pipeline');
-      window.loadPipelineSelect && window.loadPipelineSelect('cron-pipeline');
-    } catch (err) { toast(`Delete failed: ${err.message}`, 'error'); }
+      toast(t('message.pipelineDeleted'), 'success');
+      invalidatePipelineCache();
+      await this.refresh();
+      await populatePipelineSelect('task-pipeline');
+      await populatePipelineSelect('cron-pipeline');
+    } catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 
   async _loadPipelineSelect(selectId) {
     try {
-      const [pipelines, templates] = await Promise.all([
-        api('/pipelines'),
-        pipelineTemplates.length ? Promise.resolve(pipelineTemplates) : api('/pipeline-templates'),
-      ]);
-      pipelineTemplates = templates;
-      const allPipelines = { ...pipelines };
-      for (const template of pipelineTemplates) {
-        if (!allPipelines[template.id]) allPipelines[template.id] = template;
-      }
-      const select = document.getElementById(selectId);
-      if (!select) return;
-      select.innerHTML = Object.keys(allPipelines).length === 0
-        ? '<option value="">-- No pipelines --</option>'
-        : '<option value="">-- Select a pipeline --</option>';
-      for (const [pName] of Object.entries(allPipelines)) {
-        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(pName)}">${escapeHtml(pName)}</option>`);
-      }
+      await loadAvailablePipelines();
+      pipelineTemplates = getCachedPipelineTemplates();
+      await populatePipelineSelect(selectId);
     } catch (err) { console.error('Load pipeline select failed:', err); }
   },
 };

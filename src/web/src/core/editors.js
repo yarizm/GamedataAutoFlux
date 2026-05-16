@@ -1,0 +1,42 @@
+import CodeMirror from 'codemirror';
+import 'codemirror/mode/javascript/javascript.js';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/dracula.css';
+
+function createJsonEditor(textareaId, options = {}) {
+  const textarea = document.getElementById(textareaId);
+  if (!textarea) return null;
+  const existing = textarea.nextElementSibling?.CodeMirror;
+  if (existing) return existing;
+
+  const editor = CodeMirror.fromTextArea(textarea, {
+    mode: { name: 'javascript', json: true },
+    theme: 'dracula',
+    lineNumbers: true,
+    lineWrapping: true,
+    tabSize: 2,
+    ...options,
+  });
+  return editor;
+}
+
+export function initEditors() {
+  window.CodeMirror = CodeMirror;
+  if (!window.taskTargetsEditor) {
+    window.taskTargetsEditor = createJsonEditor('task-targets', { viewportMargin: Infinity });
+    if (window.taskTargetsEditor) window.taskTargetsEditor.setSize(null, 150);
+  }
+  if (!window.pipelineStepsEditor) {
+    window.pipelineStepsEditor = createJsonEditor('pipeline-steps', { viewportMargin: Infinity });
+    if (window.pipelineStepsEditor) window.pipelineStepsEditor.setSize(null, 200);
+  }
+}
+
+export function refreshEditorForModal(id) {
+  if (id === 'modal-create-task' && window.taskTargetsEditor) {
+    window.taskTargetsEditor.refresh();
+  }
+  if (id === 'modal-create-pipeline' && window.pipelineStepsEditor) {
+    window.pipelineStepsEditor.refresh();
+  }
+}

@@ -1,5 +1,13 @@
 import { api, toast, escapeHtml, escapeJs, formatTime } from '../../core/api.js';
 import { renderBadge, renderProgress, setValue } from '../../core/api.js';
+import { getLanguage, t } from '../../core/i18n.js';
+import {
+  getCollectorForPipeline,
+  hasStorageStep,
+  loadAvailablePipelines,
+  loadPipelineTemplates,
+  populatePipelineSelect,
+} from '../../core/pipelines.js';
 
 let currentWizardStep = 1;
 
@@ -26,7 +34,7 @@ export default {
       const ordered = [...tasks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       this._renderTable(ordered);
     } catch (err) {
-      toast(`Load failed: ${err.message}`, 'error');
+      toast(t('message.loadFailed', { error: err.message }), 'error');
     }
   },
 
@@ -34,7 +42,7 @@ export default {
     const tbody = document.getElementById('tasks-body');
     if (!tbody) return;
     if (!tasks.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-muted">No tasks</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="8" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
       return;
     }
     tbody.innerHTML = tasks.map((task) => `
@@ -53,13 +61,13 @@ export default {
 
   _renderActions(task) {
     const actions = [
-      `<button class="btn btn-ghost btn-sm" onclick="viewTaskDetail('${escapeJs(task.id)}')">Details</button>`,
-      `<button class="btn btn-ghost btn-sm" onclick="viewTaskLogs('${escapeJs(task.id)}')">Logs</button>`,
+      `<button class="btn btn-ghost btn-sm" onclick="viewTaskDetail('${escapeJs(task.id)}')">${t('common.details')}</button>`,
+      `<button class="btn btn-ghost btn-sm" onclick="viewTaskLogs('${escapeJs(task.id)}')">${t('common.logs')}</button>`,
     ];
     if (task.status === 'running' || task.status === 'pending') {
-      actions.push(`<button class="btn btn-danger btn-sm" onclick="cancelTask('${escapeJs(task.id)}')">Cancel</button>`);
+      actions.push(`<button class="btn btn-danger btn-sm" onclick="cancelTask('${escapeJs(task.id)}')">${t('common.cancel')}</button>`);
     } else {
-      actions.push(`<button class="btn btn-danger btn-sm" onclick="deleteTask('${escapeJs(task.id)}')">Delete</button>`);
+      actions.push(`<button class="btn btn-danger btn-sm" onclick="deleteTask('${escapeJs(task.id)}')">${t('common.delete')}</button>`);
     }
     return `<div class="action-buttons">${actions.join(' ')}</div>`;
   },
@@ -67,7 +75,7 @@ export default {
   // ── Create Task Wizard ──
 
   _showCreateModal() {
-    Promise.all([window.loadPipelineTemplates(), window.loadPipelineSelect('task-pipeline')])
+    Promise.all([loadPipelineTemplates(), populatePipelineSelect('task-pipeline')])
       .then(() => this._updateTargetFields());
     window.openModal('modal-create-task');
     currentWizardStep = 1;
@@ -75,13 +83,7 @@ export default {
   },
 
   _getCollector(pipelineName) {
-    const pipeline = window.availablePipelines?.[pipelineName]
-      || (window._pipelinesPage ? null : null);
-    const templates = window._pipelinesPage ? null : null;
-    // Rely on availablePipelines being populated by loadPipelineSelect
-    const p = (window.availablePipelines || {})[pipelineName];
-    const collectorStep = p?.steps?.find((step) => step.type === 'collector');
-    return collectorStep?.name || collectorStep?.component_name || '';
+    return getCollectorForPipeline(pipelineName);
   },
 
   _updateTargetFields() {
@@ -208,7 +210,7 @@ export default {
   _wizardNext() {
     if (currentWizardStep === 1) {
       const pipeline = document.getElementById('task-pipeline')?.value;
-      if (!pipeline) { toast('请选择 Pipeline', 'error'); return; }
+      if (!pipeline) { toast(t('message.selectPipeline'), 'error'); return; }
       this._updateTargetFields();
     }
     if (currentWizardStep < 3) { currentWizardStep++; this._updateWizardUI(); }
@@ -232,9 +234,17 @@ export default {
     const targetName = getVal('task-target-name');
     const steamAppId = getVal('task-app-id');
     const steamDiscussionsAppId = getVal('task-steam-discussions-app-id');
-    const collector = this._getCollector(pipelineName);
 
-    if (!name || !pipelineName) { toast('Task name and pipeline are required', 'error'); return; }
+    if (!name || !pipelineName) { toast(t('message.taskNamePipelineRequired'), 'error'); return; }
+
+    let collector = '';
+    try {
+      await loadAvailablePipelines();
+      collector = this._getCollector(pipelineName);
+    } catch (err) {
+      toast(t('message.pipelineLoadFailed', { error: err.message }), 'error');
+      return;
+    }
 
     let targets = this._buildTargets({
       collector, targetName,
@@ -258,8 +268,8 @@ export default {
       officialSiteUrl: getVal('task-official-site-url'),
     });
 
-    if (targetsRaw) { try { targets = JSON.parse(targetsRaw); } catch { toast('Targets JSON is invalid', 'error'); return; } }
-    if (!targets.length) { toast('At least one target is required', 'error'); return; }
+    if (targetsRaw) { try { targets = JSON.parse(targetsRaw); } catch { toast(t('message.targetsJsonInvalid'), 'error'); return; } }
+    if (!targets.length) { toast(t('message.targetRequired'), 'error'); return; }
 
     const enableReport = getChecked('task-enable-report');
     const reportPromptRaw = getVal('task-report-prompt');
@@ -268,14 +278,12 @@ export default {
       || (collector === 'taptap' ? getVal('task-taptap-app-id') : collector === 'steam_discussions' ? steamDiscussionsAppId : steamAppId)
       || (collector === 'official_site' ? getVal('task-official-site-url') : '')
       || name;
-    const reportPrompt = reportPromptRaw || `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`;
+    const reportPrompt = reportPromptRaw || (getLanguage?.() === 'en-US'
+      ? `Based on this collection result, summarize ${primarySubject}'s core performance, version updates, review feedback, and key events.`
+      : `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`);
 
-    const hasStorage = (pipeline, storageName) => {
-      const p = (window.availablePipelines || {})[pipeline];
-      return Boolean(p?.steps?.some(s => s.type === 'storage' && (s.name || s.component_name) === storageName));
-    };
     const config = enableReport ? {
-      report: { enabled: true, prompt: reportPrompt, template: reportTemplate, data_source: collector || pipelineName, params: { use_vector: hasStorage(pipelineName, 'vector') } },
+      report: { enabled: true, prompt: reportPrompt, template: reportTemplate, data_source: collector || pipelineName, params: { use_vector: hasStorageStep(pipelineName, 'vector') } },
     } : {};
     if (dataGroup) config.data_group = { id: dataGroup, name: dataGroup };
 
@@ -284,17 +292,17 @@ export default {
     try {
       const precheck = await api('/tasks/precheck', { method: 'POST', body: JSON.stringify(payload) });
       this._renderPrecheck(precheck);
-      if (!precheck.can_submit) { toast('Task precheck failed', 'error'); return; }
+      if (!precheck.can_submit) { toast(t('message.taskPrecheckFailed'), 'error'); return; }
       if (precheck.status === 'warning') {
         const warningText = (precheck.issues || []).filter(i => i.level === 'warning').map(i => i.message).join('\n');
-        if (!confirm(`Task precheck has warnings:\n${warningText}\n\nSubmit anyway?`)) return;
+        if (!confirm(t('confirm.taskWarnings', { warnings: warningText }))) return;
       }
       await api('/tasks', { method: 'POST', body: JSON.stringify(payload) });
-      toast('Task created', 'success');
+      toast(t('message.taskCreated'), 'success');
       window.closeModal('modal-create-task');
       window.refreshDashboard && window.refreshDashboard();
       this.refresh();
-    } catch (err) { toast(`Create failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.createFailed', { error: err.message }), 'error'); }
   },
 
   _renderPrecheck(precheck) {
@@ -307,25 +315,25 @@ export default {
     container.style.display = 'block';
     container.className = `task-precheck task-precheck-${precheck.status || 'ok'}`;
     container.innerHTML = `
-      <div class="task-precheck-title">Precheck: ${escapeHtml(precheck.status || 'ok')}</div>
+      <div class="task-precheck-title">${t('tasks.precheck')}: ${escapeHtml(precheck.status || 'ok')}</div>
       <div class="task-precheck-grid">
-        <span>Collector</span><strong>${escapeHtml(precheck.collector_name || '-')}</strong>
-        <span>Required</span><strong>${escapeHtml(required.join(' / ') || '-')}</strong>
-        <span>Credentials</span><strong>${escapeHtml(Object.entries(credentials).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
-        <span>Data source</span><strong>${escapeHtml(Object.entries(dataSources).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
+        <span>${t('tasks.collector')}</span><strong>${escapeHtml(precheck.collector_name || '-')}</strong>
+        <span>${t('tasks.required')}</span><strong>${escapeHtml(required.join(' / ') || '-')}</strong>
+        <span>${t('tasks.credentials')}</span><strong>${escapeHtml(Object.entries(credentials).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
+        <span>${t('tasks.dataSource')}</span><strong>${escapeHtml(Object.entries(dataSources).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
       </div>
       ${issues.length ? `<ul>${issues.map(i => `<li class="task-precheck-${escapeHtml(i.level)}">${escapeHtml(i.field)}: ${escapeHtml(i.message)}</li>`).join('')}</ul>` : ''}`;
   },
 
   async _cancelTask(id) {
-    try { await api(`/tasks/${id}/cancel`, { method: 'POST' }); toast('Task cancelled', 'success'); window.refreshDashboard(); this.refresh(); }
-    catch (err) { toast(`Cancel failed: ${err.message}`, 'error'); }
+    try { await api(`/tasks/${id}/cancel`, { method: 'POST' }); toast(t('message.taskCancelled'), 'success'); window.refreshDashboard(); this.refresh(); }
+    catch (err) { toast(t('message.cancelFailed', { error: err.message }), 'error'); }
   },
 
   async _deleteTask(id) {
-    if (!confirm(`Delete task "${id}"?`)) return;
-    try { await api(`/tasks/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' }); toast('Task deleted', 'success'); window.refreshDashboard(); this.refresh(); }
-    catch (err) { toast(`Delete failed: ${err.message}`, 'error'); }
+    if (!confirm(t('confirm.deleteTask', { id }))) return;
+    try { await api(`/tasks/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' }); toast(t('message.taskDeleted'), 'success'); window.refreshDashboard(); this.refresh(); }
+    catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 
   async _viewLogs(id) {
@@ -334,10 +342,10 @@ export default {
     if (modalLogs) modalLogs.dataset.taskId = id;
     const container = document.getElementById('task-logs-content');
     if (!container) return;
-    container.innerHTML = '<p class="text-muted">Loading...</p>';
+    container.innerHTML = `<p class="text-muted">${t('common.loading')}</p>`;
     try {
       const data = await api(`/tasks/${id}/logs`);
-      if (!data.logs.length) { container.innerHTML = '<p class="text-muted">No logs</p>'; return; }
+      if (!data.logs.length) { container.innerHTML = `<p class="text-muted">${t('common.empty.logs')}</p>`; return; }
       container.innerHTML = data.logs.map((log) => {
         const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
         return `<div class="log-entry ${statusClass}">
@@ -347,50 +355,50 @@ export default {
           ${log.started_at ? `<span class="log-time">${formatTime(log.started_at)}</span>` : ''}
         </div>`;
       }).join('');
-    } catch (err) { container.innerHTML = `<p style="color:var(--danger)">Load failed: ${escapeHtml(err.message)}</p>`; }
+    } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
   },
 
   async _viewDetail(id) {
     window.openModal('modal-task-detail');
     const container = document.getElementById('task-detail-content');
     if (!container) return;
-    container.innerHTML = '<p class="text-muted">Loading...</p>';
+    container.innerHTML = `<p class="text-muted">${t('common.loading')}</p>`;
     try {
       const task = await api(`/tasks/${id}`);
-      const targets = task.targets?.length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.targets, null, 2))}</pre>` : '<p class="text-muted">No targets</p>';
-      const config = Object.keys(task.config || {}).length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.config, null, 2))}</pre>` : '<p class="text-muted">No runtime config</p>';
-      const resultSummary = task.result_summary ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.result_summary, null, 2))}</pre>` : '<p class="text-muted">No result summary</p>';
+      const targets = task.targets?.length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.targets, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.targets')}</p>`;
+      const config = Object.keys(task.config || {}).length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.config, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.config')}</p>`;
+      const resultSummary = task.result_summary ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.result_summary, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.summary')}</p>`;
       const autoReportLink = task.result_summary?.generated_report_id
-        ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">Open Generated Report</button></div>` : '';
+        ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">${t('tasks.generatedReport')}</button></div>` : '';
       const latestLogs = task.step_logs?.length
         ? task.step_logs.slice(-8).map(log => `<div class="log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
             <span class="log-step">${escapeHtml(log.step)}</span>
             <span class="log-message">${escapeHtml(log.message||'')}</span>
             ${log.error?`<div style="color:var(--danger);margin-top:0.25rem">${escapeHtml(log.error)}</div>`:''}
           </div>`).join('')
-        : '<p class="text-muted">No logs</p>';
+        : `<p class="text-muted">${t('common.empty.logs')}</p>`;
 
       container.innerHTML = `
         <div class="detail-grid">
           <div class="detail-card">
-            <h3>Basic</h3>
+            <h3>${t('tasks.basic')}</h3>
             <div class="detail-kv"><span>ID</span><code>${task.id}</code></div>
-            <div class="detail-kv"><span>Name</span><span>${escapeHtml(task.name)}</span></div>
-            <div class="detail-kv"><span>Status</span><span>${renderBadge(task.status)}</span></div>
+            <div class="detail-kv"><span>${t('common.name')}</span><span>${escapeHtml(task.name)}</span></div>
+            <div class="detail-kv"><span>${t('common.status')}</span><span>${renderBadge(task.status)}</span></div>
             <div class="detail-kv"><span>Pipeline</span><span>${escapeHtml(task.pipeline_name||'-')}</span></div>
-            <div class="detail-kv"><span>Progress</span><span>${Math.round(task.progress*100)}%</span></div>
+            <div class="detail-kv"><span>${t('common.progress')}</span><span>${Math.round(task.progress*100)}%</span></div>
             <div class="detail-kv"><span>Retry</span><span>${task.retry_count}/${task.max_retries}</span></div>
-            <div class="detail-kv"><span>Error</span><span>${escapeHtml(task.error||'-')}</span></div>
+            <div class="detail-kv"><span>${t('common.error')}</span><span>${escapeHtml(task.error||'-')}</span></div>
           </div>
           <div class="detail-card">
-            <h3>Description</h3><p>${escapeHtml(task.description||'No description')}</p>
-            <h3 style="margin-top:1rem">Recent Logs</h3>${latestLogs}
+            <h3>${t('common.description')}</h3><p>${escapeHtml(task.description||t('common.none'))}</p>
+            <h3 style="margin-top:1rem">${t('tasks.recentLogs')}</h3>${latestLogs}
           </div>
         </div>
-        <h3 style="margin-top:1rem">Targets</h3>${targets}
-        <h3 style="margin-top:1rem">Runtime Config</h3>${config}
-        <h3 style="margin-top:1rem">Result Summary</h3>${resultSummary}${autoReportLink}`;
-    } catch (err) { container.innerHTML = `<p style="color:var(--danger)">Load failed: ${escapeHtml(err.message)}</p>`; }
+        <h3 style="margin-top:1rem">${t('tasks.targets')}</h3>${targets}
+        <h3 style="margin-top:1rem">${t('tasks.runtimeConfig')}</h3>${config}
+        <h3 style="margin-top:1rem">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}`;
+    } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
   },
 };
 

@@ -1,4 +1,5 @@
 import { api, toast, escapeHtml, formatTime, setValue, setText } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 
 let reportTemplates = [];
 let selectedReportRecordKeys = [];
@@ -30,17 +31,20 @@ function setReportProgress(progress, stage, message) {
   if (messageEl) messageEl.textContent = message || stage;
 }
 
-function resetReportProgress() { setReportProgress(0, 'queued', 'Report generation queued'); }
+function resetReportProgress() { setReportProgress(0, 'queued', t('reports.waiting')); }
 
 export default {
   init(container, store) {
     this.container = container;
     this.store = store;
+    this._unsub = store.subscribe((key, value) => {
+      if (key === 'reportProgress') this._handleReportProgress(value);
+    });
     this.refresh();
     return this;
   },
 
-  destroy() {},
+  destroy() { if (this._unsub) this._unsub(); },
 
   async refresh() {
     await Promise.all([this._loadTemplates(), this._loadReports(), this._loadGroups()]);
@@ -63,23 +67,23 @@ export default {
       const reports = await api('/reports');
       const container = document.getElementById('reports-list');
       if (!container) return;
-      if (!reports.length) { container.innerHTML = '<p class="text-muted">No reports</p>'; return; }
+      if (!reports.length) { container.innerHTML = `<p class="text-muted">${t('reports.empty')}</p>`; return; }
       container.innerHTML = reports.map((report) => `
         <div class="report-item">
           <button class="report-item-main" data-view="${report.id}">
             <span class="report-item-title">${escapeHtml(report.title)}</span>
-            <span class="report-item-meta">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${report.matched_records} records</span>
+            <span class="report-item-meta">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${t('reports.records', { count: report.matched_records })}</span>
           </button>
           <div class="inline-actions">
-            <button class="btn btn-ghost btn-sm" data-edit="${report.id}">Edit</button>
-            <button class="btn btn-danger btn-sm" data-delete="${report.id}">Delete</button>
+            <button class="btn btn-ghost btn-sm" data-edit="${report.id}">${t('reports.edit')}</button>
+            <button class="btn btn-danger btn-sm" data-delete="${report.id}">${t('common.delete')}</button>
           </div>
         </div>`).join('');
 
       container.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => this._view(b.dataset.view)));
       container.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => this._edit(b.dataset.edit)));
       container.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => this._deleteReport(b.dataset.delete)));
-    } catch (err) { toast(`Load failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); }
   },
 
   async _loadGroups() {
@@ -88,7 +92,7 @@ export default {
       const select = document.getElementById('report-group-select');
       if (select) {
         const current = select.value;
-        select.innerHTML = '<option value="">-- Select group --</option>';
+        select.innerHTML = `<option value="">${t('reports.importByGroup')}</option>`;
         for (const g of groups) {
           select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(g.group_id)}">${escapeHtml(g.group_name || g.group_id)} (${g.count})</option>`);
         }
@@ -135,14 +139,14 @@ export default {
   _renderSelectedRecords() {
     const container = document.getElementById('report-selected-records');
     if (!container) return;
-    if (!selectedReportRecordKeys.length) { container.innerHTML = '<p class="text-muted">尚未添加 JSON 数据源</p>'; return; }
+    if (!selectedReportRecordKeys.length) { container.innerHTML = `<p class="text-muted">${t('reports.noSources')}</p>`; return; }
     container.innerHTML = selectedReportRecordKeys.map((key) => {
       const meta = selectedReportRecordMeta[key] || {};
-      const label = meta.data_source || meta.collector || '手工输入';
+      const label = meta.data_source || meta.collector || t('reports.manualInput');
       const title = meta.game_name ? `${meta.game_name} / ${label}` : label;
       return `<div class="selected-source-chip">
         <span><strong>${escapeHtml(title)}</strong> <code>${escapeHtml(key)}</code></span>
-        <button class="btn btn-ghost btn-sm" type="button" data-remove="${escapeHtml(key)}">移除</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-remove="${escapeHtml(key)}">${t('reports.remove')}</button>
       </div>`;
     }).join('');
     container.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => this._removeRecordSelection(b.dataset.remove)));
@@ -158,8 +162,8 @@ export default {
     const missing = (template.required_collectors || []).filter(c => !knownCollectors.has(c));
     const requirements = (template.required_collectors || []).map(labelCollector).join(' / ');
     const manualCount = selectedReportRecordKeys.filter(k => !selectedReportRecordMeta[k]).length;
-    const status = missing.length ? `缺少：${missing.map(labelCollector).join(' / ')}` : '已满足已知数据源要求';
-    help.innerHTML = `<span>${escapeHtml(template.description)}</span><br><span>必需数据源：${escapeHtml(requirements || '-')}；${escapeHtml(status)}</span>${manualCount ? `<br><span>包含 ${manualCount} 个手工 key，前端无法识别来源，后端生成时会再次校验。</span>` : ''}`;
+    const status = missing.length ? `${t('reports.missing')}: ${missing.map(labelCollector).join(' / ')}` : t('common.ok');
+    help.innerHTML = `<span>${escapeHtml(template.description)}</span><br><span>${t('reports.available')}: ${escapeHtml(requirements || '-')} | ${escapeHtml(status)}</span>${manualCount ? `<br><span>${t('reports.records', { count: manualCount })}</span>` : ''}`;
   },
 
   // ── Precheck ──
@@ -172,34 +176,34 @@ export default {
     const available = precheck.available_collectors || [];
     const sourceCounts = precheck.source_counts || {};
     const recommendations = precheck.recommendations || [];
-    const missingText = missing.length ? missing.map(labelCollector).join(' / ') : 'None';
-    const availableText = available.length ? available.map(c => `${labelCollector(c)}${sourceCounts[c] ? ` (${sourceCounts[c]})` : ''}`).join(' / ') : 'None';
+    const missingText = missing.length ? missing.map(labelCollector).join(' / ') : t('common.none');
+    const availableText = available.length ? available.map(c => `${labelCollector(c)}${sourceCounts[c] ? ` (${sourceCounts[c]})` : ''}`).join(' / ') : t('common.none');
     container.style.display = 'block';
     container.className = `report-precheck report-precheck-${status}`;
-    const fillBtns = missing.length ? missing.map(c => `<button class="btn btn-primary btn-sm" data-fill="${c}" style="margin:2px">补采 ${escapeHtml(labelCollector(c))}</button>`).join('') : '';
+    const fillBtns = missing.length ? missing.map(c => `<button class="btn btn-primary btn-sm" data-fill="${c}" style="margin:2px">${escapeHtml(t('reports.fill', { collector: labelCollector(c) }))}</button>`).join('') : '';
     container.innerHTML = `
-      <div class="report-precheck-title">${escapeHtml(precheck.message || 'Report precheck finished')}</div>
+      <div class="report-precheck-title">${escapeHtml(precheck.message || t('reports.precheckFinished'))}</div>
       <div class="report-precheck-grid">
         <span>Records</span><strong>${precheck.usable_records || 0}/${precheck.selected_records || 0}</strong>
-        <span>Available</span><strong>${escapeHtml(availableText)}</strong>
-        <span>Missing</span><strong>${escapeHtml(missingText)}</strong>
+        <span>${t('reports.available')}</span><strong>${escapeHtml(availableText)}</strong>
+        <span>${t('reports.missing')}</span><strong>${escapeHtml(missingText)}</strong>
       </div>
       ${fillBtns ? `<div class="report-precheck-actions">${fillBtns}</div>` : ''}
       ${recommendations.length ? `<ul>${recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>` : ''}`;
     container.querySelectorAll('[data-fill]').forEach(b => b.addEventListener('click', () => this._createFillTask(b.dataset.fill)));
   },
 
-  _createFillTask(collector) {
+  async _createFillTask(collector) {
     const gameName = window.selectedDataGame?.game_name || '';
     const pipelineMap = { steam: 'steam_steamdb', steam_discussions: 'steam_discussions', taptap: 'taptap_basic', gtrends: 'gtrends_weekly', monitor: 'monitor_basic', events: 'events', official_site: 'official_site', qimai: 'qimai' };
-    setValue('task-name', gameName ? `${gameName} - ${labelCollector(collector)} 补采` : `${labelCollector(collector)} 补采`);
+    await window.showCreateTaskModal?.();
+    setValue('task-name', gameName ? `${gameName} - ${labelCollector(collector)} ${t('reports.fill', { collector: '' }).trim()}` : t('reports.fill', { collector: labelCollector(collector) }));
     setValue('task-target-name', gameName || '');
+    await window.loadPipelineSelect?.('task-pipeline');
     setValue('task-pipeline', pipelineMap[collector] || collector);
     if (collector === 'steam' || collector === 'steam_discussions') { const appId = window._dataPage?._state?.selectedGame?.app_id || ''; setValue('task-app-id', appId); if (collector === 'steam_discussions') setValue('task-steam-discussions-app-id', appId); }
     if (collector === 'taptap' || collector === 'monitor' || collector === 'qimai') setValue('task-app-id', window._dataPage?._state?.selectedGame?.app_id || '');
-    window.updateTaskTargetFields && window.updateTaskTargetFields();
-    window.openModal && window.openModal('modal-create-task');
-    window._tasksPage && (window._tasksPage._wizardPrev && window._tasksPage._wizardNext());
+    await window.updateTaskTargetFields?.();
   },
 
   // ── Upload / Import ──
@@ -207,7 +211,7 @@ export default {
   async _uploadJson() {
     const input = document.getElementById('report-json-files');
     const files = [...(input?.files || [])];
-    if (!files.length) { toast('请选择 JSON 文件', 'error'); return; }
+    if (!files.length) { toast(t('message.selectJsonFiles'), 'error'); return; }
     const formData = new FormData();
     for (const file of files) formData.append('files', file);
     try {
@@ -218,19 +222,19 @@ export default {
       this._syncRecordKeys();
       if (input) input.value = '';
       window.loadDataGames && window.loadDataGames();
-      toast(`已导入 ${uploaded.length} 个 JSON 数据源`, 'success');
-    } catch (err) { toast(`Upload failed: ${err.message}`, 'error'); }
+      toast(t('message.jsonImported', { count: uploaded.length }), 'success');
+    } catch (err) { toast(t('message.uploadFailed', { error: err.message }), 'error'); }
   },
 
   async _importGroup() {
     const groupId = document.getElementById('report-group-select')?.value || '';
-    if (!groupId) { toast('Choose a data group', 'error'); return; }
+    if (!groupId) { toast(t('message.chooseDataGroup'), 'error'); return; }
     try {
       const records = await api(`/reports/group-records?group_id=${encodeURIComponent(groupId)}`);
       for (const record of records) this._addRecordSelection(record.key, record);
       this._syncRecordKeys();
-      toast(`Imported ${records.length} records`, 'success');
-    } catch (err) { toast(`Import failed: ${err.message}`, 'error'); }
+      toast(t('message.recordsImported', { count: records.length }), 'success');
+    } catch (err) { toast(t('message.importFailed', { error: err.message }), 'error'); }
   },
 
   _useCurrentData() {
@@ -250,39 +254,44 @@ export default {
     const recordKeysRaw = document.getElementById('report-record-keys')?.value.trim() || '';
     const recordKeys = recordKeysRaw ? recordKeysRaw.split(/\s+/).map(s => s.trim()).filter(Boolean) : [];
 
-    if (!prompt) { toast('Prompt is required', 'error'); return; }
+    if (!prompt) { toast(t('message.promptRequired'), 'error'); return; }
 
     const payload = { prompt, data_source: dataSource, template, record_keys: recordKeys, params: {} };
     currentReportProgressId = `report_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     resetReportProgress();
     const button = document.getElementById('btn-generate-report');
-    if (button) { button.disabled = true; button.textContent = 'Generating...'; }
+    if (button) { button.disabled = true; button.textContent = t('reports.generate') + '...'; }
 
     try {
-      setReportProgress(0.04, 'precheck', 'Checking report data coverage');
+      setReportProgress(0.04, 'precheck', t('reports.precheckFinished'));
       const precheck = await api('/reports/precheck', { method: 'POST', body: JSON.stringify(payload) });
       this._renderPrecheck(precheck);
       if (precheck.status === 'empty') throw new Error(precheck.message || 'No usable report data');
       if (precheck.status === 'partial') {
         const missing = (precheck.missing_collectors || []).map(labelCollector).join(' / ');
-        if (!confirm(`Missing data sources: ${missing}. Generate report anyway?`)) {
-          setReportProgress(0, 'cancelled', 'Report generation cancelled');
+        if (!confirm(t('confirm.missingSources', { missing }))) {
+          setReportProgress(0, 'cancelled', t('common.cancel'));
           return;
         }
       }
-      setReportProgress(0.08, 'requesting', 'Sending report request');
+      setReportProgress(0.08, 'requesting', t('reports.generate'));
       payload.params = { progress_id: currentReportProgressId };
       const report = await api('/reports/generate-excel', { method: 'POST', body: JSON.stringify(payload) });
-      setReportProgress(1, 'completed', 'Report generated');
+      setReportProgress(1, 'completed', t('message.reportGenerated'));
       this._renderReport(report);
       this._loadReports();
-      toast('Report generated', 'success');
+      toast(t('message.reportGenerated'), 'success');
     } catch (err) {
       setReportProgress(1, 'failed', err.message);
-      toast(`Generate failed: ${err.message}`, 'error');
+      toast(t('message.generateFailed', { error: err.message }), 'error');
     } finally {
-      if (button) { button.disabled = false; button.textContent = '生成报告'; }
+      if (button) { button.disabled = false; button.textContent = t('reports.generate'); }
     }
+  },
+
+  _handleReportProgress(event) {
+    if (!event || event.progress_id !== currentReportProgressId) return;
+    setReportProgress(event.progress || 0, event.stage || 'running', event.message || '');
   },
 
   _renderReport(report) {
@@ -292,9 +301,9 @@ export default {
     const isExcel = report.metadata?.format === 'excel' || report.metadata?.excel_path;
     if (isExcel) {
       html = `<div style="margin-bottom:1rem;padding:1rem;background:var(--bg-card);border-radius:4px;border:1px solid var(--border)">
-        <h4 style="margin:0 0 0.5rem 0;color:var(--success)">📊 Excel 报告已生成</h4>
-        <p style="margin:0 0 1rem 0;color:var(--text-muted)">该报告包含了清洗好的表格行、多个工作表以及统计图表。</p>
-        <a href="/api/reports/${report.id}/download" class="btn btn-primary" target="_blank" download>⬇️ 下载 Excel 文件</a>
+        <h4 style="margin:0 0 0.5rem 0;color:var(--success)">📊 ${t('reports.excelGenerated')}</h4>
+        <p style="margin:0 0 1rem 0;color:var(--text-muted)">${t('reports.excelHelp')}</p>
+        <a href="/api/reports/${report.id}/download" class="btn btn-primary" target="_blank" download>${t('reports.downloadExcel')}</a>
       </div>` + html;
     }
     container.innerHTML = html;
@@ -304,32 +313,32 @@ export default {
 
   async _view(id) {
     try { const report = await api(`/reports/${id}`); this._renderReport(report); }
-    catch (err) { toast(`Load failed: ${err.message}`, 'error'); }
+    catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); }
   },
 
   async _edit(id) {
     try {
       const report = await api(`/reports/${id}`);
-      const title = prompt('Report title', report.title || '');
+      const title = prompt(t('prompt.reportTitle'), report.title || '');
       if (title === null) return;
-      const notes = prompt('Notes', report.metadata?.notes || '');
+      const notes = prompt(t('prompt.notes'), report.metadata?.notes || '');
       if (notes === null) return;
       const updated = await api(`/reports/${id}`, { method: 'PATCH', body: JSON.stringify({ title: title.trim(), notes: notes.trim() }) });
       this._renderReport(updated);
       this._loadReports();
-      toast('Report updated', 'success');
-    } catch (err) { toast(`Edit failed: ${err.message}`, 'error'); }
+      toast(t('message.reportUpdated'), 'success');
+    } catch (err) { toast(t('message.editFailed', { error: err.message }), 'error'); }
   },
 
   async _deleteReport(id) {
-    if (!confirm(`Delete report ${id}?`)) return;
+    if (!confirm(t('confirm.deleteReport', { id }))) return;
     try {
       await api(`/reports/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' });
-      toast('Report deleted', 'success');
+      toast(t('message.reportDeleted'), 'success');
       this._loadReports();
       const container = document.getElementById('report-content');
-      if (container) container.textContent = 'No report selected';
-    } catch (err) { toast(`Delete failed: ${err.message}`, 'error'); }
+      if (container) container.textContent = t('common.noSelection.report');
+    } catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 };
 
