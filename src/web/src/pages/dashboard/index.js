@@ -78,22 +78,31 @@ export default {
     if (!dashboardChart) return;
     const counts = stats.status_counts || {};
     dashboardChart.setOption({
-      tooltip: { trigger: 'item' },
-      legend: { top: 'bottom' },
+      backgroundColor: 'transparent',
+      tooltip: { 
+        trigger: 'item',
+        backgroundColor: 'rgba(10, 10, 10, 0.9)',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        textStyle: { color: '#d4d4d8' }
+      },
+      legend: { top: 'bottom', textStyle: { color: '#a1a1aa' } },
       series: [{
         name: t('dashboard.taskDistribution'),
         type: 'pie',
-        radius: ['40%', '70%'],
+        radius: ['55%', '80%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
+        itemStyle: { borderRadius: 4, borderColor: '#0a0a0a', borderWidth: 2 },
         label: { show: false, position: 'center' },
-        emphasis: { label: { show: true, fontSize: 20, fontWeight: 'bold' } },
+        emphasis: { 
+          label: { show: true, fontSize: 18, fontWeight: 'bold', color: '#e4e4e7' },
+          itemStyle: { shadowBlur: 15, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+        },
         labelLine: { show: false },
         data: [
-          { value: counts.success || 0, name: t('status.success'), itemStyle: { color: '#10b981' } },
-          { value: counts.running || 0, name: t('status.running'), itemStyle: { color: '#3b82f6' } },
-          { value: counts.failed || 0, name: t('status.failed'), itemStyle: { color: '#ef4444' } },
-          { value: counts.pending || 0, name: t('status.pending'), itemStyle: { color: '#f59e0b' } },
+          { value: counts.success || 0, name: t('status.success'), itemStyle: { color: '#10b981', shadowBlur: 10, shadowColor: 'rgba(16, 185, 129, 0.4)' } },
+          { value: counts.running || 0, name: t('status.running'), itemStyle: { color: '#06b6d4', shadowBlur: 10, shadowColor: 'rgba(6, 182, 212, 0.4)' } },
+          { value: counts.failed || 0, name: t('status.failed'), itemStyle: { color: '#f43f5e', shadowBlur: 10, shadowColor: 'rgba(244, 63, 94, 0.4)' } },
+          { value: counts.pending || 0, name: t('status.pending'), itemStyle: { color: '#8b5cf6', shadowBlur: 10, shadowColor: 'rgba(139, 92, 246, 0.4)' } },
         ].filter(item => item.value > 0),
       }],
     });

@@ -75,7 +75,6 @@ llm:
     base_url: http://localhost:11434/v1
     temperature: 0.3
     max_tokens: 2000
-
 agent:
   enabled: true
   max_iterations: 10

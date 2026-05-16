@@ -67,17 +67,20 @@ export default {
       const reports = await api('/reports');
       const container = document.getElementById('reports-list');
       if (!container) return;
-      if (!reports.length) { container.innerHTML = `<p class="text-muted">${t('reports.empty')}</p>`; return; }
+      if (!reports.length) { container.innerHTML = `<p class="text-zinc-600 text-sm">暂无历史记录</p>`; return; }
       container.innerHTML = reports.map((report) => `
-        <div class="report-item">
-          <button class="report-item-main" data-view="${report.id}">
-            <span class="report-item-title">${escapeHtml(report.title)}</span>
-            <span class="report-item-meta">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${t('reports.records', { count: report.matched_records })}</span>
-          </button>
-          <div class="inline-actions">
-            <button class="btn btn-ghost btn-sm" data-edit="${report.id}">${t('reports.edit')}</button>
-            <button class="btn btn-danger btn-sm" data-delete="${report.id}">${t('common.delete')}</button>
+        <div class="report-item group flex flex-col p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative min-w-0 overflow-hidden mb-1 hover:bg-white/5">
+          <div class="flex items-center justify-between">
+            <button class="flex-1 text-left min-w-0 pr-4 outline-none" data-view="${report.id}">
+              <div class="font-semibold text-zinc-100 text-sm mb-1 truncate tracking-tight group-hover:text-violet-400 transition-colors">${escapeHtml(report.title)}</div>
+              <div class="text-xs text-zinc-500 truncate mb-0.5 tabular-nums">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${t('reports.records', { count: report.matched_records })}</div>
+            </button>
+            <div class="inline-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
+              <button class="btn btn-ghost px-2 h-7 text-xs border border-white/10" data-edit="${report.id}">编辑</button>
+              <button class="btn btn-danger px-2 h-7 text-xs" data-delete="${report.id}">删除</button>
+            </div>
           </div>
+          <div class="absolute left-0 top-0 bottom-0 w-[3px] bg-violet-500 shadow-[0_0_10px_rgba(139,92,246,0.8)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         </div>`).join('');
 
       container.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => this._view(b.dataset.view)));
@@ -139,14 +142,19 @@ export default {
   _renderSelectedRecords() {
     const container = document.getElementById('report-selected-records');
     if (!container) return;
-    if (!selectedReportRecordKeys.length) { container.innerHTML = `<p class="text-muted">${t('reports.noSources')}</p>`; return; }
+    if (!selectedReportRecordKeys.length) { container.innerHTML = `<p class="text-zinc-600 text-xs italic">Awaiting input data...</p>`; return; }
     container.innerHTML = selectedReportRecordKeys.map((key) => {
       const meta = selectedReportRecordMeta[key] || {};
       const label = meta.data_source || meta.collector || t('reports.manualInput');
       const title = meta.game_name ? `${meta.game_name} / ${label}` : label;
-      return `<div class="selected-source-chip">
-        <span><strong>${escapeHtml(title)}</strong> <code>${escapeHtml(key)}</code></span>
-        <button class="btn btn-ghost btn-sm" type="button" data-remove="${escapeHtml(key)}">${t('reports.remove')}</button>
+      return `<div class="inline-flex items-center gap-2 px-2.5 py-1 bg-violet-500/10 border border-violet-500/30 rounded-md shadow-[0_0_8px_rgba(139,92,246,0.1)] group transition-all duration-300 hover:bg-violet-500/20 hover:border-violet-400">
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-violet-300 uppercase">${escapeHtml(title)}</span>
+          <code class="text-[10px] text-zinc-400 font-mono">${escapeHtml(key)}</code>
+        </div>
+        <button class="text-violet-400 hover:text-rose-400 opacity-50 group-hover:opacity-100 transition-all p-0.5 rounded cursor-pointer" type="button" data-remove="${escapeHtml(key)}">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
       </div>`;
     }).join('');
     container.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => this._removeRecordSelection(b.dataset.remove)));

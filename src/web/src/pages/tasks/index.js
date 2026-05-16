@@ -46,7 +46,7 @@ export default {
       return;
     }
     tbody.innerHTML = tasks.map((task) => `
-      <tr>
+      <tr class="group">
         <td><code>${task.id}</code></td>
         <td>${escapeHtml(task.name)}</td>
         <td>${escapeHtml(task.pipeline_name || '-')}</td>
@@ -69,7 +69,7 @@ export default {
     } else {
       actions.push(`<button class="btn btn-danger btn-sm" onclick="deleteTask('${escapeJs(task.id)}')">${t('common.delete')}</button>`);
     }
-    return `<div class="action-buttons">${actions.join(' ')}</div>`;
+    return `<div class="action-buttons flex gap-2 opacity-30 group-hover:opacity-100 transition-opacity duration-300">${actions.join(' ')}</div>`;
   },
 
   // ── Create Task Wizard ──
@@ -346,15 +346,15 @@ export default {
     try {
       const data = await api(`/tasks/${id}/logs`);
       if (!data.logs.length) { container.innerHTML = `<p class="text-muted">${t('common.empty.logs')}</p>`; return; }
-      container.innerHTML = data.logs.map((log) => {
+      container.innerHTML = `<div class="terminal-console bg-[#050505] border border-white/5 p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
         const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
-        return `<div class="log-entry ${statusClass}">
-          <span class="log-step">${escapeHtml(log.step)}</span>
-          <span class="log-message">${escapeHtml(log.message || '')}</span>
-          ${log.error ? `<div style="color:var(--danger);margin-top:0.25rem">${escapeHtml(log.error)}</div>` : ''}
-          ${log.started_at ? `<span class="log-time">${formatTime(log.started_at)}</span>` : ''}
+        return `<div class="terminal-line log-entry ${statusClass}">
+          <span class="log-time text-zinc-600 mr-2">${log.started_at ? formatTime(log.started_at) : ''}</span>
+          <span class="log-step text-violet-400 mr-2">[${escapeHtml(log.step)}]</span>
+          <span class="log-message text-zinc-300">${escapeHtml(log.message || '')}</span>
+          ${log.error ? `<div class="text-rose-400 mt-1 pl-6">-> ${escapeHtml(log.error)}</div>` : ''}
         </div>`;
-      }).join('');
+      }).join('') + `</div>`;
     } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
   },
 
@@ -371,33 +371,38 @@ export default {
       const autoReportLink = task.result_summary?.generated_report_id
         ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">${t('tasks.generatedReport')}</button></div>` : '';
       const latestLogs = task.step_logs?.length
-        ? task.step_logs.slice(-8).map(log => `<div class="log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
-            <span class="log-step">${escapeHtml(log.step)}</span>
-            <span class="log-message">${escapeHtml(log.message||'')}</span>
-            ${log.error?`<div style="color:var(--danger);margin-top:0.25rem">${escapeHtml(log.error)}</div>`:''}
-          </div>`).join('')
+        ? `<div class="terminal-console bg-[#050505] border border-white/5 p-3 rounded-lg max-h-48 overflow-y-auto">` + task.step_logs.slice(-8).map(log => `<div class="terminal-line log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
+            <span class="log-time text-zinc-600">${log.started_at ? formatTime(log.started_at) : ''}</span>
+            <span class="log-step text-violet-400">[${escapeHtml(log.step)}]</span>
+            <span class="log-message text-zinc-300">${escapeHtml(log.message||'')}</span>
+            ${log.error?`<div class="text-rose-400 mt-1 pl-4">-> ${escapeHtml(log.error)}</div>`:''}
+          </div>`).join('') + `</div>`
         : `<p class="text-muted">${t('common.empty.logs')}</p>`;
 
       container.innerHTML = `
-        <div class="detail-grid">
-          <div class="detail-card">
-            <h3>${t('tasks.basic')}</h3>
-            <div class="detail-kv"><span>ID</span><code>${task.id}</code></div>
-            <div class="detail-kv"><span>${t('common.name')}</span><span>${escapeHtml(task.name)}</span></div>
-            <div class="detail-kv"><span>${t('common.status')}</span><span>${renderBadge(task.status)}</span></div>
-            <div class="detail-kv"><span>Pipeline</span><span>${escapeHtml(task.pipeline_name||'-')}</span></div>
-            <div class="detail-kv"><span>${t('common.progress')}</span><span>${Math.round(task.progress*100)}%</span></div>
-            <div class="detail-kv"><span>Retry</span><span>${task.retry_count}/${task.max_retries}</span></div>
-            <div class="detail-kv"><span>${t('common.error')}</span><span>${escapeHtml(task.error||'-')}</span></div>
+        <div class="detail-grid grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="detail-card bg-[#0a0a0a] border border-white/5 p-4 rounded-xl flex flex-col gap-3">
+            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('tasks.basic')}</h3>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">ID</span><code class="text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">${task.id}</code></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.name')}</span><span class="text-zinc-200 font-medium">${escapeHtml(task.name)}</span></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.status')}</span><span>${renderBadge(task.status)}</span></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Pipeline</span><span class="text-zinc-200">${escapeHtml(task.pipeline_name||'-')}</span></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.progress')}</span><span class="text-zinc-200">${Math.round(task.progress*100)}%</span></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Retry</span><span class="text-zinc-200">${task.retry_count}/${task.max_retries}</span></div>
+            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-rose-400 truncate max-w-[200px]" title="${escapeHtml(task.error||'-')}">${escapeHtml(task.error||'-')}</span></div>
           </div>
-          <div class="detail-card">
-            <h3>${t('common.description')}</h3><p>${escapeHtml(task.description||t('common.none'))}</p>
-            <h3 style="margin-top:1rem">${t('tasks.recentLogs')}</h3>${latestLogs}
+          <div class="detail-card bg-[#0a0a0a] border border-white/5 p-4 rounded-xl flex flex-col gap-3">
+            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('common.description')}</h3>
+            <p class="text-sm text-zinc-400">${escapeHtml(task.description||t('common.none'))}</p>
+            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mt-2 mb-1">${t('tasks.recentLogs')}</h3>
+            ${latestLogs}
           </div>
         </div>
-        <h3 style="margin-top:1rem">${t('tasks.targets')}</h3>${targets}
-        <h3 style="margin-top:1rem">${t('tasks.runtimeConfig')}</h3>${config}
-        <h3 style="margin-top:1rem">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}`;
+        <div class="mt-6 flex flex-col gap-4">
+          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.targets')}</h3>${targets}</div>
+          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.runtimeConfig')}</h3>${config}</div>
+          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}</div>
+        </div>`;
     } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
   },
 };

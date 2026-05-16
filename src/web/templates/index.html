@@ -8,26 +8,35 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=8">
+    <link rel="stylesheet" href="/static/style.css?v=10">
     {% if vite_dev %}
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/main.js"></script>
     {% elif vite_js %}
     {% if vite_css %}<link rel="stylesheet" href="/static/dist/{{ vite_css }}">{% endif %}
+    <script type="module" src="/static/dist/{{ vite_js }}"></script>
     {% else %}
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="/static/i18n.js?v=1"></script>
+    <script src="/static/core/api.js?v=1"></script>
+    <script src="/static/core/websocket.js?v=1"></script>
+    <script src="/static/core/navigation.js?v=1"></script>
+    <script src="/static/tasks.js?v=1"></script>
+    <script src="/static/reports.js?v=1"></script>
+    <script src="/static/agent.js?v=1"></script>
+    <script src="/static/app.js?v=11"></script>
     {% endif %}
 </head>
 <body>
     <div class="app-layout">
         <aside class="app-sidebar" id="navbar">
-            <div class="h-16 flex items-center px-5 border-b border-slate-800 w-full shrink-0">
+            <div class="h-16 flex items-center px-5 border-b border-white/5 w-full shrink-0">
                 <span class="text-xl mr-2">⚡</span>
-                <span class="font-bold text-slate-100 text-[14px] tracking-tight truncate">GamedataAutoFlux</span>
+                <span class="font-bold text-slate-100 text-sm tracking-tight truncate">GamedataAutoFlux</span>
             </div>
             <nav class="nav-links flex-1 overflow-y-auto py-4 px-3 space-y-1 w-full flex flex-col">
                 <a href="#" class="nav-link active" data-tab="dashboard">
@@ -92,83 +101,107 @@
 
             <div class="stats-grid" id="stats-grid">
                 <div class="stat-card">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-zinc-700/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
                     <div class="stat-value" id="stat-total">-</div>
                     <div class="stat-label">任务总数</div>
                 </div>
                 <div class="stat-card stat-running">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-cyan-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     <div class="stat-value" id="stat-running">-</div>
                     <div class="stat-label">运行中</div>
                 </div>
                 <div class="stat-card stat-success">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-emerald-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <div class="stat-value" id="stat-success">-</div>
                     <div class="stat-label">已完成</div>
                 </div>
                 <div class="stat-card stat-failed">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-rose-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <div class="stat-value" id="stat-failed">-</div>
                     <div class="stat-label">失败</div>
                 </div>
                 <div class="stat-card">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-zinc-700/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <div class="stat-value" id="stat-cron">-</div>
                     <div class="stat-label">定时任务</div>
                 </div>
                 <div class="stat-card">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-violet-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                     <div class="stat-value" id="stat-components">-</div>
                     <div class="stat-label">已注册组件</div>
                 </div>
             </div>
 
-            <!-- ECharts 图表容器 -->
-            <div class="card" style="margin-top: 1.5rem;">
-                <div class="card-header"><h2>任务执行趋势</h2></div>
-                <div class="card-body">
-                    <div id="dashboard-chart" style="width: 100%; height: 300px;"></div>
+            <!-- Asymmetric Grid for Charts and Tables -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                <!-- ECharts 图表容器 -->
+                <div class="card lg:col-span-1 mb-0">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务执行趋势</h2>
+                    </div>
+                    <div class="card-body h-[300px] flex items-center justify-center p-0">
+                        <div id="dashboard-chart" class="w-full h-full"></div>
+                    </div>
                 </div>
-            </div>
 
-            <div class="card" style="margin-top: 1.5rem;">
-                <div class="card-header"><h2>最近任务</h2></div>
-                <div class="card-body">
-                    <table class="table" id="recent-tasks-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>名称</th>
-                                <th>状态</th>
-                                <th>进度</th>
-                                <th>创建时间</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recent-tasks-body">
-                            <tr><td colspan="6" class="text-muted">暂无任务</td></tr>
-                        </tbody>
-                    </table>
+                <div class="card lg:col-span-2 mb-0">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">最近任务</h2>
+                    </div>
+                    <div class="card-body overflow-x-auto px-6 pb-6">
+                        <table class="table" id="recent-tasks-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名称</th>
+                                    <th>状态</th>
+                                    <th>进度</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-tasks-body">
+                                <tr><td colspan="6" class="text-muted">暂无任务</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section class="tab-content" id="tab-tasks">
-            <div class="section-header">
-                <h1>任务管理</h1>
-                <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task">+ 创建任务</button>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <div class="filter-bar">
-                        <select id="task-status-filter" onchange="loadTasks()">
-                            <option value="">全部状态</option>
-                            <option value="pending">等待中</option>
-                            <option value="running">运行中</option>
-                            <option value="success">已完成</option>
-                            <option value="failed">失败</option>
-                            <option value="cancelled">已取消</option>
-                        </select>
-                        <button class="btn btn-ghost" onclick="loadTasks()">刷新</button>
+            <div class="section-header flex-wrap">
+                <div class="flex items-center gap-4">
+                    <h1>任务管理</h1>
+                    <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20" id="tasks-refresh-hint">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_5px_rgba(6,182,212,0.8)]"></span>
+                        <span class="text-[11px] text-cyan-400 font-bold tracking-widest uppercase">Auto Refresh</span>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="text-muted" id="tasks-refresh-hint">运行中的任务会自动刷新</div>
+                <div class="flex items-center gap-4 mt-4 sm:mt-0">
+                    <div class="bg-[#111] border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                        <select id="task-status-filter" onchange="loadTasks()" class="bg-transparent border-none text-zinc-100 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white">
+                            <option value="" class="bg-[#111] text-zinc-300">全部状态</option>
+                            <option value="pending" class="bg-[#111] text-amber-400">等待中</option>
+                            <option value="running" class="bg-[#111] text-cyan-400">运行中</option>
+                            <option value="success" class="bg-[#111] text-emerald-400">已完成</option>
+                            <option value="failed" class="bg-[#111] text-rose-400">失败</option>
+                            <option value="cancelled" class="bg-[#111] text-zinc-400">已取消</option>
+                        </select>
+                        <div class="w-px h-5 bg-white/10 mx-1"></div>
+                        <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5 hover:text-white" onclick="loadTasks()" title="手动刷新">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        </button>
+                    </div>
+                    <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task">+ 创建任务</button>
+                </div>
+            </div>
+
+            <div class="card mb-0 bg-[#0a0a0a] border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务列表</h2>
+                </div>
+                <div class="card-body overflow-x-auto px-6 pb-6">
                     <table class="table" id="tasks-table">
                         <thead>
                             <tr>
@@ -192,76 +225,95 @@
 
         <section class="tab-content" id="tab-pipelines">
             <div class="section-header">
-                <h1>Pipeline 配置</h1>
-                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline">+ 创建 Pipeline</button>
+                <h1 class="text-3xl font-black tracking-tighter text-white">Pipeline 组装流</h1>
+                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    新建 Pipeline
+                </button>
             </div>
 
-            <div class="card">
-                <div class="card-header"><h2>可用组件</h2></div>
-                <div class="card-body" id="components-list">
-                    <p class="text-muted">加载中...</p>
+            <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
+                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">可用组件库</h2>
+                    </div>
+                    <div class="card-body overflow-y-auto max-h-[calc(100vh-200px)] px-6 pb-6" id="components-list">
+                        <p class="text-zinc-600 text-sm">加载中...</p>
+                    </div>
                 </div>
-            </div>
 
-            <div class="card" style="margin-top: 1.5rem;">
-                <div class="card-header"><h2>已配置 Pipeline</h2></div>
-                <div class="card-body" id="pipelines-list">
-                    <p class="text-muted">暂无 Pipeline</p>
+                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">已配置流水线</h2>
+                    </div>
+                    <div class="card-body px-6 pb-6" id="pipelines-list">
+                        <p class="text-zinc-600 text-sm">暂无 Pipeline</p>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section class="tab-content" id="tab-data">
-            <div class="section-header">
-                <h1>数据浏览</h1>
-                <button class="btn btn-ghost" onclick="loadDataGames()" id="btn-refresh-data">刷新</button>
+            <div class="section-header flex-wrap mb-4">
+                <div class="flex items-center gap-4">
+                    <h1>数据浏览</h1>
+                </div>
+                <div class="flex flex-1 max-w-xl mx-4 relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <input type="text" id="data-search-query" class="w-full pl-10 pr-20 py-2 bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 rounded-full text-zinc-200 text-sm focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/50 shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all duration-300 placeholder-zinc-600" placeholder="搜索任务名称、游戏名、或数据记录...">
+                    <button class="absolute inset-y-1 right-1 btn-primary px-3 text-xs rounded-full shadow-[0_0_10px_rgba(139,92,246,0.3)] hover:shadow-[0_0_15px_rgba(139,92,246,0.5)]" onclick="searchDataRecords()">Search</button>
+                </div>
+                <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5" onclick="loadDataGames()" id="btn-refresh-data" title="刷新列表">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
             </div>
 
-            <div class="filter-bar" style="margin-bottom: 1rem;">
-                <input type="text" id="data-search-query" placeholder="Search by task name, task id, game, group, or record key">
-                <button class="btn btn-ghost" onclick="searchDataRecords()">Search</button>
-            </div>
-
-            <div class="data-browser-layout">
-                <div class="card data-game-panel">
-                    <div class="card-header"><h2>游戏分类</h2></div>
-                    <div class="card-body" id="data-games-list">
-                        <p class="text-muted">暂无数据</p>
+            <div class="data-browser-layout grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start h-[calc(100vh-160px)]">
+                <div class="card data-game-panel h-full flex flex-col mb-0 border-white/5 bg-[#0a0a0a] p-0 overflow-hidden rounded-2xl shadow-2xl">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-2">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">游戏索引</h2>
+                    </div>
+                    <div class="card-body overflow-y-auto px-2 pb-2" id="data-games-list">
+                        <p class="text-muted px-4">暂无数据</p>
                     </div>
                 </div>
 
-                <div class="card data-record-panel">
-                    <div class="card-header">
-                        <div>
-                            <h2 id="data-records-title">选择一个游戏</h2>
-                            <div class="text-muted" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
+                <div class="card data-record-panel h-full flex flex-col mb-0 border-white/5 bg-[#0a0a0a] p-0 overflow-hidden rounded-2xl shadow-2xl">
+                    <div class="card-header flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/5 mb-4">
+                        <div class="flex-1 min-w-0 pr-4">
+                            <h2 id="data-records-title" class="text-xl font-bold text-white tracking-tight truncate mb-1">选择一个游戏</h2>
+                            <div class="text-[11px] font-mono text-zinc-500 tracking-wide truncate" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
                         </div>
-                        <div class="filter-bar">
-                            <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)">
+                        <div class="flex items-center gap-2 shrink-0">
+                            <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)" class="bg-[#111] border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
                                 <option value="">全部数据源</option>
                             </select>
-                            <button class="btn btn-ghost btn-sm" onclick="loadDataGroups()">Groups</button>
-                            <button class="btn btn-primary btn-sm" onclick="useCurrentDataForReport()">用于报告</button>
+                            <button class="btn btn-ghost h-8 px-2 text-xs border border-white/10" onclick="loadDataGroups()">Groups</button>
+                            <button class="btn btn-primary h-8 px-3 text-xs" onclick="useCurrentDataForReport()">用于报告</button>
                         </div>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body flex flex-col flex-1 overflow-hidden px-6 pb-6 relative">
                         <div id="data-batch-bar" class="batch-action-bar" style="display:none;">
                             <span id="data-batch-count">已选 0 条</span>
                             <button class="btn btn-primary btn-sm" onclick="batchAddToReport()">加入报告</button>
                             <button class="btn btn-primary btn-sm" onclick="batchExportSelected()">导出选中</button>
                             <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()">删除选中</button>
                         </div>
-                        <div class="data-controls">
-                            <select id="data-sort-order" onchange="currentDataSortOrder=this.value;loadSelectedGameRecords(1)">
+                        
+                        <div class="flex justify-end mb-3">
+                            <select id="data-sort-order" onchange="currentDataSortOrder=this.value;loadSelectedGameRecords(1)" class="bg-[#111] border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
                                 <option value="desc">最新优先</option>
                                 <option value="asc">最早优先</option>
                             </select>
                         </div>
-                        <div class="overflow-x-auto min-w-0">
+                        
+                        <div class="overflow-y-auto min-w-0 flex-1 border border-white/5 rounded-lg mb-4">
                             <table class="table" id="data-records-table">
                                 <thead>
                                     <tr>
-                                        <th class="cell-checkbox"><input type="checkbox" id="data-select-all" onclick="toggleSelectAll(this)" /></th>
+                                        <th class="w-10 text-center"><input type="checkbox" id="data-select-all" onclick="toggleSelectAll(this)" class="cyber-checkbox" /></th>
                                         <th>记录</th>
                                         <th>数据源</th>
                                         <th>摘要</th>
@@ -270,12 +322,22 @@
                                     </tr>
                                 </thead>
                                 <tbody id="data-records-body">
-                                    <tr><td colspan="6" class="text-muted">请选择左侧游戏分类</td></tr>
+                                    <tr><td colspan="6" class="text-muted text-center py-8">请选择左侧游戏分类</td></tr>
                                 </tbody>
                             </table>
                         </div>
-                        <h3 class="data-preview-title">原始 JSON 预览</h3>
-                        <pre class="report-output data-preview" id="data-preview">选择一条记录后在这里预览</pre>
+                        
+                        <div class="shrink-0 h-[400px] flex flex-col">
+                            <div class="flex items-center justify-between mb-3 px-1">
+                                <h3 class="text-zinc-100 font-bold tracking-tight text-sm uppercase">原始记录预览</h3>
+                                <div class="flex gap-1.5">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
+                                </div>
+                            </div>
+                            <pre class="terminal-console flex-1 data-preview p-4 m-0 border border-white/5 shadow-[inset_0_0_30px_rgba(0,0,0,0.8)]" id="data-preview">选择一条记录后在这里预览</pre>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -283,142 +345,183 @@
 
         <section class="tab-content" id="tab-reports">
             <div class="section-header">
-                <h1>报告生成</h1>
-                <button class="btn btn-primary" onclick="generateReport()" id="btn-generate-report">生成报告</button>
+                <h1 class="text-3xl font-black tracking-tighter text-white">报告生成</h1>
+                <button class="btn btn-primary" onclick="generateReport()" id="btn-generate-report">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    开始分析
+                </button>
             </div>
 
-            <div class="reports-layout">
-                <div class="card">
-                    <div class="card-header"><h2>生成参数</h2></div>
-                    <div class="card-body">
-                        <div class="form-group">
-                            <label for="report-prompt">提示词</label>
-                            <textarea id="report-prompt" rows="5" placeholder="例如：总结最近落库的移动端游戏表现"></textarea>
+            <div class="reports-layout grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
+                <div class="flex flex-col gap-6">
+                    <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                        <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
+                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">分析参数配置</h2>
                         </div>
-                        <div class="form-group">
-                            <label for="report-data-source">数据源过滤</label>
-                            <input type="text" id="report-data-source" placeholder="如 steam / taptap">
-                        </div>
-                        <div class="form-group">
-                            <label for="report-record-keys">指定原始 JSON</label>
-                            <textarea id="report-record-keys" rows="3" placeholder="从数据浏览页选择记录后自动填充；留空则按数据源过滤" oninput="syncReportRecordKeysFromTextarea()"></textarea>
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 0.5rem;">
-                                <small class="text-muted">每行一个 storage key，用于精确选择报告输入数据。</small>
-                                <button class="btn btn-ghost btn-sm" type="button" onclick="clearSelectedReportRecords()">清空选择</button>
+                        <div class="card-body px-6 pb-6">
+                            <div class="form-group">
+                                <label for="report-prompt" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">核心提示词 / PROMPT</label>
+                                <textarea id="report-prompt" rows="5" class="bg-[#111] border-white/5 focus:border-violet-500/50" placeholder="例如：总结最近落库的移动端游戏表现"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-data-source" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">数据源过滤 / SOURCE_FILTER</label>
+                                <input type="text" id="report-data-source" class="bg-[#111] border-white/5 focus:border-violet-500/50" placeholder="如 steam / taptap">
+                            </div>
+                            <div class="form-group">
+                                <label for="report-record-keys" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">指定原始记录 / RECORD_KEYS</label>
+                                <textarea id="report-record-keys" rows="3" class="bg-[#111] border-white/5 focus:border-violet-500/50 font-mono text-xs" placeholder="从数据浏览页选择记录后自动填充" oninput="syncReportRecordKeysFromTextarea()"></textarea>
+                                <div class="flex justify-between items-start mt-2">
+                                    <small class="text-zinc-600 text-[10px]">每行一个 storage key</small>
+                                    <button class="btn btn-ghost px-2 h-6 text-[10px] border border-white/10 rounded" type="button" onclick="clearSelectedReportRecords()">清空</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-json-files" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">上传数据集 / UPLOAD_JSON</label>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <input type="file" id="report-json-files" accept=".json,application/json" multiple class="flex-1 text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 bg-[#111] border border-white/5 rounded-lg p-1.5">
+                                    <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="uploadReportJsonFiles()">导入</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">已锁定数据源 / LOCKED_SOURCES</label>
+                                <div class="selected-source-list flex flex-wrap gap-2 min-h-[40px] p-3 bg-[#111] border border-white/5 rounded-lg" id="report-selected-records">
+                                    <p class="text-zinc-600 text-xs italic">Awaiting input data...</p>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-group-select" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">通过组导入 / IMPORT_GROUP</label>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <select id="report-group-select" class="flex-1 bg-[#111] border-white/5 focus:border-violet-500/50 text-xs h-8 py-1"></select>
+                                    <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="importReportGroupRecords()">Import</button>
+                                </div>
+                            </div>
+                            <div class="form-group mb-0">
+                                <label for="report-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">分析模板 / TEMPLATE</label>
+                                <select id="report-template" class="bg-[#111] border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
+                                    <option value="general_game">通用游戏模板</option>
+                                    <option value="taptap_game">TapTap游戏模板</option>
+                                    <option value="steam_game">Steam游戏模板</option>
+                                </select>
+                                <small class="text-zinc-500 mt-2 block" id="report-template-help"></small>
+                            </div>
+                            <div class="report-precheck mt-6" id="report-precheck" style="display: none;"></div>
+                            <div class="report-progress mt-6 bg-[#111] p-4 rounded-xl border border-white/5" id="report-progress" style="display: none;">
+                                <div class="flex justify-between items-end mb-2">
+                                    <span id="report-progress-stage" class="font-mono text-[10px] tracking-[0.2em] uppercase text-violet-400 px-1">Preparing</span>
+                                    <span id="report-progress-percent" class="text-xs font-mono text-zinc-300">0%</span>
+                                </div>
+                                <div class="progress-bar h-1.5 bg-zinc-900 rounded-full overflow-hidden mb-2">
+                                    <div class="progress-fill h-full bg-violet-500 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(139,92,246,0.6)]" style="background-image: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%); background-size: 200% 100%; animation: scan 2s linear infinite;" id="report-progress-fill"></div>
+                                </div>
+                                <div class="text-[11px] text-zinc-500 font-mono truncate" id="report-progress-message">Waiting...</div>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label for="report-json-files">上传 JSON 数据源</label>
-                            <div class="inline-actions" style="margin-top: 0.25rem;">
-                                <input type="file" id="report-json-files" accept=".json,application/json" multiple style="flex: 1;">
-                                <button class="btn btn-primary btn-sm" type="button" onclick="uploadReportJsonFiles()">导入数据列表</button>
-                            </div>
-                            <small class="text-muted" style="margin-top: 0.5rem;">上传后会写入本地数据列表，并自动加入本次报告输入。</small>
+                    </div>
+
+                    <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                        <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
+                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">报告历史记录</h2>
                         </div>
-                        <div class="form-group">
-                            <label>已添加数据源</label>
-                            <div class="selected-source-list" id="report-selected-records">
-                                <p class="text-muted">尚未添加 JSON 数据源</p>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="report-group-select">Import by data group</label>
-                            <div class="inline-actions" style="margin-top: 0.25rem;">
-                                <select id="report-group-select" style="flex: 1;"></select>
-                                <button class="btn btn-primary btn-sm" type="button" onclick="importReportGroupRecords()">Import group</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="report-template">模板</label>
-                            <select id="report-template" onchange="updateReportTemplateHelp()">
-                                <option value="general_game">通用游戏模板</option>
-                                <option value="taptap_game">TapTap游戏模板</option>
-                                <option value="steam_game">Steam游戏模板</option>
-                            </select>
-                            <small class="text-muted" id="report-template-help"></small>
-                        </div>
-                        <div class="report-precheck" id="report-precheck" style="display: none;"></div>
-                        <div class="report-progress" id="report-progress" style="display: none;">
-                            <div class="report-progress-row">
-                                <span id="report-progress-stage">Preparing</span>
-                                <span id="report-progress-percent">0%</span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="report-progress-fill" style="width: 0%;"></div>
-                            </div>
-                            <div class="text-muted" id="report-progress-message">Waiting</div>
+                        <div class="card-body px-6 pb-6" id="reports-list">
+                            <p class="text-zinc-600 text-sm">暂无历史记录</p>
                         </div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header"><h2>报告历史</h2></div>
-                    <div class="card-body" id="reports-list">
-                        <p class="text-muted">暂无报告</p>
+                <div class="h-full flex flex-col min-h-[800px]">
+                    <div class="flex items-center justify-between mb-4 px-2">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+                            输出控制台
+                        </h2>
                     </div>
-                </div>
-            </div>
-
-            <div class="card" style="margin-top: 1.5rem;">
-                <div class="card-header"><h2>报告内容</h2></div>
-                <div class="card-body">
-                    <pre class="report-output" id="report-content">尚未生成报告</pre>
+                    <div class="flex-1 bg-[#050505] border border-white/5 rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
+                        <pre class="report-output bg-transparent border-none p-0 shadow-none m-0 w-full h-full text-zinc-300 whitespace-pre-wrap font-sans text-[15px] leading-relaxed" id="report-content"><span class="text-zinc-600 font-mono text-sm">Waiting for analysis initialization...</span></pre>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section class="tab-content" id="tab-cron">
             <div class="section-header">
-                <h1>定时任务</h1>
-                <button class="btn btn-primary" onclick="showCreateCronModal()" id="btn-create-cron">+ 添加定时任务</button>
+                <h1>定时任务调度</h1>
+                <button class="btn btn-primary" onclick="showCreateCronModal()" id="btn-create-cron">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    添加定时任务
+                </button>
             </div>
 
-            <div class="card">
-                <div class="card-body" id="cron-list">
-                    <p class="text-muted">暂无定时任务</p>
+            <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务队列状态</h2>
+                </div>
+                <div class="card-body px-6 pb-6" id="cron-list">
+                    <p class="text-zinc-600 text-sm">暂无定时任务</p>
                 </div>
             </div>
         </section>
 
         <section class="tab-content" id="tab-agent">
-            <div class="section-header">
-                <h1>AI 助手</h1>
-                <div class="agent-toolbar">
-                    <select id="agent-provider-select" onchange="onAgentProviderChange()" title="选择 LLM 模型">
-                        <option value="">加载中...</option>
-                    </select>
-                    <button class="btn btn-ghost btn-sm" onclick="showProviderConfigModal()" title="配置模型供应商">⚙ 配置</button>
-                    <button class="btn btn-ghost" onclick="clearAgentHistory()" id="btn-clear-agent">清空对话</button>
+            <div class="section-header flex-wrap">
+                <div class="flex items-center gap-4">
+                    <h1 class="text-3xl font-black tracking-tighter text-white">HUD 终端</h1>
+                    <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20">
+                        <span class="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_5px_rgba(139,92,246,0.8)]"></span>
+                        <span class="text-[11px] text-violet-400 font-bold tracking-widest uppercase">Agent Active</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 mt-4 sm:mt-0">
+                    <div class="bg-[#111] border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                        <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-transparent border-none text-violet-300 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white" title="选择 LLM 模型">
+                            <option value="" class="bg-[#111] text-zinc-300">加载中...</option>
+                        </select>
+                        <div class="w-px h-5 bg-white/10 mx-1"></div>
+                        <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5 hover:text-white" onclick="showProviderConfigModal()" title="配置模型供应商">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        </button>
+                    </div>
+                    <button class="btn btn-ghost border border-white/10 hover:border-rose-500/50 hover:text-rose-400" onclick="clearAgentHistory()" id="btn-clear-agent">清空对话</button>
                 </div>
             </div>
-            <div class="agent-layout">
-                <div class="agent-sidebar">
-                    <div class="agent-sidebar-header">
-                        <h3>会话</h3>
-                        <button class="agent-sidebar-new" onclick="createAgentSession()">+ 新建</button>
+            
+            <div class="agent-layout grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 h-[calc(100vh-160px)] items-start">
+                <div class="agent-sidebar bg-[#0a0a0a] border border-white/5 rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between">
+                        <h3 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">会话列表</h3>
+                        <button class="agent-sidebar-new btn-ghost px-2 py-1 text-xs border border-violet-500/30 text-violet-400 rounded-md hover:bg-violet-500/20 hover:border-violet-400 transition-colors flex items-center gap-1 shadow-[0_0_8px_rgba(139,92,246,0.2)]" onclick="createAgentSession()">
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            新建
+                        </button>
                     </div>
-                    <div class="agent-session-list" id="agent-session-list"></div>
+                    <div class="agent-session-list flex-1 overflow-y-auto px-2 pb-2 space-y-1" id="agent-session-list"></div>
                 </div>
-                <div class="card agent-chat-panel">
-                    <div class="agent-messages" id="agent-messages">
-                        <div class="agent-message assistant">
-                            <div class="agent-avatar assistant">AI</div>
-                            <div class="agent-bubble assistant">
-                                <p>你好！我是游戏数据助手，可以帮你：</p>
-                                <ul>
+                
+                <div class="agent-chat-panel bg-[#050505] border border-white/5 rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500/30 to-transparent"></div>
+                    <div class="agent-messages flex-1 overflow-y-auto p-6 space-y-6" id="agent-messages">
+                        <div class="agent-message assistant flex gap-4 max-w-[85%] mr-auto">
+                            <div class="agent-avatar assistant w-8 h-8 rounded-md bg-[#111] border border-white/10 text-zinc-400 flex items-center justify-center text-[10px] font-bold tracking-widest shrink-0 shadow-[0_0_10px_rgba(255,255,255,0.05)]">SYS</div>
+                            <div class="agent-bubble assistant bg-[#111] border border-white/5 text-zinc-300 rounded-2xl rounded-tl-sm p-4 text-sm leading-relaxed shadow-lg">
+                                <p class="mb-2">你好！我是游戏数据助手，可以帮你：</p>
+                                <ul class="list-disc pl-5 space-y-1 text-zinc-400 marker:text-violet-500">
                                     <li>查看任务状态和系统概览</li>
                                     <li>创建数据采集任务</li>
                                     <li>配置 Pipeline 和定时任务</li>
                                     <li>浏览和搜索已采集数据</li>
                                     <li>生成数据分析报告</li>
                                 </ul>
-                                <p>请告诉我你需要什么帮助？</p>
+                                <p class="mt-2">请告诉我你需要什么帮助？</p>
                             </div>
                         </div>
                     </div>
-                    <div class="agent-input-area">
-                        <textarea id="agent-input" rows="1" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据"></textarea>
-                        <button class="btn btn-primary" onclick="sendAgentMessage()" id="btn-send-agent">发送</button>
+                    
+                    <div class="p-6 pt-2 bg-gradient-to-t from-[#050505] to-transparent">
+                        <div class="agent-input-area relative flex items-end gap-3 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] focus-within:border-violet-500/50 focus-within:shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all duration-300">
+                            <textarea id="agent-input" rows="1" class="flex-1 bg-transparent border-none text-zinc-200 text-sm focus:ring-0 resize-none max-h-32 min-h-[40px] py-2 px-3 outline-none" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据..."></textarea>
+                            <button class="btn btn-primary rounded-xl h-10 w-10 p-0 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(139,92,246,0.4)] hover:scale-105 transition-transform" onclick="sendAgentMessage()" id="btn-send-agent" title="发送">
+                                <svg class="w-5 h-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -426,41 +529,49 @@
 
         <section class="tab-content" id="tab-system">
             <div class="section-header">
-                <h1>系统检查</h1>
-                <button class="btn btn-ghost" onclick="loadSystemDiagnostics()" id="btn-refresh-system">刷新</button>
+                <h1>系统状态检查</h1>
+                <button class="btn btn-ghost" onclick="loadSystemDiagnostics()" id="btn-refresh-system">刷新诊断</button>
             </div>
 
-            <div class="stats-grid" id="system-status-grid">
+            <div class="stats-grid mb-8" id="system-status-grid">
                 <div class="stat-card">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-violet-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                     <div class="stat-value" id="system-overall-status">-</div>
-                    <div class="stat-label">总体状态</div>
+                    <div class="stat-label">系统总体状态</div>
                 </div>
                 <div class="stat-card stat-failed">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-rose-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <div class="stat-value" id="system-error-count">-</div>
-                    <div class="stat-label">错误</div>
+                    <div class="stat-label">存在故障</div>
                 </div>
-                <div class="stat-card stat-running">
+                <div class="stat-card">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-amber-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                     <div class="stat-value" id="system-warning-count">-</div>
-                    <div class="stat-label">警告</div>
+                    <div class="stat-label">系统警告</div>
                 </div>
                 <div class="stat-card stat-success">
+                    <svg class="absolute top-4 right-4 w-6 h-6 text-emerald-500/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                     <div class="stat-value" id="system-ok-count">-</div>
-                    <div class="stat-label">正常</div>
+                    <div class="stat-label">正常运行</div>
                 </div>
             </div>
 
-            <div class="system-layout">
-                <div class="card">
-                    <div class="card-header"><h2>诊断项目</h2></div>
-                    <div class="card-body" id="system-checks-list">
-                        <p class="text-muted">尚未加载诊断结果</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">诊断项目检查</h2>
+                    </div>
+                    <div class="card-body px-6 pb-6" id="system-checks-list">
+                        <p class="text-zinc-600 text-sm px-2">尚未加载诊断结果</p>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header"><h2>运行路径</h2></div>
-                    <div class="card-body" id="system-paths-list">
-                        <p class="text-muted">尚未加载路径信息</p>
+                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">系统路径清单</h2>
+                    </div>
+                    <div class="card-body px-6 pb-6" id="system-paths-list">
+                        <p class="text-zinc-600 text-sm px-2">尚未加载路径信息</p>
                     </div>
                 </div>
             </div>
@@ -653,35 +764,44 @@
     <div class="modal-overlay" id="modal-create-pipeline">
         <div class="modal">
             <div class="modal-header">
-                <h2>创建 Pipeline</h2>
+                <h2>新建 Pipeline</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-pipeline')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="pipeline-template">预设模板</label>
-                    <select id="pipeline-template" onchange="applyPipelineTemplate()">
-                        <option value="">-- 自定义 --</option>
+                    <label for="pipeline-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">预设模板 / TEMPLATE</label>
+                    <select id="pipeline-template" class="bg-[#111] border-white/5 focus:border-violet-500/50" onchange="applyPipelineTemplate()">
+                        <option value="">-- 自定义空白流 --</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-name">Pipeline 名称</label>
-                    <input type="text" id="pipeline-name" placeholder="例如：taptap_basic">
+                    <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">流标识符 / PIPELINE_NAME</label>
+                    <input type="text" id="pipeline-name" class="bg-[#111] border-white/5 focus:border-violet-500/50 font-mono text-sm" placeholder="例如：taptap_daily_flow">
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-collector">采集器</label>
-                    <select id="pipeline-collector"></select>
-                </div>
-                <div class="form-group checkbox-row">
-                    <label><input type="checkbox" id="pipeline-processor-cleaner" checked> cleaner</label>
-                    <label><input type="checkbox" id="pipeline-processor-embedding"> embedding</label>
-                </div>
-                <div class="form-group checkbox-row">
-                    <label><input type="checkbox" id="pipeline-storage-local" checked> local</label>
-                    <label><input type="checkbox" id="pipeline-storage-vector"> vector</label>
+                    <label for="pipeline-collector" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-cyan-400">入口采集器 / SOURCE_COLLECTOR</label>
+                    <select id="pipeline-collector" class="bg-[#111] border-white/5 focus:border-cyan-500/50 text-cyan-100"></select>
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-steps">Advanced Steps JSON</label>
-                    <textarea id="pipeline-steps" rows="8" placeholder='[
+                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-violet-400">处理中间件 / PROCESSORS</label>
+                    <div class="flex gap-6 mt-2">
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-processor-cleaner" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">cleaner</span></label>
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-processor-embedding" class="cyber-checkbox"> <span class="text-sm font-mono text-zinc-300">embedding</span></label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-emerald-400">存储目的地 / STORAGES</label>
+                    <div class="flex gap-6 mt-2">
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-local" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">local</span></label>
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-vector" class="cyber-checkbox"> <span class="text-sm font-mono text-zinc-300">vector</span></label>
+                    </div>
+                </div>
+                <div class="form-group mt-6">
+                    <label for="pipeline-steps" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 flex items-center justify-between">
+                        <span>高级 JSON 配置 / ADVANCED_STEPS</span>
+                        <span class="text-rose-400 text-[10px] font-normal lowercase tracking-normal">Danger Zone</span>
+                    </label>
+                    <textarea id="pipeline-steps" rows="6" class="bg-[#050505] border-white/10 focus:border-rose-500/50 font-mono text-xs shadow-[inset_0_0_15px_rgba(0,0,0,0.8)]" placeholder='[
   {"type": "collector", "name": "steam", "config": {}},
   {"type": "processor", "name": "cleaner", "config": {}},
   {"type": "storage", "name": "local", "config": {}}
@@ -690,7 +810,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-pipeline')">取消</button>
-                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline">创建</button>
+                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline">部署 Pipeline</button>
             </div>
         </div>
     </div>

@@ -38,10 +38,10 @@ export default {
         return;
       }
       list.innerHTML = Object.entries(components).map(([type, names]) => `
-        <div class="component-group">
-          <h3>${escapeHtml(type)}</h3>
-          <div class="component-tags">
-            ${names.map((name) => `<span class="component-tag">${escapeHtml(name)}</span>`).join('')}
+        <div class="component-group mb-6">
+          <h3 class="text-[10px] font-bold tracking-widest uppercase text-zinc-500 mb-3 border-b border-white/10 pb-1">--- ${escapeHtml(type)}S ---</h3>
+          <div class="flex flex-wrap gap-2">
+            ${names.map((name) => `<span class="component-tag type-${escapeHtml(type)}">${escapeHtml(name)}</span>`).join('')}
           </div>
         </div>
       `).join('');
@@ -54,7 +54,7 @@ export default {
       pipelineTemplates = await loadPipelineTemplates();
       const select = document.getElementById('pipeline-template');
       if (!select) return;
-      select.innerHTML = `<option value="">${t('pipelines.custom')}</option>`;
+      select.innerHTML = `<option value="">-- 自定义空白流 --</option>`;
       for (const template of pipelineTemplates) {
         select.insertAdjacentHTML('beforeend',
           `<option value="${template.id}">${escapeHtml(template.name)}</option>`);
@@ -70,19 +70,19 @@ export default {
 
       const entries = Object.entries(pipelines);
       if (!entries.length) {
-        list.innerHTML = `<p class="text-muted">${t('pipelines.empty.pipelines')}</p>`;
+        list.innerHTML = `<p class="text-zinc-600 text-sm">暂无 Pipeline</p>`;
         return;
       }
       list.innerHTML = entries.map(([name, config]) => `
-        <div class="pipeline-item">
-          <div class="pipeline-item-header">
-            <span class="pipeline-item-name">${escapeHtml(name)}</span>
-            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(name)}">${t('common.delete')}</button>
+        <div class="pipeline-item group bg-[#111] border border-white/5 rounded-xl p-4 mb-4 relative overflow-hidden transition-all duration-300 hover:border-white/10 hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+          <div class="flex items-center justify-between mb-4">
+            <span class="font-bold text-zinc-100 text-sm tracking-tight">${escapeHtml(name)}</span>
+            <button class="btn btn-danger h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]" data-delete="${escapeHtml(name)}">删除</button>
           </div>
-          <div class="pipeline-steps">
+          <div class="pipeline-steps flex items-center flex-wrap gap-2">
             ${(config.steps || []).map((step, index) => `
-              ${index > 0 ? '<span class="pipeline-arrow">-></span>' : ''}
-              <span class="pipeline-step-tag ${escapeHtml(step.type)}">${escapeHtml(step.type)}:${escapeHtml(step.name)}</span>
+              ${index > 0 ? '<svg class="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>' : ''}
+              <span class="component-tag type-${escapeHtml(step.type)}">${escapeHtml(step.name)}</span>
             `).join('')}
           </div>
         </div>
