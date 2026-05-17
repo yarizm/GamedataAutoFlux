@@ -434,3 +434,31 @@
 .markdown-body tr:hover { @apply bg-white/5; }
 .markdown-body a { @apply text-violet-400 hover:text-violet-300 underline underline-offset-4 decoration-violet-500/30 hover:decoration-violet-400 transition-colors; }
 .markdown-body hr { @apply border-white/10 my-8; }
+
+  /* Provider Config Modal Rows */
+  .provider-config-row {
+    @apply grid gap-3 p-4 mb-3 bg-zinc-800/50 border border-white/5 rounded-xl relative;
+    grid-template-columns: 1fr 1fr 2fr 2fr 36px;
+  }
+  .provider-config-row div {
+    @apply flex flex-col gap-1;
+  }
+  .provider-config-row label {
+    @apply text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-0;
+  }
+  .provider-config-row input {
+    @apply w-full bg-zinc-900 border border-white/10 text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 outline-none transition-all duration-300;
+    height: 32px;
+  }
+  .provider-config-row input:focus {
+    @apply border-violet-500 ring-2 ring-violet-500/40;
+  }
+  .provider-config-row input[readonly] {
+    @apply bg-zinc-800/50 text-zinc-500 cursor-not-allowed;
+  }
+  .provider-config-delete {
+    @apply flex items-center justify-center w-8 h-8 rounded-lg bg-transparent border border-transparent text-rose-500/50 text-lg cursor-pointer transition-all duration-300 mt-4;
+  }
+  .provider-config-delete:hover {
+    @apply bg-rose-500/10 border-rose-500/30 text-rose-400;
+  }

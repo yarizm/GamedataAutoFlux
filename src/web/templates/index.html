@@ -395,6 +395,13 @@
                                     <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="importReportGroupRecords()">Import</button>
                                 </div>
                             </div>
+                            <div class="form-group">
+                                <label for="report-provider" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">LLM 模型 / PROVIDER</label>
+                                <select id="report-provider" class="bg-zinc-800 border-white/5 focus:border-violet-500/50">
+                                    <option value="">使用默认</option>
+                                </select>
+                                <small class="text-zinc-500 mt-2 block text-[10px]">从 Agent 已配置的模型中选择。如需增减模型，请前往 Agent 页面配置。</small>
+                            </div>
                             <div class="form-group mb-0">
                                 <label for="report-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">分析模板 / TEMPLATE</label>
                                 <select id="report-template" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
@@ -472,7 +479,7 @@
                 </div>
                 <div class="flex items-center gap-3 mt-4 sm:mt-0">
                     <div class="bg-zinc-800 border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
-                        <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-transparent border-none text-violet-300 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white" title="选择 LLM 模型">
+                        <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-zinc-800 border-none text-white font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-violet-300" title="选择 LLM 模型">
                             <option value="" class="bg-zinc-800 text-zinc-300">加载中...</option>
                         </select>
                         <div class="w-px h-5 bg-white/10 mx-1"></div>
@@ -898,7 +905,9 @@
 
     {% if vite_dev %}
     <!-- Vite dev mode: no legacy scripts needed -->
+    <script>window._reportProviders = {{ providers_json | safe }};</script>
     {% elif vite_js %}
+    <script>window._reportProviders = {{ providers_json | safe }};</script>
     <script type="module" src="/static/dist/{{ vite_js }}"></script>
     {% else %}
     <!-- Fallback: legacy scripts (no Vite build available) -->

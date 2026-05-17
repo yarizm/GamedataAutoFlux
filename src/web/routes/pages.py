@@ -31,6 +31,12 @@ def _read_manifest() -> dict:
     return {}
 
 
+def _get_llm_providers() -> list[dict]:
+    """读取 LLM provider 列表，用于前端下拉框"""
+    from src.reporting.generator import ReportGenerator
+    return ReportGenerator.get_providers()
+
+
 def _vite_assets() -> dict[str, str]:
     manifest = _read_manifest()
     entry = manifest.get("src/main.js", {})
@@ -46,6 +52,7 @@ def _vite_assets() -> dict[str, str]:
 async def index(request: Request):
     """主页"""
     assets = _vite_assets()
+    providers = _get_llm_providers()
     return _get_templates().TemplateResponse(
         request=request,
         name="index.html",
@@ -54,5 +61,6 @@ async def index(request: Request):
             "vite_dev": _is_vite_dev(),
             "vite_js": assets.get("js", ""),
             "vite_css": assets.get("css", ""),
+            "providers_json": json.dumps(providers, ensure_ascii=False),
         },
     )

@@ -49,6 +49,7 @@ export default {
     this._unsub = store.subscribe((key, value) => {
       if (key === 'reportProgress') this._handleReportProgress(value);
     });
+    this._initReportProviderSelector();
     this.refresh();
     return this;
   },
@@ -57,6 +58,30 @@ export default {
 
   async refresh() {
     await Promise.all([this._loadTemplates(), this._loadReports(), this._loadGroups()]);
+  },
+
+  _initReportProviderSelector() {
+    const select = document.getElementById('report-provider');
+    if (!select) return;
+
+    const providers = window._reportProviders || [];
+
+    const providerLabel = (p) => {
+      const labels = { qwen: 'Qwen', deepseek: 'DeepSeek', openai: 'OpenAI', local: 'Local', sense: 'SenseNova' };
+      return labels[p] || p;
+    };
+
+    select.innerHTML = '<option value=\"\">' + t('reports.useDefault', '使用默认') + '</option>' +
+      providers.map(p => `<option value=\"${escapeHtml(p.key)}\">${escapeHtml(providerLabel(p.key))} — ${escapeHtml(p.model)}</option>`).join('');
+
+    const saved = localStorage.getItem('report_provider');
+    if (saved && [...select.options].some(o => o.value === saved)) {
+      select.value = saved;
+    }
+
+    select.addEventListener('change', () => {
+      localStorage.setItem('report_provider', select.value);
+    });
   },
 
   async _loadTemplates() {
@@ -268,12 +293,13 @@ export default {
     const prompt = document.getElementById('report-prompt')?.value.trim() || '';
     const dataSource = document.getElementById('report-data-source')?.value.trim() || '';
     const template = document.getElementById('report-template')?.value || 'default';
+    const provider = document.getElementById('report-provider')?.value || '';
     const recordKeysRaw = document.getElementById('report-record-keys')?.value.trim() || '';
     const recordKeys = recordKeysRaw ? recordKeysRaw.split(/\s+/).map(s => s.trim()).filter(Boolean) : [];
 
     if (!prompt) { toast(t('message.promptRequired'), 'error'); return; }
 
-    const payload = { prompt, data_source: dataSource, template, record_keys: recordKeys, params: {} };
+    const payload = { prompt, data_source: dataSource, template, provider, record_keys: recordKeys, params: {} };
     currentReportProgressId = `report_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     resetReportProgress();
     const button = document.getElementById('btn-generate-report');

@@ -31,6 +31,7 @@ class GenerateReportRequest(BaseModel):
     prompt: str = Field(..., description="提示词")
     data_source: str = Field(default="", description="数据源标识")
     template: str = Field(default="default", description="报告模板")
+    provider: str = Field(default="", description="LLM provider key, e.g. qwen/deepseek/sense/local")
     params: dict[str, Any] = Field(default_factory=dict, description="额外参数")
     record_keys: list[str] = Field(default_factory=list, description="指定用于报告的原始 JSON 记录 key")
 
@@ -90,6 +91,22 @@ class ReportPrecheckResponse(BaseModel):
 
 # ==================== 路由 ====================
 
+@router.get("/reports/providers")
+async def list_report_providers():
+    """列出可用于报告生成的 LLM provider 列表（直接从配置读取，不依赖 AgentService）"""
+    from src.reporting.generator import ReportGenerator
+
+    try:
+        providers = ReportGenerator.get_providers()
+    except Exception as exc:
+        logger.warning("读取 LLM provider 列表失败: {}", exc)
+        providers = []
+
+    from src.core.config import get as get_config
+    active = get_config("llm.provider", "")
+    return {"providers": providers, "active": active}
+
+
 @router.post("/reports/generate", response_model=ReportResponse)
 async def generate_report(
     req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]
@@ -102,6 +119,7 @@ async def generate_report(
         prompt=req.prompt,
         data_source=req.data_source,
         template=req.template,
+        provider=req.provider,
         params=req.params,
         records=records,
         metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,
@@ -272,6 +290,7 @@ async def generate_excel_report(
         prompt=req.prompt,
         data_source=req.data_source,
         template=req.template,
+        provider=req.provider,
         params=req.params,
         records=records,
         metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,

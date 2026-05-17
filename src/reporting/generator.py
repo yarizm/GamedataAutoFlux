@@ -76,11 +76,15 @@ class ReportGenerator:
         prompt: str,
         data_source: str = "",
         template: str = "default",
+        provider: str = "",
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> GeneratedReport:
-        self._llm_provider = get_config("llm.provider", "stub")
+        if provider:
+            self._llm_provider = provider
+        else:
+            self._llm_provider = get_config("llm.provider", "stub")
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -131,6 +135,7 @@ class ReportGenerator:
         prompt: str,
         data_source: str = "",
         template: str = "default",
+        provider: str = "",
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -141,7 +146,10 @@ class ReportGenerator:
         Flow: load records, extract structured fields, optionally ask the LLM,
         then write the .xlsx file.
         """
-        self._llm_provider = get_config("llm.provider", "stub")
+        if provider:
+            self._llm_provider = provider
+        else:
+            self._llm_provider = get_config("llm.provider", "stub")
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -442,7 +450,7 @@ class ReportGenerator:
                 fallback_enabled = bool(get_config(f"llm.{self._llm_provider}.fallback_to_stub", True))
                 if not fallback_enabled:
                     raise
-                provider_label = self._provider_label(self._llm_provider)
+                provider_label = self.provider_label(self._llm_provider)
                 return self._render_stub_report(
                     prompt=prompt,
                     data_source=data_source,
@@ -517,7 +525,7 @@ class ReportGenerator:
         template: str,
         records: list[StorageRecord],
     ) -> str:
-        provider_label = self._provider_label(provider)
+        provider_label = self.provider_label(provider)
         api_key = get_config(f"llm.{provider}.api_key", "")
         if provider == "local" and not api_key:
             api_key = "local"
@@ -658,7 +666,7 @@ class ReportGenerator:
         return content
 
     @staticmethod
-    def _provider_label(provider: str) -> str:
+    def provider_label(provider: str) -> str:
         labels = {
             "qwen": "Qwen",
             "deepseek": "DeepSeek",
@@ -667,6 +675,23 @@ class ReportGenerator:
             "sense": "SenseNova",
         }
         return labels.get(provider, provider)
+
+    @staticmethod
+    def get_providers() -> list[dict]:
+        """从配置读取所有可用的 LLM provider 列表（不依赖 AgentService）"""
+        llm_config = get_config("llm", {}) or {}
+        providers: list[dict] = []
+        for key, cfg in llm_config.items():
+            if key == "provider" or not isinstance(cfg, dict):
+                continue
+            model = cfg.get("model")
+            if model:
+                providers.append({
+                    "key": key,
+                    "label": ReportGenerator.provider_label(key),
+                    "model": model,
+                })
+        return providers
 
     def _build_record_context(self, records: list[StorageRecord], provider: str = "") -> str:
         if not records:
