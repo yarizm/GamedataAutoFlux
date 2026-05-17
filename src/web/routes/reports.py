@@ -10,6 +10,7 @@ from pathlib import Path as FilePath
 
 from fastapi import APIRouter, HTTPException, Query, Path, Body, File, UploadFile
 from fastapi.responses import FileResponse
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from src.reporting.generator import GeneratedReport, ReportSummary
