@@ -179,9 +179,9 @@ export default {
       const compLabel = { full: '完整', partial: '部分', empty: '空' }[comp] || comp;
       return `<tr class="group">
         <td class="cell-checkbox"><input type="checkbox" class="record-checkbox cyber-checkbox" data-key="${escapeHtml(record.key)}" ${checked}></td>
-        <td><code>${escapeHtml(record.key)}</code></td>
+        <td class="max-w-[150px] truncate" title="${escapeHtml(record.key)}"><code>${escapeHtml(record.key)}</code></td>
         <td>${escapeHtml(record.data_source)}</td>
-        <td><span class="completeness-badge completeness-${comp}" title="数据完整度: ${compLabel}">${compLabel}</span> ${escapeHtml(formatDataSummary(record.summary || {}))}</td>
+        <td class="max-w-[300px] truncate" title="${escapeHtml(formatDataSummary(record.summary || {}))}"><span class="completeness-badge completeness-${comp}" title="数据完整度: ${compLabel}">${compLabel}</span> ${escapeHtml(formatDataSummary(record.summary || {}))}</td>
         <td>${formatTime(record.stored_at)}</td>
         <td><div class="action-buttons flex gap-2 opacity-30 group-hover:opacity-100 transition-opacity duration-300">
           <button class="btn btn-ghost btn-sm" data-preview="${escapeHtml(record.key)}">预览</button>

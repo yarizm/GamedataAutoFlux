@@ -74,7 +74,7 @@ export default {
         return;
       }
       list.innerHTML = entries.map(([name, config]) => `
-        <div class="pipeline-item group bg-[#111] border border-white/5 rounded-xl p-4 mb-4 relative overflow-hidden transition-all duration-300 hover:border-white/10 hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+        <div class="pipeline-item group bg-zinc-800 border border-white/5 rounded-xl p-4 mb-4 relative overflow-hidden transition-all duration-300 hover:border-white/10 hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
           <div class="flex items-center justify-between mb-4">
             <span class="font-bold text-zinc-100 text-sm tracking-tight">${escapeHtml(name)}</span>
             <button class="btn btn-danger h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]" data-delete="${escapeHtml(name)}">删除</button>

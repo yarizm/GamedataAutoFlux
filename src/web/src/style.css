@@ -14,7 +14,7 @@
 @layer base {
   body {
     /* Extreme dark canvas with subtle grid pattern */
-    @apply bg-[#050505] text-zinc-300 font-sans antialiased;
+    @apply bg-zinc-950 text-zinc-300 font-sans antialiased;
     background-image: 
       linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
@@ -33,10 +33,10 @@
   
   /* Normalize form elements */
   input[type="text"], input[type="number"], input[type="date"], input[type="url"], select {
-    @apply bg-zinc-900/50 border border-white/10 text-zinc-200 text-sm rounded-lg focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40 focus:bg-zinc-900 block px-3 py-2 outline-none transition-all duration-300 h-10;
+    @apply w-full bg-zinc-900/50 border border-white/10 text-zinc-200 text-sm rounded-lg focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40 focus:bg-zinc-900 block px-3 py-2 outline-none transition-all duration-300 h-10;
   }
   textarea {
-    @apply bg-zinc-900/50 border border-white/10 text-zinc-200 text-sm rounded-lg focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40 focus:bg-zinc-900 block px-3 py-2 outline-none transition-all duration-300 min-h-[40px] resize-none overflow-hidden;
+    @apply w-full bg-zinc-900/50 border border-white/10 text-zinc-200 text-sm rounded-lg focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40 focus:bg-zinc-900 block px-3 py-2 outline-none transition-all duration-300 min-h-[40px] resize-none overflow-hidden;
   }
 }
 
@@ -47,7 +47,7 @@
   }
   
   .app-sidebar {
-    @apply w-64 flex-shrink-0 border-r border-white/5 bg-[#050505]/80 backdrop-blur-xl flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.5)];
+    @apply w-64 flex-shrink-0 border-r border-white/5 bg-zinc-950/80 backdrop-blur-xl flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.5)];
   }
   
   .app-main {
@@ -55,7 +55,7 @@
   }
   
   .app-header {
-    @apply h-16 flex-shrink-0 flex items-center justify-between px-6 md:px-8 lg:px-10 border-b border-white/5 bg-[#050505]/80 backdrop-blur-md z-10 w-full shadow-[0_4px_24px_rgba(0,0,0,0.5)];
+    @apply h-16 flex-shrink-0 flex items-center justify-between px-6 md:px-8 lg:px-10 border-b border-white/5 bg-zinc-950/80 backdrop-blur-md z-10 w-full shadow-[0_4px_24px_rgba(0,0,0,0.5)];
   }
   
   .app-content {
@@ -113,7 +113,7 @@
     @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 mb-8;
   }
   .stat-card {
-    @apply bg-[#0a0a0a] border border-white/5 rounded-xl p-5 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden;
+    @apply bg-zinc-900 border border-white/5 rounded-xl p-5 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden;
   }
   .stat-card:hover {
     @apply -translate-y-1 border-violet-500/30 shadow-[0_8px_30px_rgba(139,92,246,0.1)];
@@ -127,7 +127,7 @@
 
   /* Cards */
   .card {
-    @apply bg-[#0a0a0a] border border-white/5 rounded-xl p-6 mb-6 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)];
+    @apply bg-zinc-900 border border-white/5 rounded-xl p-6 mb-6 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)];
   }
   .card:hover {
     @apply border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.8)];
@@ -144,7 +144,7 @@
 
   /* Buttons */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 h-10 border border-white/5 rounded-lg text-sm font-medium cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] whitespace-nowrap outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#050505] bg-[#111] text-zinc-300 shadow-sm relative overflow-hidden;
+    @apply inline-flex items-center justify-center gap-2 px-4 h-10 border border-white/10 rounded-lg text-sm font-medium cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] whitespace-nowrap outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-950 bg-zinc-800 text-zinc-300 shadow-sm relative overflow-hidden;
   }
   .btn:active { @apply scale-[0.96]; }
   
@@ -188,7 +188,7 @@
   /* Tables */
   .table { @apply w-full text-left text-sm whitespace-nowrap; }
   .table th {
-    @apply px-4 py-3 font-semibold text-zinc-500 border-b border-white/5 uppercase tracking-widest text-[11px] bg-[#050505]/50;
+    @apply px-4 py-3 font-semibold text-zinc-500 border-b border-white/5 uppercase tracking-widest text-[11px] bg-zinc-950/50;
   }
   .table td {
     @apply px-4 py-3 border-b border-white/5 text-zinc-300 tabular-nums;
@@ -215,7 +215,7 @@
   }
   .modal-overlay.show { @apply flex animate-[fadeIn_0.2s_ease-out]; }
   .modal {
-    @apply bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 w-[90%] max-w-2xl max-h-[85vh] overflow-y-auto shadow-[0_20px_50px_rgba(0,0,0,0.8)] transform transition-all;
+    @apply bg-zinc-900 border border-white/10 rounded-2xl p-6 w-[90%] max-w-2xl max-h-[85vh] overflow-y-auto shadow-[0_20px_50px_rgba(0,0,0,0.8)] transform transition-all;
   }
   .modal-wide { @apply max-w-4xl; }
   .modal-header { @apply flex items-center justify-between mb-6 pb-4 border-b border-white/5; }
@@ -240,7 +240,7 @@
   .toast {
     @apply px-4 py-3 rounded-xl text-sm font-medium shadow-[0_10px_30px_rgba(0,0,0,0.5)] animate-[slideInRight_0.3s_cubic-bezier(0.4,0,0.2,1)] pointer-events-auto border backdrop-blur-md;
   }
-  .toast-info { @apply bg-[#0a0a0a]/90 text-zinc-200 border-white/10; }
+  .toast-info { @apply bg-zinc-900/90 text-zinc-200 border-white/10; }
   .toast-success { @apply bg-emerald-950/90 text-emerald-200 border-emerald-500/30; }
   .toast-error { @apply bg-rose-950/90 text-rose-200 border-rose-500/30; }
 
@@ -292,7 +292,7 @@
   
   /* Batch action bar - sticky bottom pill */
   .batch-action-bar {
-    @apply fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 shadow-[0_20px_40px_rgba(0,0,0,0.8)] z-50 flex items-center gap-4 animate-[slideUp_0.3s_cubic-bezier(0.4,0,0.2,1)];
+    @apply fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 shadow-[0_20px_40px_rgba(0,0,0,0.8)] z-50 flex items-center gap-4 animate-[slideUp_0.3s_cubic-bezier(0.4,0,0.2,1)];
   }
   #data-batch-count {
     @apply text-sm font-bold text-violet-400 tracking-wide;
@@ -304,11 +304,11 @@
   .agent-message.assistant { @apply mr-auto; }
   .agent-message.user { @apply ml-auto flex-row-reverse; }
   .agent-avatar { @apply w-8 h-8 rounded-md flex items-center justify-center font-bold tracking-widest text-[10px] shrink-0 shadow-[0_0_10px_rgba(255,255,255,0.05)]; }
-  .agent-avatar.assistant { @apply bg-[#111] text-zinc-400 border border-white/10; }
+  .agent-avatar.assistant { @apply bg-zinc-800 text-zinc-400 border border-white/10; }
   .agent-avatar.user { @apply bg-violet-600 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]; }
   
   .agent-bubble { @apply p-4 rounded-2xl text-sm leading-relaxed shadow-lg; }
-  .agent-bubble.assistant { @apply bg-[#111] border border-white/5 text-zinc-300 rounded-tl-sm; }
+  .agent-bubble.assistant { @apply bg-zinc-800 border border-white/5 text-zinc-300 rounded-tl-sm; }
   .agent-bubble.user { @apply bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-tr-sm shadow-[0_0_15px_rgba(139,92,246,0.3)]; }
   
   .agent-session-item { @apply flex items-center justify-between p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden mb-1; }
@@ -320,26 +320,26 @@
   .agent-session-item:hover .agent-session-delete { @apply opacity-100; }
   
   .agent-step-text { @apply mt-3 mb-2 text-zinc-300 leading-relaxed; }
-  .agent-tool-line { @apply font-mono text-xs mb-1.5 flex items-start gap-2 bg-[#050505] p-2 border border-white/5 rounded; }
+  .agent-tool-line { @apply font-mono text-xs mb-1.5 flex items-start gap-2 bg-zinc-950 p-2 border border-white/5 rounded; }
   .agent-tool-badge { @apply text-amber-400 shrink-0 font-bold; }
   .agent-tool-result-inline { @apply text-emerald-400 whitespace-pre-wrap flex-1 opacity-80; }
-  .agent-thinking-drawer { @apply my-2 bg-[#050505] border border-white/5 rounded px-3 py-2 text-zinc-500 text-xs font-mono; }
+  .agent-thinking-drawer { @apply my-2 bg-zinc-950 border border-white/5 rounded px-3 py-2 text-zinc-500 text-xs font-mono; }
   .agent-thinking-drawer summary { @apply cursor-pointer font-bold tracking-widest uppercase hover:text-violet-400 transition-colors; }
   .agent-status-indicator { @apply text-xs font-mono text-cyan-400 animate-pulse mt-2 flex items-center gap-2; }
   .agent-status-indicator::before { content: ''; @apply block w-1.5 h-1.5 rounded-full bg-cyan-400; }
   
   .wizard-steps { @apply flex items-center justify-between mb-8 relative; }
   .wizard-steps::before { @apply content-[''] absolute top-1/2 left-0 w-full h-[2px] bg-white/5 -translate-y-1/2 z-0; }
-  .wizard-step { @apply relative z-10 flex flex-col items-center gap-2 bg-[#0a0a0a] px-4 text-sm font-medium text-zinc-600 transition-all duration-300; }
+  .wizard-step { @apply relative z-10 flex flex-col items-center gap-2 bg-zinc-900 px-4 text-sm font-medium text-zinc-600 transition-all duration-300; }
   .wizard-step.active { @apply text-violet-400 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]; }
-  .wizard-step-num { @apply w-8 h-8 rounded-full flex items-center justify-center bg-[#111] border-2 border-zinc-800 text-xs transition-all duration-300; }
+  .wizard-step-num { @apply w-8 h-8 rounded-full flex items-center justify-center bg-zinc-800 border-2 border-zinc-800 text-xs transition-all duration-300; }
   .wizard-step.active .wizard-step-num { @apply bg-violet-900/30 border-violet-500 text-violet-300 shadow-[0_0_15px_rgba(139,92,246,0.5)]; }
 
   .filter-bar { @apply flex flex-wrap items-center gap-3 p-1; }
   
   /* Additional completeness badge mapping for data records */
   .completeness-badge {
-    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-white/10 bg-[#111];
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-white/10 bg-zinc-800;
   }
   .completeness-badge::before {
     content: '';
@@ -372,7 +372,7 @@
 
 /* Utilities */
 .text-muted { @apply text-zinc-500; }
-.report-output { @apply bg-[#050505] p-5 rounded-xl font-mono text-sm overflow-auto border border-white/5 text-zinc-300 leading-relaxed shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]; }
+.report-output { @apply bg-zinc-950 p-5 rounded-xl font-mono text-sm overflow-auto border border-white/5 text-zinc-300 leading-relaxed shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]; }
 
 /* Terminal Console UI for Tasks */
 .terminal-console {
@@ -409,3 +409,28 @@
 .component-tag.type-storage {
   @apply bg-emerald-500/10 text-emerald-300 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.1)] hover:bg-emerald-500/20 hover:border-emerald-400 hover:shadow-[0_0_12px_rgba(16,185,129,0.4)];
 }
+
+/* Markdown Body for Reports & Agent */
+.markdown-body {
+  @apply text-sm leading-relaxed text-zinc-300;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  @apply text-zinc-100 font-bold tracking-tight mb-4 mt-6;
+}
+.markdown-body h1 { @apply text-2xl border-b border-white/10 pb-2; }
+.markdown-body h2 { @apply text-xl border-b border-white/5 pb-2; }
+.markdown-body h3 { @apply text-lg; }
+.markdown-body p { @apply mb-4; }
+.markdown-body ul { @apply list-disc list-outside ml-6 mb-4 marker:text-violet-500; }
+.markdown-body ol { @apply list-decimal list-outside ml-6 mb-4 marker:text-violet-500; }
+.markdown-body li { @apply mb-1; }
+.markdown-body blockquote { @apply border-l-4 border-violet-500/50 pl-4 py-1 italic text-zinc-400 bg-violet-500/5 rounded-r my-4; }
+.markdown-body code { @apply font-mono text-xs text-violet-300 bg-zinc-900 px-1.5 py-0.5 rounded border border-white/5; }
+.markdown-body pre { @apply bg-zinc-950 p-4 rounded-xl font-mono text-sm overflow-x-auto border border-white/10 mb-4 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]; }
+.markdown-body pre code { @apply bg-transparent border-none p-0 text-zinc-300; }
+.markdown-body table { @apply w-full text-left border-collapse mb-4 block overflow-x-auto; }
+.markdown-body th { @apply px-4 py-2 border-b border-white/10 text-zinc-100 font-semibold bg-zinc-900; }
+.markdown-body td { @apply px-4 py-2 border-b border-white/5; }
+.markdown-body tr:hover { @apply bg-white/5; }
+.markdown-body a { @apply text-violet-400 hover:text-violet-300 underline underline-offset-4 decoration-violet-500/30 hover:decoration-violet-400 transition-colors; }
+.markdown-body hr { @apply border-white/10 my-8; }

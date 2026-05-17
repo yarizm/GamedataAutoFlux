@@ -91,7 +91,7 @@ export default {
         type: 'pie',
         radius: ['55%', '80%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 4, borderColor: '#0a0a0a', borderWidth: 2 },
+        itemStyle: { borderRadius: 4, borderColor: '#18181b', borderWidth: 2 },
         label: { show: false, position: 'center' },
         emphasis: { 
           label: { show: true, fontSize: 18, fontWeight: 'bold', color: '#e4e4e7' },

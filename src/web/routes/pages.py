@@ -25,15 +25,10 @@ def _is_vite_dev() -> bool:
 
 
 def _read_manifest() -> dict:
-    global _MANIFEST_CACHE
-    if _MANIFEST_CACHE is not None:
-        return _MANIFEST_CACHE
     manifest_path = Path(__file__).parent.parent / "static" / "dist" / ".vite" / "manifest.json"
     if manifest_path.exists():
-        _MANIFEST_CACHE = json.loads(manifest_path.read_text(encoding="utf-8"))
-    else:
-        _MANIFEST_CACHE = {}
-    return _MANIFEST_CACHE
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {}
 
 
 def _vite_assets() -> dict[str, str]:

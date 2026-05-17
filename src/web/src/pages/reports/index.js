@@ -1,5 +1,14 @@
 import { api, toast, escapeHtml, formatTime, setValue, setText } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+function renderSafeMarkdown(content) {
+  const text = String(content || '');
+  try {
+    return DOMPurify.sanitize(marked.parse(text));
+  } catch { return escapeHtml(text); }
+}
 
 let reportTemplates = [];
 let selectedReportRecordKeys = [];
@@ -305,7 +314,7 @@ export default {
   _renderReport(report) {
     const container = document.getElementById('report-content');
     if (!container) return;
-    let html = `<pre>${escapeHtml(report.content || '')}</pre>`;
+    let html = `<div class="markdown-body">${renderSafeMarkdown(report.content || '')}</div>`;
     const isExcel = report.metadata?.format === 'excel' || report.metadata?.excel_path;
     if (isExcel) {
       html = `<div style="margin-bottom:1rem;padding:1rem;background:var(--bg-card);border-radius:4px;border:1px solid var(--border)">

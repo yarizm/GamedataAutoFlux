@@ -48,8 +48,8 @@ export default {
     tbody.innerHTML = tasks.map((task) => `
       <tr class="group">
         <td><code>${task.id}</code></td>
-        <td>${escapeHtml(task.name)}</td>
-        <td>${escapeHtml(task.pipeline_name || '-')}</td>
+        <td class="max-w-[200px] truncate" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
+        <td class="max-w-[150px] truncate" title="${escapeHtml(task.pipeline_name || '-')}">${escapeHtml(task.pipeline_name || '-')}</td>
         <td>${renderBadge(task.status)}</td>
         <td>${renderProgress(task.progress)}</td>
         <td>${task.targets_count}</td>
@@ -346,7 +346,7 @@ export default {
     try {
       const data = await api(`/tasks/${id}/logs`);
       if (!data.logs.length) { container.innerHTML = `<p class="text-muted">${t('common.empty.logs')}</p>`; return; }
-      container.innerHTML = `<div class="terminal-console bg-[#050505] border border-white/5 p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
+      container.innerHTML = `<div class="terminal-console bg-zinc-950 border border-white/5 p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
         const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
         return `<div class="terminal-line log-entry ${statusClass}">
           <span class="log-time text-zinc-600 mr-2">${log.started_at ? formatTime(log.started_at) : ''}</span>
@@ -371,7 +371,7 @@ export default {
       const autoReportLink = task.result_summary?.generated_report_id
         ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">${t('tasks.generatedReport')}</button></div>` : '';
       const latestLogs = task.step_logs?.length
-        ? `<div class="terminal-console bg-[#050505] border border-white/5 p-3 rounded-lg max-h-48 overflow-y-auto">` + task.step_logs.slice(-8).map(log => `<div class="terminal-line log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
+        ? `<div class="terminal-console bg-zinc-950 border border-white/5 p-3 rounded-lg max-h-48 overflow-y-auto">` + task.step_logs.slice(-8).map(log => `<div class="terminal-line log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
             <span class="log-time text-zinc-600">${log.started_at ? formatTime(log.started_at) : ''}</span>
             <span class="log-step text-violet-400">[${escapeHtml(log.step)}]</span>
             <span class="log-message text-zinc-300">${escapeHtml(log.message||'')}</span>
@@ -381,7 +381,7 @@ export default {
 
       container.innerHTML = `
         <div class="detail-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="detail-card bg-[#0a0a0a] border border-white/5 p-4 rounded-xl flex flex-col gap-3">
+          <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
             <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('tasks.basic')}</h3>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">ID</span><code class="text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">${task.id}</code></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.name')}</span><span class="text-zinc-200 font-medium">${escapeHtml(task.name)}</span></div>
@@ -391,7 +391,7 @@ export default {
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Retry</span><span class="text-zinc-200">${task.retry_count}/${task.max_retries}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-rose-400 truncate max-w-[200px]" title="${escapeHtml(task.error||'-')}">${escapeHtml(task.error||'-')}</span></div>
           </div>
-          <div class="detail-card bg-[#0a0a0a] border border-white/5 p-4 rounded-xl flex flex-col gap-3">
+          <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
             <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('common.description')}</h3>
             <p class="text-sm text-zinc-400">${escapeHtml(task.description||t('common.none'))}</p>
             <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mt-2 mb-1">${t('tasks.recentLogs')}</h3>

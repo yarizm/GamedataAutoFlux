@@ -179,14 +179,14 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-4 mt-4 sm:mt-0">
-                    <div class="bg-[#111] border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                    <div class="bg-zinc-800 border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
                         <select id="task-status-filter" onchange="loadTasks()" class="bg-transparent border-none text-zinc-100 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white">
-                            <option value="" class="bg-[#111] text-zinc-300">全部状态</option>
-                            <option value="pending" class="bg-[#111] text-amber-400">等待中</option>
-                            <option value="running" class="bg-[#111] text-cyan-400">运行中</option>
-                            <option value="success" class="bg-[#111] text-emerald-400">已完成</option>
-                            <option value="failed" class="bg-[#111] text-rose-400">失败</option>
-                            <option value="cancelled" class="bg-[#111] text-zinc-400">已取消</option>
+                            <option value="" class="bg-zinc-800 text-zinc-300">全部状态</option>
+                            <option value="pending" class="bg-zinc-800 text-amber-400">等待中</option>
+                            <option value="running" class="bg-zinc-800 text-cyan-400">运行中</option>
+                            <option value="success" class="bg-zinc-800 text-emerald-400">已完成</option>
+                            <option value="failed" class="bg-zinc-800 text-rose-400">失败</option>
+                            <option value="cancelled" class="bg-zinc-800 text-zinc-400">已取消</option>
                         </select>
                         <div class="w-px h-5 bg-white/10 mx-1"></div>
                         <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5 hover:text-white" onclick="loadTasks()" title="手动刷新">
@@ -197,7 +197,7 @@
                 </div>
             </div>
 
-            <div class="card mb-0 bg-[#0a0a0a] border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+            <div class="card mb-0 bg-zinc-900 border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
                 <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                     <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务列表</h2>
                 </div>
@@ -233,7 +233,7 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
-                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl">
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                         <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">可用组件库</h2>
                     </div>
@@ -242,7 +242,7 @@
                     </div>
                 </div>
 
-                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                         <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">已配置流水线</h2>
                     </div>
@@ -254,7 +254,7 @@
         </section>
 
         <section class="tab-content" id="tab-data">
-            <div class="section-header flex-wrap mb-4">
+            <div class="section-header flex-wrap">
                 <div class="flex items-center gap-4">
                     <h1>数据浏览</h1>
                 </div>
@@ -262,7 +262,7 @@
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     </div>
-                    <input type="text" id="data-search-query" class="w-full pl-10 pr-20 py-2 bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 rounded-full text-zinc-200 text-sm focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/50 shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all duration-300 placeholder-zinc-600" placeholder="搜索任务名称、游戏名、或数据记录...">
+                    <input type="text" id="data-search-query" class="w-full pl-10 pr-20 py-2 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-full text-zinc-200 text-sm focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/50 shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all duration-300 placeholder-zinc-600" placeholder="搜索任务名称、游戏名、或数据记录...">
                     <button class="absolute inset-y-1 right-1 btn-primary px-3 text-xs rounded-full shadow-[0_0_10px_rgba(139,92,246,0.3)] hover:shadow-[0_0_15px_rgba(139,92,246,0.5)]" onclick="searchDataRecords()">Search</button>
                 </div>
                 <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5" onclick="loadDataGames()" id="btn-refresh-data" title="刷新列表">
@@ -271,7 +271,7 @@
             </div>
 
             <div class="data-browser-layout grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start h-[calc(100vh-160px)]">
-                <div class="card data-game-panel h-full flex flex-col mb-0 border-white/5 bg-[#0a0a0a] p-0 overflow-hidden rounded-2xl shadow-2xl">
+                <div class="card data-game-panel h-full flex flex-col mb-0 border-white/5 bg-zinc-900 p-0 overflow-hidden rounded-2xl shadow-2xl">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-2">
                         <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">游戏索引</h2>
                     </div>
@@ -280,14 +280,14 @@
                     </div>
                 </div>
 
-                <div class="card data-record-panel h-full flex flex-col mb-0 border-white/5 bg-[#0a0a0a] p-0 overflow-hidden rounded-2xl shadow-2xl">
+                <div class="card data-record-panel h-full flex flex-col mb-0 border-white/5 bg-zinc-900 p-0 overflow-hidden rounded-2xl shadow-2xl">
                     <div class="card-header flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/5 mb-4">
                         <div class="flex-1 min-w-0 pr-4">
                             <h2 id="data-records-title" class="text-xl font-bold text-white tracking-tight truncate mb-1">选择一个游戏</h2>
                             <div class="text-[11px] font-mono text-zinc-500 tracking-wide truncate" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
-                            <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)" class="bg-[#111] border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
+                            <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)" class="bg-zinc-800 border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
                                 <option value="">全部数据源</option>
                             </select>
                             <button class="btn btn-ghost h-8 px-2 text-xs border border-white/10" onclick="loadDataGroups()">Groups</button>
@@ -303,13 +303,13 @@
                         </div>
                         
                         <div class="flex justify-end mb-3">
-                            <select id="data-sort-order" onchange="currentDataSortOrder=this.value;loadSelectedGameRecords(1)" class="bg-[#111] border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
+                            <select id="data-sort-order" onchange="currentDataSortOrder=this.value;loadSelectedGameRecords(1)" class="bg-zinc-800 border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
                                 <option value="desc">最新优先</option>
                                 <option value="asc">最早优先</option>
                             </select>
                         </div>
                         
-                        <div class="overflow-y-auto min-w-0 flex-1 border border-white/5 rounded-lg mb-4">
+                        <div class="overflow-y-auto overflow-x-auto min-w-0 flex-1 min-h-[200px] border border-white/5 rounded-lg mb-4">
                             <table class="table" id="data-records-table">
                                 <thead>
                                     <tr>
@@ -327,7 +327,7 @@
                             </table>
                         </div>
                         
-                        <div class="shrink-0 h-[400px] flex flex-col">
+                        <div class="shrink-0 h-[250px] flex flex-col">
                             <div class="flex items-center justify-between mb-3 px-1">
                                 <h3 class="text-zinc-100 font-bold tracking-tight text-sm uppercase">原始记录预览</h3>
                                 <div class="flex gap-1.5">
@@ -354,22 +354,22 @@
 
             <div class="reports-layout grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
                 <div class="flex flex-col gap-6">
-                    <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
                         <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
                             <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">分析参数配置</h2>
                         </div>
                         <div class="card-body px-6 pb-6">
                             <div class="form-group">
                                 <label for="report-prompt" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">核心提示词 / PROMPT</label>
-                                <textarea id="report-prompt" rows="5" class="bg-[#111] border-white/5 focus:border-violet-500/50" placeholder="例如：总结最近落库的移动端游戏表现"></textarea>
+                                <textarea id="report-prompt" rows="5" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" placeholder="例如：总结最近落库的移动端游戏表现"></textarea>
                             </div>
                             <div class="form-group">
                                 <label for="report-data-source" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">数据源过滤 / SOURCE_FILTER</label>
-                                <input type="text" id="report-data-source" class="bg-[#111] border-white/5 focus:border-violet-500/50" placeholder="如 steam / taptap">
+                                <input type="text" id="report-data-source" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" placeholder="如 steam / taptap">
                             </div>
                             <div class="form-group">
                                 <label for="report-record-keys" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">指定原始记录 / RECORD_KEYS</label>
-                                <textarea id="report-record-keys" rows="3" class="bg-[#111] border-white/5 focus:border-violet-500/50 font-mono text-xs" placeholder="从数据浏览页选择记录后自动填充" oninput="syncReportRecordKeysFromTextarea()"></textarea>
+                                <textarea id="report-record-keys" rows="3" class="bg-zinc-800 border-white/5 focus:border-violet-500/50 font-mono text-xs" placeholder="从数据浏览页选择记录后自动填充" oninput="syncReportRecordKeysFromTextarea()"></textarea>
                                 <div class="flex justify-between items-start mt-2">
                                     <small class="text-zinc-600 text-[10px]">每行一个 storage key</small>
                                     <button class="btn btn-ghost px-2 h-6 text-[10px] border border-white/10 rounded" type="button" onclick="clearSelectedReportRecords()">清空</button>
@@ -378,26 +378,26 @@
                             <div class="form-group">
                                 <label for="report-json-files" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">上传数据集 / UPLOAD_JSON</label>
                                 <div class="flex items-center gap-2 mt-1">
-                                    <input type="file" id="report-json-files" accept=".json,application/json" multiple class="flex-1 text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 bg-[#111] border border-white/5 rounded-lg p-1.5">
+                                    <input type="file" id="report-json-files" accept=".json,application/json" multiple class="flex-1 text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 bg-zinc-800 border border-white/5 rounded-lg p-1.5">
                                     <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="uploadReportJsonFiles()">导入</button>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">已锁定数据源 / LOCKED_SOURCES</label>
-                                <div class="selected-source-list flex flex-wrap gap-2 min-h-[40px] p-3 bg-[#111] border border-white/5 rounded-lg" id="report-selected-records">
+                                <div class="selected-source-list flex flex-wrap gap-2 min-h-[40px] p-3 bg-zinc-800 border border-white/5 rounded-lg" id="report-selected-records">
                                     <p class="text-zinc-600 text-xs italic">Awaiting input data...</p>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label for="report-group-select" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">通过组导入 / IMPORT_GROUP</label>
                                 <div class="flex items-center gap-2 mt-1">
-                                    <select id="report-group-select" class="flex-1 bg-[#111] border-white/5 focus:border-violet-500/50 text-xs h-8 py-1"></select>
+                                    <select id="report-group-select" class="flex-1 bg-zinc-800 border-white/5 focus:border-violet-500/50 text-xs h-8 py-1"></select>
                                     <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="importReportGroupRecords()">Import</button>
                                 </div>
                             </div>
                             <div class="form-group mb-0">
                                 <label for="report-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">分析模板 / TEMPLATE</label>
-                                <select id="report-template" class="bg-[#111] border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
+                                <select id="report-template" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
                                     <option value="general_game">通用游戏模板</option>
                                     <option value="taptap_game">TapTap游戏模板</option>
                                     <option value="steam_game">Steam游戏模板</option>
@@ -405,7 +405,7 @@
                                 <small class="text-zinc-500 mt-2 block" id="report-template-help"></small>
                             </div>
                             <div class="report-precheck mt-6" id="report-precheck" style="display: none;"></div>
-                            <div class="report-progress mt-6 bg-[#111] p-4 rounded-xl border border-white/5" id="report-progress" style="display: none;">
+                            <div class="report-progress mt-6 bg-zinc-800 p-4 rounded-xl border border-white/5" id="report-progress" style="display: none;">
                                 <div class="flex justify-between items-end mb-2">
                                     <span id="report-progress-stage" class="font-mono text-[10px] tracking-[0.2em] uppercase text-violet-400 px-1">Preparing</span>
                                     <span id="report-progress-percent" class="text-xs font-mono text-zinc-300">0%</span>
@@ -418,7 +418,7 @@
                         </div>
                     </div>
 
-                    <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
                         <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
                             <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">报告历史记录</h2>
                         </div>
@@ -435,7 +435,7 @@
                             输出控制台
                         </h2>
                     </div>
-                    <div class="flex-1 bg-[#050505] border border-white/5 rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
+                    <div class="flex-1 bg-zinc-950 border border-white/5 rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
                         <pre class="report-output bg-transparent border-none p-0 shadow-none m-0 w-full h-full text-zinc-300 whitespace-pre-wrap font-sans text-[15px] leading-relaxed" id="report-content"><span class="text-zinc-600 font-mono text-sm">Waiting for analysis initialization...</span></pre>
                     </div>
                 </div>
@@ -451,7 +451,7 @@
                 </button>
             </div>
 
-            <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
                 <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                     <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务队列状态</h2>
                 </div>
@@ -471,9 +471,9 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3 mt-4 sm:mt-0">
-                    <div class="bg-[#111] border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                    <div class="bg-zinc-800 border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
                         <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-transparent border-none text-violet-300 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white" title="选择 LLM 模型">
-                            <option value="" class="bg-[#111] text-zinc-300">加载中...</option>
+                            <option value="" class="bg-zinc-800 text-zinc-300">加载中...</option>
                         </select>
                         <div class="w-px h-5 bg-white/10 mx-1"></div>
                         <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5 hover:text-white" onclick="showProviderConfigModal()" title="配置模型供应商">
@@ -485,7 +485,7 @@
             </div>
             
             <div class="agent-layout grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 h-[calc(100vh-160px)] items-start">
-                <div class="agent-sidebar bg-[#0a0a0a] border border-white/5 rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
+                <div class="agent-sidebar bg-zinc-900 border border-white/5 rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between">
                         <h3 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">会话列表</h3>
                         <button class="agent-sidebar-new btn-ghost px-2 py-1 text-xs border border-violet-500/30 text-violet-400 rounded-md hover:bg-violet-500/20 hover:border-violet-400 transition-colors flex items-center gap-1 shadow-[0_0_8px_rgba(139,92,246,0.2)]" onclick="createAgentSession()">
@@ -496,12 +496,12 @@
                     <div class="agent-session-list flex-1 overflow-y-auto px-2 pb-2 space-y-1" id="agent-session-list"></div>
                 </div>
                 
-                <div class="agent-chat-panel bg-[#050505] border border-white/5 rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+                <div class="agent-chat-panel bg-zinc-950 border border-white/5 rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500/30 to-transparent"></div>
                     <div class="agent-messages flex-1 overflow-y-auto p-6 space-y-6" id="agent-messages">
                         <div class="agent-message assistant flex gap-4 max-w-[85%] mr-auto">
-                            <div class="agent-avatar assistant w-8 h-8 rounded-md bg-[#111] border border-white/10 text-zinc-400 flex items-center justify-center text-[10px] font-bold tracking-widest shrink-0 shadow-[0_0_10px_rgba(255,255,255,0.05)]">SYS</div>
-                            <div class="agent-bubble assistant bg-[#111] border border-white/5 text-zinc-300 rounded-2xl rounded-tl-sm p-4 text-sm leading-relaxed shadow-lg">
+                            <div class="agent-avatar assistant w-8 h-8 rounded-md bg-zinc-800 border border-white/10 text-zinc-400 flex items-center justify-center text-[10px] font-bold tracking-widest shrink-0 shadow-[0_0_10px_rgba(255,255,255,0.05)]">SYS</div>
+                            <div class="agent-bubble assistant bg-zinc-800 border border-white/5 text-zinc-300 rounded-2xl rounded-tl-sm p-4 text-sm leading-relaxed shadow-lg">
                                 <p class="mb-2">你好！我是游戏数据助手，可以帮你：</p>
                                 <ul class="list-disc pl-5 space-y-1 text-zinc-400 marker:text-violet-500">
                                     <li>查看任务状态和系统概览</li>
@@ -516,7 +516,7 @@
                     </div>
                     
                     <div class="p-6 pt-2 bg-gradient-to-t from-[#050505] to-transparent">
-                        <div class="agent-input-area relative flex items-end gap-3 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] focus-within:border-violet-500/50 focus-within:shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all duration-300">
+                        <div class="agent-input-area relative flex items-end gap-3 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] focus-within:border-violet-500/50 focus-within:shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all duration-300">
                             <textarea id="agent-input" rows="1" class="flex-1 bg-transparent border-none text-zinc-200 text-sm focus:ring-0 resize-none max-h-32 min-h-[40px] py-2 px-3 outline-none" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据..."></textarea>
                             <button class="btn btn-primary rounded-xl h-10 w-10 p-0 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(139,92,246,0.4)] hover:scale-105 transition-transform" onclick="sendAgentMessage()" id="btn-send-agent" title="发送">
                                 <svg class="w-5 h-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
@@ -557,7 +557,7 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                         <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">诊断项目检查</h2>
                     </div>
@@ -566,7 +566,7 @@
                     </div>
                 </div>
 
-                <div class="card bg-[#0a0a0a] border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                         <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">系统路径清单</h2>
                     </div>
@@ -770,17 +770,17 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label for="pipeline-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">预设模板 / TEMPLATE</label>
-                    <select id="pipeline-template" class="bg-[#111] border-white/5 focus:border-violet-500/50" onchange="applyPipelineTemplate()">
+                    <select id="pipeline-template" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="applyPipelineTemplate()">
                         <option value="">-- 自定义空白流 --</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">流标识符 / PIPELINE_NAME</label>
-                    <input type="text" id="pipeline-name" class="bg-[#111] border-white/5 focus:border-violet-500/50 font-mono text-sm" placeholder="例如：taptap_daily_flow">
+                    <input type="text" id="pipeline-name" class="bg-zinc-800 border-white/5 focus:border-violet-500/50 font-mono text-sm" placeholder="例如：taptap_daily_flow">
                 </div>
                 <div class="form-group">
                     <label for="pipeline-collector" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-cyan-400">入口采集器 / SOURCE_COLLECTOR</label>
-                    <select id="pipeline-collector" class="bg-[#111] border-white/5 focus:border-cyan-500/50 text-cyan-100"></select>
+                    <select id="pipeline-collector" class="bg-zinc-800 border-white/5 focus:border-cyan-500/50 text-cyan-100"></select>
                 </div>
                 <div class="form-group">
                     <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-violet-400">处理中间件 / PROCESSORS</label>
@@ -801,7 +801,7 @@
                         <span>高级 JSON 配置 / ADVANCED_STEPS</span>
                         <span class="text-rose-400 text-[10px] font-normal lowercase tracking-normal">Danger Zone</span>
                     </label>
-                    <textarea id="pipeline-steps" rows="6" class="bg-[#050505] border-white/10 focus:border-rose-500/50 font-mono text-xs shadow-[inset_0_0_15px_rgba(0,0,0,0.8)]" placeholder='[
+                    <textarea id="pipeline-steps" rows="6" class="bg-zinc-950 border-white/10 focus:border-rose-500/50 font-mono text-xs shadow-[inset_0_0_15px_rgba(0,0,0,0.8)]" placeholder='[
   {"type": "collector", "name": "steam", "config": {}},
   {"type": "processor", "name": "cleaner", "config": {}},
   {"type": "storage", "name": "local", "config": {}}

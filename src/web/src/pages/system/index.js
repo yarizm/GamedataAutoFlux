@@ -62,7 +62,7 @@ export default {
     }
     list.innerHTML = checks.map((check) => {
       const details = check.details && Object.keys(check.details).length
-        ? `<pre class="system-check-details terminal-console mt-3 p-3 bg-[#050505] border border-white/5 rounded-lg text-[12px] shadow-[inset_0_0_15px_rgba(0,0,0,0.5)]">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
+        ? `<pre class="system-check-details terminal-console mt-3 p-3 bg-zinc-950 border border-white/5 rounded-lg text-[12px] shadow-[inset_0_0_15px_rgba(0,0,0,0.5)]">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
         : '';
       const statusIcon = check.status === 'ok' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 
                          check.status === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]';
@@ -94,7 +94,7 @@ export default {
     list.innerHTML = `<div class="space-y-3 px-2">` + entries.map(([key, value]) =>
       `<div class="flex flex-col gap-1.5">
         <span class="text-[10px] font-bold tracking-widest text-zinc-500 uppercase ml-1">${escapeHtml(key)}</span>
-        <code class="block p-3 bg-[#111] border border-white/5 rounded-lg text-[13px] text-zinc-300 font-mono break-all shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]">${escapeHtml(value)}</code>
+        <code class="block p-3 bg-zinc-800 border border-white/5 rounded-lg text-[13px] text-zinc-300 font-mono break-all shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]">${escapeHtml(value)}</code>
       </div>`
     ).join('') + `</div>`;
   },
