@@ -154,3 +154,7 @@ Agent 可调用的工具包括：任务管理（创建/查看/取消）、数据
 - **数据过滤**：`generate_report` 工具现在从 prompt 中提取游戏名关键词并过滤记录，不再将所有数据写入报告。关键词提取支持中英文，双向子串匹配确保 "三角洲行动数据分析" 能匹配到 "三角洲行动"。
 - **报告内容可见**：`generate_report` 返回值直接附带报告正文（上限 4000 字符），新增 `get_report_content` 工具可按 ID 获取完整内容。
 - **Excel 导出**：修复嵌套 dict（如价格数据 `{"currency":"GBP","initial":3999,...}`）导致 `Cannot convert dict to Excel` 错误，自动序列化为 JSON 字符串写入单元格。
+
+## 许可证 (License)
+
+本项目采用 [MIT License](LICENSE) 开源许可证。
