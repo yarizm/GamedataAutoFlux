@@ -1,15 +1,38 @@
+# Python
 .venv/
-.idea/
-.git/
-.pytest_cache/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.egg-info/
+
+# IDE & tools
+.idea/
+.claude/
+.pytest_cache/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Secrets — never bake into image
+.env
+.env.*
+!.env.example
+
+# Node (frontend build should be pre-compiled into src/web/static/dist/)
+node_modules/
+src/web/node_modules/
+src/web/src/
+
+# Runtime data directories (mounted as volumes)
 data/
 logs/
 tmp/
+outputs/
+
+# Legacy / generated runtime directories
 env_check_results/
 live_full_report_tasks/
 live_report_vector/
@@ -18,4 +41,12 @@ live_taptap/
 reports/
 scheduler_*/
 vector_records/
+
+# Database files
 *.db
+
+# Docs & dev artifacts (not needed at runtime)
+*.md
+LICENSE
+tests/
+scripts/

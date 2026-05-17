@@ -17,8 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy requirement files first to leverage Docker cache
+# Copy project source (needed before pip install)
 COPY pyproject.toml ./
+COPY src/ ./src/
+COPY config/ ./config/
 
 # Install the project and its dependencies
 RUN pip install --no-cache-dir -e .
@@ -26,11 +28,8 @@ RUN pip install --no-cache-dir -e .
 # Install Playwright Chromium browser and its remaining dependencies
 RUN playwright install chromium --with-deps
 
-# Copy the rest of the application code
-COPY . .
-
-# Ensure data directory exists
-RUN mkdir -p data
+# Ensure runtime directories exist
+RUN mkdir -p data logs tmp
 
 # Expose port
 EXPOSE 8000
