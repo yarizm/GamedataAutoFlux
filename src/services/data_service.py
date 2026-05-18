@@ -114,9 +114,7 @@ class DataService:
 
     # ---- 游戏/分组汇总 ----
 
-    async def get_game_summaries(
-        self, limit: int = 1000
-    ) -> list[dict[str, Any]]:
+    async def get_game_summaries(self, limit: int = 1000) -> list[dict[str, Any]]:
         """按游戏分组汇总记录"""
         from src.services._utils import extract_record_identity, record_group
 
@@ -128,8 +126,7 @@ class DataService:
                 continue
             group = record_group(record)
             grouped_key = (
-                f"group:{group['group_id']}" if group.get("group_id")
-                else identity["game_key"]
+                f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
             )
             game = grouped.setdefault(
                 grouped_key,
@@ -146,17 +143,22 @@ class DataService:
             )
             game["total_records"] += 1
             from src.services._utils import max_iso
+
             game["latest_stored_at"] = max_iso(
                 game["latest_stored_at"], record.stored_at.isoformat() if record.stored_at else None
             )
             source_name = record.source or "unknown"
-            source_bucket = next(
-                (s for s in game["sources"] if s["name"] == source_name), None
-            )
+            source_bucket = next((s for s in game["sources"] if s["name"] == source_name), None)
             if source_bucket is None:
                 game["sources"].append(
-                    {"name": source_name, "collector": record.metadata.get("collector", ""),
-                     "count": 1, "latest_stored_at": record.stored_at.isoformat() if record.stored_at else None}
+                    {
+                        "name": source_name,
+                        "collector": record.metadata.get("collector", ""),
+                        "count": 1,
+                        "latest_stored_at": record.stored_at.isoformat()
+                        if record.stored_at
+                        else None,
+                    }
                 )
             else:
                 source_bucket["count"] += 1
@@ -175,20 +177,20 @@ class DataService:
         merged_params.update(metadata.get("refresh_params", {}))
 
         task_name = (
-            metadata.get("task_name")
-            or source_task.get("task_name")
-            or f"Refresh {record.key}"
+            metadata.get("task_name") or source_task.get("task_name") or f"Refresh {record.key}"
         )
 
         targets_raw = source_task.get("targets") or metadata.get("targets") or []
         targets: list[dict[str, Any]] = []
         for t in targets_raw:
             if isinstance(t, dict):
-                targets.append({
-                    "name": t.get("name", ""),
-                    "target_type": t.get("target_type", "game"),
-                    "params": {**t.get("params", {}), **merged_params},
-                })
+                targets.append(
+                    {
+                        "name": t.get("name", ""),
+                        "target_type": t.get("target_type", "game"),
+                        "params": {**t.get("params", {}), **merged_params},
+                    }
+                )
 
         task = Task(
             name=task_name,
@@ -199,7 +201,9 @@ class DataService:
                     params=t.get("params", {}),
                 )
                 for t in targets
-            ] if targets else [],
+            ]
+            if targets
+            else [],
             pipeline_name=metadata.get("pipeline_name") or source_task.get("pipeline_name", ""),
             config={
                 "report": {"enabled": metadata.get("report_enabled", False)},

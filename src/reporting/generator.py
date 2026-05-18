@@ -80,6 +80,7 @@ class ReportGenerator:
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
+        custom_prompt: str = "",
     ) -> GeneratedReport:
         if provider:
             self._llm_provider = provider
@@ -96,12 +97,21 @@ class ReportGenerator:
         )
         await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
         if records is None:
-            await _emit_report_progress(progress_id, "loading_records", 0.12, "Loading report records")
-            records = await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+            await _emit_report_progress(
+                progress_id, "loading_records", 0.12, "Loading report records"
+            )
+            records = await self._load_source_records(
+                prompt=prompt, data_source=data_source, params=params
+            )
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
         await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
-        content = await self._render_report(prompt, data_source, template, records)
+        content = await self._render_report(
+            self._build_template_prompt(prompt, template, {}, custom_prompt=custom_prompt),
+            data_source,
+            template,
+            records,
+        )
         await _emit_report_progress(progress_id, "llm_done", 0.76, "LLM analysis completed")
 
         report = GeneratedReport(
@@ -127,7 +137,9 @@ class ReportGenerator:
             report.id,
             report.matched_records,
         )
-        await _emit_report_progress(progress_id, "completed", 1.0, "Report generated", report_id=report.id)
+        await _emit_report_progress(
+            progress_id, "completed", 1.0, "Report generated", report_id=report.id
+        )
         return report
 
     async def generate_excel(
@@ -139,6 +151,7 @@ class ReportGenerator:
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
+        custom_prompt: str = "",
     ) -> GeneratedReport:
         """
         Generate an Excel report.
@@ -161,12 +174,18 @@ class ReportGenerator:
         )
         await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
         if records is None:
-            await _emit_report_progress(progress_id, "loading_records", 0.12, "Loading report records")
-            records = await self._load_source_records(prompt=prompt, data_source=data_source, params=params)
+            await _emit_report_progress(
+                progress_id, "loading_records", 0.12, "Loading report records"
+            )
+            records = await self._load_source_records(
+                prompt=prompt, data_source=data_source, params=params
+            )
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
         usable_records = [r for r in records if r.data is not None]
-        await _emit_report_progress(progress_id, "extracting", 0.22, f"Parsing {len(usable_records)} records")
+        await _emit_report_progress(
+            progress_id, "extracting", 0.22, f"Parsing {len(usable_records)} records"
+        )
         raw_data_list = [r.data for r in usable_records]
         extracted = extract_from_records(
             raw_data_list,
@@ -189,9 +208,13 @@ class ReportGenerator:
         llm_content = None
         if params.get("include_llm_analysis", True):
             try:
-                await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
+                await _emit_report_progress(
+                    progress_id, "llm", 0.42, "Calling LLM for report analysis"
+                )
                 llm_content = await self._render_report(
-                    self._build_template_prompt(prompt, template, template_validation),
+                    self._build_template_prompt(
+                        prompt, template, template_validation, custom_prompt=custom_prompt
+                    ),
                     data_source,
                     template,
                     records,
@@ -199,7 +222,12 @@ class ReportGenerator:
                 await _emit_report_progress(progress_id, "llm_done", 0.68, "LLM analysis completed")
             except Exception as exc:
                 logger.warning("[Report] LLM analysis failed, fallback to template report: {}", exc)
-                await _emit_report_progress(progress_id, "llm_failed", 0.62, f"LLM failed; falling back to template report: {exc}")
+                await _emit_report_progress(
+                    progress_id,
+                    "llm_failed",
+                    0.62,
+                    f"LLM failed; falling back to template report: {exc}",
+                )
 
         # Write Excel output.
         await _emit_report_progress(progress_id, "exporting", 0.78, "Writing Excel report")
@@ -257,7 +285,9 @@ class ReportGenerator:
             report.matched_records,
             report.excel_path or "",
         )
-        await _emit_report_progress(progress_id, "completed", 1.0, "Report generated", report_id=report.id)
+        await _emit_report_progress(
+            progress_id, "completed", 1.0, "Report generated", report_id=report.id
+        )
         return report
 
     async def list_reports(self, limit: int = 20) -> list[ReportSummary]:
@@ -413,14 +443,30 @@ class ReportGenerator:
         prompt: str,
         template: str,
         template_validation: dict[str, Any],
+        custom_prompt: str = "",
     ) -> str:
+        if template == "auto":
+            available = template_validation.get("available_collectors") or []
+            avail_text = ", ".join(available) if available else "none"
+            instruction = (
+                f"{prompt}\n\n"
+                f"Report template: Auto Exploration\n"
+                f"Available data sources: {avail_text}\n"
+                "Analyze strictly from the provided JSON records. Dynamically structure the report "
+                "based ONLY on the available data sources. Create appropriate chapters for the data found, "
+                "and ignore missing sources without mentioning them.\n"
+            )
+            if custom_prompt:
+                instruction += f"\nAdditional constraints/focus: {custom_prompt}\n"
+            return instruction
+
         template_def = get_report_template(template)
         if template_def is None:
-            return prompt
+            return f"{prompt}\n\n{custom_prompt}" if custom_prompt else prompt
 
         missing = template_validation.get("missing_collectors") or []
         missing_text = ", ".join(missing) if missing else "none"
-        return (
+        base_prompt = (
             f"{prompt}\n\n"
             f"Report template: {template_def.name}\n"
             f"Template requirements: {template_def.prompt_instruction}\n"
@@ -428,6 +474,9 @@ class ReportGenerator:
             "Analyze strictly from the provided JSON records. If a source is missing, "
             "state the gap instead of inventing data."
         )
+        if custom_prompt:
+            base_prompt += f"\n\nAdditional constraints/focus: {custom_prompt}"
+        return base_prompt
 
     async def _render_report(
         self,
@@ -447,7 +496,9 @@ class ReportGenerator:
                     records=records,
                 )
             except Exception as exc:
-                fallback_enabled = bool(get_config(f"llm.{self._llm_provider}.fallback_to_stub", True))
+                fallback_enabled = bool(
+                    get_config(f"llm.{self._llm_provider}.fallback_to_stub", True)
+                )
                 if not fallback_enabled:
                     raise
                 provider_label = self.provider_label(self._llm_provider)
@@ -503,7 +554,13 @@ class ReportGenerator:
         )
 
         if template == "brief":
-            lines.extend(["", "## Suggestions", "Review the latest 1-2 records first and decide whether more collection is needed."])
+            lines.extend(
+                [
+                    "",
+                    "## Suggestions",
+                    "Review the latest 1-2 records first and decide whether more collection is needed.",
+                ]
+            )
         else:
             lines.extend(
                 [
@@ -602,11 +659,19 @@ class ReportGenerator:
         limits = httpx.Limits(max_connections=5, max_keepalive_connections=0)
         for attempt in range(1, attempts + 1):
             try:
-                logger.info("[Report][LLM] attempt {}/{} provider={} model={}", attempt, attempts, provider_label, model)
+                logger.info(
+                    "[Report][LLM] attempt {}/{} provider={} model={}",
+                    attempt,
+                    attempts,
+                    provider_label,
+                    model,
+                )
                 attempt_started_at = time.monotonic()
                 request_timeout = httpx.Timeout(connect=20.0, read=timeout, write=60.0, pool=20.0)
                 async with httpx.AsyncClient(timeout=request_timeout, limits=limits) as client:
-                    response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                    response = await client.post(
+                        f"{base_url}/chat/completions", headers=headers, json=payload
+                    )
                 elapsed = time.monotonic() - attempt_started_at
                 if response.is_error:
                     try:
@@ -628,11 +693,20 @@ class ReportGenerator:
                         f"{request_stats}, body={error_payload}"
                     )
                 data = response.json()
-                logger.info("[Report][LLM] response received provider={} attempt={} elapsed={:.2f}s", provider_label, attempt, elapsed)
+                logger.info(
+                    "[Report][LLM] response received provider={} attempt={} elapsed={:.2f}s",
+                    provider_label,
+                    attempt,
+                    elapsed,
+                )
                 break
             except httpx.TransportError as exc:
                 last_error = exc
-                elapsed = time.monotonic() - attempt_started_at if "attempt_started_at" in locals() else 0.0
+                elapsed = (
+                    time.monotonic() - attempt_started_at
+                    if "attempt_started_at" in locals()
+                    else 0.0
+                )
                 if attempt < attempts:
                     logger.warning(
                         "[Report][LLM] transport error attempt={}/{} type={} repr={} elapsed={:.2f}s read_timeout={} {}",
@@ -653,7 +727,9 @@ class ReportGenerator:
                 ) from exc
 
         if data is None:
-            raise ValueError(f"{provider_label} report request failed: {last_error}; {request_stats}")
+            raise ValueError(
+                f"{provider_label} report request failed: {last_error}; {request_stats}"
+            )
 
         choices = data.get("choices") or []
         if not choices:
@@ -686,11 +762,13 @@ class ReportGenerator:
                 continue
             model = cfg.get("model")
             if model:
-                providers.append({
-                    "key": key,
-                    "label": ReportGenerator.provider_label(key),
-                    "model": model,
-                })
+                providers.append(
+                    {
+                        "key": key,
+                        "label": ReportGenerator.provider_label(key),
+                        "model": model,
+                    }
+                )
         return providers
 
     def _build_record_context(self, records: list[StorageRecord], provider: str = "") -> str:
@@ -716,7 +794,9 @@ class ReportGenerator:
             )
         context = "\n\n".join(sections)
         if len(context) > max_chars:
-            return context[:max_chars] + "\n\n[TRUNCATED: LLM input context was capped before request]"
+            return (
+                context[:max_chars] + "\n\n[TRUNCATED: LLM input context was capped before request]"
+            )
         return context
 
     def _build_report_system_prompt(self, template: str) -> str:
@@ -751,18 +831,24 @@ class ReportGenerator:
     def _render_observations(self, records: list[StorageRecord]) -> list[str]:
         snapshots = [self._extract_snapshot(record.data) for record in records]
         player_values = [
-            value for value in (snapshot.get("current_players") for snapshot in snapshots)
+            value
+            for value in (snapshot.get("current_players") for snapshot in snapshots)
             if isinstance(value, (int, float))
         ]
         review_values = [
-            value for value in (snapshot.get("total_reviews") for snapshot in snapshots)
+            value
+            for value in (snapshot.get("total_reviews") for snapshot in snapshots)
             if isinstance(value, (int, float))
         ]
 
         observations = [
             f"1. This report covers {len(records)} stored records and is suitable for a quick review.",
-            f"2. Highest online player value: {max(player_values)}." if player_values else "2. No stable online player metric was found.",
-            f"3. Highest review count: {max(review_values)}." if review_values else "3. No stable review count metric was found.",
+            f"2. Highest online player value: {max(player_values)}."
+            if player_values
+            else "2. No stable online player metric was found.",
+            f"3. Highest review count: {max(review_values)}."
+            if review_values
+            else "3. No stable review count metric was found.",
             "4. For stronger conclusions, add more time slices and discussion text.",
         ]
         return observations
@@ -789,7 +875,9 @@ class ReportGenerator:
 def _compact_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         return {}
-    source_task = metadata.get("source_task") if isinstance(metadata.get("source_task"), dict) else {}
+    source_task = (
+        metadata.get("source_task") if isinstance(metadata.get("source_task"), dict) else {}
+    )
     return {
         key: value
         for key, value in {
@@ -892,7 +980,13 @@ async def _emit_report_progress(
 ) -> None:
     if not progress_id:
         return
-    logger.info("[Report][Progress] id={} stage={} progress={} message={}", progress_id, stage, progress, message)
+    logger.info(
+        "[Report][Progress] id={} stage={} progress={} message={}",
+        progress_id,
+        stage,
+        progress,
+        message,
+    )
     try:
         from src.web.routes.ws import manager
 

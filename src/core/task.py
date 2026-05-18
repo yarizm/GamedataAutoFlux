@@ -17,16 +17,18 @@ from pydantic import BaseModel, Field
 
 class TaskStatus(str, Enum):
     """任务状态"""
-    PENDING = "pending"      # 等待执行
-    RUNNING = "running"      # 执行中
-    SUCCESS = "success"      # 执行成功
-    FAILED = "failed"        # 执行失败
+
+    PENDING = "pending"  # 等待执行
+    RUNNING = "running"  # 执行中
+    SUCCESS = "success"  # 执行成功
+    FAILED = "failed"  # 执行失败
     CANCELLED = "cancelled"  # 已取消
-    RETRYING = "retrying"    # 重试中
+    RETRYING = "retrying"  # 重试中
 
 
 class TaskPriority(int, Enum):
     """任务优先级"""
+
     LOW = 0
     NORMAL = 5
     HIGH = 10
@@ -35,6 +37,7 @@ class TaskPriority(int, Enum):
 
 class TaskTarget(BaseModel):
     """任务目标定义"""
+
     name: str = Field(..., description="目标名称")
     target_type: str = Field(default="default", description="目标类型")
     params: dict[str, Any] = Field(default_factory=dict, description="目标参数")
@@ -42,6 +45,7 @@ class TaskTarget(BaseModel):
 
 class TaskStepLog(BaseModel):
     """任务步骤日志"""
+
     step_name: str = Field(..., description="步骤名称")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="步骤状态")
     started_at: datetime | None = Field(default=None, description="开始时间")
@@ -59,6 +63,7 @@ class Task(BaseModel):
                          ↘ FAILED → RETRYING → RUNNING
                          ↘ CANCELLED
     """
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12], description="任务 ID")
     name: str = Field(..., description="任务名称")
     description: str = Field(default="", description="任务描述")
@@ -155,7 +160,9 @@ class Task(BaseModel):
                 step_name=step_name,
                 status=status,
                 started_at=datetime.now(),
-                completed_at=datetime.now() if status in (TaskStatus.SUCCESS, TaskStatus.FAILED) else None,
+                completed_at=datetime.now()
+                if status in (TaskStatus.SUCCESS, TaskStatus.FAILED)
+                else None,
                 message=message,
                 error=error,
             )

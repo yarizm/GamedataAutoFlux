@@ -56,7 +56,9 @@ class AdaptiveRateLimiter:
 
     def report_challenge(self) -> None:
         self.consecutive_events += 2
-        self.cooldown_until = max(self.cooldown_until, time.monotonic() + self.cooldown_on_block * 2)
+        self.cooldown_until = max(
+            self.cooldown_until, time.monotonic() + self.cooldown_on_block * 2
+        )
 
     def _next_delay(self) -> float:
         now = time.monotonic()

@@ -22,6 +22,7 @@ class ReportService:
     def _get_generator(self):
         if self._generator is None:
             from src.web.app import report_generator
+
             self._generator = report_generator
         return self._generator
 
@@ -60,9 +61,9 @@ class ReportService:
                 "recommendations": [
                     f"Add {source_label(c)} data before generating for better report coverage."
                     for c in missing
-                ] if missing else [
-                    "Select records from Data Browser or upload JSON files before generating."
-                ],
+                ]
+                if missing
+                else ["Select records from Data Browser or upload JSON files before generating."],
             }
 
         extracted = extract_from_records([r.data for r in usable])
@@ -70,8 +71,10 @@ class ReportService:
         missing = list(validation.get("missing_collectors") or [])
         status = "complete" if not missing else "partial"
         recommendations = (
-            [f"Add {source_label(c)} data before generating for better report coverage."
-             for c in missing]
+            [
+                f"Add {source_label(c)} data before generating for better report coverage."
+                for c in missing
+            ]
             if missing
             else []
         )
@@ -97,23 +100,33 @@ class ReportService:
 
     # ---- 报告生成 ----
 
-    async def generate(self, prompt: str, data_source: str = "",
-                       template: str = "general_game",
-                       record_keys: list[str] | None = None):
+    async def generate(
+        self,
+        prompt: str,
+        data_source: str = "",
+        template: str = "general_game",
+        record_keys: list[str] | None = None,
+    ):
         """生成文本报告"""
         records = await self._data.load_records_by_keys(record_keys or [])
         gen = self._get_generator()
-        return gen.generate(prompt=prompt, data_source=data_source,
-                           template=template, records=records)
+        return gen.generate(
+            prompt=prompt, data_source=data_source, template=template, records=records
+        )
 
-    async def generate_excel(self, prompt: str, data_source: str = "",
-                             template: str = "general_game",
-                             record_keys: list[str] | None = None):
+    async def generate_excel(
+        self,
+        prompt: str,
+        data_source: str = "",
+        template: str = "general_game",
+        record_keys: list[str] | None = None,
+    ):
         """生成 Excel 报告"""
         records = await self._data.load_records_by_keys(record_keys or [])
         gen = self._get_generator()
-        return gen.generate_excel(prompt=prompt, data_source=data_source,
-                                  template=template, records=records)
+        return gen.generate_excel(
+            prompt=prompt, data_source=data_source, template=template, records=records
+        )
 
     # ---- 报告管理 ----
 
@@ -140,7 +153,9 @@ class ReportService:
     @staticmethod
     def infer_collector(data: dict[str, Any], payload: dict[str, Any]) -> str:
         metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-        source_meta = data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        source_meta = (
+            data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        )
         content = data.get("content", {}) if isinstance(data.get("content"), dict) else {}
         for value in (
             data.get("collector"),
@@ -167,7 +182,9 @@ class ReportService:
     @staticmethod
     def infer_game_name(data: dict[str, Any], payload: dict[str, Any]) -> str:
         metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-        source_meta = data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        source_meta = (
+            data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        )
         content = data.get("content", {}) if isinstance(data.get("content"), dict) else {}
         for value in (
             source_meta.get("game_name"),
@@ -183,7 +200,9 @@ class ReportService:
     @staticmethod
     def infer_app_id(data: dict[str, Any]) -> str:
         metadata = data.get("metadata", {}) if isinstance(data.get("metadata"), dict) else {}
-        source_meta = data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        source_meta = (
+            data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
+        )
         content = data.get("content", {}) if isinstance(data.get("content"), dict) else {}
         for value in (
             source_meta.get("app_id"),

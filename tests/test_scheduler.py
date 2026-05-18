@@ -68,9 +68,7 @@ class TestRollTimeParams:
 
 class TestRollRefreshTemplate:
     def test_no_rolling_window_returns_copy(self):
-        template = {
-            "targets": [{"name": "CS2", "params": {"app_id": "730"}}]
-        }
+        template = {"targets": [{"name": "CS2", "params": {"app_id": "730"}}]}
         result = _roll_refresh_template(template)
         assert result is not template  # deep copy
         assert result == template

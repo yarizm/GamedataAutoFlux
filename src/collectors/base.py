@@ -22,6 +22,7 @@ from src.core.errors import ErrorCode, classify_exception
 
 class CollectTarget(BaseModel):
     """采集目标"""
+
     model_config = ConfigDict(extra="allow")
 
     name: str = Field(..., description="目标名称，如游戏名")
@@ -31,6 +32,7 @@ class CollectTarget(BaseModel):
 
 class CollectResult(BaseModel):
     """采集结果"""
+
     target: CollectTarget = Field(..., description="对应的采集目标")
     data: Any = Field(default=None, description="采集到的数据")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
@@ -61,14 +63,16 @@ class CollectResult(BaseModel):
                 logger.warning(f"Unknown error_code value: {self.error_code!r}")
         else:
             code = ErrorCode.unknown
-        base.update({
-            "status": "error",
-            "error": self.error or "",
-            "error_code": code.value,
-            "error_label": code.chinese_label,
-            "suggestion": code.suggestion,
-            "severity": code.severity,
-        })
+        base.update(
+            {
+                "status": "error",
+                "error": self.error or "",
+                "error_code": code.value,
+                "error_label": code.chinese_label,
+                "suggestion": code.suggestion,
+                "severity": code.severity,
+            }
+        )
         return base
 
 

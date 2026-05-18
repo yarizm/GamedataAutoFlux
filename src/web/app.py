@@ -40,6 +40,7 @@ def get_agent_service():
     if _agent_service is None:
         try:
             from src.agent.agent import AgentService
+
             _agent_service = AgentService()
             logger.info("Agent 服务已初始化")
         except Exception as e:
@@ -56,8 +57,10 @@ def get_task_service():
     global _task_service
     if _task_service is None:
         from src.services.task_service import TaskService
+
         _task_service = TaskService(scheduler=scheduler)
     return _task_service
+
 
 # 模板引擎
 _WEB_DIR = Path(__file__).parent
@@ -148,6 +151,7 @@ def create_app() -> FastAPI:
 
     # 注册页面路由
     from src.web.routes.pages import router as pages_router
+
     app.include_router(pages_router)
 
     # 挂载静态文件

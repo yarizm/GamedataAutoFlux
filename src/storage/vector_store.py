@@ -217,7 +217,11 @@ class VectorStorage(BaseStorage):
     async def list_keys(self, prefix: str = "", limit: int = 100) -> list[str]:
         """列出键。"""
         if self._provider == "stub":
-            keys = [k for k in self._store if k.startswith(prefix)] if prefix else list(self._store.keys())
+            keys = (
+                [k for k in self._store if k.startswith(prefix)]
+                if prefix
+                else list(self._store.keys())
+            )
             return keys[:limit]
 
         if self._db is None:
@@ -318,13 +322,16 @@ class VectorStorage(BaseStorage):
 
     async def _embed_query(self, query: str) -> list[float]:
         embedding_config = {
-            "provider": self.config.get("embedding_provider") or get_config("embedding.provider", "stub"),
+            "provider": self.config.get("embedding_provider")
+            or get_config("embedding.provider", "stub"),
             "model": self.config.get("embedding_model"),
             "api_key": self.config.get("embedding_api_key"),
             "base_url": self.config.get("embedding_base_url"),
-            "dimensions": self.config.get("embedding_dimensions") or get_config("embedding.qwen.dimensions", 1024),
+            "dimensions": self.config.get("embedding_dimensions")
+            or get_config("embedding.qwen.dimensions", 1024),
             "text_type": "query",
-            "output_type": self.config.get("embedding_output_type") or get_config(
+            "output_type": self.config.get("embedding_output_type")
+            or get_config(
                 "embedding.qwen.output_type",
                 "dense",
             ),

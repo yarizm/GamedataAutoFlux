@@ -108,12 +108,22 @@ INLINE_LABEL_PATTERNS = {
     "supplier_cn": re.compile(r"^(?:\u4f9b\u5e94\u5546)[\s:]+(.+)$", re.IGNORECASE),
     "developer_cn": re.compile(r"^(?:\u5f00\u53d1\u5546|Developer)[\s:]+(.+)$", re.IGNORECASE),
     "publisher_cn": re.compile(r"^(?:\u53d1\u884c\u5546|Publisher)[\s:]+(.+)$", re.IGNORECASE),
-    "current_version_current_cn": re.compile(r"^(?:\u5f53\u524d\u7248\u672c)[\s:]+(.+)$", re.IGNORECASE),
-    "current_version_cn": re.compile(r"^(?:\u6700\u65b0\u7248\u672c|\u7248\u672c|Current Version)[\s:]+(.+)$", re.IGNORECASE),
+    "current_version_current_cn": re.compile(
+        r"^(?:\u5f53\u524d\u7248\u672c)[\s:]+(.+)$", re.IGNORECASE
+    ),
+    "current_version_cn": re.compile(
+        r"^(?:\u6700\u65b0\u7248\u672c|\u7248\u672c|Current Version)[\s:]+(.+)$", re.IGNORECASE
+    ),
     "size_cn": re.compile(r"^(?:\u5927\u5c0f|Size)[\s:]+(.+)$", re.IGNORECASE),
-    "last_updated_at_cn": re.compile(r"^(?:\u66f4\u65b0\u65f6\u95f4|Last Updated on)[\s:]+(.+)$", re.IGNORECASE),
-    "release_date_cn": re.compile(r"^(?:\u4e0a\u7ebf\u65f6\u95f4|Release date)[\s:]+(.+)$", re.IGNORECASE),
-    "content_rating_cn": re.compile(r"^(?:\u5185\u5bb9\u5206\u7ea7|Content Rating)[\s:]+(.+)$", re.IGNORECASE),
+    "last_updated_at_cn": re.compile(
+        r"^(?:\u66f4\u65b0\u65f6\u95f4|Last Updated on)[\s:]+(.+)$", re.IGNORECASE
+    ),
+    "release_date_cn": re.compile(
+        r"^(?:\u4e0a\u7ebf\u65f6\u95f4|Release date)[\s:]+(.+)$", re.IGNORECASE
+    ),
+    "content_rating_cn": re.compile(
+        r"^(?:\u5185\u5bb9\u5206\u7ea7|Content Rating)[\s:]+(.+)$", re.IGNORECASE
+    ),
 }
 INLINE_FIELD_ALIASES = {
     "provider_cn": "provider",
@@ -144,10 +154,14 @@ def parse_taptap_page(
 
     game = _parse_game(lines, text, links, page_url, title_hint=title_hint) if include_game else {}
     reviews_summary, review_items = (
-        _parse_reviews(lines, review_limit=review_limit) if include_reviews else ({"has_next_page": False}, [])
+        _parse_reviews(lines, review_limit=review_limit)
+        if include_reviews
+        else ({"has_next_page": False}, [])
     )
     updates = _parse_updates(lines) if include_updates else []
-    sections = [line for line in lines if line in REVIEWS_HEADINGS | UPDATES_HEADINGS | ABOUT_HEADINGS]
+    sections = [
+        line for line in lines if line in REVIEWS_HEADINGS | UPDATES_HEADINGS | ABOUT_HEADINGS
+    ]
 
     return {
         "game": game,
@@ -234,7 +248,9 @@ def merge_taptap_payloads(*payloads: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
-def _extract_content(markup: str, *, source_format: str, base_url: str) -> tuple[str, list[str], list[dict[str, str]]]:
+def _extract_content(
+    markup: str, *, source_format: str, base_url: str
+) -> tuple[str, list[str], list[dict[str, str]]]:
     links = _extract_links(markup, base_url=base_url) if source_format == "html" else []
     text = _html_to_text(markup) if source_format == "html" else _markdown_to_text(markup)
     return text, _normalize_lines(text), links
@@ -274,7 +290,9 @@ def _normalize_lines(text: str) -> list[str]:
 
 def _extract_links(markup: str, *, base_url: str) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
-    pattern = re.compile(r'<a[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<label>.*?)</a>', re.IGNORECASE | re.DOTALL)
+    pattern = re.compile(
+        r'<a[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<label>.*?)</a>', re.IGNORECASE | re.DOTALL
+    )
     for match in pattern.finditer(markup):
         href = html.unescape(match.group("href")).strip()
         label = _strip_tags(match.group("label"))
@@ -336,7 +354,9 @@ def _parse_game(
         if field in {"followers", "downloads"}:
             game[field] = _parse_compact_int(value)
         elif field == "languages":
-            game[field] = [item.strip() for item in re.split(r",| and |\u3001", value) if item.strip()]
+            game[field] = [
+                item.strip() for item in re.split(r",| and |\u3001", value) if item.strip()
+            ]
         else:
             game[field] = value
 
@@ -350,7 +370,9 @@ def _parse_game(
         if field in {"followers", "downloads"}:
             game[field] = _parse_compact_int(value)
         elif field == "languages":
-            game[field] = [item.strip() for item in re.split(r",| and |\u3001", value) if item.strip()]
+            game[field] = [
+                item.strip() for item in re.split(r",| and |\u3001", value) if item.strip()
+            ]
         else:
             game[field] = value
 
@@ -415,7 +437,7 @@ def _extract_genres(lines: list[str]) -> list[str]:
     region = _extract_region(lines)
     provider = _extract_provider(lines)
     start = lines.index(title) + 1 if title in lines else 0
-    for line in lines[start:start + 5]:
+    for line in lines[start : start + 5]:
         if line in {region, provider, "Download", "\u4e0b\u8f7d"}:
             continue
         if len(line) > 60:
@@ -438,8 +460,11 @@ def _extract_provider(lines: list[str], *, page_url: str = "") -> str | None:
 
     title = _extract_title(lines, "")
     title_index = lines.index(title) if title in lines else 0
-    for line in lines[title_index:title_index + 8]:
-        if line in {"Download", "Details", "Reviews", "Ratings & Reviews", "Follow", "About"} or line in REGION_TOKENS:
+    for line in lines[title_index : title_index + 8]:
+        if (
+            line in {"Download", "Details", "Reviews", "Ratings & Reviews", "Follow", "About"}
+            or line in REGION_TOKENS
+        ):
             continue
         if len(line) > 80 or line == title or _looks_like_noise(line):
             continue
@@ -454,7 +479,7 @@ def _extract_description(lines: list[str]) -> str | None:
         return None
 
     chunks: list[str] = []
-    for line in lines[start + 1:]:
+    for line in lines[start + 1 :]:
         if line in REVIEWS_HEADINGS | UPDATES_HEADINGS | ABOUT_HEADINGS | STOP_SECTION_HEADERS:
             break
         if line in {"Write a review", "\u5199\u8bc4\u4ef7"} or len(line) < 2:
@@ -483,7 +508,10 @@ def _extract_platforms(text: str, links: list[dict[str, str]]) -> list[str]:
 
 
 def _extract_about(lines: list[str]) -> dict[str, str]:
-    about_index = _find_line_ordered(lines, ["About the Game", "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f", "\u6e38\u620f\u4ecb\u7ecd"])
+    about_index = _find_line_ordered(
+        lines,
+        ["About the Game", "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f", "\u6e38\u620f\u4ecb\u7ecd"],
+    )
     if about_index is None:
         return {}
 
@@ -501,7 +529,9 @@ def _extract_about(lines: list[str]) -> dict[str, str]:
     return result
 
 
-def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _parse_reviews(
+    lines: list[str], *, review_limit: int
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     summary: dict[str, Any] = {
         "score": None,
         "score_scale": 10,
@@ -510,11 +540,19 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
     }
     items: list[dict[str, Any]] = []
 
-    index = _find_line_ordered(lines, ["Ratings & Reviews", "\u8bc4\u5206\u4e0e\u8bc4\u4ef7", "\u8bc4\u5206\u53ca\u8bc4\u4ef7", "\u8bc4\u4ef7"])
+    index = _find_line_ordered(
+        lines,
+        [
+            "Ratings & Reviews",
+            "\u8bc4\u5206\u4e0e\u8bc4\u4ef7",
+            "\u8bc4\u5206\u53ca\u8bc4\u4ef7",
+            "\u8bc4\u4ef7",
+        ],
+    )
     if index is None:
         return summary, items
 
-    for line in lines[index:index + 12]:
+    for line in lines[index : index + 12]:
         score_match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)/10", line)
         if score_match:
             summary["score"] = float(score_match.group(1))
@@ -523,7 +561,10 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
         if ratings_match:
             summary["ratings_count"] = _parse_compact_int(ratings_match.group(1))
             continue
-        ratings_cn_match = re.fullmatch(r"(.+?)(?:\u4eba\u8bc4\u4ef7|\u4eba\u8bc4\u5206|\u4e2a\u8bc4\u4ef7|\u4e2a\u8bc4\u5206)", line)
+        ratings_cn_match = re.fullmatch(
+            r"(.+?)(?:\u4eba\u8bc4\u4ef7|\u4eba\u8bc4\u5206|\u4e2a\u8bc4\u4ef7|\u4e2a\u8bc4\u5206)",
+            line,
+        )
         if ratings_cn_match:
             summary["ratings_count"] = _parse_compact_int(ratings_cn_match.group(1))
             continue
@@ -539,7 +580,7 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
         if marker_index is not None and marker_index > index:
             stop_index = min(stop_index, marker_index)
 
-    review_lines = lines[index + 1:stop_index]
+    review_lines = lines[index + 1 : stop_index]
     for pos, line in enumerate(review_lines):
         if not DATE_RE.match(line):
             continue
@@ -556,9 +597,21 @@ def _parse_reviews(lines: list[str], *, review_limit: int) -> tuple[dict[str, An
             if possible_content and not DATE_RE.match(possible_content):
                 content = possible_content
 
-        if not author or author in {"Most Helpful", "Hot", "Latest", "\u6700\u70ed", "\u6700\u65b0"}:
+        if not author or author in {
+            "Most Helpful",
+            "Hot",
+            "Latest",
+            "\u6700\u70ed",
+            "\u6700\u65b0",
+        }:
             continue
-        if not content or content in {"Most Helpful", "Hot", "Latest", "See All Reviews", "\u67e5\u770b\u5168\u90e8\u8bc4\u4ef7"}:
+        if not content or content in {
+            "Most Helpful",
+            "Hot",
+            "Latest",
+            "See All Reviews",
+            "\u67e5\u770b\u5168\u90e8\u8bc4\u4ef7",
+        }:
             continue
 
         items.append(
@@ -613,7 +666,16 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
         "\u6240\u9700\u6743\u9650",
     }
 
-    for heading in ("Announcements", "What's new", "Whats new", "What鈥檚 new", "\u516c\u544a", "\u66f4\u65b0\u5185\u5bb9", "\u66f4\u65b0\u8bb0\u5f55", "\u66f4\u65b0\u65e5\u5fd7"):
+    for heading in (
+        "Announcements",
+        "What's new",
+        "Whats new",
+        "What鈥檚 new",
+        "\u516c\u544a",
+        "\u66f4\u65b0\u5185\u5bb9",
+        "\u66f4\u65b0\u8bb0\u5f55",
+        "\u66f4\u65b0\u65e5\u5fd7",
+    ):
         index = _find_line(lines, heading)
         if index is None:
             continue
@@ -632,7 +694,10 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
             summary_parts: list[str] = []
             while i < len(lines):
                 next_line = lines[i]
-                if next_line in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+                if (
+                    next_line
+                    in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS
+                ):
                     break
                 if next_line in stop_lines or next_line in ABOUT_LABELS:
                     break
@@ -674,7 +739,10 @@ def _parse_updates(lines: list[str]) -> list[dict[str, Any]]:
             published_at: str | None = None
             while i < len(lines):
                 next_line = lines[i]
-                if next_line in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS:
+                if (
+                    next_line
+                    in ABOUT_HEADINGS | REVIEWS_HEADINGS | UPDATES_HEADINGS | STOP_SECTION_HEADERS
+                ):
                     break
                 if next_line in stop_lines or next_line in ABOUT_LABELS:
                     break
@@ -760,7 +828,11 @@ def _guess_update_title(summary: str) -> str:
 
 def _classify_update_kind(summary: str) -> str:
     lowered = summary.lower()
-    if "scheduled to release" in lowered or "\u9884\u8ba1\u4e8e" in summary or "\u5b9a\u6863" in summary:
+    if (
+        "scheduled to release" in lowered
+        or "\u9884\u8ba1\u4e8e" in summary
+        or "\u5b9a\u6863" in summary
+    ):
         return "scheduled_release"
     if summary:
         return "announcement"
@@ -769,7 +841,11 @@ def _classify_update_kind(summary: str) -> str:
 
 def _classify_event_type(summary: str) -> str:
     lowered = summary.lower()
-    if "scheduled to release" in lowered or "\u9884\u8ba1\u4e8e" in summary or "\u5b9a\u6863" in summary:
+    if (
+        "scheduled to release" in lowered
+        or "\u9884\u8ba1\u4e8e" in summary
+        or "\u5b9a\u6863" in summary
+    ):
         return "scheduled_release"
     if (
         "public beta" in lowered
@@ -803,7 +879,9 @@ def _extract_update_version(summary: str) -> str | None:
     cn_match = re.search(r"\u7248\u672c[^\d]*([0-9]+(?:\.[0-9]+){1,3})", summary)
     if cn_match:
         return cn_match.group(1)
-    generic_match = re.search(r"\bv(?:ersion)?\s*([0-9]+(?:\.[0-9]+){1,3})\b", summary, re.IGNORECASE)
+    generic_match = re.search(
+        r"\bv(?:ersion)?\s*([0-9]+(?:\.[0-9]+){1,3})\b", summary, re.IGNORECASE
+    )
     if generic_match:
         return generic_match.group(1)
     bare_match = re.search(r"\b([0-9]+(?:\.[0-9]+){1,3})\b", summary)
@@ -860,11 +938,19 @@ def _extract_inline_values(lines: list[str]) -> dict[str, str]:
                 values[INLINE_FIELD_ALIASES.get(field, field)] = match.group(1).strip()
 
         downloads_match = re.search(r"([0-9][0-9,\.KMB]*)\s+Downloads\b", compact, re.IGNORECASE)
-        downloads_reverse_match = re.search(r"\bDownloads\s+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE)
-        downloads_cn_match = re.search(r"(?:\u4e0b\u8f7d|Downloads)[\s:]+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE)
+        downloads_reverse_match = re.search(
+            r"\bDownloads\s+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE
+        )
+        downloads_cn_match = re.search(
+            r"(?:\u4e0b\u8f7d|Downloads)[\s:]+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE
+        )
         followers_match = re.search(r"([0-9][0-9,\.KMB]*)\s+Followers\b", compact, re.IGNORECASE)
-        followers_reverse_match = re.search(r"\bFollowers\s+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE)
-        followers_cn_match = re.search(r"(?:\u5173\u6ce8|Followers)[\s:]+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE)
+        followers_reverse_match = re.search(
+            r"\bFollowers\s+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE
+        )
+        followers_cn_match = re.search(
+            r"(?:\u5173\u6ce8|Followers)[\s:]+([0-9][0-9,\.KMB]*)", compact, re.IGNORECASE
+        )
 
         for field, match in (
             ("downloads", downloads_match),
@@ -899,7 +985,13 @@ def _select_store_links(links: list[dict[str, str]]) -> dict[str, str | None]:
             selected["google_play_url"] = selected["google_play_url"] or link["url"]
         elif "apps.apple.com" in host:
             selected["app_store_url"] = selected["app_store_url"] or link["url"]
-        elif host and "taptap.io" not in host and "taptap.cn" not in host and "developer.taptap.io" not in host and "developer.taptap.cn" not in host:
+        elif (
+            host
+            and "taptap.io" not in host
+            and "taptap.cn" not in host
+            and "developer.taptap.io" not in host
+            and "developer.taptap.cn" not in host
+        ):
             selected["official_website"] = selected["official_website"] or link["url"]
     return selected
 
@@ -965,7 +1057,8 @@ def _looks_like_noise(value: str) -> bool:
         lowered.startswith("[](")
         or "taptap.io/auth" in lowered
         or "taptap.cn/auth" in lowered
-        or lowered in {
+        or lowered
+        in {
             "home",
             "login",
             "sign in",

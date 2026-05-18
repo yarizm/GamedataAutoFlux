@@ -175,8 +175,11 @@ class TestTaskStepLog:
 
 class TestTaskSummary:
     def test_to_summary(self):
-        t = Task(name="My Task", collector_name="steam",
-                 targets=[TaskTarget(name="CS2", params={"app_id": "730"})])
+        t = Task(
+            name="My Task",
+            collector_name="steam",
+            targets=[TaskTarget(name="CS2", params={"app_id": "730"})],
+        )
         s = t.to_summary()
         assert s["name"] == "My Task"
         assert s["status"] == "pending"

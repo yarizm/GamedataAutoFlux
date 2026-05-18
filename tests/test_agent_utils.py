@@ -115,13 +115,17 @@ class TestExtractRecordIdentity:
 class TestRecordGroup:
     def test_with_group(self):
         from src.storage.base import StorageRecord
-        r = StorageRecord(key="k", data={}, metadata={"group_id": "g1", "group_name": "Group 1"}, source="s")
+
+        r = StorageRecord(
+            key="k", data={}, metadata={"group_id": "g1", "group_name": "Group 1"}, source="s"
+        )
         g = record_group(r)
         assert g["group_id"] == "g1"
         assert g["group_name"] == "Group 1"
 
     def test_without_group(self):
         from src.storage.base import StorageRecord
+
         r = StorageRecord(key="k", data={}, metadata={}, source="s")
         g = record_group(r)
         assert g["group_id"] == ""
@@ -140,6 +144,7 @@ class TestComputeCompleteness:
 
     def test_non_dict_data(self):
         from src.storage.base import StorageRecord
+
         r = StorageRecord(key="k", data=None, metadata={}, source="s")
         assert compute_record_completeness(r) == "empty"
 
@@ -190,11 +195,13 @@ class TestDateHelpers:
 
     def test_replace_short(self):
         from datetime import date
+
         result = replace_date_prefix("2025-01-15", date(2025, 6, 1))
         assert result == "2025-06-01"
 
     def test_replace_with_suffix(self):
         from datetime import date
+
         result = replace_date_prefix("2025-01-15T10:00:00", date(2025, 6, 1))
         assert result == "2025-06-01T10:00:00"
 
@@ -205,4 +212,5 @@ class TestDateHelpers:
         assert params["end_date"] != "2025-01-31"
         # End date should be today
         from datetime import date
+
         assert params["end_date"] == date.today().isoformat()

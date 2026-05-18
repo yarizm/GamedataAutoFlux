@@ -43,8 +43,16 @@ class Scheduler:
         default_retries: int | None = None,
         task_store_config: dict[str, Any] | None = None,
     ):
-        self._max_concurrent = max_concurrent if max_concurrent is not None else get_config("scheduler.max_concurrent_tasks", 5)
-        self._default_retries = default_retries if default_retries is not None else get_config("scheduler.default_retry_count", 3)
+        self._max_concurrent = (
+            max_concurrent
+            if max_concurrent is not None
+            else get_config("scheduler.max_concurrent_tasks", 5)
+        )
+        self._default_retries = (
+            default_retries
+            if default_retries is not None
+            else get_config("scheduler.default_retry_count", 3)
+        )
         self._task_store_config = task_store_config or {
             "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
             "json_dir": get_config("scheduler.persistence.json_dir", "scheduler_tasks"),
@@ -73,8 +81,7 @@ class Scheduler:
         await self._restore_cron_jobs()
         self._started = True
         logger.info(
-            f"调度器已启动: 最大并发={self._max_concurrent}, "
-            f"默认重试={self._default_retries}"
+            f"调度器已启动: 最大并发={self._max_concurrent}, 默认重试={self._default_retries}"
         )
 
     async def stop(self) -> None:
@@ -152,10 +159,7 @@ class Scheduler:
             name = pipeline_name or task.pipeline_name
             pipeline = self._pipelines.get(name)
             if pipeline is None:
-                raise ValueError(
-                    f"Pipeline '{name}' 不存在。"
-                    f"可用: {list(self._pipelines.keys())}"
-                )
+                raise ValueError(f"Pipeline '{name}' 不存在。可用: {list(self._pipelines.keys())}")
 
         task.pipeline_name = pipeline.name
         if task.max_retries is None:  # 未显式设置，使用调度器默认值
@@ -375,7 +379,10 @@ class Scheduler:
                 "trigger": str(job.trigger),
                 "pipeline_name": (job.kwargs or {}).get("pipeline_name", ""),
                 "task_template": (job.kwargs or {}).get("task_template", {}),
-                "kind": ((job.kwargs or {}).get("task_template", {}).get("config", {}).get("refresh", {}) or {}).get("refresh_kind", "cron"),
+                "kind": (
+                    (job.kwargs or {}).get("task_template", {}).get("config", {}).get("refresh", {})
+                    or {}
+                ).get("refresh_kind", "cron"),
             }
             for job in jobs
         ]
@@ -474,7 +481,9 @@ class Scheduler:
         try:
             report = await report_generator.generate_excel(
                 prompt=prompt,
-                data_source=str(report_config.get("data_source") or task.collector_name or task.pipeline_name),
+                data_source=str(
+                    report_config.get("data_source") or task.collector_name or task.pipeline_name
+                ),
                 template=template,
                 params=params,
                 records=list(result.output_records),
@@ -508,10 +517,10 @@ class Scheduler:
         """持久化任务快照，并向前端广播状态。"""
         if self._task_store is None:
             return
-            
+
         # 提取给前端的简明数据
         task_payload = redact_sensitive(task.to_storage_payload())
-        
+
         # 保存到数据库
         await self._task_store.save(
             StorageRecord(
@@ -526,16 +535,14 @@ class Scheduler:
                 tags=["task", task.status.value],
             )
         )
-        
+
         # WebSocket 广播
         try:
             from src.web.routes.ws import manager
+
             # 防止阻塞持久化逻辑，采用 create_task 背景发送
             bg_task = asyncio.create_task(
-                manager.broadcast({
-                    "type": "task_update",
-                    "task": task_payload
-                })
+                manager.broadcast({"type": "task_update", "task": task_payload})
             )
             bg_task.add_done_callback(_on_background_task_done)
             self._background_tasks.add(bg_task)
@@ -619,7 +626,9 @@ class Scheduler:
             task = Task.from_storage_payload(record.data)
             if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.RETRYING):
                 task.cancel()
-                task.error = "Recovered from a previous session without a live worker; marked cancelled."
+                task.error = (
+                    "Recovered from a previous session without a live worker; marked cancelled."
+                )
             self._tasks[task.id] = task
 
     async def _restore_cron_jobs(self) -> None:

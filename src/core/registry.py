@@ -53,6 +53,7 @@ class ComponentRegistry:
             class SteamCollector(BaseCollector):
                 ...
         """
+
         def decorator(cls_: Type) -> Type:
             if component_type not in self._registry:
                 self._registry[component_type] = {}
@@ -86,8 +87,7 @@ class ComponentRegistry:
         """
         if component_type not in self._registry:
             raise KeyError(
-                f"未知的组件类型: '{component_type}'，"
-                f"可用类型: {list(self._registry.keys())}"
+                f"未知的组件类型: '{component_type}'，可用类型: {list(self._registry.keys())}"
             )
         if name not in self._registry[component_type]:
             raise KeyError(

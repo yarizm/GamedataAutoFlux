@@ -10,6 +10,7 @@ from typing import Any
 # Deep dict access
 # ---------------------------------------------------------------------------
 
+
 def nested_get(data: dict[str, Any], *keys: str) -> Any:
     """Traverse nested dicts by key path; returns None for any missing intermediate."""
     node: Any = data
@@ -24,6 +25,7 @@ def nested_get(data: dict[str, Any], *keys: str) -> Any:
 # First non-empty value
 # ---------------------------------------------------------------------------
 
+
 def first_str(*values: Any) -> str:
     """Return the first value that is neither None nor empty string."""
     for v in values:
@@ -35,6 +37,7 @@ def first_str(*values: Any) -> str:
 # ---------------------------------------------------------------------------
 # Record identity extraction (used by data routes, agent tools, reports)
 # ---------------------------------------------------------------------------
+
 
 def extract_record_identity(record: Any) -> dict[str, str] | None:
     """Extract game_name, app_id, collector, data_source from a StorageRecord."""
@@ -91,6 +94,7 @@ def extract_record_identity(record: Any) -> dict[str, str] | None:
 # Collector detection / label
 # ---------------------------------------------------------------------------
 
+
 def detect_collector(data: dict[str, Any]) -> str:
     """Guess the collector type from data shape."""
     if "discussions" in data:
@@ -126,6 +130,7 @@ def source_label(collector: str) -> str:
 # Record group extraction
 # ---------------------------------------------------------------------------
 
+
 def record_group(record: Any) -> dict[str, str]:
     metadata = record.metadata if isinstance(getattr(record, "metadata", None), dict) else {}
     group_id = str(metadata.get("group_id", "") or "").strip()
@@ -136,6 +141,7 @@ def record_group(record: Any) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Completeness scoring
 # ---------------------------------------------------------------------------
+
 
 def compute_record_completeness(record: Any) -> str:
     """full / partial / empty based on game + metrics + content dimensions."""
@@ -156,10 +162,7 @@ def compute_record_completeness(record: Any) -> str:
         or data.get("discussions")
     )
     has_content = bool(
-        data.get("items")
-        or data.get("news")
-        or data.get("updates")
-        or data.get("reviews")
+        data.get("items") or data.get("news") or data.get("updates") or data.get("reviews")
     )
 
     score = sum([has_game, has_metrics, has_content])
@@ -174,16 +177,26 @@ def compute_record_completeness(record: Any) -> str:
 # Summary building
 # ---------------------------------------------------------------------------
 
+
 def build_record_summary(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
     discussions = data.get("discussions") if isinstance(data.get("discussions"), dict) else {}
     reviews = data.get("reviews") if isinstance(data.get("reviews"), dict) else {}
-    monitor_metrics = data.get("monitor_metrics") if isinstance(data.get("monitor_metrics"), dict) else {}
+    monitor_metrics = (
+        data.get("monitor_metrics") if isinstance(data.get("monitor_metrics"), dict) else {}
+    )
     summary: dict[str, Any] = {}
 
-    for key in ("current_players", "total_reviews", "review_score", "price", "score", "latest_topic_at"):
+    for key in (
+        "current_players",
+        "total_reviews",
+        "review_score",
+        "price",
+        "score",
+        "latest_topic_at",
+    ):
         if snapshot.get(key) not in (None, ""):
             summary[key] = snapshot[key]
     if snapshot.get("latest_twitch_average_viewers") not in (None, ""):
@@ -206,6 +219,7 @@ def build_record_summary(data: Any) -> dict[str, Any]:
 # String key normalization
 # ---------------------------------------------------------------------------
 
+
 def normalize_key(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-") or "unknown"
 
@@ -213,6 +227,7 @@ def normalize_key(value: str) -> str:
 # ---------------------------------------------------------------------------
 # Date helpers (used by refresh-task building)
 # ---------------------------------------------------------------------------
+
 
 def max_iso(left: str | None, right: str | None) -> str | None:
     if not left:

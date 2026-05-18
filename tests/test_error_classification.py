@@ -20,30 +20,46 @@ class TestErrorCodeEnum:
 class TestClassifyException:
     def test_missing_credentials(self):
         assert classify_exception(ValueError("missing API key")) == ErrorCode.missing_credentials
-        assert classify_exception(Exception("credentials not found")) == ErrorCode.missing_credentials
+        assert (
+            classify_exception(Exception("credentials not found")) == ErrorCode.missing_credentials
+        )
         assert classify_exception(Exception("Unauthorized")) == ErrorCode.missing_credentials
 
     def test_login_required(self):
-        assert classify_exception(Exception("session expired, please login")) == ErrorCode.login_required
+        assert (
+            classify_exception(Exception("session expired, please login"))
+            == ErrorCode.login_required
+        )
         assert classify_exception(Exception("cookie invalid")) == ErrorCode.login_required
 
     def test_anti_bot_blocked(self):
         assert classify_exception(Exception("cloudflare detected")) == ErrorCode.anti_bot_blocked
         assert classify_exception(Exception("HTTP 403 Forbidden")) == ErrorCode.anti_bot_blocked
-        assert classify_exception(Exception("access denied by bot protection")) == ErrorCode.anti_bot_blocked
+        assert (
+            classify_exception(Exception("access denied by bot protection"))
+            == ErrorCode.anti_bot_blocked
+        )
 
     def test_rate_limited(self):
         assert classify_exception(Exception("rate limit exceeded")) == ErrorCode.rate_limited
         assert classify_exception(Exception("HTTP 429 too many requests")) == ErrorCode.rate_limited
 
     def test_network_unreachable(self):
-        assert classify_exception(ConnectionError("connection refused")) == ErrorCode.network_unreachable
+        assert (
+            classify_exception(ConnectionError("connection refused"))
+            == ErrorCode.network_unreachable
+        )
         assert classify_exception(TimeoutError("timeout")) == ErrorCode.network_unreachable
         assert classify_exception(OSError("getaddrinfo failed")) == ErrorCode.network_unreachable
 
     def test_site_structure_changed(self):
-        assert classify_exception(Exception("parse error: element not found")) == ErrorCode.site_structure_changed
-        assert classify_exception(Exception("CSS selector failed")) == ErrorCode.site_structure_changed
+        assert (
+            classify_exception(Exception("parse error: element not found"))
+            == ErrorCode.site_structure_changed
+        )
+        assert (
+            classify_exception(Exception("CSS selector failed")) == ErrorCode.site_structure_changed
+        )
 
     def test_empty_data(self):
         assert classify_exception(Exception("no data found")) == ErrorCode.empty_data

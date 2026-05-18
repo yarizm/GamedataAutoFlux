@@ -14,7 +14,10 @@ def test_data_records_api_returns_paginated_records(tmp_path, monkeypatch) -> No
             StorageRecord(
                 key=f"record:{index}",
                 source="steam" if index < 2 else "taptap",
-                data={"collector": "steam" if index < 2 else "taptap", "game_name": f"Game {index}"},
+                data={
+                    "collector": "steam" if index < 2 else "taptap",
+                    "game_name": f"Game {index}",
+                },
                 stored_at=datetime(2026, 1, 1, 12, index, 0),
             )
         )

@@ -21,7 +21,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from src.reporting.data_extractor import ExtractedData
-from src.reporting.report_templates import COLLECTOR_LABELS, get_report_template, is_structured_template
+from src.reporting.report_templates import (
+    COLLECTOR_LABELS,
+    get_report_template,
+    is_structured_template,
+)
 
 
 # ==================== 样式常量 ====================
@@ -118,6 +122,7 @@ def export_to_excel(
 
 # ==================== 模板化工作簿 ====================
 
+
 def _export_structured_template(
     data: ExtractedData,
     output_path: Path,
@@ -198,8 +203,7 @@ def _export_structured_template(
         ws["D1"].font = HEADER_FONT
         ws["D1"].fill = HEADER_FILL
         ws["D2"] = (
-            "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，"
-            "请以附录中的原始 JSON 为准。"
+            "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，请以附录中的原始 JSON 为准。"
         )
         ws["D2"].alignment = DATA_ALIGNMENT
         ws.column_dimensions["D"].width = 52
@@ -341,14 +345,20 @@ def _write_operations_monitor_sheet(wb: Workbook, data: ExtractedData) -> None:
         ],
         len(mobile_headers),
     )
-    _add_operations_trend_chart(wb, ws, "iOS畅销榜", _operations_qimai_rows(data, "iOS grossing rank"), "C10")
-    _add_operations_trend_chart(wb, ws, "AppStore评价", _operations_qimai_rows(data, "AppStore reviews"), "E10")
+    _add_operations_trend_chart(
+        wb, ws, "iOS畅销榜", _operations_qimai_rows(data, "iOS grossing rank"), "C10"
+    )
+    _add_operations_trend_chart(
+        wb, ws, "AppStore评价", _operations_qimai_rows(data, "AppStore reviews"), "E10"
+    )
     _add_operations_trend_chart(wb, ws, "DAU", _operations_qimai_rows(data, "DAU"), "G10")
     _add_operations_trend_chart(wb, ws, "下载", _operations_qimai_rows(data, "Downloads"), "I10")
     _add_operations_trend_chart(wb, ws, "收入", _operations_qimai_rows(data, "Revenue"), "K10")
 
     _write_operations_title(ws, 14, "产品事件数据信息", "A14:J14")
-    _write_operations_title(ws, 15, game_name or "", "A15:J15", fill_color="EAF2F8", font_color="000000", font_size=10)
+    _write_operations_title(
+        ws, 15, game_name or "", "A15:J15", fill_color="EAF2F8", font_color="000000", font_size=10
+    )
     _write_operations_header(ws, 16, event_headers)
 
     row_index = 18
@@ -411,7 +421,9 @@ def _write_operations_title(
     cell = ws.cell(row=row, column=1, value=text)
     cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
     cell.font = Font(name="微软雅黑", size=font_size, bold=True, color=font_color)
-    cell.alignment = Alignment(horizontal="center" if row == 1 else "left", vertical="center", wrap_text=True)
+    cell.alignment = Alignment(
+        horizontal="center" if row == 1 else "left", vertical="center", wrap_text=True
+    )
 
 
 def _write_operations_header(ws, row: int, headers: list[str]) -> None:
@@ -512,8 +524,12 @@ def _add_operations_trend_chart(
     chart.x_axis.tickLblSkip = tick_skip
     chart.x_axis.tickMarkSkip = tick_skip
     chart.graphical_properties = None
-    data_ref = Reference(data_ws, min_col=2, min_row=start_row + 1, max_row=start_row + 1 + len(chart_rows))
-    cats_ref = Reference(data_ws, min_col=1, min_row=start_row + 2, max_row=start_row + 1 + len(chart_rows))
+    data_ref = Reference(
+        data_ws, min_col=2, min_row=start_row + 1, max_row=start_row + 1 + len(chart_rows)
+    )
+    cats_ref = Reference(
+        data_ws, min_col=1, min_row=start_row + 2, max_row=start_row + 1 + len(chart_rows)
+    )
     chart.add_data(data_ref, titles_from_data=True)
     chart.set_categories(cats_ref)
     target_ws.add_chart(chart, anchor)
@@ -527,10 +543,7 @@ def _sample_operations_trend_points(
     """Keep the overall shape while avoiding overcrowded tiny operation charts."""
     if len(rows) <= max_points:
         return rows
-    indexes = {
-        round(index * (len(rows) - 1) / (max_points - 1))
-        for index in range(max_points)
-    }
+    indexes = {round(index * (len(rows) - 1) / (max_points - 1)) for index in range(max_points)}
     return [rows[index] for index in sorted(indexes)]
 
 
@@ -660,9 +673,7 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
     data_source = _first_non_empty(row.get("数据源") for row in sorted_rows) or "SteamDB"
     time_slice = _first_non_empty(row.get("时间粒度") for row in sorted_rows)
     peak_values = [
-        int(row["在线峰值"])
-        for row in sorted_rows
-        if isinstance(row.get("在线峰值"), (int, float))
+        int(row["在线峰值"]) for row in sorted_rows if isinstance(row.get("在线峰值"), (int, float))
     ]
     dates = [str(row.get("日期", "")) for row in sorted_rows if row.get("日期")]
     max_peak = max(peak_values) if peak_values else ""
@@ -676,10 +687,24 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
     ws.merge_cells("A1:F1")
 
     summary_rows = [
-        ("游戏", game_name, "App ID", app_id, "数据区间", f"{dates[0]} 至 {dates[-1]}" if dates else ""),
+        (
+            "游戏",
+            game_name,
+            "App ID",
+            app_id,
+            "数据区间",
+            f"{dates[0]} 至 {dates[-1]}" if dates else "",
+        ),
         ("最高Peak", max_peak, "最高日期", max_date, "平均Peak", avg_peak),
         ("最低Peak", min_peak, "最低日期", min_date, "记录数", len(sorted_rows)),
-        ("数据来源", data_source, "数据切片", time_slice, "生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        (
+            "数据来源",
+            data_source,
+            "数据切片",
+            time_slice,
+            "生成时间",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
     ]
     for row_index, values in enumerate(summary_rows, start=2):
         for col_index, value in enumerate(values, start=1):
@@ -700,10 +725,16 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
     previous_value: int | float | None = None
     for row_index, row in enumerate(sorted_rows, start=header_row + 1):
         value = row.get("在线峰值")
-        diff = value - previous_value if isinstance(value, (int, float)) and isinstance(previous_value, (int, float)) else ""
+        diff = (
+            value - previous_value
+            if isinstance(value, (int, float)) and isinstance(previous_value, (int, float))
+            else ""
+        )
         rate = (
             diff / previous_value
-            if isinstance(diff, (int, float)) and isinstance(previous_value, (int, float)) and previous_value
+            if isinstance(diff, (int, float))
+            and isinstance(previous_value, (int, float))
+            and previous_value
             else ""
         )
         values = [
@@ -740,8 +771,12 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
         chart.style = 10
         chart.width = 28
         chart.height = 14
-        data_ref = Reference(ws, min_col=2, min_row=header_row, max_row=header_row + len(sorted_rows))
-        cats_ref = Reference(ws, min_col=1, min_row=header_row + 1, max_row=header_row + len(sorted_rows))
+        data_ref = Reference(
+            ws, min_col=2, min_row=header_row, max_row=header_row + len(sorted_rows)
+        )
+        cats_ref = Reference(
+            ws, min_col=1, min_row=header_row + 1, max_row=header_row + len(sorted_rows)
+        )
         chart.add_data(data_ref, titles_from_data=True)
         chart.set_categories(cats_ref)
         ws.add_chart(chart, "H2")
@@ -871,7 +906,7 @@ def _first_non_empty(values) -> Any:
 
 
 def _unique_sheet_title(wb: Workbook, title: str) -> str:
-    safe = "".join("_" if ch in '[]:*?/\\' else ch for ch in title).strip() or "Sheet"
+    safe = "".join("_" if ch in "[]:*?/\\" else ch for ch in title).strip() or "Sheet"
     safe = safe[:31]
     if safe not in wb.sheetnames:
         return safe
@@ -885,6 +920,7 @@ def _unique_sheet_title(wb: Workbook, title: str) -> str:
 
 
 # ==================== Sheet 写入函数 ====================
+
 
 def _write_overview_sheet(wb: Workbook, rows: list[dict[str, Any]], title: str) -> None:
     """写入游戏概览 Sheet。"""
@@ -1009,7 +1045,8 @@ def _write_unified_trends_sheet(wb: Workbook, data: ExtractedData) -> None:
                 "App ID": row.get("App ID", ""),
             }
             for row in data.monitor_metrics
-            if row.get("Twitch平均观看") not in (None, "") or row.get("Twitch峰值观看") not in (None, "")
+            if row.get("Twitch平均观看") not in (None, "")
+            or row.get("Twitch峰值观看") not in (None, "")
         ]
         if twitch_rows:
             sections.append(
@@ -1035,7 +1072,10 @@ def _write_unified_trends_sheet(wb: Workbook, data: ExtractedData) -> None:
         sections.append(
             (
                 "Qimai/AppStore趋势",
-                sorted(qimai_rows, key=lambda row: (str(row.get("指标", "")), _series_sort_key(row.get("日期")))),
+                sorted(
+                    qimai_rows,
+                    key=lambda row: (str(row.get("指标", "")), _series_sort_key(row.get("日期"))),
+                ),
                 ["日期", "指标", "值", "游戏名"],
                 ["值"],
             )
@@ -1133,7 +1173,10 @@ def _add_section_line_chart(
     value_cols = [
         headers.index(header) + 1
         for header in numeric_headers
-        if header in headers and _column_has_numeric_values(ws, headers.index(header) + 1, header_row + 1, header_row + row_count)
+        if header in headers
+        and _column_has_numeric_values(
+            ws, headers.index(header) + 1, header_row + 1, header_row + row_count
+        )
     ]
     if not value_cols:
         return
@@ -1146,9 +1189,13 @@ def _add_section_line_chart(
     chart.width = 22
     chart.height = 10
     for value_col in value_cols:
-        data_ref = Reference(ws, min_col=value_col, min_row=header_row, max_row=header_row + row_count)
+        data_ref = Reference(
+            ws, min_col=value_col, min_row=header_row, max_row=header_row + row_count
+        )
         chart.add_data(data_ref, titles_from_data=True)
-    cats_ref = Reference(ws, min_col=date_col, min_row=header_row + 1, max_row=header_row + row_count)
+    cats_ref = Reference(
+        ws, min_col=date_col, min_row=header_row + 1, max_row=header_row + row_count
+    )
     chart.set_categories(cats_ref)
     chart_anchor = f"{get_column_letter(len(headers) + 2)}{header_row}"
     ws.add_chart(chart, chart_anchor)
@@ -1252,6 +1299,7 @@ def _write_llm_sheet(wb: Workbook, content: str, title: str) -> None:
 
 # ==================== 图表生成 ====================
 
+
 def _add_overview_chart(ws, headers: list[str], rows: list[dict[str, Any]]) -> None:
     """在概览 Sheet 中生成柱状图（当前在线/评论总量对比）。"""
     if len(rows) < 1:
@@ -1279,7 +1327,11 @@ def _add_overview_chart(ws, headers: list[str], rows: list[dict[str, Any]]) -> N
         ws.cell(row=chart_start_row + i, column=chart_start_col, value=row.get("游戏名", ""))
         for k, col_name in enumerate(numeric_cols, start=1):
             val = row.get(col_name, 0)
-            ws.cell(row=chart_start_row + i, column=chart_start_col + k, value=val if isinstance(val, (int, float)) else 0)
+            ws.cell(
+                row=chart_start_row + i,
+                column=chart_start_col + k,
+                value=val if isinstance(val, (int, float)) else 0,
+            )
 
     # 生成柱状图
     chart = BarChart()
@@ -1312,7 +1364,9 @@ def _add_overview_chart(ws, headers: list[str], rows: list[dict[str, Any]]) -> N
 def _add_trends_chart(ws, headers: list[str], rows: list[dict[str, Any]]) -> None:
     """在趋势 Sheet 中生成折线图。"""
     # 过滤出搜索热度类型的数据
-    heat_rows = [r for r in rows if r.get("类型") == "搜索热度" and isinstance(r.get("热度值"), (int, float))]
+    heat_rows = [
+        r for r in rows if r.get("类型") == "搜索热度" and isinstance(r.get("热度值"), (int, float))
+    ]
 
     if len(heat_rows) < 2:
         return
@@ -1370,7 +1424,11 @@ def _add_related_queries_chart(ws, headers: list[str], rows: list[dict[str, Any]
     for i, row in enumerate(top_rows, start=1):
         ws.cell(row=chart_start_row + i, column=chart_start_col, value=row.get("查询词", ""))
         val = row.get("热度值", 0)
-        ws.cell(row=chart_start_row + i, column=chart_start_col + 1, value=val if isinstance(val, (int, float)) else 0)
+        ws.cell(
+            row=chart_start_row + i,
+            column=chart_start_col + 1,
+            value=val if isinstance(val, (int, float)) else 0,
+        )
 
     chart = BarChart()
     chart.type = "bar"
@@ -1381,8 +1439,18 @@ def _add_related_queries_chart(ws, headers: list[str], rows: list[dict[str, Any]
     chart.width = 22
     chart.height = 14
 
-    data_ref = Reference(ws, min_col=chart_start_col + 1, min_row=chart_start_row, max_row=chart_start_row + len(top_rows))
-    cats_ref = Reference(ws, min_col=chart_start_col, min_row=chart_start_row + 1, max_row=chart_start_row + len(top_rows))
+    data_ref = Reference(
+        ws,
+        min_col=chart_start_col + 1,
+        min_row=chart_start_row,
+        max_row=chart_start_row + len(top_rows),
+    )
+    cats_ref = Reference(
+        ws,
+        min_col=chart_start_col,
+        min_row=chart_start_row + 1,
+        max_row=chart_start_row + len(top_rows),
+    )
 
     chart.add_data(data_ref, titles_from_data=True)
     chart.set_categories(cats_ref)
@@ -1391,6 +1459,7 @@ def _add_related_queries_chart(ws, headers: list[str], rows: list[dict[str, Any]
 
 
 # ==================== 工具函数 ====================
+
 
 def _collect_headers(rows: list[dict[str, Any]]) -> list[str]:
     """从多行数据中收集所有出现过的列名（保持插入顺序）。"""

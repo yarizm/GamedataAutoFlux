@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+import yaml
+
+from src.core.config import get_data_dir
 
 
 @dataclass(frozen=True)
@@ -14,6 +19,7 @@ class ReportTemplate:
     required_collectors: tuple[str, ...]
     optional_collectors: tuple[str, ...] = ()
     prompt_instruction: str = ""
+    is_custom: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -23,6 +29,7 @@ class ReportTemplate:
             "required_collectors": list(self.required_collectors),
             "optional_collectors": list(self.optional_collectors),
             "prompt_instruction": self.prompt_instruction,
+            "is_custom": self.is_custom,
         }
 
 
@@ -38,12 +45,19 @@ COLLECTOR_LABELS: dict[str, str] = {
 }
 
 
-REPORT_TEMPLATES: dict[str, ReportTemplate] = {
+BUILTIN_TEMPLATES: dict[str, ReportTemplate] = {
     "general_game": ReportTemplate(
         id="general_game",
         name="通用游戏模板",
         description="适用于同时具备 Steam、TapTap、Google Trends、Monitor、事件与社区讨论数据的游戏。",
-        required_collectors=("steam", "taptap", "gtrends", "monitor", "events", "steam_discussions"),
+        required_collectors=(
+            "steam",
+            "taptap",
+            "gtrends",
+            "monitor",
+            "events",
+            "steam_discussions",
+        ),
         optional_collectors=("qimai",),
         prompt_instruction=(
             "按综合游戏分析报告输出，覆盖 Steam 表现、TapTap 口碑、Google Trends 热度、"
@@ -70,6 +84,69 @@ REPORT_TEMPLATES: dict[str, ReportTemplate] = {
 }
 
 
+class TemplateManager:
+    def __init__(self, template_dir: Path | None = None):
+        self.template_dir = template_dir or (get_data_dir() / "templates")
+        self._templates: dict[str, ReportTemplate] = {}
+
+    def load_all(self) -> None:
+        self._templates.clear()
+        for k, v in BUILTIN_TEMPLATES.items():
+            self._templates[k] = v
+
+        if self.template_dir.exists():
+            for yaml_file in self.template_dir.glob("*.yaml"):
+                try:
+                    with open(yaml_file, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    if not data.get("name"):
+                        continue
+                    template_id = yaml_file.stem
+                    self._templates[template_id] = ReportTemplate(
+                        id=template_id,
+                        name=data.get("name", template_id),
+                        description=data.get("description", ""),
+                        required_collectors=tuple(data.get("required_collectors", [])),
+                        optional_collectors=tuple(data.get("optional_collectors", [])),
+                        prompt_instruction=data.get("prompt_instruction", ""),
+                        is_custom=True,
+                    )
+                except Exception as e:
+                    import logging
+
+                    logging.getLogger(__name__).error(f"Failed to load template {yaml_file}: {e}")
+
+    def get_template(self, template_id: str) -> ReportTemplate | None:
+        return self._templates.get(template_id)
+
+    def list_templates(self) -> list[ReportTemplate]:
+        return list(self._templates.values())
+
+    def save_template(self, template_id: str, data: dict[str, Any]) -> None:
+        self.template_dir.mkdir(parents=True, exist_ok=True)
+        yaml_file = self.template_dir / f"{template_id}.yaml"
+        with open(yaml_file, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+        self.load_all()
+
+    def delete_template(self, template_id: str) -> bool:
+        if template_id in BUILTIN_TEMPLATES:
+            return False
+        yaml_file = self.template_dir / f"{template_id}.yaml"
+        if yaml_file.exists():
+            yaml_file.unlink()
+            self.load_all()
+            return True
+        return False
+
+
+_manager = TemplateManager()
+_manager.load_all()
+
+# Backward-compatible alias for existing imports of REPORT_TEMPLATES
+REPORT_TEMPLATES = BUILTIN_TEMPLATES
+
+
 COLLECTOR_ALIASES: dict[str, str] = {
     "google_trends": "gtrends",
     "pytrends": "gtrends",
@@ -85,15 +162,16 @@ COLLECTOR_ALIASES: dict[str, str] = {
 
 
 def list_report_templates() -> list[dict[str, Any]]:
-    return [template.to_dict() for template in REPORT_TEMPLATES.values()]
+    return [template.to_dict() for template in _manager.list_templates()]
 
 
 def get_report_template(template_id: str) -> ReportTemplate | None:
-    return REPORT_TEMPLATES.get(template_id)
+    return _manager.get_template(template_id)
 
 
 def is_structured_template(template_id: str) -> bool:
-    return template_id in REPORT_TEMPLATES
+    t = get_report_template(template_id)
+    return t is not None and not t.is_custom
 
 
 def normalize_collector(value: str | None) -> str:
@@ -115,7 +193,7 @@ def validate_template_sources(
         return {
             "template": template_id,
             "known_template": False,
-            "status": "unchecked",
+            "status": "complete" if template_id == "auto" else "unchecked",
             "required_collectors": [],
             "available_collectors": sorted(k for k, v in normalized_counts.items() if v > 0),
             "missing_collectors": [],
@@ -123,7 +201,9 @@ def validate_template_sources(
         }
 
     available = sorted(k for k, v in normalized_counts.items() if v > 0)
-    missing = [collector for collector in template.required_collectors if collector not in available]
+    missing = [
+        collector for collector in template.required_collectors if collector not in available
+    ]
     return {
         "template": template.id,
         "template_name": template.name,

@@ -4,9 +4,7 @@ import pytest
 
 
 def test_import_core_modules():
-    from src.core.config import get, load_settings
-    from src.core.registry import registry
-    from src.core.errors import ErrorCode, classify_exception, error_summary
+    from src.core.errors import ErrorCode, classify_exception
 
     assert ErrorCode.unknown.value == "unknown"
     assert callable(classify_exception)
@@ -17,9 +15,6 @@ def test_import_services():
         TaskService,
         DataService,
         ReportService,
-        build_record_summary,
-        compute_record_completeness,
-        extract_record_identity,
     )
 
     assert TaskService is not None
@@ -28,19 +23,19 @@ def test_import_services():
 
 
 def test_import_collectors():
-    from src.collectors.base import BaseCollector, CollectResult, CollectTarget
+    from src.collectors.base import BaseCollector
+
     assert BaseCollector is not None
 
 
 def test_import_storage():
-    from src.storage.base import BaseStorage, StorageRecord
     from src.storage.local_store import LocalStorage
+
     assert LocalStorage is not None
 
 
 def test_import_reporting():
-    from src.reporting.generator import ReportGenerator
-    from src.reporting.report_templates import list_report_templates, validate_template_sources
+    from src.reporting.report_templates import list_report_templates
 
     templates = list_report_templates()
     assert isinstance(templates, list)
@@ -49,13 +44,12 @@ def test_import_reporting():
 
 def test_import_agent():
     from src.agent.tools import ALL_TOOLS
-    from src.agent.schemas import CreateTaskInput, GenerateReportInput
 
     assert len(ALL_TOOLS) > 0
 
 
 def test_import_web():
-    from src.web.app import app, create_app
+    from src.web.app import app
     from src.web.safety import require_explicit_confirmation
 
     assert app is not None

@@ -118,7 +118,9 @@ def _dependency_check(
 def _llm_provider_check() -> dict[str, Any]:
     provider = str(get_config("llm.provider", "") or "").strip()
     raw_llm = get_raw_section("llm")
-    providers = [key for key, value in raw_llm.items() if key != "provider" and isinstance(value, dict)]
+    providers = [
+        key for key, value in raw_llm.items() if key != "provider" and isinstance(value, dict)
+    ]
     if not provider:
         return _check(
             "llm.provider",
@@ -216,7 +218,9 @@ def _scheduler_config_check() -> dict[str, Any]:
     try:
         max_concurrent_int = int(max_concurrent)
     except (TypeError, ValueError):
-        return _check("scheduler.max_concurrent_tasks", "error", "Max concurrency is not an integer")
+        return _check(
+            "scheduler.max_concurrent_tasks", "error", "Max concurrency is not an integer"
+        )
     if max_concurrent_int <= 0:
         return _check(
             "scheduler.max_concurrent_tasks",

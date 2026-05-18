@@ -9,7 +9,15 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, FunctionMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    ChatMessage,
+    FunctionMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 
 from loguru import logger
@@ -76,12 +84,14 @@ class AgentService:
             from langchain.agents import AgentExecutor, create_openai_tools_agent
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self._system_prompt),
-            MessagesPlaceholder("chat_history", optional=True),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", self._system_prompt),
+                MessagesPlaceholder("chat_history", optional=True),
+                ("human", "{input}"),
+                MessagesPlaceholder("agent_scratchpad"),
+            ]
+        )
 
         agent = create_openai_tools_agent(self._llm, ALL_TOOLS, prompt)
         self._agent_executor = AgentExecutor(
@@ -145,7 +155,11 @@ class AgentService:
                     if hasattr(chunk, "additional_kwargs"):
                         ak = chunk.additional_kwargs
                         if isinstance(ak, dict):
-                            reasoning = ak.get("reasoning_content") or ak.get("thinking") or ak.get("thoughts")
+                            reasoning = (
+                                ak.get("reasoning_content")
+                                or ak.get("thinking")
+                                or ak.get("thoughts")
+                            )
                     if reasoning:
                         yield {"type": "thinking", "content": str(reasoning)}
 
@@ -160,7 +174,10 @@ class AgentService:
                                     if item.get("type") == "text":
                                         final_output += item["text"]
                                         yield {"type": "final", "content": item["text"]}
-                                    elif item.get("type") == "reasoning" or item.get("type") == "thinking":
+                                    elif (
+                                        item.get("type") == "reasoning"
+                                        or item.get("type") == "thinking"
+                                    ):
                                         yield {"type": "thinking", "content": item.get("text", "")}
 
                 elif kind == "on_tool_start":
@@ -225,7 +242,7 @@ class AgentService:
                 key=lambda sid: self._sessions_timestamps.get(sid, 0),
                 reverse=True,
             )
-            stale = sorted_sids[self.MAX_PERSISTED_SESSIONS:]
+            stale = sorted_sids[self.MAX_PERSISTED_SESSIONS :]
             for sid in stale:
                 self._histories.pop(sid, None)
                 self._sessions_timestamps.pop(sid, None)
@@ -359,11 +376,13 @@ class AgentService:
                 continue
             model = cfg.get("model")
             if model:
-                providers.append({
-                    "key": key,
-                    "label": key.capitalize(),
-                    "model": str(model),
-                })
+                providers.append(
+                    {
+                        "key": key,
+                        "label": key.capitalize(),
+                        "model": str(model),
+                    }
+                )
         return providers
 
 

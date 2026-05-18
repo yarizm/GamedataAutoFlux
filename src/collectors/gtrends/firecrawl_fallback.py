@@ -38,6 +38,7 @@ class GtrendsFirecrawlFallback:
             return
         try:
             from firecrawl import FirecrawlApp
+
             self._app = FirecrawlApp(api_key=self._api_key)
             logger.info("[Gtrends:Firecrawl] Client initialized")
         except ImportError:
@@ -199,10 +200,12 @@ def _extract_interest_by_region(markdown: str) -> list[dict[str, Any]]:
 
     regions: list[dict[str, Any]] = []
     for match in _TABLE_QUERY_ROW.finditer(section):
-        regions.append({
-            "region": match.group("keyword").strip(),
-            "value": _parse_trend_value(match.group("value").strip()),
-        })
+        regions.append(
+            {
+                "region": match.group("keyword").strip(),
+                "value": _parse_trend_value(match.group("value").strip()),
+            }
+        )
     return regions
 
 
@@ -213,7 +216,7 @@ def _find_section(markdown: str, header_pattern: re.Pattern) -> str | None:
         if header_pattern.search(line):
             # Collect lines until next heading or empty section
             section_lines = []
-            for next_line in lines[idx + 1:]:
+            for next_line in lines[idx + 1 :]:
                 if re.match(r"^#{1,4}\s", next_line) and not header_pattern.search(next_line):
                     break
                 section_lines.append(next_line)
@@ -240,7 +243,7 @@ def _extract_query_rows(section: str, category: str) -> list[dict[str, Any]]:
     # Collect lines for this category until next category header
     category_lines: list[str] = []
     other_pattern = _RISING_HEADER if category == "top" else _TOP_HEADER
-    for line in lines[sub_idx + 1:]:
+    for line in lines[sub_idx + 1 :]:
         if other_pattern.search(line):
             break
         category_lines.append(line)
@@ -248,11 +251,13 @@ def _extract_query_rows(section: str, category: str) -> list[dict[str, Any]]:
     category_text = "\n".join(category_lines)
     rows: list[dict[str, Any]] = []
     for match in _TABLE_QUERY_ROW.finditer(category_text):
-        rows.append({
-            "query": match.group("keyword").strip(),
-            "value": _parse_trend_value(match.group("value").strip()),
-            "rank": int(match.group("rank")),
-        })
+        rows.append(
+            {
+                "query": match.group("keyword").strip(),
+                "value": _parse_trend_value(match.group("value").strip()),
+                "rank": int(match.group("rank")),
+            }
+        )
 
     # Fallback: list items
     if not rows:

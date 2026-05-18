@@ -21,7 +21,21 @@ TOPIC_URL_RE = re.compile(
     r"https?://steamcommunity\.com/app/(?P<app_id>\d+)/discussions/(?P<forum_id>\d+)/(?P<topic_id>\d+)/?",
     re.IGNORECASE,
 )
-VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr",
+}
 
 
 @registry.register("collector", "steam_discussions")
@@ -39,7 +53,9 @@ class SteamDiscussionsCollector(BaseCollector):
             "collector.user_agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         )
-        self.config.setdefault("request_delay", float(get_config("steam_discussions.request_delay", 2)))
+        self.config.setdefault(
+            "request_delay", float(get_config("steam_discussions.request_delay", 2))
+        )
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
@@ -75,16 +91,28 @@ class SteamDiscussionsCollector(BaseCollector):
         )
         max_pages = max(
             1,
-            int(target.params.get("max_pages", self.config.get("max_pages", get_config("steam_discussions.max_pages", 50)))),
+            int(
+                target.params.get(
+                    "max_pages",
+                    self.config.get("max_pages", get_config("steam_discussions.max_pages", 50)),
+                )
+            ),
         )
         max_topics = max(
             1,
-            int(target.params.get("max_topics", self.config.get("max_topics", get_config("steam_discussions.max_topics", 1000)))),
+            int(
+                target.params.get(
+                    "max_topics",
+                    self.config.get("max_topics", get_config("steam_discussions.max_topics", 1000)),
+                )
+            ),
         )
         include_replies = bool(
             target.params.get(
                 "include_replies",
-                self.config.get("include_replies", get_config("steam_discussions.include_replies", True)),
+                self.config.get(
+                    "include_replies", get_config("steam_discussions.include_replies", True)
+                ),
             )
         )
         max_reply_pages = max(
@@ -92,7 +120,9 @@ class SteamDiscussionsCollector(BaseCollector):
             int(
                 target.params.get(
                     "max_reply_pages",
-                    self.config.get("max_reply_pages", get_config("steam_discussions.max_reply_pages", 5)),
+                    self.config.get(
+                        "max_reply_pages", get_config("steam_discussions.max_reply_pages", 5)
+                    ),
                 )
             ),
         )
@@ -212,7 +242,11 @@ class SteamDiscussionsCollector(BaseCollector):
             page_detail = _parse_topic_detail(page_html, topic_url=page_url, summary=summary)
             new_posts = []
             for post in page_detail.get("posts", []):
-                identity = (post.get("author", ""), post.get("published_at", ""), post.get("content", ""))
+                identity = (
+                    post.get("author", ""),
+                    post.get("published_at", ""),
+                    post.get("content", ""),
+                )
                 if identity in seen_posts:
                     continue
                 seen_posts.add(identity)
@@ -351,7 +385,9 @@ def _parse_topic_detail(
 
     posts = _captures_to_posts(parser.captures)
     title = (
-        _extract_first_text(html_text, r"<div[^>]+class=[\"'][^\"']*topic[^\"']*[\"'][^>]*>(?P<value>.*?)</div>")
+        _extract_first_text(
+            html_text, r"<div[^>]+class=[\"'][^\"']*topic[^\"']*[\"'][^>]*>(?P<value>.*?)</div>"
+        )
         or summary.get("title")
         or _extract_title(html_text)
         or topic_url.rstrip("/").split("/")[-1]
@@ -369,8 +405,10 @@ def _parse_topic_detail(
         "title": title,
         "url": topic_url,
         "app_id": app_id,
-        "forum_id": summary.get("forum_id") or (topic_match.group("forum_id") if topic_match else None),
-        "topic_id": summary.get("topic_id") or (topic_match.group("topic_id") if topic_match else None),
+        "forum_id": summary.get("forum_id")
+        or (topic_match.group("forum_id") if topic_match else None),
+        "topic_id": summary.get("topic_id")
+        or (topic_match.group("topic_id") if topic_match else None),
         "created_at": first_post_time.isoformat() if first_post_time else None,
         "updated_at": latest_post_time.isoformat() if latest_post_time else None,
         "post_count": len(posts),
@@ -449,14 +487,18 @@ def _parse_datetime_param(value: Any, *, end_of_day: bool = False) -> datetime |
     try:
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
             boundary = time.max if end_of_day else time.min
-            return datetime.combine(datetime.fromisoformat(text).date(), boundary, tzinfo=timezone.utc)
+            return datetime.combine(
+                datetime.fromisoformat(text).date(), boundary, tzinfo=timezone.utc
+            )
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"Invalid datetime value: {value}") from exc
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def _in_range(value: datetime | None, *, start_at: datetime | None, end_at: datetime | None) -> bool:
+def _in_range(
+    value: datetime | None, *, start_at: datetime | None, end_at: datetime | None
+) -> bool:
     if value is None:
         return True
     if start_at and value < start_at:
@@ -487,7 +529,9 @@ def _latest_post_time(posts: list[dict[str, Any]]) -> datetime | None:
     return max(values) if values else None
 
 
-def _build_snapshot(target_name: str, app_id: int | None, topics: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_snapshot(
+    target_name: str, app_id: int | None, topics: list[dict[str, Any]]
+) -> dict[str, Any]:
     times = [
         parsed
         for topic in topics

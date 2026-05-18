@@ -14,12 +14,15 @@ from loguru import logger
 
 # Monkeypatch urllib3.util.retry for pytrends compatibility with urllib3 v2+
 import urllib3.util.retry
-if not hasattr(urllib3.util.retry.Retry, 'DEFAULT_METHOD_WHITELIST'):
+
+if not hasattr(urllib3.util.retry.Retry, "DEFAULT_METHOD_WHITELIST"):
     _original_init = urllib3.util.retry.Retry.__init__
+
     def _patched_init(self, *args, **kwargs):
-        if 'method_whitelist' in kwargs:
-            kwargs['allowed_methods'] = kwargs.pop('method_whitelist')
+        if "method_whitelist" in kwargs:
+            kwargs["allowed_methods"] = kwargs.pop("method_whitelist")
         _original_init(self, *args, **kwargs)
+
     urllib3.util.retry.Retry.__init__ = _patched_init
 
 from pytrends.request import TrendReq
@@ -58,7 +61,9 @@ class GoogleTrendsCollector(BaseCollector):
         self.geo = self.config.get("geo", gtrends_cfg.get("geo", ""))
         self.timeframe = self.config.get("timeframe", gtrends_cfg.get("timeframe", "today 12-m"))
         self.retries = int(self.config.get("retries", gtrends_cfg.get("retries", 2)))
-        self.backoff_factor = float(self.config.get("backoff_factor", gtrends_cfg.get("backoff_factor", 0.5)))
+        self.backoff_factor = float(
+            self.config.get("backoff_factor", gtrends_cfg.get("backoff_factor", 0.5))
+        )
 
         proxies = self.config.get("proxies", gtrends_cfg.get("proxies", []))
 
@@ -68,7 +73,7 @@ class GoogleTrendsCollector(BaseCollector):
             timeout=(10, 25),
             proxies=proxies if proxies else [],
             retries=self.retries,
-            backoff_factor=self.backoff_factor
+            backoff_factor=self.backoff_factor,
         )
         logger.info(
             f"[GTrends] pytrends ready: hl={self.hl}, geo={self.geo}, "
@@ -146,8 +151,7 @@ class GoogleTrendsCollector(BaseCollector):
             _last_error = pytrends_err
             is_429 = "429" in error_msg or "Too Many Requests" in error_msg
             fallback_hint = (
-                ", trying Firecrawl fallback" if self._firecrawl
-                else ", no fallback configured"
+                ", trying Firecrawl fallback" if self._firecrawl else ", no fallback configured"
             )
             logger.warning(
                 f"[GTrends] pytrends failed ({'429' if is_429 else 'error'}): "
@@ -158,9 +162,7 @@ class GoogleTrendsCollector(BaseCollector):
         if self._firecrawl:
             logger.info(f"[GTrends] Switching to Firecrawl fallback for '{keyword}'")
             try:
-                fc_data = await self._firecrawl.scrape(
-                    keyword, hl=hl, geo=geo, timeframe=timeframe
-                )
+                fc_data = await self._firecrawl.scrape(keyword, hl=hl, geo=geo, timeframe=timeframe)
                 if fc_data.get("error"):
                     logger.error(f"[GTrends] Firecrawl fallback failed: {fc_data['error']}")
                 else:
@@ -194,27 +196,28 @@ class GoogleTrendsCollector(BaseCollector):
             success=False,
             error=error_msg,
             error_code=code.value,
-            metadata={"collector": "gtrends", "data_sources": ["pytrends(failed)", "firecrawl(failed)"]},
+            metadata={
+                "collector": "gtrends",
+                "data_sources": ["pytrends(failed)", "firecrawl(failed)"],
+            },
         )
 
-    def _fetch_trends_data(
-        self, keyword: str, geo: str, timeframe: str, hl: str
-    ) -> dict[str, Any]:
+    def _fetch_trends_data(self, keyword: str, geo: str, timeframe: str, hl: str) -> dict[str, Any]:
         """同步调用 pytrends 获取数据。"""
         if not self._trend_req:
             raise RuntimeError("GoogleTrendsCollector 未初始化")
 
         kw_list = [keyword]
-        self._trend_req.build_payload(kw_list, cat=0, timeframe=timeframe, geo=geo, gprop='')
+        self._trend_req.build_payload(kw_list, cat=0, timeframe=timeframe, geo=geo, gprop="")
 
         interest_df = self._trend_req.interest_over_time()
         trend_history: list[dict[str, Any]] = []
         if not interest_df.empty:
-            if 'isPartial' in interest_df.columns:
-                interest_df = interest_df.drop(columns=['isPartial'])
+            if "isPartial" in interest_df.columns:
+                interest_df = interest_df.drop(columns=["isPartial"])
             interest_df = interest_df.reset_index()
             for _, row in interest_df.iterrows():
-                date_str = row['date'].strftime('%Y-%m-%d')
+                date_str = row["date"].strftime("%Y-%m-%d")
                 trend_history.append({"date": date_str, "value": int(row[keyword])})
 
         related_queries_dict = self._trend_req.related_queries()
@@ -223,12 +226,12 @@ class GoogleTrendsCollector(BaseCollector):
         rising_queries: list[dict[str, Any]] = []
 
         if queries_data:
-            top_df = queries_data.get('top')
+            top_df = queries_data.get("top")
             if top_df is not None and not top_df.empty:
-                top_queries = top_df.to_dict('records')
-            rising_df = queries_data.get('rising')
+                top_queries = top_df.to_dict("records")
+            rising_df = queries_data.get("rising")
             if rising_df is not None and not rising_df.empty:
-                rising_queries = rising_df.to_dict('records')
+                rising_queries = rising_df.to_dict("records")
 
         return {
             "trend_history": trend_history,

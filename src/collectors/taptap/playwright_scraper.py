@@ -72,7 +72,9 @@ class TapTapPlaywrightScraper:
         if not self._browser:
             await self.setup()
 
-        context = await self._browser.new_context(**_browser_context_options(region=region, referer=detail_url))
+        context = await self._browser.new_context(
+            **_browser_context_options(region=region, referer=detail_url)
+        )
         await context.add_init_script(_stealth_init_script(region=region))
         try:
             page = await context.new_page()
@@ -105,7 +107,9 @@ class TapTapPlaywrightScraper:
         finally:
             await context.close()
 
-    def _fetch_sync(self, detail_url: str, review_url: str, all_info_url: str, reviews_pages: int, region: str) -> dict[str, Any]:
+    def _fetch_sync(
+        self, detail_url: str, review_url: str, all_info_url: str, reviews_pages: int, region: str
+    ) -> dict[str, Any]:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
@@ -120,7 +124,9 @@ class TapTapPlaywrightScraper:
                     "--no-sandbox",
                 ],
             )
-            context = browser.new_context(**_browser_context_options(region=region, referer=detail_url))
+            context = browser.new_context(
+                **_browser_context_options(region=region, referer=detail_url)
+            )
             context.add_init_script(_stealth_init_script(region=region))
             try:
                 page = context.new_page()
@@ -307,8 +313,21 @@ def _candidate_selectors(kind: str) -> list[str]:
 
 def _extract_text_script(*, kind: str) -> str:
     primary_selector = "main, article, [role='main']"
-    review_markers = ["Ratings & Reviews", "\u8bc4\u5206\u4e0e\u8bc4\u4ef7", "\u8bc4\u5206\u53ca\u8bc4\u4ef7", "\u4e0b\u4e00\u9875", "\u52a0\u8f7d\u66f4\u591a"]
-    detail_markers = ["About the Game", "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f", "Announcements", "\u516c\u544a", "Download", "\u4e0b\u8f7d"]
+    review_markers = [
+        "Ratings & Reviews",
+        "\u8bc4\u5206\u4e0e\u8bc4\u4ef7",
+        "\u8bc4\u5206\u53ca\u8bc4\u4ef7",
+        "\u4e0b\u4e00\u9875",
+        "\u52a0\u8f7d\u66f4\u591a",
+    ]
+    detail_markers = [
+        "About the Game",
+        "\u5173\u4e8e\u8fd9\u6b3e\u6e38\u620f",
+        "Announcements",
+        "\u516c\u544a",
+        "Download",
+        "\u4e0b\u8f7d",
+    ]
     markers = review_markers if kind == "review" else detail_markers
     return f"""
 (() => {{

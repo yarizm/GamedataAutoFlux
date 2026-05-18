@@ -1,4 +1,5 @@
 """实际试跑 GameIdentifierResolver —— 测试真实 API 调用"""
+
 import asyncio
 import sys
 from pathlib import Path
@@ -21,7 +22,9 @@ async def main():
     assert result is not None, "CS2 Steam 不应为 None"
     assert result.identifier == "730", f"期望 730, 实际 {result.identifier}"
     assert result.confidence.value == "high", f"期望 high, 实际 {result.confidence.value}"
-    print(f"  app_id={result.identifier}, name={result.game_name}, confidence={result.confidence.value}")
+    print(
+        f"  app_id={result.identifier}, name={result.game_name}, confidence={result.confidence.value}"
+    )
     print(f"  candidates: {len(result.candidates)}个")
     print("  PASSED")
 
@@ -30,15 +33,21 @@ async def main():
     assert result is not None
     assert result.identifier == "570", f"期望 570, 实际 {result.identifier}"
     assert result.confidence.value == "high"
-    print(f"  app_id={result.identifier}, name={result.game_name}, confidence={result.confidence.value}")
+    print(
+        f"  app_id={result.identifier}, name={result.game_name}, confidence={result.confidence.value}"
+    )
     print("  PASSED")
 
     print("\n=== Steam: 明日方舟 (非Steam游戏) ===")
     result = await resolver.resolve_steam("明日方舟")
     # 明日方舟没有 Steam 版，应返回 not_found 或 low confidence
     if result:
-        print(f"  app_id={result.identifier}, confidence={result.confidence.value}, detail={result.detail}")
-        assert result.confidence.value in ("low", "medium"), f"非Steam游戏不应为 high, 实际 {result.confidence.value}"
+        print(
+            f"  app_id={result.identifier}, confidence={result.confidence.value}, detail={result.detail}"
+        )
+        assert result.confidence.value in ("low", "medium"), (
+            f"非Steam游戏不应为 high, 实际 {result.confidence.value}"
+        )
     else:
         print("  None (未找到)")
     print("  PASSED")
@@ -58,11 +67,17 @@ async def main():
     print(f"  high confidence: {high}")
     print(f"  found platforms: {found}")
     assert "steam" in high, "CS2 Steam 应在 HIGH 中"
-    print(f"  steam.app_id={result.steam.identifier}, steam.confidence={result.steam.confidence.value}")
+    print(
+        f"  steam.app_id={result.steam.identifier}, steam.confidence={result.steam.confidence.value}"
+    )
     if result.monitor:
-        print(f"  monitor.siteurl={result.monitor.identifier}, monitor.confidence={result.monitor.confidence.value}")
+        print(
+            f"  monitor.siteurl={result.monitor.identifier}, monitor.confidence={result.monitor.confidence.value}"
+        )
     if result.taptap:
-        print(f"  taptap.id={result.taptap.identifier}, taptap.confidence={result.taptap.confidence.value}")
+        print(
+            f"  taptap.id={result.taptap.identifier}, taptap.confidence={result.taptap.confidence.value}"
+        )
     if result.gtrends:
         print(f"  gtrends.keyword={result.gtrends.identifier}")
     print("  PASSED")

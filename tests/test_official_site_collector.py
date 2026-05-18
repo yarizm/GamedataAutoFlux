@@ -129,7 +129,12 @@ def test_collect_returns_standard_structure(monkeypatch):
         collector.collect(
             CollectTarget(
                 name="Example Game",
-                params={"official_url": "https://example.com", "max_pages": 20, "max_depth": 1, "use_playwright": "never"},
+                params={
+                    "official_url": "https://example.com",
+                    "max_pages": 20,
+                    "max_depth": 1,
+                    "use_playwright": "never",
+                },
             )
         )
     )
@@ -184,10 +189,41 @@ def test_data_extractor_detects_and_extracts_official_site():
         "game_name": "Example Game",
         "official_url": "https://example.com",
         "source_meta": {"collected_at": "2026-04-29T12:00:00Z"},
-        "news": {"items": [{"title": "News", "date": "2026-04-20", "summary": "Summary", "url": "https://example.com/news"}]},
-        "patch_notes": {"items": [{"title": "Patch", "date": "2026-04-21", "summary": "Patch summary", "url": "https://example.com/patch"}]},
-        "events": {"items": [{"title": "Event", "date": "2026-04-22", "summary": "Event summary", "url": "https://example.com/event"}]},
-        "snapshot": {"name": "Example Game", "latest_news_title": "News", "latest_news_date": "2026-04-20"},
+        "news": {
+            "items": [
+                {
+                    "title": "News",
+                    "date": "2026-04-20",
+                    "summary": "Summary",
+                    "url": "https://example.com/news",
+                }
+            ]
+        },
+        "patch_notes": {
+            "items": [
+                {
+                    "title": "Patch",
+                    "date": "2026-04-21",
+                    "summary": "Patch summary",
+                    "url": "https://example.com/patch",
+                }
+            ]
+        },
+        "events": {
+            "items": [
+                {
+                    "title": "Event",
+                    "date": "2026-04-22",
+                    "summary": "Event summary",
+                    "url": "https://example.com/event",
+                }
+            ]
+        },
+        "snapshot": {
+            "name": "Example Game",
+            "latest_news_title": "News",
+            "latest_news_date": "2026-04-20",
+        },
     }
 
     data = extract_from_records([record])

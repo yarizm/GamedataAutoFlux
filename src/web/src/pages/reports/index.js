@@ -257,6 +257,8 @@ export default {
     const formData = new FormData();
     for (const file of files) formData.append('files', file);
     try {
+        // ... (rest is same, but I'll replace the exact _uploadJson to append my new function too)
+
       const resp = await fetch('/api/reports/upload-json', { method: 'POST', body: formData });
       if (!resp.ok) { const err = await resp.json().catch(() => ({ detail: resp.statusText })); throw new Error(err.detail || `HTTP ${resp.status}`); }
       const uploaded = await resp.json();
@@ -277,6 +279,118 @@ export default {
       this._syncRecordKeys();
       toast(t('message.recordsImported', { count: records.length }), 'success');
     } catch (err) { toast(t('message.importFailed', { error: err.message }), 'error'); }
+  },
+
+  // ── Template Upload / Editor ──
+
+  _uploadTemplate() {
+    this._showTemplateModal();
+  },
+
+  _showTemplateModal() {
+    this._renderCollectorCheckboxes();
+    setValue('tmpl-name', '');
+    setValue('tmpl-desc', '');
+    setValue('tmpl-prompt', '');
+    const fileInput = document.getElementById('tmpl-file-input');
+    if (fileInput) fileInput.value = '';
+    document.querySelectorAll('#tmpl-required-cols input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#tmpl-optional-cols input[type="checkbox"]').forEach(cb => cb.checked = false);
+    this._switchTemplateTab('visual');
+    openModal('modal-report-template');
+  },
+
+  _switchTemplateTab(tab) {
+    document.querySelectorAll('[data-tmpl-tab]').forEach(btn => {
+      const isActive = btn.dataset.tmplTab === tab;
+      btn.style.color = isActive ? '#a78bfa' : '#a1a1aa';
+      btn.style.borderColor = isActive ? '#8b5cf6' : 'transparent';
+    });
+    document.getElementById('tmpl-tab-visual').style.display = tab === 'visual' ? 'block' : 'none';
+    document.getElementById('tmpl-tab-upload').style.display = tab === 'upload' ? 'block' : 'none';
+    const btn = document.getElementById('btn-submit-template');
+    if (btn) btn.textContent = tab === 'visual' ? '保存模板' : '上传 YAML';
+  },
+
+  _renderCollectorCheckboxes() {
+    const collectors = [
+      ['steam', 'Steam'],
+      ['taptap', 'TapTap'],
+      ['gtrends', 'Google Trends'],
+      ['monitor', 'Monitor'],
+      ['events', '事件数据'],
+      ['steam_discussions', 'Steam Community Discussions'],
+      ['official_site', '官方网站'],
+      ['qimai', '七麦数据(AppStore)'],
+    ];
+    const html = collectors.map(([val, label]) =>
+      `<label class="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg border border-white/5 cursor-pointer hover:bg-zinc-700/50 transition-colors">
+        <input type="checkbox" value="${escapeHtml(val)}" class="w-4 h-4 rounded border-white/10 text-violet-500 focus:ring-violet-500/40 bg-zinc-900">
+        <span class="text-xs text-zinc-300">${escapeHtml(label)}</span>
+      </label>`
+    ).join('');
+    document.getElementById('tmpl-required-cols').innerHTML = html;
+    document.getElementById('tmpl-optional-cols').innerHTML = html;
+  },
+
+  _submitVisualTemplate() {
+    const name = document.getElementById('tmpl-name')?.value.trim();
+    if (!name) { toast('请输入模板名称', 'error'); return; }
+
+    const id = name.toLowerCase()
+      .replace(/[^a-z0-9一-鿿]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .replace(/_+/g, '_');
+    if (!id) { toast('模板名称无法生成有效 ID', 'error'); return; }
+
+    const required = [...document.querySelectorAll('#tmpl-required-cols input:checked')].map(cb => cb.value);
+    const optional = [...document.querySelectorAll('#tmpl-optional-cols input:checked')].map(cb => cb.value);
+    const description = document.getElementById('tmpl-desc')?.value.trim() || '';
+    const promptInstruction = document.getElementById('tmpl-prompt')?.value.trim() || '';
+
+    const payload = {
+      name,
+      description,
+      required_collectors: required,
+      optional_collectors: optional,
+      prompt_instruction: promptInstruction,
+    };
+
+    api(`/reports/templates/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }).then(() => {
+      toast(`模板 "${name}" 已保存`, 'success');
+      closeModal('modal-report-template');
+      this._loadTemplates();
+    }).catch(err => {
+      toast('保存失败: ' + err.message, 'error');
+    });
+  },
+
+  _submitFileTemplate() {
+    const input = document.getElementById('tmpl-file-input');
+    const file = input?.files?.[0];
+    if (!file) { toast('请选择 YAML 文件', 'error'); return; }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/api/reports/templates/upload', {
+      method: 'POST',
+      body: formData,
+    }).then(async resp => {
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      const result = await resp.json();
+      toast(`模板 "${result.name || result.id}" 上传成功`, 'success');
+      closeModal('modal-report-template');
+      this._loadTemplates();
+    }).catch(err => {
+      toast('上传失败: ' + err.message, 'error');
+    });
   },
 
   _useCurrentData() {
@@ -397,6 +511,9 @@ window.renderSelectedReportRecords = function () { if (window._reportsPage) wind
 window.renderReportPrecheck = function (p) { if (window._reportsPage) window._reportsPage._renderPrecheck(p); };
 window.createFillTaskFromPrecheck = function (c) { if (window._reportsPage) window._reportsPage._createFillTask(c); };
 window.uploadReportJsonFiles = function () { if (window._reportsPage) window._reportsPage._uploadJson(); };
+window.uploadReportTemplate = function () { if (window._reportsPage) window._reportsPage._uploadTemplate(); };
+window.switchReportTemplateTab = function (tab) { if (window._reportsPage) window._reportsPage._switchTemplateTab(tab); };
+window.submitReportTemplate = function () { if (window._reportsPage) { const activeTab = document.getElementById('tmpl-tab-upload').style.display === 'none' ? 'visual' : 'upload'; if (activeTab === 'visual') window._reportsPage._submitVisualTemplate(); else window._reportsPage._submitFileTemplate(); } };
 window.importReportGroupRecords = function () { if (window._reportsPage) window._reportsPage._importGroup(); };
 window.useCurrentDataForReport = function () { if (window._reportsPage) window._reportsPage._useCurrentData(); };
 window.generateReport = function () { if (window._reportsPage) window._reportsPage._generate(); };

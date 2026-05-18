@@ -100,9 +100,7 @@ class LocalStorage(BaseStorage):
         await self._rebuild_table(meta_columns, existing_cols)
         await self._db.commit()
 
-    async def _rebuild_table(
-        self, meta_columns: list[str], existing_cols: set[str]
-    ) -> None:
+    async def _rebuild_table(self, meta_columns: list[str], existing_cols: set[str]) -> None:
         """通过 创建新表→复制数据→替换 的方式重建 records 表。
 
         这是 SQLite 最兼容的 schema 变更方式，不依赖 DROP COLUMN 或 table_xinfo。
@@ -277,9 +275,7 @@ class LocalStorage(BaseStorage):
         if self._db is None:
             await self.initialize()
 
-        cursor = await self._db.execute(
-            "SELECT * FROM records WHERE key = ?", (key,)
-        )
+        cursor = await self._db.execute("SELECT * FROM records WHERE key = ?", (key,))
         row = await cursor.fetchone()
         if row is None:
             return None
@@ -368,9 +364,7 @@ class LocalStorage(BaseStorage):
             await self.initialize()
 
         # 删除 JSON 文件
-        cursor = await self._db.execute(
-            "SELECT data_file FROM records WHERE key = ?", (key,)
-        )
+        cursor = await self._db.execute("SELECT data_file FROM records WHERE key = ?", (key,))
         row = await cursor.fetchone()
         if row and row["data_file"]:
             json_path = self._json_dir / row["data_file"]
@@ -393,9 +387,7 @@ class LocalStorage(BaseStorage):
                 (f"{prefix}%", limit),
             )
         else:
-            cursor = await self._db.execute(
-                "SELECT key FROM records LIMIT ?", (limit,)
-            )
+            cursor = await self._db.execute("SELECT key FROM records LIMIT ?", (limit,))
 
         return [row[0] for row in await cursor.fetchall()]
 

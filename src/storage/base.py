@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 class StorageRecord(BaseModel):
     """存储记录"""
+
     key: str = Field(..., description="记录键")
     data: Any = Field(..., description="数据内容")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
@@ -28,6 +29,7 @@ class StorageRecord(BaseModel):
 
 class QueryResult(BaseModel):
     """查询结果"""
+
     records: list[StorageRecord] = Field(default_factory=list, description="匹配的记录")
     total: int = Field(default=0, description="总匹配数")
     query: str = Field(default="", description="查询条件")

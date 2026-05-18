@@ -45,10 +45,14 @@ class TapTapCollector(BaseCollector):
             firecrawl_cfg = {}
 
         timeout = float(self.config.get("timeout", taptap_cfg.get("timeout", 20)))
-        user_agent = self.config.get("user_agent", taptap_cfg.get("user_agent", collector_cfg.get("user_agent", "")))
+        user_agent = self.config.get(
+            "user_agent", taptap_cfg.get("user_agent", collector_cfg.get("user_agent", ""))
+        )
         self.config.setdefault("request_retries", int(taptap_cfg.get("request_retries", 2)))
         self.config.setdefault("request_delay", float(taptap_cfg.get("request_delay", 1.5)))
-        self.config.setdefault("firecrawl_enabled", bool(taptap_cfg.get("firecrawl_enabled", False)))
+        self.config.setdefault(
+            "firecrawl_enabled", bool(taptap_cfg.get("firecrawl_enabled", False))
+        )
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
@@ -58,7 +62,9 @@ class TapTapCollector(BaseCollector):
             },
         )
 
-        playwright_enabled = self.config.get("playwright_enabled", taptap_cfg.get("playwright_enabled", True))
+        playwright_enabled = self.config.get(
+            "playwright_enabled", taptap_cfg.get("playwright_enabled", True)
+        )
         if playwright_enabled:
             self._playwright = TapTapPlaywrightScraper(
                 headless=bool(taptap_cfg.get("headless", True)),
@@ -66,11 +72,12 @@ class TapTapCollector(BaseCollector):
                 request_delay=float(taptap_cfg.get("request_delay", 1.5)),
             )
 
-        firecrawl_key = (
-            self.config.get("firecrawl_api_key")
-            or firecrawl_cfg.get("api_key", "")
-        )
-        if firecrawl_key and not str(firecrawl_key).startswith("${") and bool(self.config.get("firecrawl_enabled", False)):
+        firecrawl_key = self.config.get("firecrawl_api_key") or firecrawl_cfg.get("api_key", "")
+        if (
+            firecrawl_key
+            and not str(firecrawl_key).startswith("${")
+            and bool(self.config.get("firecrawl_enabled", False))
+        ):
             self._firecrawl = TapTapFirecrawlFallback(
                 api_key=str(firecrawl_key),
                 timeout=int(firecrawl_cfg.get("timeout", 30)),
@@ -90,10 +97,16 @@ class TapTapCollector(BaseCollector):
         page_url, review_url, all_info_url = self._resolve_urls(target)
         region = str(target.params.get("region", "cn")).lower()
         metrics = list(target.params.get("metrics", ["details", "reviews", "updates"]))
-        reviews_limit = int(target.params.get("reviews_limit", self.config.get("reviews_limit_default", 20)))
-        reviews_pages = max(1, int(target.params.get("reviews_pages", self.config.get("reviews_pages_default", 1))))
+        reviews_limit = int(
+            target.params.get("reviews_limit", self.config.get("reviews_limit_default", 20))
+        )
+        reviews_pages = max(
+            1, int(target.params.get("reviews_pages", self.config.get("reviews_pages_default", 1)))
+        )
         use_playwright = str(target.params.get("use_playwright", "auto")).lower()
-        use_firecrawl = bool(target.params.get("use_firecrawl", self.config.get("firecrawl_enabled", False)))
+        use_firecrawl = bool(
+            target.params.get("use_firecrawl", self.config.get("firecrawl_enabled", False))
+        )
         save_raw_snapshots = bool(self.config.get("save_raw_snapshots", True))
 
         logger.info(f"[TapTap] Start collect: {target.name} -> {page_url}")
@@ -150,7 +163,9 @@ class TapTapCollector(BaseCollector):
 
         needs_playwright = use_playwright == "always"
         if use_playwright == "auto":
-            needs_playwright = _needs_playwright(merged, metrics=metrics, reviews_pages=reviews_pages)
+            needs_playwright = _needs_playwright(
+                merged, metrics=metrics, reviews_pages=reviews_pages
+            )
 
         if needs_playwright and self._playwright:
             logger.info("[TapTap] Supplement with Playwright")
@@ -318,7 +333,9 @@ class TapTapCollector(BaseCollector):
 
         return CollectResult(target=target, success=True, data=data, metadata=metadata)
 
-    async def _fetch_http_pages(self, *, detail_url: str, review_url: str, all_info_url: str) -> tuple[str, str, str]:
+    async def _fetch_http_pages(
+        self, *, detail_url: str, review_url: str, all_info_url: str
+    ) -> tuple[str, str, str]:
         if self._client is None:
             raise RuntimeError("TapTap collector client is not initialized")
         detail_response = await self._fetch_with_retry(detail_url)
@@ -414,7 +431,9 @@ def _build_http_headers(*, region: str, referer: str) -> dict[str, str]:
     }
 
 
-def _merge_structured_review_items(merged: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+def _merge_structured_review_items(
+    merged: dict[str, Any], items: list[dict[str, Any]]
+) -> dict[str, Any]:
     if not items:
         return merged
     reviews = merged.setdefault("reviews", {})
@@ -463,7 +482,11 @@ def _build_availability(merged: dict[str, Any], *, warnings: list[str]) -> dict[
     def reason_for_collection_gap(metric: str) -> str | None:
         if metric == "details" and game:
             return None
-        if metric == "reviews" and (review_items or reviews_summary.get("ratings_count") is not None or reviews_summary.get("score") is not None):
+        if metric == "reviews" and (
+            review_items
+            or reviews_summary.get("ratings_count") is not None
+            or reviews_summary.get("score") is not None
+        ):
             return None
         if metric == "updates" and updates_items:
             return None
@@ -484,12 +507,17 @@ def _build_availability(merged: dict[str, Any], *, warnings: list[str]) -> dict[
         },
         "provider": {
             "available": provider_available,
-            "reason": None if provider_available else "publisher_or_provider_not_reliably_exposed_on_public_page",
+            "reason": None
+            if provider_available
+            else "publisher_or_provider_not_reliably_exposed_on_public_page",
         },
         "reviews": {
-            "available": bool(review_items) or reviews_summary.get("ratings_count") is not None or reviews_summary.get("score") is not None,
+            "available": bool(review_items)
+            or reviews_summary.get("ratings_count") is not None
+            or reviews_summary.get("score") is not None,
             "reason": reason_for_collection_gap("reviews"),
-            "has_summary": reviews_summary.get("ratings_count") is not None or reviews_summary.get("score") is not None,
+            "has_summary": reviews_summary.get("ratings_count") is not None
+            or reviews_summary.get("score") is not None,
             "has_items": bool(review_items),
         },
         "updates": {

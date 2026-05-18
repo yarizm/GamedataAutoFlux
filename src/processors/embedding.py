@@ -92,7 +92,7 @@ class EmbeddingProcessor(BaseProcessor):
         chunk_size = 10
 
         for start in range(0, len(inputs), chunk_size):
-            chunk = inputs[start:start + chunk_size]
+            chunk = inputs[start : start + chunk_size]
             texts = [self._extract_text(item.data) for item in chunk]
             embeddings, provider_used, extra_metadata = await self._generate_embedding(texts)
 
@@ -121,9 +121,13 @@ class EmbeddingProcessor(BaseProcessor):
 
     def _resolve_model_name(self) -> str:
         if self.provider == "qwen":
-            return self.config.get("model") or get_config("embedding.qwen.model", "text-embedding-v4")
+            return self.config.get("model") or get_config(
+                "embedding.qwen.model", "text-embedding-v4"
+            )
         if self.provider == "openai":
-            return self.config.get("model") or get_config("embedding.openai.model", "text-embedding-3-small")
+            return self.config.get("model") or get_config(
+                "embedding.openai.model", "text-embedding-3-small"
+            )
         if self.provider == "local":
             return self.config.get("model_name") or get_config(
                 "embedding.local.model_name",
@@ -137,7 +141,14 @@ class EmbeddingProcessor(BaseProcessor):
         if isinstance(data, str):
             return data.strip()
         if isinstance(data, dict):
-            preferred_fields = ["name", "game_name", "title", "summary", "description", "short_description"]
+            preferred_fields = [
+                "name",
+                "game_name",
+                "title",
+                "summary",
+                "description",
+                "short_description",
+            ]
             parts: list[str] = []
             for field in preferred_fields:
                 value = data.get(field)
@@ -172,7 +183,9 @@ class EmbeddingProcessor(BaseProcessor):
                     },
                 )
             except Exception as exc:
-                logger.warning(f"[Embedding] Qwen 调用失败，fallback={self.fallback_to_stub}: {exc}")
+                logger.warning(
+                    f"[Embedding] Qwen 调用失败，fallback={self.fallback_to_stub}: {exc}"
+                )
                 if not self.fallback_to_stub:
                     raise
                 return (
@@ -188,9 +201,7 @@ class EmbeddingProcessor(BaseProcessor):
 
     async def _embed_with_qwen(self, texts: list[str]) -> dict[str, Any]:
         if not self.qwen_api_key:
-            raise ValueError(
-                "Qwen embedding 需要 DASHSCOPE_API_KEY 或 embedding.qwen.api_key"
-            )
+            raise ValueError("Qwen embedding 需要 DASHSCOPE_API_KEY 或 embedding.qwen.api_key")
 
         payload: dict[str, Any] = {
             "model": self.model_name,
@@ -228,8 +239,7 @@ class EmbeddingProcessor(BaseProcessor):
             raise ValueError(f"{data.get('code')}: {data.get('message', 'unknown error')}")
 
         embeddings = [
-            item.get("embedding", [])
-            for item in data.get("output", {}).get("embeddings", [])
+            item.get("embedding", []) for item in data.get("output", {}).get("embeddings", [])
         ]
         if len(embeddings) != len(texts):
             raise ValueError(

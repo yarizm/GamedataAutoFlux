@@ -23,18 +23,18 @@ class ExtractedData:
     """提取后的结构化数据容器。"""
 
     def __init__(self):
-        self.overview: list[dict[str, Any]] = []    # 游戏概览行
-        self.reviews: list[dict[str, Any]] = []     # 评论明细行
-        self.trends: list[dict[str, Any]] = []      # 趋势数据行
+        self.overview: list[dict[str, Any]] = []  # 游戏概览行
+        self.reviews: list[dict[str, Any]] = []  # 评论明细行
+        self.trends: list[dict[str, Any]] = []  # 趋势数据行
         self.related_queries: list[dict[str, Any]] = []  # 相关搜索词
         self.steam_player_peaks: list[dict[str, Any]] = []  # Steam 在线峰值
         self.steam_monthly_peaks: list[dict[str, Any]] = []  # SteamDB 月峰值
-        self.google_trends: list[dict[str, Any]] = []       # Google Trends 时序
-        self.monitor_metrics: list[dict[str, Any]] = []     # Monitor 指标明细
-        self.events: list[dict[str, Any]] = []              # 游戏新闻/版本/活动事件
+        self.google_trends: list[dict[str, Any]] = []  # Google Trends 时序
+        self.monitor_metrics: list[dict[str, Any]] = []  # Monitor 指标明细
+        self.events: list[dict[str, Any]] = []  # 游戏新闻/版本/活动事件
         self.community_discussions: list[dict[str, Any]] = []  # 社区讨论
-        self.raw_sources: list[dict[str, Any]] = []         # 原始 JSON 附录
-        self.source_coverage: dict[str, int] = {}           # collector -> record count
+        self.raw_sources: list[dict[str, Any]] = []  # 原始 JSON 附录
+        self.source_coverage: dict[str, int] = {}  # collector -> record count
 
 
 def extract_from_records(
@@ -67,10 +67,14 @@ def extract_from_records(
         result.source_coverage[collector] = result.source_coverage.get(collector, 0) + 1
         result.raw_sources.append(
             {
-                "key": record_keys[index] if record_keys and index < len(record_keys) else f"record_{index + 1}",
+                "key": record_keys[index]
+                if record_keys and index < len(record_keys)
+                else f"record_{index + 1}",
                 "collector": collector,
                 "game_name": _extract_game_name(record_data),
-                "metadata": metadata_list[index] if metadata_list and index < len(metadata_list) else {},
+                "metadata": metadata_list[index]
+                if metadata_list and index < len(metadata_list)
+                else {},
                 "data": record_data,
             }
         )
@@ -143,6 +147,7 @@ def _detect_collector(data: dict[str, Any]) -> str:
 
 # ==================== Qimai 提取 ====================
 
+
 def _extract_official_site(data: dict[str, Any], result: ExtractedData) -> None:
     """从游戏官网采集结果中提取官网动态、版本更新和活动。"""
     snapshot = data.get("snapshot", {}) if isinstance(data.get("snapshot"), dict) else {}
@@ -214,7 +219,7 @@ def _extract_qimai(data: dict[str, Any], result: ExtractedData) -> None:
     snapshot = data.get("snapshot", {})
     qimai_data = data.get("qimai", {})
     api_urls = qimai_data.get("api_urls", []) if isinstance(qimai_data, dict) else []
-    
+
     overview_row = {
         "游戏名": game_name or snapshot.get("name", "未知"),
         "数据来源": "Qimai(AppStore)",
@@ -227,20 +232,68 @@ def _extract_qimai(data: dict[str, Any], result: ExtractedData) -> None:
     overview_row.update(
         {
             "Qimai grossing rank CN": _qimai_grossing_rank_cn(qimai_data, snapshot, api_urls),
-            "Qimai AppStore rating CN": qimai_data.get("appstore_rating_cn", snapshot.get("appstore_rating_cn", "")),
-            "Qimai DAU avg 30d": _qimai_average_value(qimai_data, snapshot, "dau_avg_30d", "dau_trend_90d", api_urls, "appstatus"),
-            "Qimai downloads avg 30d": _qimai_average_value(qimai_data, snapshot, "downloads_avg_30d", "downloads_trend_90d", api_urls, "download"),
-            "Qimai revenue avg 30d": _qimai_average_value(qimai_data, snapshot, "revenue_avg_30d", "revenue_trend_90d", api_urls, "revenue"),
+            "Qimai AppStore rating CN": qimai_data.get(
+                "appstore_rating_cn", snapshot.get("appstore_rating_cn", "")
+            ),
+            "Qimai DAU avg 30d": _qimai_average_value(
+                qimai_data, snapshot, "dau_avg_30d", "dau_trend_90d", api_urls, "appstatus"
+            ),
+            "Qimai downloads avg 30d": _qimai_average_value(
+                qimai_data,
+                snapshot,
+                "downloads_avg_30d",
+                "downloads_trend_90d",
+                api_urls,
+                "download",
+            ),
+            "Qimai revenue avg 30d": _qimai_average_value(
+                qimai_data, snapshot, "revenue_avg_30d", "revenue_trend_90d", api_urls, "revenue"
+            ),
         }
     )
-    
+
     result.overview.append(overview_row)
 
-    _append_qimai_series(result, game_name, "iOS grossing rank", qimai_data.get("ios_grossing_rank_trend", []), api_urls=api_urls, required_api="rank")
-    _append_qimai_series(result, game_name, "AppStore reviews", qimai_data.get("appstore_review_trend", []), api_urls=api_urls, required_api="comment")
-    _append_qimai_series(result, game_name, "DAU", qimai_data.get("dau_trend_90d", []), api_urls=api_urls, required_api="appstatus")
-    _append_qimai_series(result, game_name, "Downloads", qimai_data.get("downloads_trend_90d", []), api_urls=api_urls, required_api="download")
-    _append_qimai_series(result, game_name, "Revenue", qimai_data.get("revenue_trend_90d", []), api_urls=api_urls, required_api="revenue")
+    _append_qimai_series(
+        result,
+        game_name,
+        "iOS grossing rank",
+        qimai_data.get("ios_grossing_rank_trend", []),
+        api_urls=api_urls,
+        required_api="rank",
+    )
+    _append_qimai_series(
+        result,
+        game_name,
+        "AppStore reviews",
+        qimai_data.get("appstore_review_trend", []),
+        api_urls=api_urls,
+        required_api="comment",
+    )
+    _append_qimai_series(
+        result,
+        game_name,
+        "DAU",
+        qimai_data.get("dau_trend_90d", []),
+        api_urls=api_urls,
+        required_api="appstatus",
+    )
+    _append_qimai_series(
+        result,
+        game_name,
+        "Downloads",
+        qimai_data.get("downloads_trend_90d", []),
+        api_urls=api_urls,
+        required_api="download",
+    )
+    _append_qimai_series(
+        result,
+        game_name,
+        "Revenue",
+        qimai_data.get("revenue_trend_90d", []),
+        api_urls=api_urls,
+        required_api="revenue",
+    )
 
 
 def _append_qimai_series(
@@ -273,7 +326,9 @@ def _append_qimai_series(
         )
 
 
-def _sanitize_qimai_report_series(metric: str, series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _sanitize_qimai_report_series(
+    metric: str, series: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     sanitized: list[dict[str, Any]] = []
     for point in series:
         if not isinstance(point, dict):
@@ -287,7 +342,9 @@ def _sanitize_qimai_report_series(metric: str, series: list[dict[str, Any]]) -> 
     return sanitized
 
 
-def _qimai_grossing_rank_cn(qimai_data: dict[str, Any], snapshot: dict[str, Any], api_urls: list[str]) -> Any:
+def _qimai_grossing_rank_cn(
+    qimai_data: dict[str, Any], snapshot: dict[str, Any], api_urls: list[str]
+) -> Any:
     value = qimai_data.get("grossing_rank_cn", snapshot.get("grossing_rank_cn", ""))
     if value in (None, ""):
         latest_rank = _latest_qimai_series_value(qimai_data.get("ios_grossing_rank_trend", []))
@@ -296,7 +353,9 @@ def _qimai_grossing_rank_cn(qimai_data: dict[str, Any], snapshot: dict[str, Any]
     if value in (None, ""):
         return ""
     free_rank = qimai_data.get("free_rank", snapshot.get("free_rank", ""))
-    if not _qimai_series_has_required_source(api_urls, "rank") and _normalize_rank_value(value) == _normalize_rank_value(free_rank):
+    if not _qimai_series_has_required_source(api_urls, "rank") and _normalize_rank_value(
+        value
+    ) == _normalize_rank_value(free_rank):
         return ""
     return value
 
@@ -362,10 +421,13 @@ def _looks_like_timestamp_number(value: Any) -> bool:
         number = abs(float(value))
     except (TypeError, ValueError):
         return False
-    return (1_000_000_000 <= number <= 4_102_444_800) or (1_000_000_000_000 <= number <= 4_102_444_800_000)
+    return (1_000_000_000 <= number <= 4_102_444_800) or (
+        1_000_000_000_000 <= number <= 4_102_444_800_000
+    )
 
 
 # ==================== Steam Community Discussions 提取 ====================
+
 
 def _extract_steam_discussions(data: dict[str, Any], result: ExtractedData) -> None:
     """从 Steam Community 讨论采集结果中提取可导出的表格行。"""
@@ -422,6 +484,7 @@ def _extract_steam_discussions(data: dict[str, Any], result: ExtractedData) -> N
 
 # ==================== Steam 提取 ====================
 
+
 def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
     """从 Steam 采集数据中提取结构化字段。"""
     game_name = data.get("game_name", "")
@@ -432,15 +495,31 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
         if isinstance(content, dict):
             snapshot = content.get("snapshot", {})
             game_name = game_name or content.get("game_name", "")
-            steam_api = content.get("steam_api", steam_api) if isinstance(content.get("steam_api"), dict) else steam_api
+            steam_api = (
+                content.get("steam_api", steam_api)
+                if isinstance(content.get("steam_api"), dict)
+                else steam_api
+            )
 
     # 概览行
     reviews_data = data.get("reviews", {}) or steam_api.get("reviews", {})
     if not isinstance(reviews_data, dict):
         reviews_data = {}
-    overall_summary = reviews_data.get("overall_summary", {}) if isinstance(reviews_data.get("overall_summary"), dict) else {}
-    recent_30d_summary = reviews_data.get("recent_30d_summary", {}) if isinstance(reviews_data.get("recent_30d_summary"), dict) else {}
-    review_trend_90d = reviews_data.get("review_trend_90d", []) if isinstance(reviews_data.get("review_trend_90d"), list) else []
+    overall_summary = (
+        reviews_data.get("overall_summary", {})
+        if isinstance(reviews_data.get("overall_summary"), dict)
+        else {}
+    )
+    recent_30d_summary = (
+        reviews_data.get("recent_30d_summary", {})
+        if isinstance(reviews_data.get("recent_30d_summary"), dict)
+        else {}
+    )
+    review_trend_90d = (
+        reviews_data.get("review_trend_90d", [])
+        if isinstance(reviews_data.get("review_trend_90d"), list)
+        else []
+    )
     review_trend_summary = (
         reviews_data.get("review_trend_90d_summary", {})
         if isinstance(reviews_data.get("review_trend_90d_summary"), dict)
@@ -461,7 +540,9 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
                 review_trend_summary = {
                     "days": 90,
                     "complete": len(steamdb_review_trend) >= 90,
-                    "reviews_fetched": int(sum(_safe_float(row.get("total")) or 0 for row in steamdb_review_trend)),
+                    "reviews_fetched": int(
+                        sum(_safe_float(row.get("total")) or 0 for row in steamdb_review_trend)
+                    ),
                     "source": "steamdb_user_reviews_history",
                 }
             elif steamdb_present:
@@ -488,12 +569,15 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
         "数据来源": "Steam",
         "当前在线": _safe_int(snapshot.get("current_players")),
         "评论总量": _safe_int(snapshot.get("total_reviews")),
-        "好评率": steamdb_review_score_text or ("" if steamdb_present else snapshot.get("review_score", "")),
+        "好评率": steamdb_review_score_text
+        or ("" if steamdb_present else snapshot.get("review_score", "")),
         "整体好评率": _format_percent(overall_positive_rate),
         "近期好评率(30 Days)": _format_percent(recent_positive_rate),
         "3个月好评率趋势图": _review_trend_summary_text(review_trend_90d, review_trend_summary),
         "价格": snapshot.get("price", ""),
-        "标签": ", ".join(snapshot.get("tags", [])) if isinstance(snapshot.get("tags"), list) else "",
+        "标签": ", ".join(snapshot.get("tags", []))
+        if isinstance(snapshot.get("tags"), list)
+        else "",
         "开发商": snapshot.get("developer", ""),
         "发行商": snapshot.get("publisher", ""),
         "采集时间": _extract_time(data),
@@ -503,7 +587,7 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
     if isinstance(steamdb, dict):
         overview_row["SteamDB月峰值"] = _safe_int(steamdb.get("monthly_peak"))
         overview_row["SteamDB日均在线"] = _safe_int(steamdb.get("daily_avg"))
-        
+
         # 计算畅销榜 (Steam关注增量 7日)
         charts = steamdb.get("charts", {})
         if isinstance(charts, dict):
@@ -511,21 +595,39 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
             followers = charts.get("followers_history", [])
             if isinstance(followers, list) and len(followers) > 0:
                 follower_gain = _series_gain_last_days(followers, 7)
-                overview_row["Steam关注增量(7日)"] = follower_gain if follower_gain is not None else ""
+                overview_row["Steam关注增量(7日)"] = (
+                    follower_gain if follower_gain is not None else ""
+                )
             wishlist = charts.get("wishlist_history", [])
-            wishlist_gain = _series_gain_last_days(wishlist, 7) if isinstance(wishlist, list) else None
-            follower_gain = _series_gain_last_days(followers, 7) if isinstance(followers, list) else None
-            overview_row["WishList Activity(7d Gain)/Follower(7d Gain)"] = _format_wishlist_follower_gain(
-                wishlist_gain,
-                follower_gain,
+            wishlist_gain = (
+                _series_gain_last_days(wishlist, 7) if isinstance(wishlist, list) else None
             )
-            overview_row["7日ccu peak"] = _max_peak_last_days(charts, 7, excluded_date=ccu_excluded_date)
-            overview_row["30日CCU peak"] = _max_peak_last_days(charts, 30, excluded_date=ccu_excluded_date)
-            overview_row["3个月ccu趋势"] = _ccu_trend_summary(charts, excluded_date=ccu_excluded_date)
+            follower_gain = (
+                _series_gain_last_days(followers, 7) if isinstance(followers, list) else None
+            )
+            overview_row["WishList Activity(7d Gain)/Follower(7d Gain)"] = (
+                _format_wishlist_follower_gain(
+                    wishlist_gain,
+                    follower_gain,
+                )
+            )
+            overview_row["7日ccu peak"] = _max_peak_last_days(
+                charts, 7, excluded_date=ccu_excluded_date
+            )
+            overview_row["30日CCU peak"] = _max_peak_last_days(
+                charts, 30, excluded_date=ccu_excluded_date
+            )
+            overview_row["3个月ccu趋势"] = _ccu_trend_summary(
+                charts, excluded_date=ccu_excluded_date
+            )
             overview_row["steam畅销榜"] = _extract_steam_top_sellers_rank(steamdb, charts)
 
-        result.steam_player_peaks.extend(_extract_steam_peak_rows(data, steamdb, game_name, snapshot))
-        result.steam_monthly_peaks.extend(_extract_steam_monthly_rows(data, steamdb, game_name, snapshot))
+        result.steam_player_peaks.extend(
+            _extract_steam_peak_rows(data, steamdb, game_name, snapshot)
+        )
+        result.steam_monthly_peaks.extend(
+            _extract_steam_monthly_rows(data, steamdb, game_name, snapshot)
+        )
         result.events.extend(_extract_steamdb_event_rows(data, steamdb, game_name, snapshot))
 
     result.overview.append(overview_row)
@@ -539,16 +641,26 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
             for review in items[:100]:  # 限制条数
                 if not isinstance(review, dict):
                     continue
-                result.reviews.append({
-                    "游戏名": game_name or snapshot.get("name", ""),
-                    "数据来源": "Steam",
-                    "作者": review.get("author", {}).get("steamid", "") if isinstance(review.get("author"), dict) else "",
-                    "评分": "好评" if review.get("voted_up") else "差评",
-                    "评论内容": _truncate(review.get("review", review.get("review_text", "")), 500),
-                    "游戏时长(h)": round(review.get("author", {}).get("playtime_forever", 0) / 60, 1) if isinstance(review.get("author"), dict) else "",
-                    "点赞数": _safe_int(review.get("votes_up")),
-                    "日期": review.get("timestamp_created", ""),
-                })
+                result.reviews.append(
+                    {
+                        "游戏名": game_name or snapshot.get("name", ""),
+                        "数据来源": "Steam",
+                        "作者": review.get("author", {}).get("steamid", "")
+                        if isinstance(review.get("author"), dict)
+                        else "",
+                        "评分": "好评" if review.get("voted_up") else "差评",
+                        "评论内容": _truncate(
+                            review.get("review", review.get("review_text", "")), 500
+                        ),
+                        "游戏时长(h)": round(
+                            review.get("author", {}).get("playtime_forever", 0) / 60, 1
+                        )
+                        if isinstance(review.get("author"), dict)
+                        else "",
+                        "点赞数": _safe_int(review.get("votes_up")),
+                        "日期": review.get("timestamp_created", ""),
+                    }
+                )
 
     # 新闻/事件提取
     news = data.get("news", {}) or steam_api.get("news", {})
@@ -559,16 +671,19 @@ def _extract_steam(data: dict[str, Any], result: ExtractedData) -> None:
                 continue
             event_row = _build_steam_news_event(data, article, game_name, snapshot)
             result.events.append(event_row)
-            result.trends.append({
-                "关键词": game_name,
-                "类型": "Steam新闻",
-                "日期": event_row.get("日期", ""),
-                "标题": event_row.get("标题", ""),
-                "热度值": "",
-            })
+            result.trends.append(
+                {
+                    "关键词": game_name,
+                    "类型": "Steam新闻",
+                    "日期": event_row.get("日期", ""),
+                    "标题": event_row.get("标题", ""),
+                    "热度值": "",
+                }
+            )
 
 
 # ==================== TapTap 提取 ====================
+
 
 def _extract_taptap(data: dict[str, Any], result: ExtractedData) -> None:
     """从 TapTap 采集数据中提取结构化字段。"""
@@ -621,19 +736,22 @@ def _extract_taptap(data: dict[str, Any], result: ExtractedData) -> None:
             for review in items[:100]:
                 if not isinstance(review, dict):
                     continue
-                result.reviews.append({
-                    "游戏名": game_name,
-                    "数据来源": "TapTap",
-                    "作者": review.get("author", ""),
-                    "评分": review.get("score", ""),
-                    "评论内容": _truncate(review.get("content", ""), 500),
-                    "游戏时长(h)": "",
-                    "点赞数": _safe_int(review.get("likes")),
-                    "日期": review.get("date", review.get("created_at", "")),
-                })
+                result.reviews.append(
+                    {
+                        "游戏名": game_name,
+                        "数据来源": "TapTap",
+                        "作者": review.get("author", ""),
+                        "评分": review.get("score", ""),
+                        "评论内容": _truncate(review.get("content", ""), 500),
+                        "游戏时长(h)": "",
+                        "点赞数": _safe_int(review.get("likes")),
+                        "日期": review.get("date", review.get("created_at", "")),
+                    }
+                )
 
 
 # ==================== Google Trends 提取 ====================
+
 
 def _extract_gtrends(data: dict[str, Any], result: ExtractedData) -> None:
     """从 Google Trends 采集数据中提取结构化字段。"""
@@ -645,40 +763,52 @@ def _extract_gtrends(data: dict[str, Any], result: ExtractedData) -> None:
     snapshot = data.get("snapshot", {})
     trend_history = data.get("trend_history", [])
     trend_count = len(trend_history) if isinstance(trend_history, list) else 0
-    result.overview.append({
-        "游戏名": data.get("game_name", keyword),
-        "数据来源": f"Google Trends ({geo})",
-        "当前在线": "",
-        "评论总量": "",
-        "好评率": "",
-        "价格": "",
-        "最新热度": _safe_int(snapshot.get("latest_trend_value")) if isinstance(snapshot, dict) else "",
-        "Google Trends（3个月趋势图）": f"{trend_count} points" if trend_count else "",
-        "热门相关词数": _safe_int(snapshot.get("top_related_count")) if isinstance(snapshot, dict) else "",
-        "上升相关词数": _safe_int(snapshot.get("rising_related_count")) if isinstance(snapshot, dict) else "",
-        "采集时间": _extract_time(data),
-    })
+    result.overview.append(
+        {
+            "游戏名": data.get("game_name", keyword),
+            "数据来源": f"Google Trends ({geo})",
+            "当前在线": "",
+            "评论总量": "",
+            "好评率": "",
+            "价格": "",
+            "最新热度": _safe_int(snapshot.get("latest_trend_value"))
+            if isinstance(snapshot, dict)
+            else "",
+            "Google Trends（3个月趋势图）": f"{trend_count} points" if trend_count else "",
+            "热门相关词数": _safe_int(snapshot.get("top_related_count"))
+            if isinstance(snapshot, dict)
+            else "",
+            "上升相关词数": _safe_int(snapshot.get("rising_related_count"))
+            if isinstance(snapshot, dict)
+            else "",
+            "采集时间": _extract_time(data),
+        }
+    )
 
     # 时序热度
     if isinstance(trend_history, list):
         for point in trend_history:
             if not isinstance(point, dict):
                 continue
-            result.trends.append({
-                "关键词": keyword,
-                "类型": "搜索热度",
-                "日期": point.get("date", ""),
-                "热度值": _safe_int(point.get("value")),
-                "标题": "",
-            })
-            result.google_trends.append({
-                "游戏名": data.get("game_name", keyword),
-                "关键词": keyword,
-                "地区": geo or "全球",
-                "时间范围": timeframe,
-                "日期": point.get("date", ""),
-                "热度值": _safe_int(point.get("value")),
-            })
+            result.trends.append(
+                {
+                    "关键词": keyword,
+                    "类型": "搜索热度",
+                    "日期": point.get("date", ""),
+                    "热度值": _safe_int(point.get("value")),
+                    "标题": "",
+                }
+            )
+            result.google_trends.append(
+                {
+                    "游戏名": data.get("game_name", keyword),
+                    "关键词": keyword,
+                    "地区": geo or "全球",
+                    "时间范围": timeframe,
+                    "日期": point.get("date", ""),
+                    "热度值": _safe_int(point.get("value")),
+                }
+            )
 
     # 相关查询
     related = data.get("related_queries", {})
@@ -687,26 +817,31 @@ def _extract_gtrends(data: dict[str, Any], result: ExtractedData) -> None:
         if isinstance(top_queries, list):
             for item in top_queries:
                 if isinstance(item, dict):
-                    result.related_queries.append({
-                        "关键词": keyword,
-                        "类型": "热门",
-                        "查询词": item.get("query", ""),
-                        "热度值": item.get("value", ""),
-                    })
+                    result.related_queries.append(
+                        {
+                            "关键词": keyword,
+                            "类型": "热门",
+                            "查询词": item.get("query", ""),
+                            "热度值": item.get("value", ""),
+                        }
+                    )
 
         rising_queries = related.get("rising", [])
         if isinstance(rising_queries, list):
             for item in rising_queries:
                 if isinstance(item, dict):
-                    result.related_queries.append({
-                        "关键词": keyword,
-                        "类型": "上升",
-                        "查询词": item.get("query", ""),
-                        "热度值": item.get("value", ""),
-                    })
+                    result.related_queries.append(
+                        {
+                            "关键词": keyword,
+                            "类型": "上升",
+                            "查询词": item.get("query", ""),
+                            "热度值": item.get("value", ""),
+                        }
+                    )
 
 
 # ==================== Monitor 提取 ====================
+
 
 def _extract_monitor(data: dict[str, Any], result: ExtractedData) -> None:
     """从 Monitor 采集数据中提取外围指标。"""
@@ -739,6 +874,7 @@ def _extract_monitor(data: dict[str, Any], result: ExtractedData) -> None:
 
 # ==================== Event 提取 ====================
 
+
 def _extract_events(data: dict[str, Any], result: ExtractedData) -> None:
     """提取独立上传或外部导入的事件数据。"""
     game_name = data.get("game_name", "")
@@ -758,7 +894,9 @@ def _extract_events(data: dict[str, Any], result: ExtractedData) -> None:
                 "日期": item.get("date") or item.get("日期") or item.get("updated_at", ""),
                 "事件类型": item.get("type") or item.get("事件类型") or "事件",
                 "标题": item.get("title") or item.get("标题", ""),
-                "摘要": _truncate(item.get("summary") or item.get("摘要") or item.get("content", ""), 800),
+                "摘要": _truncate(
+                    item.get("summary") or item.get("摘要") or item.get("content", ""), 800
+                ),
                 "来源": item.get("source") or item.get("来源", ""),
                 "作者/来源名": item.get("author") or item.get("feed_name") or "",
                 "URL": item.get("url") or item.get("URL", ""),
@@ -768,6 +906,7 @@ def _extract_events(data: dict[str, Any], result: ExtractedData) -> None:
 
 
 # ==================== 通用提取 ====================
+
 
 def _extract_generic(data: dict[str, Any], result: ExtractedData) -> None:
     """对未知来源的数据做最小化提取。"""
@@ -798,6 +937,7 @@ def _extract_generic(data: dict[str, Any], result: ExtractedData) -> None:
 
 
 # ==================== 工具函数 ====================
+
 
 def _build_canonical_game_names(
     records: list[dict[str, Any]],
@@ -849,13 +989,17 @@ def _apply_canonical_game_name(
     if isinstance(snapshot, dict) and not _is_usable_game_name(str(snapshot.get("name", ""))):
         snapshot["name"] = canonical_name
     source_meta = cloned.get("source_meta")
-    if isinstance(source_meta, dict) and not _is_usable_game_name(str(source_meta.get("target", ""))):
+    if isinstance(source_meta, dict) and not _is_usable_game_name(
+        str(source_meta.get("target", ""))
+    ):
         source_meta["target"] = canonical_name
     return cloned
 
 
 def _choose_best_game_name(candidates: list[str]) -> str:
-    unique = list(dict.fromkeys(candidate for candidate in candidates if _is_usable_game_name(candidate)))
+    unique = list(
+        dict.fromkeys(candidate for candidate in candidates if _is_usable_game_name(candidate))
+    )
     if not unique:
         return ""
 
@@ -941,16 +1085,26 @@ def _extract_steam_peak_rows(
 
     online_history = charts.get("online_history", {})
     records: list[Any] = []
-    if isinstance(online_history, dict) and isinstance(online_history.get("records"), list) and len(online_history.get("records") or []) >= 90:
+    if (
+        isinstance(online_history, dict)
+        and isinstance(online_history.get("records"), list)
+        and len(online_history.get("records") or []) >= 90
+    ):
         records = online_history["records"]
     if not records:
         records = charts.get("online_history_daily_precise_90d") or []
-    if not records and isinstance(online_history, dict) and isinstance(online_history.get("records"), list):
+    if (
+        not records
+        and isinstance(online_history, dict)
+        and isinstance(online_history.get("records"), list)
+    ):
         records = online_history["records"]
     if not records:
         records = charts.get("online_history_daily_precise_30d") or []
     if not records:
-        records = charts.get("online_history_monthly_peak_1y") or charts.get("online_history_1y") or []
+        records = (
+            charts.get("online_history_monthly_peak_1y") or charts.get("online_history_1y") or []
+        )
     if not isinstance(records, list):
         return []
 
@@ -961,7 +1115,9 @@ def _extract_steam_peak_rows(
         if not isinstance(record, dict):
             continue
         date_value = record.get("date") or record.get("month") or record.get("label")
-        peak_value = _first_number(record, "peak_players", "peak", "players", "max_players", "daily_peak_players")
+        peak_value = _first_number(
+            record, "peak_players", "peak", "players", "max_players", "daily_peak_players"
+        )
         if date_value in (None, "") or peak_value is None:
             continue
         if _is_excluded_steam_ccu_day(record, excluded_date):
@@ -975,7 +1131,11 @@ def _extract_steam_peak_rows(
                 "时间戳(UTC)": record.get("timestamp", ""),
                 "数据源": steamdb.get("source", "steamdb"),
                 "时间粒度": charts.get("requested_time_slice")
-                or (online_history.get("requested_slice") if isinstance(online_history, dict) else ""),
+                or (
+                    online_history.get("requested_slice")
+                    if isinstance(online_history, dict)
+                    else ""
+                ),
             }
         )
     return rows
@@ -1181,10 +1341,7 @@ def _review_rate_from_trend(rows: list[dict[str, Any]], *, days: int) -> float |
 def _is_cumulative_review_series(rows: list[dict[str, Any]]) -> bool:
     if any(row.get("metric") == "cumulative" for row in rows):
         return True
-    comparable = [
-        (_safe_float(row.get("positive")), _safe_float(row.get("total")))
-        for row in rows
-    ]
+    comparable = [(_safe_float(row.get("positive")), _safe_float(row.get("total"))) for row in rows]
     comparable = [pair for pair in comparable if pair[0] is not None and pair[1] is not None]
     if len(comparable) < 3:
         return False
@@ -1200,7 +1357,11 @@ def _max_peak_last_days(
     excluded_date: date | None = None,
 ) -> int | float | str:
     online_history = charts.get("online_history", {})
-    daily = charts.get("online_history_daily_precise_90d") or charts.get("online_history_daily_precise_30d") or []
+    daily = (
+        charts.get("online_history_daily_precise_90d")
+        or charts.get("online_history_daily_precise_30d")
+        or []
+    )
     if not daily and isinstance(online_history, dict):
         daily = online_history.get("records") or []
     if not isinstance(daily, list):
@@ -1223,7 +1384,11 @@ def _max_peak_last_days(
 
 
 def _ccu_trend_summary(charts: dict[str, Any], *, excluded_date: date | None = None) -> str:
-    daily = charts.get("online_history_daily_precise_90d") or charts.get("online_history_daily_precise_30d") or []
+    daily = (
+        charts.get("online_history_daily_precise_90d")
+        or charts.get("online_history_daily_precise_30d")
+        or []
+    )
     if isinstance(daily, list) and daily:
         complete_daily = [
             row
@@ -1270,7 +1435,9 @@ def _steam_ccu_excluded_date(data: dict[str, Any], steamdb: dict[str, Any]) -> d
     source_meta = data.get("source_meta", {}) if isinstance(data.get("source_meta"), dict) else {}
     if isinstance(source_meta, dict):
         candidates.append(source_meta.get("collected_at"))
-    steamdb_meta = steamdb.get("source_meta", {}) if isinstance(steamdb.get("source_meta"), dict) else {}
+    steamdb_meta = (
+        steamdb.get("source_meta", {}) if isinstance(steamdb.get("source_meta"), dict) else {}
+    )
     if isinstance(steamdb_meta, dict):
         candidates.append(steamdb_meta.get("collected_at"))
 
@@ -1294,7 +1461,9 @@ def _series_gain_last_days(series: list[Any], days: int) -> int | float | None:
         if not isinstance(item, dict):
             continue
         dt = _parse_datetime_value(item.get("timestamp") or item.get("date") or item.get("month"))
-        value = _first_number(item, "peak_players", "value", "followers", "wishlist", "players", "peak")
+        value = _first_number(
+            item, "peak_players", "value", "followers", "wishlist", "players", "peak"
+        )
         if dt is not None and value is not None:
             points.append((dt, value))
     if len(points) < 2:
@@ -1397,7 +1566,9 @@ def _extract_steamdb_event_rows(
                 continue
             if dedupe_key:
                 seen.add(dedupe_key)
-            updated_at = update.get("updated_at") or _format_event_time(update.get("timestamp_unix"))
+            updated_at = update.get("updated_at") or _format_event_time(
+                update.get("timestamp_unix")
+            )
             rows.append(
                 {
                     "游戏名": game_name or snapshot.get("name", ""),
@@ -1421,7 +1592,9 @@ def _format_event_time(value: Any) -> str:
         return ""
     if isinstance(value, (int, float)):
         try:
-            return datetime.fromtimestamp(float(value), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
         except (OSError, OverflowError, ValueError):
             return str(value)
     return str(value)
@@ -1429,7 +1602,10 @@ def _format_event_time(value: Any) -> str:
 
 def _classify_event_title(title: str) -> str:
     lowered = title.lower()
-    if any(keyword in lowered for keyword in ("update", "patch", "bug", "fix", "optimization", "hotfix")):
+    if any(
+        keyword in lowered
+        for keyword in ("update", "patch", "bug", "fix", "optimization", "hotfix")
+    ):
         return "版本更新"
     if any(keyword in lowered for keyword in ("event", "season", "activity", "festival")):
         return "活动"

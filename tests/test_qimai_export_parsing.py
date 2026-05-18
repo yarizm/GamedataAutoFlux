@@ -82,9 +82,7 @@ def test_report_extractor_drops_qimai_rank_timestamp_values():
     data = extract_from_records([record])
 
     assert [
-        (row["日期"], row["值"])
-        for row in data.trends
-        if row["指标"] == "iOS grossing rank"
+        (row["日期"], row["值"]) for row in data.trends if row["指标"] == "iOS grossing rank"
     ] == [("2026-01-30", 4)]
 
 
@@ -110,7 +108,9 @@ def test_report_extractor_uses_latest_rank_trend_for_grossing_rank():
 def test_qimai_rank_chart_arrays_do_not_use_timestamp_as_value():
     timestamp = 1_769_702_400_000
 
-    assert _normalize_series([[3, timestamp], [timestamp + 86_400_000, 4], ["2026-01-31", timestamp + 172_800_000, 5]]) == [
+    assert _normalize_series(
+        [[3, timestamp], [timestamp + 86_400_000, 4], ["2026-01-31", timestamp + 172_800_000, 5]]
+    ) == [
         {"date": "2026-01-29", "value": 3},
         {"date": "2026-01-30", "value": 4},
         {"date": "2026-01-31", "value": 5},
@@ -120,10 +120,12 @@ def test_qimai_rank_chart_arrays_do_not_use_timestamp_as_value():
 def test_qimai_rank_dict_uses_rank_when_value_is_timestamp():
     timestamp = 1_769_702_400_000
 
-    assert _normalize_series([
-        {"date": "2026-01-29", "value": timestamp, "rank": 3},
-        {"date": "2026-01-30", "value": timestamp + 86_400_000, "ranking": 4},
-    ]) == [
+    assert _normalize_series(
+        [
+            {"date": "2026-01-29", "value": timestamp, "rank": 3},
+            {"date": "2026-01-30", "value": timestamp + 86_400_000, "ranking": 4},
+        ]
+    ) == [
         {"date": "2026-01-29", "value": 3},
         {"date": "2026-01-30", "value": 4},
     ]

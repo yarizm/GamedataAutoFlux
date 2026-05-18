@@ -38,6 +38,7 @@ from src.storage.base import BaseStorage, StorageRecord
 
 class StepType(str, Enum):
     """Pipeline 步骤类型"""
+
     COLLECTOR = "collector"
     PROCESSOR = "processor"
     STORAGE = "storage"
@@ -46,6 +47,7 @@ class StepType(str, Enum):
 @dataclass
 class PipelineStep:
     """Pipeline 步骤定义"""
+
     step_type: StepType
     component_name: str
     config: dict[str, Any] = field(default_factory=dict)
@@ -55,6 +57,7 @@ class PipelineStep:
 @dataclass
 class PipelineResult:
     """Pipeline 执行结果"""
+
     pipeline_name: str
     task_id: str
     success: bool = True
@@ -195,7 +198,9 @@ class Pipeline:
             for step in collector_steps:
                 collector: BaseCollector = step.instance
                 step_name = f"collect:{step.component_name}"
-                task.add_step_log(step_name, TaskStatus.RUNNING, f"开始采集 ({len(targets)} 个目标)")
+                task.add_step_log(
+                    step_name, TaskStatus.RUNNING, f"开始采集 ({len(targets)} 个目标)"
+                )
                 logger.info(f"Pipeline [{self.name}] → 采集: {step.component_name}")
 
                 await collector.setup(step.config)
@@ -227,8 +232,7 @@ class Pipeline:
 
             result.collect_results = all_collect_results
             successful_collects = [
-                cr for cr in all_collect_results
-                if cr.success and cr.data is not None
+                cr for cr in all_collect_results if cr.success and cr.data is not None
             ]
             if collector_steps and not successful_collects:
                 result.success = False
@@ -247,7 +251,11 @@ class Pipeline:
             current_data: list[ProcessInput] = [
                 ProcessInput(
                     data=cr.data,
-                    metadata={**cr.metadata, "target": cr.target.name, "collected_at": cr.collected_at.isoformat()},
+                    metadata={
+                        **cr.metadata,
+                        "target": cr.target.name,
+                        "collected_at": cr.collected_at.isoformat(),
+                    },
                     source=cr.target.name,
                 )
                 for cr in all_collect_results
@@ -276,8 +284,9 @@ class Pipeline:
 
                 success_count = sum(1 for r in process_results if r.success)
                 task.add_step_log(
-                    step_name, TaskStatus.SUCCESS,
-                    f"处理完成: {success_count}/{len(process_results)} 成功"
+                    step_name,
+                    TaskStatus.SUCCESS,
+                    f"处理完成: {success_count}/{len(process_results)} 成功",
                 )
 
                 current_phase += 1
@@ -307,10 +316,7 @@ class Pipeline:
                 await storage.save_batch(records)
                 result.storage_count += len(records)
 
-                task.add_step_log(
-                    step_name, TaskStatus.SUCCESS,
-                    f"存储完成: {len(records)} 条记录"
-                )
+                task.add_step_log(step_name, TaskStatus.SUCCESS, f"存储完成: {len(records)} 条记录")
                 await storage.close()
 
                 current_phase += 1
@@ -339,9 +345,7 @@ class Pipeline:
 
         return result
 
-    async def _instantiate_steps(
-        self, steps: list[PipelineStep], component_type: str
-    ) -> None:
+    async def _instantiate_steps(self, steps: list[PipelineStep], component_type: str) -> None:
         """实例化步骤中的组件"""
         for step in steps:
             cls_ = registry.get(component_type, step.component_name)

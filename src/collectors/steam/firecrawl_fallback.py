@@ -101,7 +101,9 @@ class FirecrawlFallback:
 
         charts_url = _build_charts_url(self.STEAMDB_BASE, app_id, time_slice)
         request_headers = self._request_headers(headers=headers, cookie=cookie)
-        charts_md, highcharts_payload = await self._scrape_charts_url(charts_url, headers=request_headers)
+        charts_md, highcharts_payload = await self._scrape_charts_url(
+            charts_url, headers=request_headers
+        )
         if charts_md:
             result["charts"] = _parse_steamdb_markdown(
                 charts_md,
@@ -139,7 +141,9 @@ class FirecrawlFallback:
             {"type": "wait", "milliseconds": 5000},
             {"type": "executeJavascript", "script": self.HIGHCHARTS_EXTRACT_SCRIPT},
         ]
-        markdown, action_payload = await self._scrape_url_with_actions(url, actions=actions, headers=headers)
+        markdown, action_payload = await self._scrape_url_with_actions(
+            url, actions=actions, headers=headers
+        )
         return markdown, _extract_highcharts_action_payload(action_payload)
 
     async def _scrape_url(self, url: str, *, headers: dict[str, str] | None = None) -> str | None:
@@ -174,7 +178,9 @@ class FirecrawlFallback:
             else:
                 legacy_scrape_fn = getattr(self._app, "scrape_url", None)
                 if not callable(legacy_scrape_fn):
-                    raise AttributeError("Firecrawl client does not expose scrape() or scrape_url()")
+                    raise AttributeError(
+                        "Firecrawl client does not expose scrape() or scrape_url()"
+                    )
                 params: dict[str, Any] = {"formats": ["markdown"]}
                 if actions:
                     params["actions"] = actions
@@ -288,7 +294,9 @@ def _parse_steamdb_top_sellers(markdown: str, app_id: str | int) -> dict[str, An
     target_app_id = str(app_id)
     tables = _extract_markdown_tables(markdown)
     for table in tables:
-        rank_headers = [header for header in table["normalized_headers"] if header in {"rank", "col_1"}]
+        rank_headers = [
+            header for header in table["normalized_headers"] if header in {"rank", "col_1"}
+        ]
         if not rank_headers:
             continue
         for index, row_raw in enumerate(table["rows_raw"], start=1):
@@ -312,7 +320,9 @@ def _parse_steamdb_top_sellers(markdown: str, app_id: str | int) -> dict[str, An
     }
 
 
-def _extract_rank_from_top_sellers_row(row: dict[str, str], row_raw: dict[str, str], fallback_rank: int) -> int | None:
+def _extract_rank_from_top_sellers_row(
+    row: dict[str, str], row_raw: dict[str, str], fallback_rank: int
+) -> int | None:
     for candidate_row in (row, row_raw):
         for key, value in candidate_row.items():
             if key not in {"rank", "col_1", ""}:
@@ -361,7 +371,9 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: list[dict[str, An
 
     merge_payload(charts, payload)
     availability = charts.get("online_history_availability")
-    if isinstance(availability, dict) and (availability.get("daily_precise_30d") or availability.get("daily_precise_90d")):
+    if isinstance(availability, dict) and (
+        availability.get("daily_precise_30d") or availability.get("daily_precise_90d")
+    ):
         reasons = charts.get("online_history_unavailable_reasons")
         if isinstance(reasons, dict):
             reasons.pop("daily_precise_30d", None)
@@ -480,16 +492,10 @@ def _parse_markdown_table(lines: list[str]) -> dict[str, Any] | None:
 
         cells_clean = [_strip_markdown(cell) for cell in cells_raw]
         parsed_rows.append(
-            {
-                normalized_headers[idx]: cells_clean[idx]
-                for idx in range(header_count)
-            }
+            {normalized_headers[idx]: cells_clean[idx] for idx in range(header_count)}
         )
         parsed_rows_raw.append(
-            {
-                normalized_headers[idx]: cells_raw[idx].strip()
-                for idx in range(header_count)
-            }
+            {normalized_headers[idx]: cells_raw[idx].strip() for idx in range(header_count)}
         )
 
     return {

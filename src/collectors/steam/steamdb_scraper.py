@@ -1,10 +1,11 @@
-﻿"""
+"""
 SteamDB browser automation collector.
 
 Uses Playwright/CDP to collect SteamDB charts, info, patch notes, sales,
 and top-seller data for internal analysis. If SteamDB or Cloudflare blocks
 access, this module raises SteamDBScrapeFailed so callers can fall back.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +24,7 @@ from src.collectors.steam.rate_limiter import AdaptiveRateLimiter
 
 class SteamDBScrapeFailed(Exception):
     """SteamDB 閲囬泦澶辫触锛堣Е鍙戝厹搴曞垏鎹級"""
+
     pass
 
 
@@ -137,9 +139,13 @@ class SteamDBScraper:
                 logger.info(f"[SteamDB] Connected to local browser over CDP port {self._cdp_port}")
                 return
             except Exception as exc:
-                logger.warning(f"[SteamDB] CDP connection failed, falling back to new browser: {exc}")
+                logger.warning(
+                    f"[SteamDB] CDP connection failed, falling back to new browser: {exc}"
+                )
                 if self._cdp_required:
-                    raise SteamDBScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
+                    raise SteamDBScrapeFailed(
+                        f"CDP connection failed on port {self._cdp_port}: {exc}"
+                    ) from exc
         self._browser = await self._playwright.chromium.launch(
             headless=self._headless,
             args=[
@@ -183,10 +189,12 @@ class SteamDBScraper:
         Returns:
             鍖呭惈 charts 鍜?info 鏁版嵁鐨勫瓧鍏搞€?
         Raises:
-            SteamDBScrapeFailed: 褰?Cloudflare 鎷︽埅鎴栭〉闈㈣В鏋愬け璐ユ椂銆?        """
+            SteamDBScrapeFailed: 褰?Cloudflare 鎷︽埅鎴栭〉闈㈣В鏋愬け璐ユ椂銆?"""
         if self._should_use_threaded_playwright():
             logger.info("[SteamDB] 褰撳墠浜嬩欢寰幆涓嶅吋瀹癸紝鏀圭敤鐙珛绾跨▼鍚姩 Playwright")
-            return await asyncio.to_thread(self._scrape_sync, app_id, time_slice, cookie, extra_headers)
+            return await asyncio.to_thread(
+                self._scrape_sync, app_id, time_slice, cookie, extra_headers
+            )
 
         if not self._browser:
             await self.setup()
@@ -281,13 +289,21 @@ class SteamDBScraper:
                 is_cdp = False
                 if self._cdp_enabled:
                     try:
-                        browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{self._cdp_port}")
+                        browser = playwright.chromium.connect_over_cdp(
+                            f"http://127.0.0.1:{self._cdp_port}"
+                        )
                         is_cdp = True
-                        logger.info(f"[SteamDB] Connected to local browser over CDP port {self._cdp_port}")
+                        logger.info(
+                            f"[SteamDB] Connected to local browser over CDP port {self._cdp_port}"
+                        )
                     except Exception as exc:
-                        logger.warning(f"[SteamDB] CDP connection failed, falling back to new browser: {exc}")
+                        logger.warning(
+                            f"[SteamDB] CDP connection failed, falling back to new browser: {exc}"
+                        )
                         if self._cdp_required:
-                            raise SteamDBScrapeFailed(f"CDP connection failed on port {self._cdp_port}: {exc}") from exc
+                            raise SteamDBScrapeFailed(
+                                f"CDP connection failed on port {self._cdp_port}: {exc}"
+                            ) from exc
                         browser = None
                 else:
                     browser = None
@@ -308,7 +324,9 @@ class SteamDBScraper:
                         "user_agent": _random_user_agent(),
                         "locale": "en-US",
                     }
-                    context_headers = self._request_headers(cookie=cookie, extra_headers=extra_headers)
+                    context_headers = self._request_headers(
+                        cookie=cookie, extra_headers=extra_headers
+                    )
                     if context_headers:
                         context_kwargs["extra_http_headers"] = context_headers
                     context = browser.new_context(**context_kwargs)
@@ -374,7 +392,9 @@ class SteamDBScraper:
             await page.wait_for_timeout(wait_ms)
             content = await page.content()
             if _steamdb_content_ready(content):
-                logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                logger.info(
+                    f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}"
+                )
                 if reload_url:
                     await self._reload_target_async(page, reload_url)
                 return True
@@ -392,7 +412,9 @@ class SteamDBScraper:
             page.wait_for_timeout(wait_ms)
             content = page.content()
             if _steamdb_content_ready(content):
-                logger.info(f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}")
+                logger.info(
+                    f"[SteamDB] Browser content looks usable after 403/challenge wait: {label}"
+                )
                 if reload_url:
                     self._reload_target_sync(page, reload_url)
                 return True
@@ -437,14 +459,20 @@ class SteamDBScraper:
         except Exception as e:
             raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
 
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "charts", reload_url=url):
+        if (
+            resp
+            and resp.status == 403
+            and await self._wait_out_cloudflare_async(page, "charts", reload_url=url)
+        ):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
         # 妫€娴?Cloudflare challenge
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "charts", reload_url=url):
+        if (
+            "challenge-platform" in content or "Just a moment" in content
+        ) and await self._wait_out_cloudflare_async(page, "charts", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge blocked")
@@ -461,9 +489,7 @@ class SteamDBScraper:
         # Extract key chart summary values.
         try:
             # 褰撳墠鍦ㄧ嚎鏁版嵁锛堥〉闈㈤《閮ㄧ粺璁″尯鍩燂級
-            stat_elements = await page.query_selector_all(
-                ".app-chart-numbers .number-group"
-            )
+            stat_elements = await page.query_selector_all(".app-chart-numbers .number-group")
             for el in stat_elements:
                 label = await el.query_selector(".label")
                 value = await el.query_selector(".value")
@@ -530,13 +556,19 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url):
+        if (
+            resp
+            and resp.status == 403
+            and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url)
+        ):
             resp = None
         if resp and resp.status == 403:
             self._rate_limiter.report_blocked()
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url):
+        if (
+            "challenge-platform" in content or "Just a moment" in content
+        ) and await self._wait_out_cloudflare_async(page, "patchnotes", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             self._rate_limiter.report_challenge()
@@ -565,13 +597,19 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
-        if resp and resp.status == 403 and await self._wait_out_cloudflare_async(page, "sales", reload_url=url):
+        if (
+            resp
+            and resp.status == 403
+            and await self._wait_out_cloudflare_async(page, "sales", reload_url=url)
+        ):
             resp = None
         if resp and resp.status == 403:
             self._rate_limiter.report_blocked()
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = await page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and await self._wait_out_cloudflare_async(page, "sales", reload_url=url):
+        if (
+            "challenge-platform" in content or "Just a moment" in content
+        ) and await self._wait_out_cloudflare_async(page, "sales", reload_url=url):
             content = await page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             self._rate_limiter.report_challenge()
@@ -581,9 +619,7 @@ class SteamDBScraper:
         text = await page.inner_text("body")
         return _parse_sales_text(text, url)
 
-    async def _scrape_info(
-        self, page: Any, app_id: str | int
-    ) -> dict[str, Any]:
+    async def _scrape_info(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """閲囬泦 info 椤甸潰: 鐗堟湰鏇存柊銆佸彂甯冨晢淇℃伅"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
         logger.info(f"[SteamDB] 璁块棶 info: {url}")
@@ -625,9 +661,7 @@ class SteamDBScraper:
 
         # Extract key-value info rows.
         try:
-            kv_rows = await page.query_selector_all(
-                "table.table-dark tr, .app-info tr"
-            )
+            kv_rows = await page.query_selector_all("table.table-dark tr, .app-info tr")
             for row in kv_rows[:50]:
                 cells = await row.query_selector_all("td")
                 if len(cells) >= 2:
@@ -682,7 +716,12 @@ class SteamDBScraper:
             if parsed.get("matched"):
                 parsed["warning"] = navigation_error
                 return parsed
-            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
+            return {
+                "source": "steamdb_globaltopsellers",
+                "url": url,
+                "rank": "",
+                "error": navigation_error,
+            }
 
         if resp and resp.status == 403:
             if await self._wait_out_cloudflare_async(page, "top_sellers", reload_url=url):
@@ -809,12 +848,18 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
-        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url):
+        if (
+            resp
+            and resp.status == 403
+            and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url)
+        ):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url):
+        if (
+            "challenge-platform" in content or "Just a moment" in content
+        ) and self._wait_out_cloudflare_sync(page, "patchnotes", reload_url=url):
             content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
@@ -841,12 +886,18 @@ class SteamDBScraper:
             )
         except Exception as e:
             return {"source": "steamdb_sales", "url": url, "error": str(e)}
-        if resp and resp.status == 403 and self._wait_out_cloudflare_sync(page, "sales", reload_url=url):
+        if (
+            resp
+            and resp.status == 403
+            and self._wait_out_cloudflare_sync(page, "sales", reload_url=url)
+        ):
             resp = None
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403")
         content = page.content()
-        if ("challenge-platform" in content or "Just a moment" in content) and self._wait_out_cloudflare_sync(page, "sales", reload_url=url):
+        if (
+            "challenge-platform" in content or "Just a moment" in content
+        ) and self._wait_out_cloudflare_sync(page, "sales", reload_url=url):
             content = page.content()
         if "challenge-platform" in content or "Just a moment" in content:
             raise SteamDBScrapeFailed("Cloudflare challenge")
@@ -854,9 +905,7 @@ class SteamDBScraper:
         self._behavior.after_navigation_sync(page)
         return _parse_sales_text(page.inner_text("body"), url)
 
-    def _scrape_info_sync(
-        self, page: Any, app_id: str | int
-    ) -> dict[str, Any]:
+    def _scrape_info_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """鍚屾鐗堟湰鐨?info 閲囬泦銆"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
         logger.info(f"[SteamDB] 璁块棶 info: {url}")
@@ -951,7 +1000,12 @@ class SteamDBScraper:
             if parsed.get("matched"):
                 parsed["warning"] = navigation_error
                 return parsed
-            return {"source": "steamdb_globaltopsellers", "url": url, "rank": "", "error": navigation_error}
+            return {
+                "source": "steamdb_globaltopsellers",
+                "url": url,
+                "rank": "",
+                "error": navigation_error,
+            }
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "top_sellers", reload_url=url):
@@ -971,6 +1025,7 @@ class SteamDBScraper:
 
 
 # 鈹€鈹€ 宸ュ叿鍑芥暟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
 
 async def _navigate_by_click_async(
     page: Any,
@@ -1014,7 +1069,9 @@ async def _navigate_by_click_async(
                 logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
                 return None
         except Exception as exc:
-            logger.debug(f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}")
+            logger.debug(
+                f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}"
+            )
 
     logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
     response = await page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
@@ -1064,7 +1121,9 @@ def _navigate_by_click_sync(
                 logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
                 return None
         except Exception as exc:
-            logger.debug(f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}")
+            logger.debug(
+                f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}"
+            )
 
     logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
     response = page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
@@ -1200,7 +1259,9 @@ def _chart_fragment_for_time_slice(time_slice: str) -> str:
     return ""
 
 
-async def _parse_top_sellers_rows_async(rows: list[Any], app_id: str | int, url: str) -> dict[str, Any]:
+async def _parse_top_sellers_rows_async(
+    rows: list[Any], app_id: str | int, url: str
+) -> dict[str, Any]:
     target = f"/app/{app_id}/"
     for fallback_rank, row in enumerate(rows, start=1):
         html = await row.inner_html()
@@ -1247,7 +1308,7 @@ def _parse_patchnotes_text(text: str, url: str) -> dict[str, Any]:
             break
         if not re.search(r"\b(update|patch|hotfix|build|release|version)\b", line, re.IGNORECASE):
             continue
-        context = " ".join(lines[max(0, index - 2): index + 3])
+        context = " ".join(lines[max(0, index - 2) : index + 3])
         items.append(
             {
                 "title": line[:240],
@@ -1284,7 +1345,7 @@ def _merge_highcharts_payload(charts: dict[str, Any], payload: Any) -> None:
     followers_records = _extract_named_series(payload, ("follower",))
     wishlist_records = _extract_named_series(payload, ("wishlist", "wishlists"))
     review_history_records = _extract_user_reviews_history(payload)
-    
+
     availability = charts.get("online_history_availability")
     if not isinstance(availability, dict):
         availability = {}
@@ -1410,6 +1471,7 @@ def _extract_user_reviews_history(payload: list[Any]) -> list[dict[str, Any]]:
             best = records
     return best
 
+
 def _extract_named_series(payload: list[Any], name_tokens: tuple[str, ...]) -> list[dict[str, Any]]:
     best: list[dict[str, Any]] = []
     for chart in payload:
@@ -1453,9 +1515,7 @@ def _valid_xy_count(points: list[Any]) -> int:
 
 def _filter_recent_records(records: list[dict[str, Any]], days: int) -> list[dict[str, Any]]:
     parsed_dates = [
-        parsed.date()
-        for record in records
-        if (parsed := _parse_record_date(record)) is not None
+        parsed.date() for record in records if (parsed := _parse_record_date(record)) is not None
     ]
     if not parsed_dates:
         return []
@@ -1488,9 +1548,7 @@ def _parse_record_date(record: dict[str, Any]) -> datetime | None:
 
 def _infer_record_granularity(records: list[dict[str, Any]]) -> str:
     dates = [
-        parsed.date()
-        for record in records
-        if (parsed := _parse_record_date(record)) is not None
+        parsed.date() for record in records if (parsed := _parse_record_date(record)) is not None
     ]
     dates = sorted(set(dates))
     if len(dates) < 2:
@@ -1564,8 +1622,15 @@ def _safe_int(value: Any) -> int | None:
 
 
 def _has_meaningful_chart_data(charts: dict[str, Any]) -> bool:
-    ignored = {"requested_time_slice", "chart_url", "online_history_availability", "online_history_unavailable_reasons"}
-    return any(key not in ignored and value not in (None, "", [], {}) for key, value in charts.items())
+    ignored = {
+        "requested_time_slice",
+        "chart_url",
+        "online_history_availability",
+        "online_history_unavailable_reasons",
+    }
+    return any(
+        key not in ignored and value not in (None, "", [], {}) for key, value in charts.items()
+    )
 
 
 async def _wait_for_highcharts_async(page: Any) -> None:
@@ -1791,7 +1856,3 @@ def _safe_float(value: Any) -> float | None:
         return float(str(value).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
-
-
-
-

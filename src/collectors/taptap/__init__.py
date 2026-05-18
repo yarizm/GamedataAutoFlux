@@ -1,2 +1,1 @@
 """TapTap collector helper modules."""
-
