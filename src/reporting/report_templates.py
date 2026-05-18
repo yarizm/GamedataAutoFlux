@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,14 @@ BUILTIN_TEMPLATES: dict[str, ReportTemplate] = {
     ),
 }
 
+_TEMPLATE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-一-鿿]+$")
+
+
+def _sanitize_template_id(template_id: str) -> str:
+    if not template_id or not _TEMPLATE_ID_RE.match(template_id):
+        raise ValueError(f"Invalid template_id: {template_id!r}")
+    return template_id
+
 
 class TemplateManager:
     def __init__(self, template_dir: Path | None = None):
@@ -123,6 +132,9 @@ class TemplateManager:
         return list(self._templates.values())
 
     def save_template(self, template_id: str, data: dict[str, Any]) -> None:
+        template_id = _sanitize_template_id(template_id)
+        if template_id in BUILTIN_TEMPLATES:
+            raise ValueError(f"Cannot overwrite built-in template: {template_id!r}")
         self.template_dir.mkdir(parents=True, exist_ok=True)
         yaml_file = self.template_dir / f"{template_id}.yaml"
         with open(yaml_file, "w", encoding="utf-8") as f:
@@ -130,6 +142,7 @@ class TemplateManager:
         self.load_all()
 
     def delete_template(self, template_id: str) -> bool:
+        template_id = _sanitize_template_id(template_id)
         if template_id in BUILTIN_TEMPLATES:
             return False
         yaml_file = self.template_dir / f"{template_id}.yaml"
@@ -167,6 +180,14 @@ def list_report_templates() -> list[dict[str, Any]]:
 
 def get_report_template(template_id: str) -> ReportTemplate | None:
     return _manager.get_template(template_id)
+
+
+def save_template(template_id: str, data: dict[str, Any]) -> None:
+    _manager.save_template(template_id, data)
+
+
+def delete_template(template_id: str) -> bool:
+    return _manager.delete_template(template_id)
 
 
 def is_structured_template(template_id: str) -> bool:

@@ -16,7 +16,11 @@ from pydantic import BaseModel, Field
 from src.reporting.generator import GeneratedReport, ReportSummary
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.report_templates import list_report_templates, normalize_collector
-from src.reporting.report_templates import validate_template_sources
+from src.reporting.report_templates import (
+    validate_template_sources,
+    save_template as tmpl_save,
+    delete_template as tmpl_delete,
+)
 from src.storage.base import StorageRecord
 from src.storage.local_store import LocalStorage
 from src.services._utils import source_label
@@ -154,18 +158,19 @@ class TemplateSaveRequest(BaseModel):
 
 @router.post("/reports/templates/{template_id}")
 async def save_template(template_id: str, req: TemplateSaveRequest):
-    from src.reporting.report_templates import _manager
-
-    data = req.model_dump()
-    _manager.save_template(template_id, data)
+    try:
+        tmpl_save(template_id, req.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "success", "id": template_id}
 
 
 @router.delete("/reports/templates/{template_id}")
 async def delete_template(template_id: str):
-    from src.reporting.report_templates import _manager
-
-    success = _manager.delete_template(template_id)
+    try:
+        success = tmpl_delete(template_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not success:
         raise HTTPException(status_code=400, detail="Cannot delete built-in or missing template")
     return {"status": "deleted"}
@@ -175,22 +180,31 @@ async def delete_template(template_id: str):
 async def upload_template(file: UploadFile = File(...)):
     """上传 YAML 模板文件"""
     import yaml
-    from src.reporting.report_templates import _manager
 
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
     if not file.filename.endswith((".yaml", ".yml")):
         raise HTTPException(status_code=400, detail="Only YAML files are supported")
 
     try:
-        content = await file.read()
+        content = await file.read(size=1_048_576)
+        if len(content) >= 1_048_576:
+            raise HTTPException(status_code=413, detail="Template file exceeds 1 MB limit")
         data = yaml.safe_load(content.decode("utf-8"))
         if not isinstance(data, dict) or not data.get("name"):
             raise HTTPException(status_code=400, detail="Invalid YAML template format")
 
-        template_id = Path(file.filename).stem
-        _manager.save_template(template_id, data)
+        TemplateSaveRequest(**data)
+
+        template_id = FilePath(file.filename).stem
+        tmpl_save(template_id, data)
         return {"status": "success", "id": template_id, "name": data.get("name")}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except yaml.YAMLError as e:
         raise HTTPException(status_code=400, detail=f"YAML parsing error: {e}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload template: {e}")
 

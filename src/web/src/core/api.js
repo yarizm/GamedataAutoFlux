@@ -1,8 +1,9 @@
 import { getLanguage, t } from './i18n.js';
 
 export async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const resp = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: isFormData ? { ...options.headers } : { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
 

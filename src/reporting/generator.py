@@ -105,9 +105,14 @@ class ReportGenerator:
             )
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
+        extracted = extract_from_records(records, data_source)
+        template_validation = validate_template_sources(template, extracted.source_coverage)
+
         await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
         content = await self._render_report(
-            self._build_template_prompt(prompt, template, {}, custom_prompt=custom_prompt),
+            self._build_template_prompt(
+                prompt, template, template_validation, custom_prompt=custom_prompt
+            ),
             data_source,
             template,
             records,

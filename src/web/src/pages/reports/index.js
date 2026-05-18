@@ -1,4 +1,4 @@
-import { api, toast, escapeHtml, formatTime, setValue, setText } from '../../core/api.js';
+import { api, toast, escapeHtml, escapeJs, formatTime, setValue, setText } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -303,45 +303,51 @@ export default {
   _switchTemplateTab(tab) {
     document.querySelectorAll('[data-tmpl-tab]').forEach(btn => {
       const isActive = btn.dataset.tmplTab === tab;
-      btn.style.color = isActive ? '#a78bfa' : '#a1a1aa';
-      btn.style.borderColor = isActive ? '#8b5cf6' : 'transparent';
+      btn.classList.toggle('text-violet-400', isActive);
+      btn.classList.toggle('border-violet-500', isActive);
+      btn.classList.toggle('text-zinc-400', !isActive);
+      btn.classList.toggle('border-transparent', !isActive);
     });
     document.getElementById('tmpl-tab-visual').style.display = tab === 'visual' ? 'block' : 'none';
     document.getElementById('tmpl-tab-upload').style.display = tab === 'upload' ? 'block' : 'none';
     const btn = document.getElementById('btn-submit-template');
-    if (btn) btn.textContent = tab === 'visual' ? '保存模板' : '上传 YAML';
+    if (btn) btn.textContent = t(tab === 'visual' ? 'reports.template.saveTemplate' : 'reports.template.uploadYaml');
   },
 
   _renderCollectorCheckboxes() {
-    const collectors = [
-      ['steam', 'Steam'],
-      ['taptap', 'TapTap'],
-      ['gtrends', 'Google Trends'],
-      ['monitor', 'Monitor'],
-      ['events', '事件数据'],
-      ['steam_discussions', 'Steam Community Discussions'],
-      ['official_site', '官方网站'],
-      ['qimai', '七麦数据(AppStore)'],
-    ];
-    const html = collectors.map(([val, label]) =>
+    const collectorKeys = ['steam', 'taptap', 'gtrends', 'monitor', 'events', 'steam_discussions', 'official_site', 'qimai'];
+    const html = collectorKeys.map(val =>
       `<label class="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg border border-white/5 cursor-pointer hover:bg-zinc-700/50 transition-colors">
         <input type="checkbox" value="${escapeHtml(val)}" class="w-4 h-4 rounded border-white/10 text-violet-500 focus:ring-violet-500/40 bg-zinc-900">
-        <span class="text-xs text-zinc-300">${escapeHtml(label)}</span>
+        <span class="text-xs text-zinc-300">${escapeHtml(labelCollector(val))}</span>
       </label>`
     ).join('');
     document.getElementById('tmpl-required-cols').innerHTML = html;
     document.getElementById('tmpl-optional-cols').innerHTML = html;
+
+    const mutualExclude = (changedGroup, otherGroupId) => {
+      document.querySelectorAll(`#${changedGroup} input[type="checkbox"]`).forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (cb.checked) {
+            const other = document.querySelector(`#${otherGroupId} input[value="${escapeJs(cb.value)}"]`);
+            if (other) other.checked = false;
+          }
+        });
+      });
+    };
+    mutualExclude('tmpl-required-cols', 'tmpl-optional-cols');
+    mutualExclude('tmpl-optional-cols', 'tmpl-required-cols');
   },
 
   _submitVisualTemplate() {
     const name = document.getElementById('tmpl-name')?.value.trim();
-    if (!name) { toast('请输入模板名称', 'error'); return; }
+    if (!name) { toast(t('message.templateEmptyName'), 'error'); return; }
 
     const id = name.toLowerCase()
       .replace(/[^a-z0-9一-鿿]+/g, '_')
       .replace(/^_|_$/g, '')
       .replace(/_+/g, '_');
-    if (!id) { toast('模板名称无法生成有效 ID', 'error'); return; }
+    if (!id) { toast(t('message.templateInvalidId'), 'error'); return; }
 
     const required = [...document.querySelectorAll('#tmpl-required-cols input:checked')].map(cb => cb.value);
     const optional = [...document.querySelectorAll('#tmpl-optional-cols input:checked')].map(cb => cb.value);
@@ -360,36 +366,31 @@ export default {
       method: 'POST',
       body: JSON.stringify(payload),
     }).then(() => {
-      toast(`模板 "${name}" 已保存`, 'success');
+      toast(t('message.templateSaved', { name }), 'success');
       closeModal('modal-report-template');
       this._loadTemplates();
     }).catch(err => {
-      toast('保存失败: ' + err.message, 'error');
+      toast(t('message.templateSaveFailed', { error: err.message }), 'error');
     });
   },
 
   _submitFileTemplate() {
     const input = document.getElementById('tmpl-file-input');
     const file = input?.files?.[0];
-    if (!file) { toast('请选择 YAML 文件', 'error'); return; }
+    if (!file) { toast(t('message.templateNoFile'), 'error'); return; }
 
     const formData = new FormData();
     formData.append('file', file);
 
-    fetch('/api/reports/templates/upload', {
+    api('/reports/templates/upload', {
       method: 'POST',
       body: formData,
-    }).then(async resp => {
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-        throw new Error(err.detail || `HTTP ${resp.status}`);
-      }
-      const result = await resp.json();
-      toast(`模板 "${result.name || result.id}" 上传成功`, 'success');
+    }).then(result => {
+      toast(t('message.templateUploaded', { name: result.name || result.id }), 'success');
       closeModal('modal-report-template');
       this._loadTemplates();
     }).catch(err => {
-      toast('上传失败: ' + err.message, 'error');
+      toast(t('message.templateUploadFailed', { error: err.message }), 'error');
     });
   },
 

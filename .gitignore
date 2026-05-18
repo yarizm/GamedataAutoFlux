@@ -15,6 +15,7 @@ data/
 !src/web/src/pages/data/style.css
 logs/
 outputs/
+docs/
 tmp/
 node_modules/
 dist/
