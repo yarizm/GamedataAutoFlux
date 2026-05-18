@@ -116,7 +116,10 @@ class TaskService:
         targets: list[dict[str, Any]] | None = None,
     ):
         """Reusable precheck logic usable by both API route and Agent tools."""
-        from src.schemas.tasks import TaskPrecheckResponse, TaskPrecheckIssue  # shared schema module
+        from src.schemas.tasks import (
+            TaskPrecheckResponse,
+            TaskPrecheckIssue,
+        )  # shared schema module
 
         targets = targets or []
         pipeline = self._scheduler.get_pipeline(pipeline_name)
@@ -128,22 +131,40 @@ class TaskService:
         data_source_status: dict[str, str] = {}
 
         if not name.strip():
-            issues.append(self._issue("error", "missing_task_name", "name", "Task name is required."))
+            issues.append(
+                self._issue("error", "missing_task_name", "name", "Task name is required.")
+            )
         if not pipeline_name.strip():
-            issues.append(self._issue("error", "missing_pipeline", "pipeline_name", "Pipeline is required."))
+            issues.append(
+                self._issue("error", "missing_pipeline", "pipeline_name", "Pipeline is required.")
+            )
         elif pipeline is None and template is None:
             issues.append(
-                self._issue("error", "unknown_pipeline", "pipeline_name", f"Pipeline not found: {pipeline_name}")
+                self._issue(
+                    "error",
+                    "unknown_pipeline",
+                    "pipeline_name",
+                    f"Pipeline not found: {pipeline_name}",
+                )
             )
         if not resolved_collector:
             issues.append(
-                self._issue("error", "collector_unresolved", "collector_name", "Collector cannot be inferred from pipeline.")
+                self._issue(
+                    "error",
+                    "collector_unresolved",
+                    "collector_name",
+                    "Collector cannot be inferred from pipeline.",
+                )
             )
         else:
             data_source_status[resolved_collector] = "available"
 
         if not targets:
-            issues.append(self._issue("error", "missing_targets", "targets", "At least one target is required."))
+            issues.append(
+                self._issue(
+                    "error", "missing_targets", "targets", "At least one target is required."
+                )
+            )
         for index, target in enumerate(targets):
             issues.extend(self._validate_target(index, target, resolved_collector))
 
@@ -180,6 +201,7 @@ class TaskService:
     @staticmethod
     def _issue(level: str, code: str, field: str, message: str):
         from src.schemas.tasks import TaskPrecheckIssue
+
         return TaskPrecheckIssue(level=level, code=code, field=field, message=message)
 
     @staticmethod
@@ -187,10 +209,13 @@ class TaskService:
         if not pipeline_name:
             return None
         from src.core.pipeline_templates import PIPELINE_TEMPLATES
+
         return next((item for item in PIPELINE_TEMPLATES if item.get("id") == pipeline_name), None)
 
     @staticmethod
-    def _resolve_collector_name(explicit: str, pipeline: Any | None, template: dict[str, Any] | None) -> str:
+    def _resolve_collector_name(
+        explicit: str, pipeline: Any | None, template: dict[str, Any] | None
+    ) -> str:
         if explicit:
             return explicit
         if pipeline is not None:
@@ -212,7 +237,11 @@ class TaskService:
             "steam_discussions": ["target.params.app_id or target.params.forum_url"],
             "taptap": ["target.params.app_id or target.params.url"],
             "gtrends": ["target.name"],
-            "monitor": ["target.params.app_id", "target.params.twitch_name (optional)", "target.params.siteurl (optional)"],
+            "monitor": [
+                "target.params.app_id",
+                "target.params.twitch_name (optional)",
+                "target.params.siteurl (optional)",
+            ],
             "qimai": ["target.params.app_id"],
             "official_site": ["target.params.official_url"],
         }.get(collector_name, ["target.name or target.params"])
@@ -228,29 +257,92 @@ class TaskService:
 
         if collector_name == "steam":
             if not name and not str(params.get("app_id") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_steam_target", field=field, message="Steam target needs a game name or app_id."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_steam_target",
+                        field=field,
+                        message="Steam target needs a game name or app_id.",
+                    )
+                )
             elif not str(params.get("app_id") or "").strip():
-                issues.append(TaskPrecheckIssue(level="warning", code="missing_steam_app_id", field=field, message="Steam app_id is recommended to avoid wrong game matches."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="warning",
+                        code="missing_steam_app_id",
+                        field=field,
+                        message="Steam app_id is recommended to avoid wrong game matches.",
+                    )
+                )
         elif collector_name == "steam_discussions":
             if not str(params.get("app_id") or params.get("forum_url") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_discussion_target", field=field, message="Steam discussions need app_id or forum_url."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_discussion_target",
+                        field=field,
+                        message="Steam discussions need app_id or forum_url.",
+                    )
+                )
         elif collector_name == "taptap":
             if not str(params.get("app_id") or params.get("url") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_taptap_target", field=field, message="TapTap target needs app_id or url."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_taptap_target",
+                        field=field,
+                        message="TapTap target needs app_id or url.",
+                    )
+                )
         elif collector_name == "gtrends":
             if not name:
-                issues.append(TaskPrecheckIssue(level="error", code="missing_keyword", field=field, message="Google Trends target needs a keyword name."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_keyword",
+                        field=field,
+                        message="Google Trends target needs a keyword name.",
+                    )
+                )
         elif collector_name == "monitor":
             if not str(params.get("app_id") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_monitor_app_id", field=field, message="Monitor target requires app_id (twitch_name and siteurl are optional supplements)."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_monitor_app_id",
+                        field=field,
+                        message="Monitor target requires app_id (twitch_name and siteurl are optional supplements).",
+                    )
+                )
         elif collector_name == "qimai":
             if not str(params.get("app_id") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_qimai_app_id", field=field, message="Qimai target needs app_id."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_qimai_app_id",
+                        field=field,
+                        message="Qimai target needs app_id.",
+                    )
+                )
         elif collector_name == "official_site":
             if not str(params.get("official_url") or "").strip():
-                issues.append(TaskPrecheckIssue(level="error", code="missing_official_url", field=field, message="Official site target needs official_url."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_official_url",
+                        field=field,
+                        message="Official site target needs official_url.",
+                    )
+                )
         elif not name and not params:
-            issues.append(TaskPrecheckIssue(level="warning", code="empty_target", field=field, message="Target has no name or params."))
+            issues.append(
+                TaskPrecheckIssue(
+                    level="warning",
+                    code="empty_target",
+                    field=field,
+                    message="Target has no name or params.",
+                )
+            )
         return issues
 
     @staticmethod
@@ -263,16 +355,37 @@ class TaskService:
             credential_status["steam.api_key"] = "configured" if steam_key else "missing"
             if not steam_key:
                 issues.append(
-                    TaskPrecheckIssue(level="warning", code="missing_steam_api_key", field="steam.api_key", message="Steam API Key is missing; official Steam APIs may be unavailable.")
+                    TaskPrecheckIssue(
+                        level="warning",
+                        code="missing_steam_api_key",
+                        field="steam.api_key",
+                        message="Steam API Key is missing; official Steam APIs may be unavailable.",
+                    )
                 )
-            if bool(get_config("steam.steamdb.enabled", False)) and bool(get_config("steam.steamdb.cdp_enabled", False)):
+            if bool(get_config("steam.steamdb.enabled", False)) and bool(
+                get_config("steam.steamdb.cdp_enabled", False)
+            ):
                 credential_status["steam.steamdb.browser_session"] = "requires_login_session"
-                issues.append(TaskPrecheckIssue(level="warning", code="steamdb_login_session", field="steam.steamdb", message="SteamDB may require a logged-in browser session."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="warning",
+                        code="steamdb_login_session",
+                        field="steam.steamdb",
+                        message="SteamDB may require a logged-in browser session.",
+                    )
+                )
         elif collector_name in {"taptap", "official_site", "qimai"}:
             playwright_available = importlib.util.find_spec("playwright") is not None
             credential_status["playwright"] = "available" if playwright_available else "missing"
             if not playwright_available:
-                issues.append(TaskPrecheckIssue(level="warning", code="missing_playwright", field="playwright", message="Playwright is not importable; browser-backed collection may fail."))
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="warning",
+                        code="missing_playwright",
+                        field="playwright",
+                        message="Playwright is not importable; browser-backed collection may fail.",
+                    )
+                )
         else:
             credential_status["credentials"] = "not_required"
         return issues

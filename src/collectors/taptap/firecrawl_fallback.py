@@ -83,7 +83,9 @@ class TapTapFirecrawlFallback:
             else:
                 legacy_scrape_fn = getattr(self._app, "scrape_url", None)
                 if not callable(legacy_scrape_fn):
-                    raise AttributeError("Firecrawl client does not expose scrape() or scrape_url()")
+                    raise AttributeError(
+                        "Firecrawl client does not expose scrape() or scrape_url()"
+                    )
                 result = await asyncio.to_thread(
                     legacy_scrape_fn,
                     url,

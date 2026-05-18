@@ -49,12 +49,15 @@ class DataCleaner(BaseProcessor):
 
         # 深拷贝以防修改原始引用
         import copy
+
         data = copy.deepcopy(data)
 
         if isinstance(data, dict):
             cleaned = self._clean_record(data)
         elif isinstance(data, list):
-            cleaned = [self._clean_record(item) if isinstance(item, dict) else item for item in data]
+            cleaned = [
+                self._clean_record(item) if isinstance(item, dict) else item for item in data
+            ]
         else:
             cleaned = data
 
@@ -71,7 +74,7 @@ class DataCleaner(BaseProcessor):
 
     def _clean_record(self, data: dict[str, Any]) -> dict[str, Any]:
         """清洗单条采集记录"""
-        
+
         # 1. 直接剔除已知的高噪音字段
         noisy_keys = ["raw_snapshots", "html", "page_source", "raw_content"]
         for k in noisy_keys:
@@ -86,14 +89,14 @@ class DataCleaner(BaseProcessor):
         if "reviews" in data and isinstance(data["reviews"], dict):
             items = data["reviews"].get("items")
             if isinstance(items, list) and len(items) > self.max_reviews:
-                data["reviews"]["items"] = items[:self.max_reviews]
-                
+                data["reviews"]["items"] = items[: self.max_reviews]
+
         # 4. 截断新闻列表 (Steam)
         if "news" in data and isinstance(data["news"], dict):
             items = data["news"].get("items")
             if isinstance(items, list) and len(items) > self.max_news:
-                data["news"]["items"] = items[:self.max_news]
-                
+                data["news"]["items"] = items[: self.max_news]
+
         # 5. 递归处理所有字典层级，移除无用或过大的值
         return self._recursive_clean(data)
 
@@ -108,27 +111,27 @@ class DataCleaner(BaseProcessor):
                 cleaned_val = self._recursive_clean(value)
                 cleaned_node[key] = cleaned_val
             return cleaned_node
-            
+
         elif isinstance(node, list):
             # 对列表元素做清洗
             return [self._recursive_clean(item) for item in node if item is not None]
-            
+
         elif isinstance(node, str):
             node = node.strip()
             if not node:
                 return ""
-            
+
             # 简单的 HTML 标签探测
             if "<html" in node.lower() or "<body" in node.lower() or "<div" in node.lower():
                 # 如果是明显的一大坨 HTML 源码，直接替换为提示
                 if len(node) > 500:
                     return "[HTML Content Removed by Cleaner]"
-            
+
             # 如果文本特别长，做截断处理，防止占太多空间
             if len(node) > self.max_text_len:
-                return node[:self.max_text_len] + "... [Truncated]"
-                
+                return node[: self.max_text_len] + "... [Truncated]"
+
             return node
-            
+
         else:
             return node

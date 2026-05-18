@@ -27,15 +27,21 @@ router = APIRouter(tags=["reports"])
 
 # ==================== 请求/响应模型 ====================
 
+
 class GenerateReportRequest(BaseModel):
     """生成报告请求"""
+
     prompt: str = Field(..., description="提示词")
     data_source: str = Field(default="", description="数据源标识")
     template: str = Field(default="default", description="报告模板")
     custom_prompt: str = Field(default="", description="自定义额外提示词约束")
-    provider: str = Field(default="", description="LLM provider key, e.g. qwen/deepseek/sense/local")
+    provider: str = Field(
+        default="", description="LLM provider key, e.g. qwen/deepseek/sense/local"
+    )
     params: dict[str, Any] = Field(default_factory=dict, description="额外参数")
-    record_keys: list[str] = Field(default_factory=list, description="指定用于报告的原始 JSON 记录 key")
+    record_keys: list[str] = Field(
+        default_factory=list, description="指定用于报告的原始 JSON 记录 key"
+    )
 
 
 class UpdateReportRequest(BaseModel):
@@ -48,6 +54,7 @@ class UpdateReportRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     """报告响应"""
+
     id: str
     title: str
     content: str
@@ -93,6 +100,7 @@ class ReportPrecheckResponse(BaseModel):
 
 # ==================== 路由 ====================
 
+
 @router.get("/reports/providers")
 async def list_report_providers():
     """列出可用于报告生成的 LLM provider 列表（直接从配置读取，不依赖 AgentService）"""
@@ -105,16 +113,16 @@ async def list_report_providers():
         providers = []
 
     from src.core.config import get as get_config
+
     active = get_config("llm.provider", "")
     return {"providers": providers, "active": active}
 
 
 @router.post("/reports/generate", response_model=ReportResponse)
-async def generate_report(
-    req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]
-):
+async def generate_report(req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]):
     """生成分析报告并写入历史。"""
     from src.web.app import report_generator
+
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
     report = await report_generator.generate(
@@ -147,6 +155,7 @@ class TemplateSaveRequest(BaseModel):
 @router.post("/reports/templates/{template_id}")
 async def save_template(template_id: str, req: TemplateSaveRequest):
     from src.reporting.report_templates import _manager
+
     data = req.model_dump()
     _manager.save_template(template_id, data)
     return {"status": "success", "id": template_id}
@@ -155,6 +164,7 @@ async def save_template(template_id: str, req: TemplateSaveRequest):
 @router.delete("/reports/templates/{template_id}")
 async def delete_template(template_id: str):
     from src.reporting.report_templates import _manager
+
     success = _manager.delete_template(template_id)
     if not success:
         raise HTTPException(status_code=400, detail="Cannot delete built-in or missing template")
@@ -167,7 +177,7 @@ async def upload_template(file: UploadFile = File(...)):
     import yaml
     from src.reporting.report_templates import _manager
 
-    if not file.filename.endswith(('.yaml', '.yml')):
+    if not file.filename.endswith((".yaml", ".yml")):
         raise HTTPException(status_code=400, detail="Only YAML files are supported")
 
     try:
@@ -245,9 +255,7 @@ async def upload_report_json(
 
 
 @router.get("/reports", response_model=list[ReportSummaryResponse])
-async def list_reports(
-    limit: Annotated[int, Query(description="返回数量限制")] = 20
-):
+async def list_reports(limit: Annotated[int, Query(description="返回数量限制")] = 20):
     """获取历史报告列表。"""
     from src.web.app import report_generator
 
@@ -277,16 +285,14 @@ async def list_group_records_for_report(
 
 @router.post("/reports/precheck", response_model=ReportPrecheckResponse)
 async def precheck_report(
-    req: Annotated[GenerateReportRequest, Body(description="Report data completeness check")]
+    req: Annotated[GenerateReportRequest, Body(description="Report data completeness check")],
 ):
     records = await _load_report_precheck_records(req)
     return _build_report_precheck(req.template, records)
 
 
 @router.get("/reports/{report_id}", response_model=ReportResponse)
-async def get_report(
-    report_id: Annotated[str, Path(description="报告 ID")]
-):
+async def get_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """获取单个历史报告。"""
     from src.web.app import report_generator
 
@@ -332,10 +338,11 @@ async def delete_report(
 
 @router.post("/reports/generate-excel", response_model=ReportResponse)
 async def generate_excel_report(
-    req: Annotated[GenerateReportRequest, Body(description="Excel 报告生成配置")]
+    req: Annotated[GenerateReportRequest, Body(description="Excel 报告生成配置")],
 ):
     """生成 Excel 格式的分析报告。"""
     from src.web.app import report_generator
+
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
     report = await report_generator.generate_excel(
@@ -352,9 +359,7 @@ async def generate_excel_report(
 
 
 @router.get("/reports/{report_id}/download")
-async def download_report(
-    report_id: Annotated[str, Path(description="报告 ID")]
-):
+async def download_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """下载报告的 Excel 文件。"""
     from src.web.app import report_generator
 
@@ -365,7 +370,9 @@ async def download_report(
     excel_path = report.excel_path if hasattr(report, "excel_path") else None
     if not excel_path:
         # 尝试从 metadata 中获取
-        excel_path = report.metadata.get("excel_path") if isinstance(report.metadata, dict) else None
+        excel_path = (
+            report.metadata.get("excel_path") if isinstance(report.metadata, dict) else None
+        )
 
     if not excel_path or not FilePath(excel_path).exists():
         raise HTTPException(404, f"该报告没有对应的 Excel 文件: {report_id}")
@@ -492,7 +499,9 @@ def _build_report_precheck(template: str, records: list[StorageRecord]) -> Repor
 
 
 def _looks_like_download_wrapper(payload: dict[str, Any]) -> bool:
-    return "data" in payload and any(key in payload for key in ("key", "metadata", "stored_at", "source"))
+    return "data" in payload and any(
+        key in payload for key in ("key", "metadata", "stored_at", "source")
+    )
 
 
 def _infer_collector(data: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -528,7 +537,9 @@ def _infer_game_name(data: dict[str, Any], payload: dict[str, Any]) -> str:
     metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
     snapshot = data.get("snapshot", {}) if isinstance(data.get("snapshot"), dict) else {}
     content = data.get("content", {}) if isinstance(data.get("content"), dict) else {}
-    content_snapshot = content.get("snapshot", {}) if isinstance(content.get("snapshot"), dict) else {}
+    content_snapshot = (
+        content.get("snapshot", {}) if isinstance(content.get("snapshot"), dict) else {}
+    )
     game = data.get("game", {}) if isinstance(data.get("game"), dict) else {}
 
     for value in (

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 class ProcessInput(BaseModel):
     """处理器输入"""
+
     data: Any = Field(..., description="待处理数据")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
     source: str = Field(default="unknown", description="数据来源标识")
@@ -25,6 +26,7 @@ class ProcessInput(BaseModel):
 
 class ProcessOutput(BaseModel):
     """处理器输出"""
+
     data: Any = Field(..., description="处理后的数据")
     metadata: dict[str, Any] = Field(default_factory=dict, description="处理后的元数据")
     processor_name: str = Field(default="", description="处理器名称")

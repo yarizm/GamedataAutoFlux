@@ -34,7 +34,9 @@ def test_report_precheck_reports_missing_template_sources(tmp_path, monkeypatch)
     assert payload["status"] == "partial"
     assert payload["selected_records"] == 1
     assert payload["source_counts"]["steam"] == 1
-    assert {"gtrends", "monitor", "events", "steam_discussions"} <= set(payload["missing_collectors"])
+    assert {"gtrends", "monitor", "events", "steam_discussions"} <= set(
+        payload["missing_collectors"]
+    )
 
 
 def test_report_precheck_accepts_complete_taptap_template(tmp_path, monkeypatch) -> None:

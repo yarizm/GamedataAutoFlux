@@ -32,7 +32,9 @@ class CreateTaskInput(BaseModel):
         description="采集目标列表，每个目标包含 name(游戏名), target_type(game), params(如 app_id)",
     )
     collector_name: str = Field(default="", description="采集器名称，留空从 Pipeline 推断")
-    config: dict = Field(default_factory=dict, description="额外配置，如 report.enabled / data_group")
+    config: dict = Field(
+        default_factory=dict, description="额外配置，如 report.enabled / data_group"
+    )
 
 
 class CancelTaskInput(BaseModel):
@@ -165,14 +167,19 @@ class IdentifierConfidence(str, Enum):
 
 class IdentifierCandidate(BaseModel):
     identifier: str = Field(..., description="标识符值，如 '730' 或 'https://...'")
-    identifier_type: str = Field(..., description="标识符类型: steam_app_id / taptap_app_id / siteurl / official_url / keyword")
+    identifier_type: str = Field(
+        ...,
+        description="标识符类型: steam_app_id / taptap_app_id / siteurl / official_url / keyword",
+    )
     name: str = Field("", description="该平台显示的名称")
     similarity: float | None = Field(None, description="与输入游戏名的相似度 0-1")
     source: str = Field("", description="数据来源: api / playwright / config / cache")
 
 
 class IdentifierResult(BaseModel):
-    platform: str = Field(..., description="平台名: steam / taptap / qimai / monitor / official_site / gtrends")
+    platform: str = Field(
+        ..., description="平台名: steam / taptap / qimai / monitor / official_site / gtrends"
+    )
     identifier: str = Field("", description="解析出的标识符值")
     identifier_type: str = Field("", description="标识符类型")
     game_name: str = Field("", description="该平台解析出的游戏名称")
@@ -186,6 +193,7 @@ class IdentifierResult(BaseModel):
 
 class GameIdentifiers(BaseModel):
     """一个游戏在所有平台的标识符汇总"""
+
     game_name: str = Field(..., description="输入的游戏名")
     steam: IdentifierResult | None = Field(None)
     taptap: IdentifierResult | None = Field(None)
@@ -238,7 +246,9 @@ class ReviewCollectionResultsInput(BaseModel):
 
 class CollectionReviewIssue(BaseModel):
     level: str = Field("info", description="error / warning / info")
-    category: str = Field("", description="missing_data / wrong_identifier / empty_result / task_failed")
+    category: str = Field(
+        "", description="missing_data / wrong_identifier / empty_result / task_failed"
+    )
     message: str = Field("", description="问题描述")
 
 

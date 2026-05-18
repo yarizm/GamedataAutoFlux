@@ -19,6 +19,7 @@ router = APIRouter(tags=["pipelines"])
 def _get_scheduler():
     """Lazy import scheduler to avoid circular dependency."""
     from src.web.app import scheduler
+
     return scheduler
 
 
@@ -68,7 +69,7 @@ async def list_pipelines():
 
 @router.post("/pipelines")
 async def create_pipeline(
-    req: Annotated[CreatePipelineRequest, Body(description="Pipeline configuration")]
+    req: Annotated[CreatePipelineRequest, Body(description="Pipeline configuration")],
 ):
     scheduler = _get_scheduler()
 
@@ -115,9 +116,7 @@ async def list_cron_jobs():
 
 
 @router.post("/cron-jobs")
-async def create_cron_job(
-    req: Annotated[CronJobRequest, Body(description="Cron job setup")]
-):
+async def create_cron_job(req: Annotated[CronJobRequest, Body(description="Cron job setup")]):
     scheduler = _get_scheduler()
 
     try:

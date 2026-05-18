@@ -18,8 +18,10 @@ router = APIRouter(tags=["tasks"])
 
 # ==================== 请求/响应模型 ====================
 
+
 class CreateTaskRequest(BaseModel):
     """创建任务请求"""
+
     name: str = Field(..., description="任务名称")
     description: str = Field(default="", description="任务描述")
     pipeline_name: str = Field(..., description="Pipeline 名称")
@@ -30,6 +32,7 @@ class CreateTaskRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     """任务响应"""
+
     id: str
     name: str
     status: str
@@ -67,9 +70,7 @@ class TaskDetailResponse(TaskResponse):
 
 
 @router.get("/tasks", response_model=list[TaskResponse])
-async def list_tasks(
-    status: Annotated[str | None, Query(description="按状态过滤任务")] = None
-):
+async def list_tasks(status: Annotated[str | None, Query(description="按状态过滤任务")] = None):
     """获取所有任务列表"""
     from src.web.app import get_task_service
 
@@ -83,10 +84,11 @@ async def list_tasks(
 
 @router.post("/tasks/precheck", response_model=TaskPrecheckResponse)
 async def precheck_task(
-    req: Annotated[CreateTaskRequest, Body(description="Task creation precheck")]
+    req: Annotated[CreateTaskRequest, Body(description="Task creation precheck")],
 ):
     """Validate task input before submitting it to the scheduler."""
     from src.web.app import get_task_service
+
     return get_task_service().precheck(
         name=req.name,
         pipeline_name=req.pipeline_name,
@@ -99,9 +101,7 @@ async def precheck_task(
 
 
 @router.post("/tasks", response_model=TaskResponse)
-async def create_task(
-    req: Annotated[CreateTaskRequest, Body(description="任务创建信息")]
-):
+async def create_task(req: Annotated[CreateTaskRequest, Body(description="任务创建信息")]):
     """创建并提交新任务"""
     from src.web.app import get_task_service
 
@@ -121,9 +121,7 @@ async def create_task(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
-async def get_task(
-    task_id: Annotated[str, Path(description="任务 ID")]
-):
+async def get_task(task_id: Annotated[str, Path(description="任务 ID")]):
     """获取单个任务详情"""
     from src.web.app import get_task_service
 
@@ -135,9 +133,7 @@ async def get_task(
 
 
 @router.get("/tasks/{task_id}/logs")
-async def get_task_logs(
-    task_id: Annotated[str, Path(description="任务 ID")]
-):
+async def get_task_logs(task_id: Annotated[str, Path(description="任务 ID")]):
     """获取任务步骤日志"""
     from src.web.app import get_task_service
 
@@ -153,9 +149,7 @@ async def get_task_logs(
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(
-    task_id: Annotated[str, Path(description="任务 ID")]
-):
+async def cancel_task(task_id: Annotated[str, Path(description="任务 ID")]):
     """取消任务"""
     from src.web.app import get_task_service
 
@@ -186,6 +180,7 @@ async def delete_task(
 async def get_task_stats():
     """获取任务统计信息"""
     from src.web.app import get_task_service
+
     return get_task_service().get_stats()
 
 

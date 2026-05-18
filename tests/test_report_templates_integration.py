@@ -123,30 +123,39 @@ class TestValidateTemplateSources:
         assert result["known_template"] is False
 
     def test_normalizes_collector_names(self):
-        result = validate_template_sources("steam_game", {
-            "steam_api": 2,  # alias for steam
-            "google_trends": 1,  # alias for gtrends
-        })
+        result = validate_template_sources(
+            "steam_game",
+            {
+                "steam_api": 2,  # alias for steam
+                "google_trends": 1,  # alias for gtrends
+            },
+        )
         assert "steam" in result["available_collectors"]
         assert "gtrends" in result["available_collectors"]
 
     def test_zero_counts_filtered(self):
-        result = validate_template_sources("steam_game", {
-            "steam": 5,
-            "gtrends": 0,
-        })
+        result = validate_template_sources(
+            "steam_game",
+            {
+                "steam": 5,
+                "gtrends": 0,
+            },
+        )
         assert "gtrends" not in result["available_collectors"]
 
     def test_full_template_coverage(self):
         """Validate general_game template with all required sources."""
-        result = validate_template_sources("general_game", {
-            "steam": 5,
-            "taptap": 3,
-            "gtrends": 2,
-            "monitor": 1,
-            "events": 4,
-            "steam_discussions": 2,
-        })
+        result = validate_template_sources(
+            "general_game",
+            {
+                "steam": 5,
+                "taptap": 3,
+                "gtrends": 2,
+                "monitor": 1,
+                "events": 4,
+                "steam_discussions": 2,
+            },
+        )
         assert result["status"] == "complete"
         assert result["known_template"] is True
         assert len(result["missing_collectors"]) == 0
@@ -155,6 +164,7 @@ class TestValidateTemplateSources:
 class TestCollectorLabels:
     def test_labels_exist(self):
         from src.reporting.report_templates import COLLECTOR_LABELS
+
         assert COLLECTOR_LABELS["steam"] == "Steam"
         assert COLLECTOR_LABELS["taptap"] == "TapTap"
         assert COLLECTOR_LABELS["gtrends"] == "Google Trends"

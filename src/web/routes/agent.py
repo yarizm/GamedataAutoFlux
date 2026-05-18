@@ -31,10 +31,10 @@ async def agent_chat(req: ChatRequest):
                 async for event in agent_service.ainvoke(req.message, req.session_id):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except asyncio.TimeoutError:
-            yield f'data: {json.dumps({"type": "error", "content": "响应超时，请稍后重试"}, ensure_ascii=False)}\n\n'
+            yield f"data: {json.dumps({'type': 'error', 'content': '响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"Agent SSE 流出错: {e}")
-            yield f'data: {json.dumps({"type": "error", "content": f"内部错误: {e}"}, ensure_ascii=False)}\n\n'
+            yield f"data: {json.dumps({'type': 'error', 'content': f'内部错误: {e}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -80,7 +80,11 @@ async def list_llm_providers():
     from src.web.app import get_agent_service
 
     agent_service = get_agent_service()
-    active = agent_service.get_active_provider() if agent_service else (providers[0]["key"] if providers else "")
+    active = (
+        agent_service.get_active_provider()
+        if agent_service
+        else (providers[0]["key"] if providers else "")
+    )
     return {"providers": providers, "active": active}
 
 
@@ -110,14 +114,16 @@ async def get_llm_providers_config():
     for key, cfg in llm_config.items():
         if key == "provider" or not isinstance(cfg, dict):
             continue
-        items.append(ProviderConfigItem(
-            key=key,
-            model=str(cfg.get("model", "")),
-            base_url=str(cfg.get("base_url", "")),
-            api_key=str(cfg.get("api_key", "")),
-            temperature=float(cfg.get("temperature", 0.3)),
-            max_tokens=int(cfg.get("max_tokens", 2000)),
-        ).model_dump())
+        items.append(
+            ProviderConfigItem(
+                key=key,
+                model=str(cfg.get("model", "")),
+                base_url=str(cfg.get("base_url", "")),
+                api_key=str(cfg.get("api_key", "")),
+                temperature=float(cfg.get("temperature", 0.3)),
+                max_tokens=int(cfg.get("max_tokens", 2000)),
+            ).model_dump()
+        )
 
     return {
         "providers": items,
@@ -144,8 +150,13 @@ async def update_llm_providers_config(req: UpdateProviderConfigRequest):
         # 保留已有的其他字段（fallback_to_stub, retry_count 等）
         existing = get_config(f"llm.{item.key}", {})
         if isinstance(existing, dict):
-            for extra_key in ("fallback_to_stub", "retry_count", "retry_delay",
-                              "timeout", "max_input_chars"):
+            for extra_key in (
+                "fallback_to_stub",
+                "retry_count",
+                "retry_delay",
+                "timeout",
+                "max_input_chars",
+            ):
                 if extra_key in existing:
                     cfg[extra_key] = existing[extra_key]
         llm_section[item.key] = cfg

@@ -38,7 +38,9 @@ def _safe_json(obj: Any) -> str:
     if hasattr(obj, "model_dump"):
         obj = obj.model_dump(mode="json")
     elif isinstance(obj, list):
-        obj = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in obj]
+        obj = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in obj
+        ]
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
@@ -92,7 +94,11 @@ class ListTasksTool(BaseTool):
         try:
             tasks = get_task_service().list_tasks(status)
         except ValueError:
-            return _format_result("error", f"无效的状态: {status}", suggestion="status 可选: pending / running / success / failed / cancelled")
+            return _format_result(
+                "error",
+                f"无效的状态: {status}",
+                suggestion="status 可选: pending / running / success / failed / cancelled",
+            )
 
         summaries = [t.to_summary() for t in tasks[:50]]
         status_counts = {}
@@ -122,7 +128,9 @@ class GetTaskDetailTool(BaseTool):
 
         task = get_task_service().get_task(task_id)
         if not task:
-            return _format_result("error", f"任务不存在: {task_id}", suggestion="使用 list_tasks 查看所有任务")
+            return _format_result(
+                "error", f"任务不存在: {task_id}", suggestion="使用 list_tasks 查看所有任务"
+            )
         payload = task.to_storage_payload()
         status = payload.get("status", "unknown")
         return _format_result(
@@ -142,7 +150,7 @@ class CreateTaskTool(BaseTool):
     description: str = (
         "创建并提交一个新的数据采集任务。"
         "需要指定任务名称(name)、Pipeline 模板 ID(pipeline_name)和采集目标(targets)。"
-        "targets 格式: [{\"name\": \"游戏名\", \"target_type\": \"game\", \"params\": {\"app_id\": 123}}]。"
+        'targets 格式: [{"name": "游戏名", "target_type": "game", "params": {"app_id": 123}}]。'
         "config 可选，支持 report.enabled / data_group 等配置。"
     )
     args_schema: Type[BaseModel] = CreateTaskInput
@@ -173,13 +181,14 @@ class CreateTaskTool(BaseTool):
             targets=targets,
         )
         if not precheck.can_submit:
-            issues_desc = "; ".join(
-                f"[{i.level}] {i.field}: {i.message}" for i in precheck.issues
-            )
+            issues_desc = "; ".join(f"[{i.level}] {i.field}: {i.message}" for i in precheck.issues)
             return _format_result(
                 "error",
                 f"任务创建预校验失败: {issues_desc}",
-                [{"level": i.level, "code": i.code, "field": i.field, "message": i.message} for i in precheck.issues],
+                [
+                    {"level": i.level, "code": i.code, "field": i.field, "message": i.message}
+                    for i in precheck.issues
+                ],
                 warnings=[i.message for i in precheck.issues if i.level == "warning"],
                 suggestion="请补充必填字段后重试。必填字段: " + ", ".join(precheck.required_fields),
             )
@@ -280,7 +289,7 @@ class CreatePipelineTool(BaseTool):
     name: str = "create_pipeline"
     description: str = (
         "创建自定义 Pipeline。"
-        "steps 格式: [{\"type\": \"collector/processor/storage\", \"name\": \"组件名\", \"config\": {}}]。"
+        'steps 格式: [{"type": "collector/processor/storage", "name": "组件名", "config": {}}]。'
         "可用组件用 list_pipeline_templates 查看。"
     )
     args_schema: Type[BaseModel] = CreatePipelineInput
@@ -325,7 +334,9 @@ class DeletePipelineTool(BaseTool):
         from src.web.app import scheduler
 
         if not confirm:
-            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
+            return _format_result(
+                "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
+            )
         ok = await scheduler.delete_pipeline(name)
         if ok:
             return _format_result("ok", f"Pipeline '{name}' 已删除")
@@ -372,7 +383,9 @@ class CreateCronJobTool(BaseTool):
         from src.web.app import scheduler
 
         if not confirm:
-            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
+            return _format_result(
+                "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
+            )
         try:
             job_id = scheduler.add_cron_job(
                 name=name,
@@ -402,7 +415,9 @@ class DeleteCronJobTool(BaseTool):
         from src.web.app import scheduler
 
         if not confirm:
-            return _format_result("warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true")
+            return _format_result(
+                "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
+            )
         ok = scheduler.remove_cron_job(name)
         if ok:
             return _format_result("ok", f"定时任务 '{name}' 已删除")
@@ -422,9 +437,32 @@ def _extract_prompt_keywords(prompt: str) -> list[str]:
     import re
 
     stop_words = {
-        "帮我", "生成", "报告", "一个", "一份", "的", "了", "是", "在", "和",
-        "请", "要", "需要", "分析", "综合", "全面", "关于", "对于", "这个",
-        "include", "report", "generate", "for", "the", "a", "an",
+        "帮我",
+        "生成",
+        "报告",
+        "一个",
+        "一份",
+        "的",
+        "了",
+        "是",
+        "在",
+        "和",
+        "请",
+        "要",
+        "需要",
+        "分析",
+        "综合",
+        "全面",
+        "关于",
+        "对于",
+        "这个",
+        "include",
+        "report",
+        "generate",
+        "for",
+        "the",
+        "a",
+        "an",
     }
     split_pattern = re.compile(
         r"[，。！？、；：（）\s"
@@ -548,13 +586,15 @@ class SearchDataTool(BaseTool):
             summaries = []
             for record in result.records[:limit]:
                 identity = extract_record_identity(record)
-                summaries.append({
-                    "key": record.key,
-                    "source": record.source,
-                    "game": identity.get("game_name", "") if identity else "",
-                    "app_id": identity.get("app_id", "") if identity else "",
-                    "stored_at": str(record.stored_at) if record.stored_at else "",
-                })
+                summaries.append(
+                    {
+                        "key": record.key,
+                        "source": record.source,
+                        "game": identity.get("game_name", "") if identity else "",
+                        "app_id": identity.get("app_id", "") if identity else "",
+                        "stored_at": str(record.stored_at) if record.stored_at else "",
+                    }
+                )
             if not summaries:
                 return _format_result(
                     "empty",
@@ -684,8 +724,7 @@ class GenerateReportTool(BaseTool):
 class GetReportContentTool(BaseTool):
     name: str = "get_report_content"
     description: str = (
-        "获取已生成报告的完整内容。需要 report_id。"
-        "当用户要求查看报告详情、分析结果时使用此工具。"
+        "获取已生成报告的完整内容。需要 report_id。当用户要求查看报告详情、分析结果时使用此工具。"
     )
     args_schema: Type[BaseModel] = GetReportContentInput
 
@@ -751,7 +790,8 @@ class ResolveSteamAppIdTool(BaseTool):
                 all_items.append({"app_id": app_id, "name": name})
 
         async with httpx.AsyncClient(
-            timeout=10, follow_redirects=True,
+            timeout=10,
+            follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         ) as client:
             # 方案 1: Community SearchApps（快速、干净，支持英文名和混合名）
@@ -776,15 +816,20 @@ class ResolveSteamAppIdTool(BaseTool):
             if cache_result:
                 return cache_result
             return json.dumps(
-                {"found": False, "source": "cache",
-                 "message": f"所有在线 API 及本地缓存均未找到 '{game_name}'，请尝试英文名或手动提供 app_id"},
+                {
+                    "found": False,
+                    "source": "cache",
+                    "message": f"所有在线 API 及本地缓存均未找到 '{game_name}'，请尝试英文名或手动提供 app_id",
+                },
                 ensure_ascii=False,
             )
 
         return json.dumps(
-            {"found": False,
-             "error": "所有 Steam 搜索 API 均不可用且本地缓存不存在。"
-             "请尝试英文名搜索，或手动提供 app_id。"},
+            {
+                "found": False,
+                "error": "所有 Steam 搜索 API 均不可用且本地缓存不存在。"
+                "请尝试英文名搜索，或手动提供 app_id。",
+            },
             ensure_ascii=False,
         )
 
@@ -869,8 +914,11 @@ class VerifySteamAppIdTool(BaseTool):
 
         try:
             async with httpx.AsyncClient(
-                timeout=10, follow_redirects=True,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=10,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                },
             ) as client:
                 resp = await client.get(
                     "https://store.steampowered.com/api/appdetails",
@@ -881,10 +929,14 @@ class VerifySteamAppIdTool(BaseTool):
                 entry = data.get(str(app_id), {})
                 if entry.get("success"):
                     name = entry["data"].get("name", "")
-                    return json.dumps({"valid": True, "app_id": app_id, "name": name}, ensure_ascii=False)
+                    return json.dumps(
+                        {"valid": True, "app_id": app_id, "name": name}, ensure_ascii=False
+                    )
                 return json.dumps({"valid": False, "app_id": app_id}, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"valid": False, "app_id": app_id, "error": str(e)}, ensure_ascii=False)
+            return json.dumps(
+                {"valid": False, "app_id": app_id, "error": str(e)}, ensure_ascii=False
+            )
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -936,8 +988,11 @@ class SearchGameIdentifiersTool(BaseTool):
             result = await resolver.resolve_all(game_name, platforms)
             data = result.model_dump(mode="json", exclude_none=True)
             high = result.high_confidence()
-            missing = [p for p in ("steam", "taptap", "qimai", "monitor", "official_site")
-                       if getattr(result, p, None) is None]
+            missing = [
+                p
+                for p in ("steam", "taptap", "qimai", "monitor", "official_site")
+                if getattr(result, p, None) is None
+            ]
             return _format_result(
                 "ok",
                 f"已搜索 '{game_name}' 的平台标识符: {len(high)} 个高置信度, {len(missing)} 个未找到",
@@ -945,7 +1000,8 @@ class SearchGameIdentifiersTool(BaseTool):
                 record_count=len(result.found_platforms()),
                 suggestion=(
                     f"高置信度平台: {', '.join(high)}。可直接创建采集任务。"
-                    if high else "部分平台置信度较低，建议向用户确认后创建任务"
+                    if high
+                    else "部分平台置信度较低，建议向用户确认后创建任务"
                 ),
             )
         except Exception as e:
@@ -1008,33 +1064,45 @@ class ReviewCollectionResultsTool(BaseTool):
 
             # 检查任务状态
             if task.status in (TaskStatus.FAILED, TaskStatus.CANCELLED):
-                issues.append(CollectionReviewIssue(
-                    level="error", category="task_failed",
-                    message=f"任务状态: {task.status.value}，错误: {task.error or '未知'}",
-                ))
+                issues.append(
+                    CollectionReviewIssue(
+                        level="error",
+                        category="task_failed",
+                        message=f"任务状态: {task.status.value}，错误: {task.error or '未知'}",
+                    )
+                )
 
             # 查询关联的数据记录
             result = await store.query(query=f"key:{task.id}", limit=50)
             records = result.records
 
             if not records:
-                issues.append(CollectionReviewIssue(
-                    level="error", category="empty_result",
-                    message="任务完成但未找到存储的数据记录",
-                ))
+                issues.append(
+                    CollectionReviewIssue(
+                        level="error",
+                        category="empty_result",
+                        message="任务完成但未找到存储的数据记录",
+                    )
+                )
             else:
                 for record in records:
                     completeness = compute_record_completeness(record) or "unknown"
                     if completeness == "empty":
-                        issues.append(CollectionReviewIssue(
-                            level="warning", category="empty_data",
-                            message=f"记录 {record.key} 数据为空",
-                        ))
+                        issues.append(
+                            CollectionReviewIssue(
+                                level="warning",
+                                category="empty_data",
+                                message=f"记录 {record.key} 数据为空",
+                            )
+                        )
                     elif completeness == "partial":
-                        issues.append(CollectionReviewIssue(
-                            level="info", category="partial_data",
-                            message=f"记录 {record.key} 数据部分完整",
-                        ))
+                        issues.append(
+                            CollectionReviewIssue(
+                                level="info",
+                                category="partial_data",
+                                message=f"记录 {record.key} 数据部分完整",
+                            )
+                        )
 
             # 汇总
             error_count = sum(1 for i in issues if i.level == "error")
@@ -1071,9 +1139,8 @@ class ReviewCollectionResultsTool(BaseTool):
 
 # ==================== 工具列表 ====================
 
-async def _auto_fill_identifiers(
-    targets: list[dict], pipeline_name: str
-) -> list[dict]:
+
+async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> list[dict]:
     """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。"""
     from src.services.game_resolver import GameIdentifierResolver
 
@@ -1092,7 +1159,11 @@ async def _auto_fill_identifiers(
                     params["app_id"] = int(result.identifier)
                     target["params"] = params
 
-            elif pipeline_name.startswith("taptap") and not params.get("app_id") and not params.get("url"):
+            elif (
+                pipeline_name.startswith("taptap")
+                and not params.get("app_id")
+                and not params.get("url")
+            ):
                 result = await resolver.resolve_taptap(name)
                 if result and result.confidence == IdentifierConfidence.HIGH:
                     params["app_id"] = result.identifier
@@ -1104,7 +1175,11 @@ async def _auto_fill_identifiers(
                     params["siteurl"] = result.identifier
                     target["params"] = params
 
-            elif pipeline_name.startswith("qimai") and not params.get("app_id") and not params.get("qimai_app_id"):
+            elif (
+                pipeline_name.startswith("qimai")
+                and not params.get("app_id")
+                and not params.get("qimai_app_id")
+            ):
                 result = await resolver.resolve_qimai(name)
                 if result and result.confidence == IdentifierConfidence.HIGH:
                     params["qimai_app_id"] = result.identifier

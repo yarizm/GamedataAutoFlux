@@ -85,31 +85,59 @@ class OfficialSiteCollector(BaseCollector):
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
         self.timeout = float(self.config.get("timeout", get_config("official_site.timeout", 20)))
-        self.request_delay = float(self.config.get("request_delay", get_config("official_site.request_delay", 0.5)))
-        self.max_pages = int(self.config.get("max_pages", get_config("official_site.max_pages", 30)))
+        self.request_delay = float(
+            self.config.get("request_delay", get_config("official_site.request_delay", 0.5))
+        )
+        self.max_pages = int(
+            self.config.get("max_pages", get_config("official_site.max_pages", 30))
+        )
         self.max_depth = int(self.config.get("max_depth", get_config("official_site.max_depth", 2)))
         self.user_agent = str(
             self.config.get(
                 "user_agent",
-                get_config("official_site.user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+                get_config(
+                    "official_site.user_agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ),
             )
         )
-        self.playwright_enabled = bool(self.config.get("playwright_enabled", get_config("official_site.playwright_enabled", True)))
-        self.headless = bool(self.config.get("headless", get_config("official_site.headless", True)))
+        self.playwright_enabled = bool(
+            self.config.get(
+                "playwright_enabled", get_config("official_site.playwright_enabled", True)
+            )
+        )
+        self.headless = bool(
+            self.config.get("headless", get_config("official_site.headless", True))
+        )
         self.playwright_timeout = int(
-            self.config.get("playwright_timeout", get_config("official_site.playwright_timeout", 30000))
+            self.config.get(
+                "playwright_timeout", get_config("official_site.playwright_timeout", 30000)
+            )
         )
 
     async def collect(self, target: CollectTarget) -> CollectResult:
         raw_params = _compact_params(target.params or {})
         recipe_name, recipe_params = _resolve_recipe(target.name, raw_params)
         params = {**recipe_params, **raw_params}
-        entry_url = _canonical_url(params.get("official_url") or params.get("url") or getattr(target, "url", ""))
+        entry_url = _canonical_url(
+            params.get("official_url") or params.get("url") or getattr(target, "url", "")
+        )
         if not entry_url:
-            return CollectResult(target=target, success=False, error="official_site requires official_url or url", error_code=ErrorCode.empty_data.value)
+            return CollectResult(
+                target=target,
+                success=False,
+                error="official_site requires official_url or url",
+                error_code=ErrorCode.empty_data.value,
+            )
 
-        include_patterns = _patterns(params.get("include_patterns"), get_config("official_site.include_patterns", DEFAULT_INCLUDE_PATTERNS))
-        exclude_patterns = _patterns(params.get("exclude_patterns"), get_config("official_site.exclude_patterns", DEFAULT_EXCLUDE_PATTERNS))
+        include_patterns = _patterns(
+            params.get("include_patterns"),
+            get_config("official_site.include_patterns", DEFAULT_INCLUDE_PATTERNS),
+        )
+        exclude_patterns = _patterns(
+            params.get("exclude_patterns"),
+            get_config("official_site.exclude_patterns", DEFAULT_EXCLUDE_PATTERNS),
+        )
         max_pages = int(params.get("max_pages") or self.max_pages)
         max_depth = int(params.get("max_depth") or self.max_depth)
         since_days = int(params.get("since_days") or 180)
@@ -122,7 +150,11 @@ class OfficialSiteCollector(BaseCollector):
         home = await self._fetch_page(entry_url, use_playwright=use_playwright)
         if home.status_code < 200 or home.status_code >= 300 or not home.html:
             if home.status_code in (403, 429):
-                err_code = ErrorCode.anti_bot_blocked if home.status_code == 403 else ErrorCode.rate_limited
+                err_code = (
+                    ErrorCode.anti_bot_blocked
+                    if home.status_code == 403
+                    else ErrorCode.rate_limited
+                )
             elif home.status_code == 404:
                 err_code = ErrorCode.empty_data
             else:
@@ -130,16 +162,16 @@ class OfficialSiteCollector(BaseCollector):
             return CollectResult(
                 target=target,
                 success=False,
-                error=home.error or f"Failed to fetch official site homepage: HTTP {home.status_code}",
+                error=home.error
+                or f"Failed to fetch official site homepage: HTTP {home.status_code}",
                 error_code=err_code.value,
                 metadata={"collector": "official_site"},
             )
 
         home_parsed = _parse_html(home.url, home.html)
-        embedded_items: list[dict[str, Any]] = (
-            _extract_embedded_news_items(home.html, home.url)
-            + _extract_listing_items(home_parsed, home.html, include_patterns=include_patterns)
-        )
+        embedded_items: list[dict[str, Any]] = _extract_embedded_news_items(
+            home.html, home.url
+        ) + _extract_listing_items(home_parsed, home.html, include_patterns=include_patterns)
         candidates: list[PageCandidate] = []
         if not (listing_only and embedded_items):
             candidates = await self._discover_pages(
@@ -169,7 +201,9 @@ class OfficialSiteCollector(BaseCollector):
                 continue
             embedded_items.extend(_extract_embedded_news_items(fetched.html, fetched.url))
             parsed_page = _parse_html(fetched.url, fetched.html)
-            embedded_items.extend(_extract_listing_items(parsed_page, fetched.html, include_patterns=include_patterns))
+            embedded_items.extend(
+                _extract_listing_items(parsed_page, fetched.html, include_patterns=include_patterns)
+            )
             pages.append(parsed_page)
 
         items = _dedupe_items(
@@ -181,7 +215,13 @@ class OfficialSiteCollector(BaseCollector):
             ]
         )
         cutoff = datetime.now(timezone.utc).date() - timedelta(days=since_days)
-        items = [item for item in items if not item.get("date") or _date_from_text(item["date"]) is None or _date_from_text(item["date"]) >= cutoff]
+        items = [
+            item
+            for item in items
+            if not item.get("date")
+            or _date_from_text(item["date"]) is None
+            or _date_from_text(item["date"]) >= cutoff
+        ]
 
         news_items = [item for item in items if item.get("category") not in {"patch", "event"}]
         patch_items = [item for item in items if item.get("category") == "patch"]
@@ -220,7 +260,9 @@ class OfficialSiteCollector(BaseCollector):
             },
         }
 
-        return CollectResult(target=target, data=data, success=True, metadata={"collector": "official_site"})
+        return CollectResult(
+            target=target, data=data, success=True, metadata={"collector": "official_site"}
+        )
 
     async def _discover_pages(
         self,
@@ -247,7 +289,9 @@ class OfficialSiteCollector(BaseCollector):
                 return
             current = candidates.get(canonical)
             if current is None or score > current.score:
-                candidates[canonical] = PageCandidate(canonical, score=score, depth=depth, anchor_text=anchor_text)
+                candidates[canonical] = PageCandidate(
+                    canonical, score=score, depth=depth, anchor_text=anchor_text
+                )
 
         for href, text in home.links:
             add(href, text, 1)
@@ -261,7 +305,9 @@ class OfficialSiteCollector(BaseCollector):
                     add(url, "", 1)
 
         if max_depth > 1:
-            shallow = sorted(candidates.values(), key=lambda item: item.score, reverse=True)[: min(max_pages, 12)]
+            shallow = sorted(candidates.values(), key=lambda item: item.score, reverse=True)[
+                : min(max_pages, 12)
+            ]
             for candidate in shallow:
                 fetched = await self._fetch_page(candidate.url, use_playwright=use_playwright)
                 if fetched.status_code != 200 or not fetched.html:
@@ -277,7 +323,12 @@ class OfficialSiteCollector(BaseCollector):
                             use_playwright=use_playwright,
                         )
                         for rank, (dynamic_href, dynamic_text) in enumerate(dynamic_links):
-                            add(dynamic_href, dynamic_text, candidate.depth + 2, score_bonus=max(1, 500 - rank))
+                            add(
+                                dynamic_href,
+                                dynamic_text,
+                                candidate.depth + 2,
+                                score_bonus=max(1, 500 - rank),
+                            )
                 if _looks_like_listing_page(candidate.url, parsed):
                     dynamic_links = await self._discover_dynamic_listing_links(
                         candidate.url,
@@ -287,7 +338,9 @@ class OfficialSiteCollector(BaseCollector):
                     for rank, (href, text) in enumerate(dynamic_links):
                         add(href, text, candidate.depth + 1, score_bonus=max(1, 500 - rank))
 
-        return sorted(candidates.values(), key=lambda item: (item.score, -item.depth, item.url), reverse=True)[:max_pages]
+        return sorted(
+            candidates.values(), key=lambda item: (item.score, -item.depth, item.url), reverse=True
+        )[:max_pages]
 
     async def _discover_dynamic_listing_links(
         self,
@@ -405,10 +458,15 @@ class OfficialSiteCollector(BaseCollector):
             async with httpx.AsyncClient(
                 timeout=self.timeout,
                 follow_redirects=True,
-                headers={"User-Agent": self.user_agent, "Accept": "text/html,application/xhtml+xml"},
+                headers={
+                    "User-Agent": self.user_agent,
+                    "Accept": "text/html,application/xhtml+xml",
+                },
             ) as client:
                 response = await client.get(url)
-                return FetchResult(str(response.url), response.status_code, response.text or "", "httpx")
+                return FetchResult(
+                    str(response.url), response.status_code, response.text or "", "httpx"
+                )
         except Exception as exc:
             logger.debug("[OfficialSite] httpx fetch failed {}: {}", url, exc)
             return FetchResult(url, 0, "", "httpx", str(exc))
@@ -423,10 +481,14 @@ class OfficialSiteCollector(BaseCollector):
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=self.headless)
                 page = await browser.new_page(user_agent=self.user_agent)
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=self.playwright_timeout)
+                response = await page.goto(
+                    url, wait_until="domcontentloaded", timeout=self.playwright_timeout
+                )
                 if "bungie.net" in urlparse(url).netloc.lower():
                     try:
-                        await page.wait_for_load_state("networkidle", timeout=min(self.playwright_timeout, 15000))
+                        await page.wait_for_load_state(
+                            "networkidle", timeout=min(self.playwright_timeout, 15000)
+                        )
                     except Exception:
                         pass
                 await page.wait_for_timeout(800)
@@ -478,7 +540,10 @@ class _SimpleHTMLExtractor(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
-        if tag in {"script", "style", "nav", "footer", "header", "noscript", "svg"} and not self._in_json_ld:
+        if (
+            tag in {"script", "style", "nav", "footer", "header", "noscript", "svg"}
+            and not self._in_json_ld
+        ):
             self._skip_depth = max(self._skip_depth - 1, 0)
         if tag == "title":
             self._in_title = False
@@ -549,7 +614,8 @@ def _page_to_item(page: ParsedPage, *, include_patterns: tuple[str, ...]) -> dic
     return {
         "title": page.title or _title_from_url(page.url),
         "url": page.url,
-        "date": page.published_at or _normalize_date_text(_find_date(page.url + " " + page.content[:500])),
+        "date": page.published_at
+        or _normalize_date_text(_find_date(page.url + " " + page.content[:500])),
         "category": category if category in {"patch", "event", "announcement"} else "news",
         "summary": summary,
         "content": _truncate(page.content, 4000),
@@ -586,24 +652,44 @@ def _extract_embedded_news_items(html: str, page_url: str) -> list[dict[str, Any
         if title:
             items.append(_embedded_item(page_url, title, category, date))
 
-    for match in re.finditer(r'<div[^>]+class="[^"]*news-item[^"]*"[^>]*>(.*?)</div>\s*</div>', html, re.IGNORECASE | re.DOTALL):
+    for match in re.finditer(
+        r'<div[^>]+class="[^"]*news-item[^"]*"[^>]*>(.*?)</div>\s*</div>',
+        html,
+        re.IGNORECASE | re.DOTALL,
+    ):
         block = match.group(1)
-        category = _html_fragment_text(_first_regex(block, r'class="[^"]*(?:currentCategory|newsType|category)[^"]*"[^>]*>(.*?)</div>'))
+        category = _html_fragment_text(
+            _first_regex(
+                block, r'class="[^"]*(?:currentCategory|newsType|category)[^"]*"[^>]*>(.*?)</div>'
+            )
+        )
         title = _html_fragment_text(
-            _first_regex(block, r'class="[^"]*(?:news-title|newsTitle|title)[^"]*"[^>]*>(.*?)</div>')
+            _first_regex(
+                block, r'class="[^"]*(?:news-title|newsTitle|title)[^"]*"[^>]*>(.*?)</div>'
+            )
             or _first_regex(block, r"<h[1-3][^>]*>(.*?)</h[1-3]>")
         )
         date = _normalize_date_text(
-            _html_fragment_text(_first_regex(block, r'class="[^"]*(?:time|date|newsTime)[^"]*"[^>]*>(.*?)</div>'))
+            _html_fragment_text(
+                _first_regex(block, r'class="[^"]*(?:time|date|newsTime)[^"]*"[^>]*>(.*?)</div>')
+            )
         )
         if not title:
             continue
         items.append(_embedded_item(page_url, title, category, date))
 
-    for match in re.finditer(r'<div[^>]+class="[^"]*\bnitem\b[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</div>', html, re.IGNORECASE | re.DOTALL):
+    for match in re.finditer(
+        r'<div[^>]+class="[^"]*\bnitem\b[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</div>',
+        html,
+        re.IGNORECASE | re.DOTALL,
+    ):
         block = match.group(1)
-        title = _html_fragment_text(_first_regex(block, r'class="[^"]*\btitle\b[^"]*"[^>]*>(.*?)</div>'))
-        date = _normalize_date_text(_html_fragment_text(_first_regex(block, r'class="[^"]*\btime\b[^"]*"[^>]*>(.*?)</div>')))
+        title = _html_fragment_text(
+            _first_regex(block, r'class="[^"]*\btitle\b[^"]*"[^>]*>(.*?)</div>')
+        )
+        date = _normalize_date_text(
+            _html_fragment_text(_first_regex(block, r'class="[^"]*\btime\b[^"]*"[^>]*>(.*?)</div>'))
+        )
         if title:
             items.append(_embedded_item(page_url, title, "", date))
 
@@ -621,7 +707,9 @@ def _extract_embedded_news_items(html: str, page_url: str) -> list[dict[str, Any
     return items
 
 
-def _extract_listing_items(page: ParsedPage, html: str, *, include_patterns: tuple[str, ...]) -> list[dict[str, Any]]:
+def _extract_listing_items(
+    page: ParsedPage, html: str, *, include_patterns: tuple[str, ...]
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for href, text in page.links:
         title_text = _clean_text(text)
@@ -676,7 +764,9 @@ def _embedded_item(page_url: str, title: str, category: str, date: str) -> dict[
         "title": title,
         "url": page_url,
         "date": date,
-        "category": item_category if item_category in {"patch", "event", "announcement"} else "news",
+        "category": item_category
+        if item_category in {"patch", "event", "announcement"}
+        else "news",
         "summary": title,
         "content": title,
     }
@@ -727,7 +817,9 @@ def _is_content_page(page: ParsedPage, include_patterns: tuple[str, ...]) -> boo
     if path_name in list_like_names and not re.search(r"20\d{2}[-/]?\d{1,2}[-/]?\d{0,2}", page.url):
         return False
     haystack = f"{page.url} {page.title} {page.content[:800]}".lower()
-    return len(page.content) >= 80 and any(pattern.lower() in haystack for pattern in include_patterns)
+    return len(page.content) >= 80 and any(
+        pattern.lower() in haystack for pattern in include_patterns
+    )
 
 
 def _is_error_like_page(page: ParsedPage) -> bool:
@@ -735,7 +827,9 @@ def _is_error_like_page(page: ParsedPage) -> bool:
     content = _clean_text(page.content).lower()
     if title in {"error", "not found", "404", "403 forbidden"}:
         return True
-    if len(content) < 500 and re.search(r"\b(error|not found|404|403|page not found)\b", f"{title} {content}"):
+    if len(content) < 500 and re.search(
+        r"\b(error|not found|404|403|page not found)\b", f"{title} {content}"
+    ):
         return True
     return False
 
@@ -841,9 +935,18 @@ def _dedupe_key(item: dict[str, Any]) -> str:
     date = str(item.get("date") or "")
     parsed = urlparse(url)
     path_name = (parsed.path.rstrip("/").split("/")[-1] or "").lower()
-    if url and title and (parsed.fragment or path_name in {"", "news", "news.html", "newslist", "newslist.html"}):
+    if (
+        url
+        and title
+        and (parsed.fragment or path_name in {"", "news", "news.html", "newslist", "newslist.html"})
+    ):
         return hashlib.sha1(f"{url}|{title}".encode("utf-8")).hexdigest()
-    return url or hashlib.sha1(f"{title}|{date}|{item.get('content','')[:200]}".encode("utf-8")).hexdigest()
+    return (
+        url
+        or hashlib.sha1(
+            f"{title}|{date}|{item.get('content', '')[:200]}".encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def _parse_sitemap_urls(xml_text: str) -> list[str]:
@@ -892,24 +995,31 @@ def _needs_playwright_fallback(result: FetchResult) -> bool:
     html = result.html or ""
     parsed = _parse_html(result.url, html)
     lowered = html.lower()
-    js_shell = any(token in lowered for token in ("__next_data__", "id=\"app\"", "id=\"root\"", "nuxt", "vite"))
+    js_shell = any(
+        token in lowered for token in ("__next_data__", 'id="app"', 'id="root"', "nuxt", "vite")
+    )
     dynamic_article = any(
         token in lowered
         for token in (
             "milo.emit",
             "getinfo(params",
-            "id=\"newstitle\"",
+            'id="newstitle"',
             "id='newstitle'",
-            "id=\"newstime\"",
+            'id="newstime"',
             "id='newstime'",
-            "id=\"scontent\"",
+            'id="scontent"',
             "id='scontent'",
             "fillnewsgicp",
         )
     )
     if dynamic_article:
         return True
-    return len(html) < 800 or len(parsed.content) < 300 or (js_shell and len(parsed.content) < 700) or (not parsed.title and len(parsed.content) < 300)
+    return (
+        len(html) < 800
+        or len(parsed.content) < 300
+        or (js_shell and len(parsed.content) < 700)
+        or (not parsed.title and len(parsed.content) < 300)
+    )
 
 
 def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -967,7 +1077,9 @@ def _canonical_url(url: Any) -> str:
     path = re.sub(r"/+", "/", parsed.path or "/")
     path = "" if path == "/" else path.rstrip("/")
     fragment = parsed.fragment if parsed.fragment.startswith(("/", "!/")) else ""
-    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", parsed.query, fragment))
+    return urlunparse(
+        (parsed.scheme.lower(), parsed.netloc.lower(), path, "", parsed.query, fragment)
+    )
 
 
 def _slash_retry_url(url: str) -> str:
@@ -1070,5 +1182,9 @@ def _domain_name(url: str) -> str:
 
 
 def _title_from_url(url: str) -> str:
-    segment = (urlparse(url).path.rstrip("/").split("/")[-1] or "official update").replace("-", " ").replace("_", " ")
+    segment = (
+        (urlparse(url).path.rstrip("/").split("/")[-1] or "official update")
+        .replace("-", " ")
+        .replace("_", " ")
+    )
     return segment.title()

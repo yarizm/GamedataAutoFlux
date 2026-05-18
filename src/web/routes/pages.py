@@ -17,6 +17,7 @@ _MANIFEST_CACHE: dict | None = None
 
 def _get_templates():
     from src.web.app import templates
+
     return templates
 
 
@@ -34,6 +35,7 @@ def _read_manifest() -> dict:
 def _get_llm_providers() -> list[dict]:
     """读取 LLM provider 列表，用于前端下拉框"""
     from src.reporting.generator import ReportGenerator
+
     return ReportGenerator.get_providers()
 
 

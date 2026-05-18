@@ -21,7 +21,9 @@ class HumanBehaviorSimulator:
             steps=random.randint(5, 18),
         )
 
-    async def simulate_reading(self, page: Any, min_time: float = 2.0, max_time: float = 5.0) -> None:
+    async def simulate_reading(
+        self, page: Any, min_time: float = 2.0, max_time: float = 5.0
+    ) -> None:
         await page.wait_for_timeout(int(random.uniform(min_time, max_time) * 1000))
 
     async def after_navigation(self, page: Any) -> None:
@@ -42,7 +44,9 @@ class HumanBehaviorSimulator:
             steps=random.randint(5, 18),
         )
 
-    def simulate_reading_sync(self, page: Any, min_time: float = 2.0, max_time: float = 5.0) -> None:
+    def simulate_reading_sync(
+        self, page: Any, min_time: float = 2.0, max_time: float = 5.0
+    ) -> None:
         time.sleep(random.uniform(min_time, max_time))
 
     def after_navigation_sync(self, page: Any) -> None:

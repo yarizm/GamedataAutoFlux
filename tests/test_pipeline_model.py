@@ -31,19 +31,20 @@ class TestPipelineConstruction:
         assert p.steps[0].component_name == "local"
 
     def test_chaining(self):
-        p = (Pipeline("p")
-             .add_collector("steam")
-             .add_processor("cleaner")
-             .add_storage("local"))
+        p = Pipeline("p").add_collector("steam").add_processor("cleaner").add_storage("local")
         assert len(p.steps) == 3
         assert [s.step_type for s in p.steps] == [
-            StepType.COLLECTOR, StepType.PROCESSOR, StepType.STORAGE
+            StepType.COLLECTOR,
+            StepType.PROCESSOR,
+            StepType.STORAGE,
         ]
 
     def test_on_progress(self):
         called = []
+
         async def cb(tid, prog, msg):
             called.append((tid, prog, msg))
+
         p = Pipeline("p").on_progress(cb)
         assert p._progress_callback is cb
 
@@ -131,6 +132,5 @@ class TestPipelineStep:
         assert s.instance is None
 
     def test_with_config(self):
-        s = PipelineStep(step_type=StepType.STORAGE, component_name="local",
-                         config={"db": "x.db"})
+        s = PipelineStep(step_type=StepType.STORAGE, component_name="local", config={"db": "x.db"})
         assert s.config == {"db": "x.db"}

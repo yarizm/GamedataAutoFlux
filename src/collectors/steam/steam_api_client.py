@@ -103,7 +103,9 @@ class SteamAPIClient:
                 "final": price_info.get("final", 0),
                 "discount_percent": price_info.get("discount_percent", 0),
                 "final_formatted": price_info.get("final_formatted", ""),
-            } if price_info else None,
+            }
+            if price_info
+            else None,
             "platforms": raw.get("platforms", {}),
             "categories": [c.get("description", "") for c in raw.get("categories", [])],
             "genres": [g.get("description", "") for g in raw.get("genres", [])],
@@ -159,11 +161,15 @@ class SteamAPIClient:
             language=language,
             filter_name="recent",
         )
-        logger.debug("[SteamAPI] reviews sample fetched app_id={} count={}", app_id, len(all_reviews))
+        logger.debug(
+            "[SteamAPI] reviews sample fetched app_id={} count={}", app_id, len(all_reviews)
+        )
 
         # 汇总统计
         try:
-            overall_summary = await self.get_review_summary(app_id, filter_name="all", language=language)
+            overall_summary = await self.get_review_summary(
+                app_id, filter_name="all", language=language
+            )
         except Exception as exc:
             logger.warning(f"[SteamAPI] overall review summary failed: {exc}")
             overall_summary = {}
@@ -194,13 +200,16 @@ class SteamAPIClient:
                     concurrency=review_summary_concurrency,
                 )
         elif review_trend_mode == "off":
-            trend_rows, trend_summary = [], {
-                "days": review_trend_days,
-                "total_reviews": 0,
-                "reviews_fetched": 0,
-                "complete": True,
-                "source": "disabled",
-            }
+            trend_rows, trend_summary = (
+                [],
+                {
+                    "days": review_trend_days,
+                    "total_reviews": 0,
+                    "reviews_fetched": 0,
+                    "complete": True,
+                    "source": "disabled",
+                },
+            )
         else:
             try:
                 trend_summary = await self.get_review_summary(
@@ -217,15 +226,23 @@ class SteamAPIClient:
             trend_fetch_limit = max(max_review_trend_reviews, 0)
             if trend_total and trend_total < trend_fetch_limit:
                 trend_fetch_limit = trend_total
-            trend_reviews, _, trend_exhausted = await self._fetch_review_pages(
-                app_id,
-                max_reviews=trend_fetch_limit,
-                language=language,
-                filter_name="recent",
-                day_range=review_trend_days,
-            ) if trend_fetch_limit else ([], {}, True)
-            trend_complete = bool(trend_total == 0 or len(trend_reviews) >= trend_total or trend_exhausted)
-            trend_rows = _build_review_trend(trend_reviews, days=review_trend_days, fill_missing=True)
+            trend_reviews, _, trend_exhausted = (
+                await self._fetch_review_pages(
+                    app_id,
+                    max_reviews=trend_fetch_limit,
+                    language=language,
+                    filter_name="recent",
+                    day_range=review_trend_days,
+                )
+                if trend_fetch_limit
+                else ([], {}, True)
+            )
+            trend_complete = bool(
+                trend_total == 0 or len(trend_reviews) >= trend_total or trend_exhausted
+            )
+            trend_rows = _build_review_trend(
+                trend_reviews, days=review_trend_days, fill_missing=True
+            )
             trend_summary = {
                 "days": review_trend_days,
                 "total_reviews": trend_total,
@@ -246,7 +263,7 @@ class SteamAPIClient:
             recent_30d_summary.get("review_score_percent"),
             len(trend_rows),
         )
-            
+
         return {
             "total_reviews": total_reviews_val,
             "total_positive": total_positive_val,
@@ -299,17 +316,19 @@ class SteamAPIClient:
                 return all_reviews, query_summary, True
 
             for r in reviews:
-                all_reviews.append({
-                    "recommendationid": r.get("recommendationid", ""),
-                    "author_steamid": r.get("author", {}).get("steamid", ""),
-                    "author_playtime": r.get("author", {}).get("playtime_forever", 0),
-                    "voted_up": r.get("voted_up", False),
-                    "review_text": r.get("review", "")[:500],
-                    "votes_up": r.get("votes_up", 0),
-                    "votes_funny": r.get("votes_funny", 0),
-                    "timestamp_created": r.get("timestamp_created", 0),
-                    "language": r.get("language", ""),
-                })
+                all_reviews.append(
+                    {
+                        "recommendationid": r.get("recommendationid", ""),
+                        "author_steamid": r.get("author", {}).get("steamid", ""),
+                        "author_playtime": r.get("author", {}).get("playtime_forever", 0),
+                        "voted_up": r.get("voted_up", False),
+                        "review_text": r.get("review", "")[:500],
+                        "votes_up": r.get("votes_up", 0),
+                        "votes_funny": r.get("votes_funny", 0),
+                        "timestamp_created": r.get("timestamp_created", 0),
+                        "language": r.get("language", ""),
+                    }
+                )
                 if len(all_reviews) >= max_reviews:
                     return all_reviews, query_summary, False
 
@@ -427,7 +446,9 @@ class SteamAPIClient:
                 return summary
 
         cumulative = []
-        for summary in await asyncio.gather(*(fetch_day(day_range) for day_range in range(1, days + 1))):
+        for summary in await asyncio.gather(
+            *(fetch_day(day_range) for day_range in range(1, days + 1))
+        ):
             cumulative.append(summary)
 
         today = datetime.now(timezone.utc).date()
@@ -481,25 +502,18 @@ class SteamAPIClient:
 
         Endpoint: ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/
         """
-        url = (
-            f"{self.API_BASE}/ISteamUserStats"
-            f"/GetGlobalAchievementPercentagesForApp/v2/"
-        )
+        url = f"{self.API_BASE}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/"
         params: dict[str, Any] = {"gameid": str(app_id)}
         if self._api_key:
             params["key"] = self._api_key
         data = await self._request(url, params=params)
-        achievements = (
-            data.get("achievementpercentages", {}).get("achievements", [])
-        )
+        achievements = data.get("achievementpercentages", {}).get("achievements", [])
         return [
             {"name": a.get("name", ""), "percent": round(float(a.get("percent", 0)), 2)}
             for a in achievements[:50]  # 取前50
         ]
 
-    async def get_news(
-        self, app_id: str | int, count: int = 10
-    ) -> list[dict[str, Any]]:
+    async def get_news(self, app_id: str | int, count: int = 10) -> list[dict[str, Any]]:
         """
         获取游戏新闻/更新公告。
 
@@ -602,9 +616,7 @@ class SteamAPIClient:
 
     # ── 内部工具 ──────────────────────────────────────
 
-    async def _request(
-        self, url: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _request(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
         """带重试和限速的 HTTP GET。"""
         if not self._client:
             await self.setup()
@@ -614,10 +626,8 @@ class SteamAPIClient:
                 resp = await self._client.get(url, params=params)
 
                 if resp.status_code == 429:
-                    wait = min(2 ** attempt * 2, 30)
-                    logger.warning(
-                        f"[SteamAPI] 429 限速, 等待 {wait}s (attempt {attempt})"
-                    )
+                    wait = min(2**attempt * 2, 30)
+                    logger.warning(f"[SteamAPI] 429 限速, 等待 {wait}s (attempt {attempt})")
                     await asyncio.sleep(wait)
                     continue
 
@@ -631,15 +641,13 @@ class SteamAPIClient:
                 )
                 if attempt == self._max_retries:
                     raise
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
             except (httpx.ConnectError, httpx.ReadTimeout) as e:
-                logger.warning(
-                    f"[SteamAPI] 网络错误: {e} (attempt {attempt}/{self._max_retries})"
-                )
+                logger.warning(f"[SteamAPI] 网络错误: {e} (attempt {attempt}/{self._max_retries})")
                 if attempt == self._max_retries:
                     raise
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
         return {}
 
@@ -696,7 +704,9 @@ def _build_review_trend(
     return rows
 
 
-def _build_review_trend_from_histogram(payload: dict[str, Any], *, days: int = 90) -> list[dict[str, Any]]:
+def _build_review_trend_from_histogram(
+    payload: dict[str, Any], *, days: int = 90
+) -> list[dict[str, Any]]:
     results = payload.get("results", {}) if isinstance(payload, dict) else {}
     if not isinstance(results, dict):
         return []
@@ -714,7 +724,9 @@ def _build_review_trend_from_histogram(payload: dict[str, Any], *, days: int = 9
         daily[day] = {"positive": up, "negative": down}
         recent_dates.add(day)
 
-    rollup_points = [point for point in (_histogram_point(item) for item in rollups) if point is not None]
+    rollup_points = [
+        point for point in (_histogram_point(item) for item in rollups) if point is not None
+    ]
     rollup_points.sort(key=lambda item: item[0])
 
     end_date = max(daily.keys(), default=None)
@@ -725,7 +737,11 @@ def _build_review_trend_from_histogram(payload: dict[str, Any], *, days: int = 9
     target_dates = {start_date + timedelta(days=index) for index in range(max(days, 1))}
 
     for index, (bucket_start, up, down) in enumerate(rollup_points):
-        next_start = rollup_points[index + 1][0] if index + 1 < len(rollup_points) else bucket_start + timedelta(days=7)
+        next_start = (
+            rollup_points[index + 1][0]
+            if index + 1 < len(rollup_points)
+            else bucket_start + timedelta(days=7)
+        )
         bucket_end = min(next_start - timedelta(days=1), bucket_start + timedelta(days=6))
         bucket_dates = [
             bucket_start + timedelta(days=offset)
@@ -735,8 +751,12 @@ def _build_review_trend_from_histogram(payload: dict[str, Any], *, days: int = 9
         if not bucket_dates:
             continue
 
-        known_up = sum(daily.get(day, {}).get("positive", 0) for day in bucket_dates if day in recent_dates)
-        known_down = sum(daily.get(day, {}).get("negative", 0) for day in bucket_dates if day in recent_dates)
+        known_up = sum(
+            daily.get(day, {}).get("positive", 0) for day in bucket_dates if day in recent_dates
+        )
+        known_down = sum(
+            daily.get(day, {}).get("negative", 0) for day in bucket_dates if day in recent_dates
+        )
         missing_dates = [day for day in bucket_dates if day not in daily]
         if not missing_dates:
             continue

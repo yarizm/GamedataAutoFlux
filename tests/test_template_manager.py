@@ -5,7 +5,6 @@ import yaml
 from src.reporting.report_templates import (
     TemplateManager,
     ReportTemplate,
-    get_report_template,
     validate_template_sources,
 )
 
@@ -112,6 +111,7 @@ class TestTemplateManagerCustomYaml:
     def test_validates_custom_template_sources(self, tmp_path, monkeypatch):
         """validate_template_sources should work with custom templates."""
         from src.reporting import report_templates
+
         manager = TemplateManager(template_dir=tmp_path / "templates")
         manager.save_template(
             "custom_v2",

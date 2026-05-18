@@ -131,7 +131,9 @@ class CreateRefreshScheduleRequest(BaseModel):
 
 
 class BatchRecordRequest(BaseModel):
-    keys: list[str] = Field(..., min_length=1, max_length=500, description="Record keys to operate on")
+    keys: list[str] = Field(
+        ..., min_length=1, max_length=500, description="Record keys to operate on"
+    )
     confirm: bool = Field(default=False, description="Must be true for destructive operations")
 
 
@@ -147,7 +149,9 @@ async def list_data_games(
         if not identity:
             continue
         group = record_group(record)
-        grouped_key = f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
+        grouped_key = (
+            f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
+        )
         game = grouped.setdefault(
             grouped_key,
             {
@@ -158,7 +162,9 @@ async def list_data_games(
                 "latest_stored_at": None,
                 "group_id": group.get("group_id", ""),
                 "group_name": group.get("group_name", ""),
-                "sources": defaultdict(lambda: {"name": "", "collector": "", "count": 0, "latest_stored_at": None}),
+                "sources": defaultdict(
+                    lambda: {"name": "", "collector": "", "count": 0, "latest_stored_at": None}
+                ),
             },
         )
         game["total_records"] += 1
@@ -172,13 +178,19 @@ async def list_data_games(
         source_bucket["name"] = identity["data_source"]
         source_bucket["collector"] = identity["collector"]
         source_bucket["count"] += 1
-        source_bucket["latest_stored_at"] = max_iso(source_bucket["latest_stored_at"], record.stored_at.isoformat())
+        source_bucket["latest_stored_at"] = max_iso(
+            source_bucket["latest_stored_at"], record.stored_at.isoformat()
+        )
 
     response: list[DataGameSummary] = []
     for game in grouped.values():
         sources = [
             DataSourceSummary(**source)
-            for source in sorted(game["sources"].values(), key=lambda item: item.get("latest_stored_at") or "", reverse=True)
+            for source in sorted(
+                game["sources"].values(),
+                key=lambda item: item.get("latest_stored_at") or "",
+                reverse=True,
+            )
         ]
         response.append(DataGameSummary(**{**game, "sources": sources}))
 
@@ -205,10 +217,14 @@ async def list_data_groups(
             },
         )
         bucket["count"] += 1
-        bucket["latest_stored_at"] = max_iso(bucket["latest_stored_at"], record.stored_at.isoformat())
+        bucket["latest_stored_at"] = max_iso(
+            bucket["latest_stored_at"], record.stored_at.isoformat()
+        )
     return [
         DataGroupSummary(**item)
-        for item in sorted(groups.values(), key=lambda item: item.get("latest_stored_at") or "", reverse=True)
+        for item in sorted(
+            groups.values(), key=lambda item: item.get("latest_stored_at") or "", reverse=True
+        )
     ]
 
 
@@ -223,7 +239,9 @@ async def list_data_records(
     task_id: Annotated[str, Query(description="Optional task_id filter")] = "",
     page: Annotated[int, Query(ge=1, description="Page number, starting from 1")] = 1,
     page_size: Annotated[int, Query(ge=1, le=200, description="Records per page")] = 50,
-    sort_order: Annotated[str, Query(pattern="^(asc|desc)$", description="stored_at order")] = "desc",
+    sort_order: Annotated[
+        str, Query(pattern="^(asc|desc)$", description="stored_at order")
+    ] = "desc",
 ):
     query_text = f"source:{source.strip()}" if source.strip() else (q.strip() or "key:")
     offset = (page - 1) * page_size
@@ -424,7 +442,9 @@ async def batch_export_records(req: BatchRecordRequest):
     return {"count": len(records), "records": records}
 
 
-async def _delete_data_category(*, game_key: str = "", group_id: str = "") -> DeleteDataCategoryResponse:
+async def _delete_data_category(
+    *, game_key: str = "", group_id: str = ""
+) -> DeleteDataCategoryResponse:
     if not game_key and not group_id:
         raise HTTPException(400, "Missing game_key or group_id")
 
@@ -450,11 +470,17 @@ async def _delete_data_category(*, game_key: str = "", group_id: str = "") -> De
     group_ids = {summary.group_id for summary in matched_summaries if summary.group_id}
     group_names = {summary.group_name for summary in matched_summaries if summary.group_name}
 
-    await _ensure_related_tasks_are_not_running(task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+    await _ensure_related_tasks_are_not_running(
+        task_ids=task_ids, group_ids=group_ids, group_names=group_names
+    )
 
     records_deleted = await _delete_local_records(record_keys)
-    vector_deleted = await _delete_vector_records(record_keys=record_keys, game_key=game_key, group_ids=group_ids, group_names=group_names)
-    tasks_deleted = await _delete_related_tasks(task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+    vector_deleted = await _delete_vector_records(
+        record_keys=record_keys, game_key=game_key, group_ids=group_ids, group_names=group_names
+    )
+    tasks_deleted = await _delete_related_tasks(
+        task_ids=task_ids, group_ids=group_ids, group_names=group_names
+    )
     cron_deleted = _delete_related_cron_jobs(group_ids=group_ids, group_names=group_names)
     reports_deleted = await _delete_related_reports(
         record_keys=record_keys,
@@ -512,7 +538,9 @@ async def _delete_vector_records(
             record = await vector.load(key)
             if record is None:
                 continue
-            if _record_matches_category(record, game_key=game_key, group_ids=group_ids, group_names=group_names):
+            if _record_matches_category(
+                record, game_key=game_key, group_ids=group_ids, group_names=group_names
+            ):
                 if await vector.delete(key):
                     deleted += 1
                     deleted_keys.add(key)
@@ -532,11 +560,15 @@ async def _ensure_related_tasks_are_not_running(
     running = [
         task.id
         for task in scheduler.get_all_tasks()
-        if _task_matches_category(task, task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+        if _task_matches_category(
+            task, task_ids=task_ids, group_ids=group_ids, group_names=group_names
+        )
         and not task.is_terminal
     ]
     if running:
-        raise HTTPException(409, f"Cannot delete category while related tasks are running: {', '.join(running)}")
+        raise HTTPException(
+            409, f"Cannot delete category while related tasks are running: {', '.join(running)}"
+        )
 
 
 async def _delete_related_tasks(
@@ -550,7 +582,9 @@ async def _delete_related_tasks(
     related_ids = [
         task.id
         for task in scheduler.get_all_tasks()
-        if _task_matches_category(task, task_ids=task_ids, group_ids=group_ids, group_names=group_names)
+        if _task_matches_category(
+            task, task_ids=task_ids, group_ids=group_ids, group_names=group_names
+        )
     ]
     deleted = 0
     for task_id in related_ids:
@@ -566,7 +600,9 @@ def _delete_related_cron_jobs(*, group_ids: set[str], group_names: set[str]) -> 
     for job in scheduler.list_cron_jobs():
         template = job.get("task_template", {}) if isinstance(job, dict) else {}
         config = template.get("config", {}) if isinstance(template, dict) else {}
-        if _data_group_matches(config.get("data_group", {}), group_ids=group_ids, group_names=group_names):
+        if _data_group_matches(
+            config.get("data_group", {}), group_ids=group_ids, group_names=group_names
+        ):
             if scheduler.remove_cron_job(str(job.get("name") or job.get("id") or "")):
                 deleted += 1
     return deleted
@@ -634,7 +670,9 @@ def _task_matches_category(
 ) -> bool:
     if task.id in task_ids:
         return True
-    return _data_group_matches(task.config.get("data_group", {}), group_ids=group_ids, group_names=group_names)
+    return _data_group_matches(
+        task.config.get("data_group", {}), group_ids=group_ids, group_names=group_names
+    )
 
 
 def _data_group_matches(value: Any, *, group_ids: set[str], group_names: set[str]) -> bool:
@@ -643,15 +681,16 @@ def _data_group_matches(value: Any, *, group_ids: set[str], group_names: set[str
     current_id = str(value.get("id") or value.get("group_id") or "").strip()
     current_name = str(value.get("name") or value.get("group_name") or "").strip()
     return bool(
-        (current_id and current_id in group_ids)
-        or (current_name and current_name in group_names)
+        (current_id and current_id in group_ids) or (current_name and current_name in group_names)
     )
 
 
 @router.post("/data/records/{record_key}/refresh")
 async def refresh_data_record(
     record_key: Annotated[str, Path(description="Storage record key")],
-    req: Annotated[RefreshRecordRequest, Body(description="Refresh options")] = RefreshRecordRequest(),
+    req: Annotated[
+        RefreshRecordRequest, Body(description="Refresh options")
+    ] = RefreshRecordRequest(),
 ):
     from src.web.app import scheduler
 
@@ -742,7 +781,9 @@ def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
     if not identity:
         return None
     group = record_group(record)
-    source_task = record.metadata.get("source_task", {}) if isinstance(record.metadata, dict) else {}
+    source_task = (
+        record.metadata.get("source_task", {}) if isinstance(record.metadata, dict) else {}
+    )
     if not isinstance(source_task, dict):
         source_task = {}
     grouped_key = f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
@@ -773,6 +814,7 @@ def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
 
 # build_record_summary, compute_record_completeness in src.services._utils
 
+
 def _build_refresh_task(
     record: StorageRecord,
     *,
@@ -780,7 +822,9 @@ def _build_refresh_task(
     rolling_window: bool,
     scheduled_job_id: str = "",
 ) -> Task:
-    source_task = record.metadata.get("source_task", {}) if isinstance(record.metadata, dict) else {}
+    source_task = (
+        record.metadata.get("source_task", {}) if isinstance(record.metadata, dict) else {}
+    )
     if not isinstance(source_task, dict) or not source_task.get("pipeline_name"):
         raise HTTPException(400, "This record has no stored source task parameters")
 

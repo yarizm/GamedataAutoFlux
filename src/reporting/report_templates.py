@@ -50,7 +50,14 @@ BUILTIN_TEMPLATES: dict[str, ReportTemplate] = {
         id="general_game",
         name="通用游戏模板",
         description="适用于同时具备 Steam、TapTap、Google Trends、Monitor、事件与社区讨论数据的游戏。",
-        required_collectors=("steam", "taptap", "gtrends", "monitor", "events", "steam_discussions"),
+        required_collectors=(
+            "steam",
+            "taptap",
+            "gtrends",
+            "monitor",
+            "events",
+            "steam_discussions",
+        ),
         optional_collectors=("qimai",),
         prompt_instruction=(
             "按综合游戏分析报告输出，覆盖 Steam 表现、TapTap 口碑、Google Trends 热度、"
@@ -75,6 +82,7 @@ BUILTIN_TEMPLATES: dict[str, ReportTemplate] = {
         ),
     ),
 }
+
 
 class TemplateManager:
     def __init__(self, template_dir: Path | None = None):
@@ -105,6 +113,7 @@ class TemplateManager:
                     )
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).error(f"Failed to load template {yaml_file}: {e}")
 
     def get_template(self, template_id: str) -> ReportTemplate | None:
@@ -192,7 +201,9 @@ def validate_template_sources(
         }
 
     available = sorted(k for k, v in normalized_counts.items() if v > 0)
-    missing = [collector for collector in template.required_collectors if collector not in available]
+    missing = [
+        collector for collector in template.required_collectors if collector not in available
+    ]
     return {
         "template": template.id,
         "template_name": template.name,

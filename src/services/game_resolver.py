@@ -69,8 +69,7 @@ def _save_cache() -> None:
     try:
         GAME_RESOLVER_CACHE.parent.mkdir(parents=True, exist_ok=True)
         raw = {
-            key: (ts, result.model_dump(mode="json"))
-            for key, (ts, result) in _names_cache.items()
+            key: (ts, result.model_dump(mode="json")) for key, (ts, result) in _names_cache.items()
         }
         GAME_RESOLVER_CACHE.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     except Exception:
@@ -94,6 +93,7 @@ def _should_use_threaded_playwright() -> bool:
 # ---------------------------------------------------------------------------
 # 解析器
 # ---------------------------------------------------------------------------
+
 
 class GameIdentifierResolver:
     """封装 Playwright + HTTP 的多平台游戏标识符搜索。"""
@@ -148,7 +148,9 @@ class GameIdentifierResolver:
         self._pw = None
         _save_cache()
 
-    async def _safe_resolve(self, resolver, game_name: str, platform: str) -> IdentifierResult | None:
+    async def _safe_resolve(
+        self, resolver, game_name: str, platform: str
+    ) -> IdentifierResult | None:
         """带异常保护的解析器调用。"""
         try:
             return await resolver(game_name)
@@ -237,10 +239,14 @@ class GameIdentifierResolver:
                         name = str(item.get("name", ""))
                         if app_id and name and app_id not in seen_ids:
                             seen_ids.add(app_id)
-                            candidates.append(IdentifierCandidate(
-                                identifier=app_id, identifier_type="steam_app_id",
-                                name=name, source="api",
-                            ))
+                            candidates.append(
+                                IdentifierCandidate(
+                                    identifier=app_id,
+                                    identifier_type="steam_app_id",
+                                    name=name,
+                                    source="api",
+                                )
+                            )
             except Exception:
                 pass
 
@@ -251,15 +257,19 @@ class GameIdentifierResolver:
                     params={"term": game_name, "l": "english", "cc": "us"},
                 )
                 if resp.status_code == 200:
-                    for item in (resp.json().get("items", []) or []):
+                    for item in resp.json().get("items", []) or []:
                         app_id = str(item.get("id", ""))
                         name = str(item.get("name", ""))
                         if app_id and name and app_id not in seen_ids:
                             seen_ids.add(app_id)
-                            candidates.append(IdentifierCandidate(
-                                identifier=app_id, identifier_type="steam_app_id",
-                                name=name, source="api",
-                            ))
+                            candidates.append(
+                                IdentifierCandidate(
+                                    identifier=app_id,
+                                    identifier_type="steam_app_id",
+                                    name=name,
+                                    source="api",
+                                )
+                            )
             except Exception:
                 pass
 
@@ -282,8 +292,13 @@ class GameIdentifierResolver:
         candidates = await self._resolve_taptap_async(game_name)
         result = _build_platform_result("taptap", "taptap_app_id", game_name, candidates)
         if result:
-            result.url = f"https://www.taptap.cn/app/{result.identifier}" if result.identifier else ""
-            _names_cache[_cache_key("taptap", game_name)] = (asyncio.get_event_loop().time(), result)
+            result.url = (
+                f"https://www.taptap.cn/app/{result.identifier}" if result.identifier else ""
+            )
+            _names_cache[_cache_key("taptap", game_name)] = (
+                asyncio.get_event_loop().time(),
+                result,
+            )
         return result
 
     async def _resolve_taptap_async(self, game_name: str) -> list[IdentifierCandidate]:
@@ -307,10 +322,14 @@ class GameIdentifierResolver:
                     app_id = match.group(1)
                     seen.add(app_id)
                     name = text.split("\n")[0].strip()[:80] if text else ""
-                    candidates.append(IdentifierCandidate(
-                        identifier=app_id, identifier_type="taptap_app_id",
-                        name=name, source="playwright",
-                    ))
+                    candidates.append(
+                        IdentifierCandidate(
+                            identifier=app_id,
+                            identifier_type="taptap_app_id",
+                            name=name,
+                            source="playwright",
+                        )
+                    )
             return candidates
         finally:
             await ctx.close()
@@ -318,6 +337,7 @@ class GameIdentifierResolver:
     @staticmethod
     def _resolve_taptap_sync(game_name: str) -> IdentifierResult | None:
         from playwright.sync_api import sync_playwright
+
         candidates: list[IdentifierCandidate] = []
         seen: set[str] = set()
         try:
@@ -330,22 +350,29 @@ class GameIdentifierResolver:
                 )
                 ctx.add_init_script(STEALTH_SCRIPT)
                 page = ctx.new_page()
-                page.goto(f"https://www.taptap.cn/search/{quote(game_name)}",
-                          wait_until="domcontentloaded", timeout=25000)
+                page.goto(
+                    f"https://www.taptap.cn/search/{quote(game_name)}",
+                    wait_until="domcontentloaded",
+                    timeout=25000,
+                )
                 page.wait_for_timeout(3000)
                 cards = page.query_selector_all("a[href*='/app/']")
                 for card in cards[:15]:
-                    href = (card.get_attribute("href") or "")
+                    href = card.get_attribute("href") or ""
                     text = (card.inner_text() or "").strip()
                     match = re.search(r"/app/(\d+)", href)
                     if match and match.group(1) not in seen:
                         app_id = match.group(1)
                         seen.add(app_id)
                         name = text.split("\n")[0].strip()[:80] if text else ""
-                        candidates.append(IdentifierCandidate(
-                            identifier=app_id, identifier_type="taptap_app_id",
-                            name=name, source="playwright",
-                        ))
+                        candidates.append(
+                            IdentifierCandidate(
+                                identifier=app_id,
+                                identifier_type="taptap_app_id",
+                                name=name,
+                                source="playwright",
+                            )
+                        )
                 ctx.close()
                 browser.close()
         except Exception as exc:
@@ -376,13 +403,18 @@ class GameIdentifierResolver:
             page = await ctx.new_page()
             await page.goto(
                 f"https://www.qimai.cn/search?search={quote(game_name)}",
-                wait_until="domcontentloaded", timeout=45000,
+                wait_until="domcontentloaded",
+                timeout=45000,
             )
             await page.wait_for_timeout(5000)
 
             candidates: list[IdentifierCandidate] = []
             seen: set[str] = set()
-            for selector in (".applistRow a[href*='appid']", ".search-result-item a[href*='appid']", "a[href*='appid']"):
+            for selector in (
+                ".applistRow a[href*='appid']",
+                ".search-result-item a[href*='appid']",
+                "a[href*='appid']",
+            ):
                 links = await page.query_selector_all(selector)
                 for link in links[:10]:
                     href = (await link.get_attribute("href")) or ""
@@ -392,16 +424,23 @@ class GameIdentifierResolver:
                         app_id = match.group(1)
                         seen.add(app_id)
                         name = text.split("\n")[0].strip()[:80] if text else ""
-                        candidates.append(IdentifierCandidate(
-                            identifier=app_id, identifier_type="qimai_app_id",
-                            name=name, source="playwright",
-                        ))
+                        candidates.append(
+                            IdentifierCandidate(
+                                identifier=app_id,
+                                identifier_type="qimai_app_id",
+                                name=name,
+                                source="playwright",
+                            )
+                        )
                 if candidates:
                     break
             await page.close()
             result = _build_platform_result("qimai", "qimai_app_id", game_name, candidates)
             if result:
-                _names_cache[_cache_key("qimai", game_name)] = (asyncio.get_event_loop().time(), result)
+                _names_cache[_cache_key("qimai", game_name)] = (
+                    asyncio.get_event_loop().time(),
+                    result,
+                )
             return result
         finally:
             if not self._browser_is_cdp:
@@ -425,15 +464,23 @@ class GameIdentifierResolver:
         override = _resolve_sully_siteurl_override(0, game_name, None)
         if override:
             result = IdentifierResult(
-                platform="monitor", identifier=override, identifier_type="siteurl",
-                game_name=game_name, confidence=IdentifierConfidence.HIGH, source="config",
+                platform="monitor",
+                identifier=override,
+                identifier_type="siteurl",
+                game_name=game_name,
+                confidence=IdentifierConfidence.HIGH,
+                source="config",
                 url=f"https://sullygnome.com/game/{override}",
             )
-            _names_cache[_cache_key("monitor", game_name)] = (asyncio.get_event_loop().time(), result)
+            _names_cache[_cache_key("monitor", game_name)] = (
+                asyncio.get_event_loop().time(),
+                result,
+            )
             return result
 
         # 搜索变体
         from src.collectors.monitor_collector import _generate_search_variants
+
         search_names = _generate_search_variants(game_name, None)
 
         candidates: list[IdentifierCandidate] = []
@@ -457,17 +504,26 @@ class GameIdentifierResolver:
                         if not siteurl or siteurl in seen_siteurls:
                             continue
                         seen_siteurls.add(siteurl)
-                        candidates.append(IdentifierCandidate(
-                            identifier=siteurl, identifier_type="siteurl",
-                            name=display, source="api",
-                        ))
+                        candidates.append(
+                            IdentifierCandidate(
+                                identifier=siteurl,
+                                identifier_type="siteurl",
+                                name=display,
+                                source="api",
+                            )
+                        )
                 except Exception:
                     continue
 
         result = _build_platform_result("monitor", "siteurl", game_name, candidates)
         if result:
-            result.url = f"https://sullygnome.com/game/{result.identifier}" if result.identifier else ""
-            _names_cache[_cache_key("monitor", game_name)] = (asyncio.get_event_loop().time(), result)
+            result.url = (
+                f"https://sullygnome.com/game/{result.identifier}" if result.identifier else ""
+            )
+            _names_cache[_cache_key("monitor", game_name)] = (
+                asyncio.get_event_loop().time(),
+                result,
+            )
         return result
 
     # ---- Official Site ----------------------------------------------------
@@ -486,11 +542,18 @@ class GameIdentifierResolver:
             url = entry if isinstance(entry, str) else entry.get("official_url", "")
             if url:
                 result = IdentifierResult(
-                    platform="official_site", identifier=url, identifier_type="official_url",
-                    game_name=canon, confidence=IdentifierConfidence.HIGH, source="config",
+                    platform="official_site",
+                    identifier=url,
+                    identifier_type="official_url",
+                    game_name=canon,
+                    confidence=IdentifierConfidence.HIGH,
+                    source="config",
                     url=url,
                 )
-                _names_cache[_cache_key("official_site", game_name)] = (asyncio.get_event_loop().time(), result)
+                _names_cache[_cache_key("official_site", game_name)] = (
+                    asyncio.get_event_loop().time(),
+                    result,
+                )
                 return result
 
         # DuckDuckGo 搜索
@@ -501,7 +564,8 @@ class GameIdentifierResolver:
             try:
                 await page.goto(
                     f"https://html.duckduckgo.com/html/?q={quote(game_name + ' 官网')}",
-                    wait_until="domcontentloaded", timeout=15000,
+                    wait_until="domcontentloaded",
+                    timeout=15000,
                 )
                 await page.wait_for_timeout(2000)
 
@@ -512,18 +576,29 @@ class GameIdentifierResolver:
                     for link in links[:8]:
                         href = (await link.get_attribute("href")) or ""
                         text = (await link.inner_text() or "").strip()
-                        if href and href not in seen and not any(
-                            skip in href for skip in ("baike.", "wiki.", "zhihu.", "bilibili.", "douban.")
+                        if (
+                            href
+                            and href not in seen
+                            and not any(
+                                skip in href
+                                for skip in ("baike.", "wiki.", "zhihu.", "bilibili.", "douban.")
+                            )
                         ):
                             seen.add(href)
-                            candidates.append(IdentifierCandidate(
-                                identifier=href, identifier_type="official_url",
-                                name=text[:80], source="playwright",
-                            ))
+                            candidates.append(
+                                IdentifierCandidate(
+                                    identifier=href,
+                                    identifier_type="official_url",
+                                    name=text[:80],
+                                    source="playwright",
+                                )
+                            )
                     if candidates:
                         break
 
-                return _build_platform_result("official_site", "official_url", game_name, candidates)
+                return _build_platform_result(
+                    "official_site", "official_url", game_name, candidates
+                )
             finally:
                 await ctx.close()
         except Exception as exc:
@@ -534,8 +609,12 @@ class GameIdentifierResolver:
 
     async def resolve_gtrends(self, game_name: str) -> IdentifierResult:
         return IdentifierResult(
-            platform="gtrends", identifier=game_name, identifier_type="keyword",
-            game_name=game_name, confidence=IdentifierConfidence.HIGH, source="direct",
+            platform="gtrends",
+            identifier=game_name,
+            identifier_type="keyword",
+            game_name=game_name,
+            confidence=IdentifierConfidence.HIGH,
+            source="direct",
         )
 
     # ---- 验证 --------------------------------------------------------------
@@ -557,7 +636,8 @@ class GameIdentifierResolver:
 
     async def _verify_steam(self, app_id: str, game_name: str) -> dict[str, Any]:
         async with httpx.AsyncClient(
-            timeout=10, follow_redirects=True,
+            timeout=10,
+            follow_redirects=True,
             headers={"User-Agent": random.choice(USER_AGENTS)},
         ) as client:
             try:
@@ -570,11 +650,19 @@ class GameIdentifierResolver:
                     name = entry["data"].get("name", "")
                     sim = SequenceMatcher(None, game_name.lower(), name.lower()).ratio()
                     return {
-                        "valid": True, "platform": "steam", "app_id": int(app_id),
-                        "name": name, "similarity": round(sim, 3),
+                        "valid": True,
+                        "platform": "steam",
+                        "app_id": int(app_id),
+                        "name": name,
+                        "similarity": round(sim, 3),
                         "confidence": "high" if sim >= 0.8 else "medium" if sim >= 0.5 else "low",
                     }
-                return {"valid": False, "platform": "steam", "app_id": app_id, "error": "App not found"}
+                return {
+                    "valid": False,
+                    "platform": "steam",
+                    "app_id": app_id,
+                    "error": "App not found",
+                }
             except Exception as e:
                 return {"valid": False, "platform": "steam", "app_id": app_id, "error": str(e)}
 
@@ -585,31 +673,49 @@ class GameIdentifierResolver:
                 page = await ctx.new_page()
                 await page.goto(
                     f"https://www.taptap.cn/app/{app_id}",
-                    wait_until="domcontentloaded", timeout=20000,
+                    wait_until="domcontentloaded",
+                    timeout=20000,
                 )
                 await page.wait_for_timeout(2000)
                 title = (await page.title() or "").strip()
                 sim = SequenceMatcher(None, game_name.lower(), title.lower()).ratio()
                 return {
-                    "valid": sim >= 0.3, "platform": "taptap", "app_id": app_id,
-                    "page_title": title, "similarity": round(sim, 3),
+                    "valid": sim >= 0.3,
+                    "platform": "taptap",
+                    "app_id": app_id,
+                    "page_title": title,
+                    "similarity": round(sim, 3),
                     "confidence": "high" if sim >= 0.8 else "medium" if sim >= 0.5 else "low",
                 }
             except Exception as e:
                 return {"valid": False, "platform": "taptap", "app_id": app_id, "error": str(e)}
 
     async def _verify_qimai(self, app_id: str, game_name: str) -> dict[str, Any]:
-        return {"valid": True, "platform": "qimai", "app_id": app_id,
-                "note": "七麦验证需要已登录浏览器会话，当前信任搜索结果的最高匹配",
-                "confidence": "medium"}
+        return {
+            "valid": True,
+            "platform": "qimai",
+            "app_id": app_id,
+            "note": "七麦验证需要已登录浏览器会话，当前信任搜索结果的最高匹配",
+            "confidence": "medium",
+        }
 
     async def _verify_monitor(self, siteurl: str, game_name: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10) as client:
             try:
                 resp = await client.get(f"https://sullygnome.com/game/{siteurl}/90/summary")
                 if resp.status_code == 200 and "PageInfo" in resp.text:
-                    return {"valid": True, "platform": "monitor", "siteurl": siteurl, "confidence": "high"}
-                return {"valid": False, "platform": "monitor", "siteurl": siteurl, "error": "Page not found"}
+                    return {
+                        "valid": True,
+                        "platform": "monitor",
+                        "siteurl": siteurl,
+                        "confidence": "high",
+                    }
+                return {
+                    "valid": False,
+                    "platform": "monitor",
+                    "siteurl": siteurl,
+                    "error": "Page not found",
+                }
             except Exception as e:
                 return {"valid": False, "platform": "monitor", "siteurl": siteurl, "error": str(e)}
 
@@ -621,8 +727,10 @@ class GameIdentifierResolver:
                 page_title = title_match.group(1).strip() if title_match else ""
                 sim = SequenceMatcher(None, game_name.lower(), page_title.lower()).ratio()
                 return {
-                    "valid": resp.status_code < 400, "platform": "official_site",
-                    "url": url, "page_title": page_title,
+                    "valid": resp.status_code < 400,
+                    "platform": "official_site",
+                    "url": url,
+                    "page_title": page_title,
                     "similarity": round(sim, 3),
                     "confidence": "high" if sim >= 0.3 else "low",
                 }
@@ -634,6 +742,7 @@ class GameIdentifierResolver:
 # 公共辅助
 # ---------------------------------------------------------------------------
 
+
 def _build_platform_result(
     platform: str,
     id_type: str,
@@ -642,9 +751,13 @@ def _build_platform_result(
 ) -> IdentifierResult | None:
     if not candidates:
         return IdentifierResult(
-            platform=platform, identifier="", identifier_type=id_type,
-            game_name=game_name, confidence=IdentifierConfidence.LOW,
-            source="none", status="not_found",
+            platform=platform,
+            identifier="",
+            identifier_type=id_type,
+            game_name=game_name,
+            confidence=IdentifierConfidence.LOW,
+            source="none",
+            status="not_found",
             detail=f"未找到 {platform} 相关结果",
         )
 
@@ -678,7 +791,13 @@ def _build_platform_result(
         detail = "未找到高匹配结果，可能需要人工确认"
 
     return IdentifierResult(
-        platform=platform, identifier=best.identifier, identifier_type=id_type,
-        game_name=best.name, confidence=confidence, source=best.source,
-        candidates=all_sorted[:10], status=status, detail=detail,
+        platform=platform,
+        identifier=best.identifier,
+        identifier_type=id_type,
+        game_name=best.name,
+        confidence=confidence,
+        source=best.source,
+        candidates=all_sorted[:10],
+        status=status,
+        detail=detail,
     )

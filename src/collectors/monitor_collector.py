@@ -83,19 +83,27 @@ class MonitorCollector(BaseCollector):
         except ValueError:
             app_id = 0  # 非数字 app_id，后续通过 siteurl override 或搜索解析
 
-        siteurl = _optional_str(target.params.get("siteurl")) or (raw_app_id if app_id <= 0 and raw_app_id else "")
+        siteurl = _optional_str(target.params.get("siteurl")) or (
+            raw_app_id if app_id <= 0 and raw_app_id else ""
+        )
         if app_id <= 0 and not siteurl:
-            raise ValueError("monitor target requires a valid app_id (numeric) or siteurl (string name)")
+            raise ValueError(
+                "monitor target requires a valid app_id (numeric) or siteurl (string name)"
+            )
 
         metrics = _normalize_metrics(target.params.get("metrics"))
         days = int(target.params.get("days", get_config("monitor.default_days", 30)))
         days = max(7, min(days, 90))
-        tz_name = str(target.params.get("timezone", get_config("monitor.timezone", "Asia/Shanghai")))
+        tz_name = str(
+            target.params.get("timezone", get_config("monitor.timezone", "Asia/Shanghai"))
+        )
         twitch_name = _optional_str(target.params.get("twitch_name"))
 
         warnings: list[str] = []
 
-        logger.info(f"[Monitor] Start collect: {target.name} (app_id={app_id}, siteurl={siteurl}) metrics={metrics}")
+        logger.info(
+            f"[Monitor] Start collect: {target.name} (app_id={app_id}, siteurl={siteurl}) metrics={metrics}"
+        )
         metric_payloads = await self._collect_metrics_concurrently(
             metrics=metrics,
             app_id=app_id,
@@ -200,7 +208,9 @@ class MonitorCollector(BaseCollector):
         siteurl: str | None,
         days: int,
     ) -> dict[str, Any]:
-        resolved_siteurl = siteurl or _resolve_sully_siteurl_override(app_id, target_name, twitch_name)
+        resolved_siteurl = siteurl or _resolve_sully_siteurl_override(
+            app_id, target_name, twitch_name
+        )
         if not resolved_siteurl:
             steam_name = await self._fetch_steam_app_name(app_id)
             search_names = _generate_search_variants(twitch_name, target_name, steam_name)
@@ -226,14 +236,24 @@ class MonitorCollector(BaseCollector):
             daily_rows = daily_rows[-days:]
 
         latest_avg = next(
-            (row["average_viewers"] for row in reversed(daily_rows) if row["average_viewers"] is not None),
+            (
+                row["average_viewers"]
+                for row in reversed(daily_rows)
+                if row["average_viewers"] is not None
+            ),
             None,
         )
         latest_peak = next(
-            (row["peak_viewers"] for row in reversed(daily_rows) if row["peak_viewers"] is not None),
+            (
+                row["peak_viewers"]
+                for row in reversed(daily_rows)
+                if row["peak_viewers"] is not None
+            ),
             None,
         )
-        avg_values = [row["average_viewers"] for row in daily_rows if row["average_viewers"] is not None]
+        avg_values = [
+            row["average_viewers"] for row in daily_rows if row["average_viewers"] is not None
+        ]
         return {
             "source": "sullygnome",
             "days": min(days, len(daily_rows)),
@@ -308,11 +328,15 @@ def _normalize_metrics(raw_metrics: Any) -> list[str]:
     return ["twitch_viewer_trend"]
 
 
-def _resolve_sully_siteurl_override(app_id: int | str, target_name: str, twitch_name: str | None) -> str | None:
+def _resolve_sully_siteurl_override(
+    app_id: int | str, target_name: str, twitch_name: str | None
+) -> str | None:
     configured = get_config("monitor.sully_siteurl_overrides", {})
     overrides = dict(DEFAULT_SULLY_SITEURL_OVERRIDES)
     if isinstance(configured, dict):
-        overrides.update({str(key).strip().lower(): str(value).strip() for key, value in configured.items()})
+        overrides.update(
+            {str(key).strip().lower(): str(value).strip() for key, value in configured.items()}
+        )
 
     keys = [str(app_id), target_name, twitch_name or ""]
     for key in keys:

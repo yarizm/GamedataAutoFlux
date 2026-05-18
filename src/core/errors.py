@@ -69,20 +69,50 @@ def classify_exception(exc: Exception) -> ErrorCode:
     msg = str(exc).lower()
 
     # 按优先级匹配
-    if any(kw in msg for kw in ("api key", "apikey", "credentials", "unauthorized", "token", "未配置")):
+    if any(
+        kw in msg for kw in ("api key", "apikey", "credentials", "unauthorized", "token", "未配置")
+    ):
         return ErrorCode.missing_credentials
-    if any(kw in msg for kw in ("login", "cookie", "session expired", "not authenticated", "sign in")):
+    if any(
+        kw in msg for kw in ("login", "cookie", "session expired", "not authenticated", "sign in")
+    ):
         return ErrorCode.login_required
-    if any(kw in msg for kw in ("captcha", "cloudflare", "bot", "blocked", "forbidden", "access denied", "403")):
+    if any(
+        kw in msg
+        for kw in ("captcha", "cloudflare", "bot", "blocked", "forbidden", "access denied", "403")
+    ):
         return ErrorCode.anti_bot_blocked
     if any(kw in msg for kw in ("rate limit", "too many requests", "429", "throttle")):
         return ErrorCode.rate_limited
-    if any(kw in msg for kw in (
-        "timeout", "connection", "network", "unreachable", "dns", "resolve",
-        "refused", "nodata", "socket", "getaddrinfo", "connect error",
-    )):
+    if any(
+        kw in msg
+        for kw in (
+            "timeout",
+            "connection",
+            "network",
+            "unreachable",
+            "dns",
+            "resolve",
+            "refused",
+            "nodata",
+            "socket",
+            "getaddrinfo",
+            "connect error",
+        )
+    ):
         return ErrorCode.network_unreachable
-    if any(kw in msg for kw in ("parse", "structure", "xpath", "selector", "element not found", "css", "html changed")):
+    if any(
+        kw in msg
+        for kw in (
+            "parse",
+            "structure",
+            "xpath",
+            "selector",
+            "element not found",
+            "css",
+            "html changed",
+        )
+    ):
         return ErrorCode.site_structure_changed
     if any(kw in msg for kw in ("empty", "no data", "not found", "no result", "404", "null")):
         return ErrorCode.empty_data

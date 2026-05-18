@@ -67,6 +67,7 @@ class SteamCollector(BaseCollector):
         # 读取全局配置
         try:
             from src.core.config import get_settings
+
             settings = get_settings()
             steam_cfg = settings.get("steam", {})
             firecrawl_cfg = settings.get("firecrawl", {})
@@ -165,9 +166,17 @@ class SteamCollector(BaseCollector):
         logger.info("[Steam] 阶段1: 官方 API 采集")
         try:
             max_reviews = int(target.params.get("max_reviews", self.config.get("max_reviews", 200)))
-            review_language = str(target.params.get("review_language", self.config.get("review_language", "all")))
-            review_trend_days = int(target.params.get("review_trend_days", self.config.get("review_trend_days", 90)))
-            review_trend_mode = str(target.params.get("review_trend_mode", self.config.get("review_trend_mode", "summary")))
+            review_language = str(
+                target.params.get("review_language", self.config.get("review_language", "all"))
+            )
+            review_trend_days = int(
+                target.params.get("review_trend_days", self.config.get("review_trend_days", 90))
+            )
+            review_trend_mode = str(
+                target.params.get(
+                    "review_trend_mode", self.config.get("review_trend_mode", "summary")
+                )
+            )
             review_summary_concurrency = int(
                 target.params.get(
                     "review_summary_concurrency",
@@ -191,14 +200,15 @@ class SteamCollector(BaseCollector):
             )
         except Exception as e:
             logger.error(f"[Steam] 官方 API 采集失败: {e}")
-            steam_data = {"source": "steam_api", "error": str(e), "_error_code": classify_exception(e).value}
+            steam_data = {
+                "source": "steam_api",
+                "error": str(e),
+                "_error_code": classify_exception(e).value,
+            }
 
-        steam_api_ok = (
-            not steam_data.get("error")
-            and any(
-                steam_data.get(key) is not None
-                for key in ("details", "current_players", "reviews", "achievements", "news")
-            )
+        steam_api_ok = not steam_data.get("error") and any(
+            steam_data.get(key) is not None
+            for key in ("details", "current_players", "reviews", "achievements", "news")
         )
         if not steam_api_ok:
             return CollectResult(
@@ -280,7 +290,11 @@ class SteamCollector(BaseCollector):
         reviews = steam_data.get("reviews") or {}
         review_score_percent = reviews.get("review_score_percent", 0)
         review_score_desc = reviews.get("review_score_desc", "")
-        review_score_formatted = f"{review_score_percent}% ({review_score_desc})" if review_score_percent else review_score_desc
+        review_score_formatted = (
+            f"{review_score_percent}% ({review_score_desc})"
+            if review_score_percent
+            else review_score_desc
+        )
         steamdb_review_summary = _extract_steamdb_review_summary(steamdb_data)
         if steamdb_review_summary.get("score_text"):
             review_score_formatted = steamdb_review_summary["score_text"]
@@ -288,7 +302,8 @@ class SteamCollector(BaseCollector):
         merged_data["snapshot"] = {
             "name": details.get("name", target.name),
             "current_players": steam_data.get("current_players", 0),
-            "total_reviews": steamdb_review_summary.get("total_reviews") or reviews.get("total_reviews", 0),
+            "total_reviews": steamdb_review_summary.get("total_reviews")
+            or reviews.get("total_reviews", 0),
             "review_score": review_score_formatted,
             "price": details.get("price"),
         }
@@ -353,9 +368,7 @@ class SteamCollector(BaseCollector):
         return True
 
 
-def _list_sources(
-    steam_data: dict | None, steamdb_data: dict | None
-) -> list[str]:
+def _list_sources(steam_data: dict | None, steamdb_data: dict | None) -> list[str]:
     """列出实际使用的数据源"""
     sources = []
     if steam_data and not steam_data.get("error"):
