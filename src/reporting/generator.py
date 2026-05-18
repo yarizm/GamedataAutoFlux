@@ -80,6 +80,7 @@ class ReportGenerator:
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
+        custom_prompt: str = "",
     ) -> GeneratedReport:
         if provider:
             self._llm_provider = provider
@@ -101,7 +102,12 @@ class ReportGenerator:
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
         await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
-        content = await self._render_report(prompt, data_source, template, records)
+        content = await self._render_report(
+            self._build_template_prompt(prompt, template, {}, custom_prompt=custom_prompt),
+            data_source,
+            template,
+            records
+        )
         await _emit_report_progress(progress_id, "llm_done", 0.76, "LLM analysis completed")
 
         report = GeneratedReport(
@@ -139,6 +145,7 @@ class ReportGenerator:
         params: dict[str, Any] | None = None,
         records: list[StorageRecord] | None = None,
         metadata: dict[str, Any] | None = None,
+        custom_prompt: str = "",
     ) -> GeneratedReport:
         """
         Generate an Excel report.
@@ -191,7 +198,7 @@ class ReportGenerator:
             try:
                 await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
                 llm_content = await self._render_report(
-                    self._build_template_prompt(prompt, template, template_validation),
+                    self._build_template_prompt(prompt, template, template_validation, custom_prompt=custom_prompt),
                     data_source,
                     template,
                     records,
@@ -413,14 +420,30 @@ class ReportGenerator:
         prompt: str,
         template: str,
         template_validation: dict[str, Any],
+        custom_prompt: str = "",
     ) -> str:
+        if template == "auto":
+            available = template_validation.get("available_collectors") or []
+            avail_text = ", ".join(available) if available else "none"
+            instruction = (
+                f"{prompt}\n\n"
+                f"Report template: Auto Exploration\n"
+                f"Available data sources: {avail_text}\n"
+                "Analyze strictly from the provided JSON records. Dynamically structure the report "
+                "based ONLY on the available data sources. Create appropriate chapters for the data found, "
+                "and ignore missing sources without mentioning them.\n"
+            )
+            if custom_prompt:
+                instruction += f"\nAdditional constraints/focus: {custom_prompt}\n"
+            return instruction
+
         template_def = get_report_template(template)
         if template_def is None:
-            return prompt
+            return f"{prompt}\n\n{custom_prompt}" if custom_prompt else prompt
 
         missing = template_validation.get("missing_collectors") or []
         missing_text = ", ".join(missing) if missing else "none"
-        return (
+        base_prompt = (
             f"{prompt}\n\n"
             f"Report template: {template_def.name}\n"
             f"Template requirements: {template_def.prompt_instruction}\n"
@@ -428,6 +451,9 @@ class ReportGenerator:
             "Analyze strictly from the provided JSON records. If a source is missing, "
             "state the gap instead of inventing data."
         )
+        if custom_prompt:
+            base_prompt += f"\n\nAdditional constraints/focus: {custom_prompt}"
+        return base_prompt
 
     async def _render_report(
         self,

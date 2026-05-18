@@ -404,11 +404,14 @@
                             </div>
                             <div class="form-group mb-0">
                                 <label for="report-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">分析模板 / TEMPLATE</label>
-                                <select id="report-template" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
-                                    <option value="general_game">通用游戏模板</option>
-                                    <option value="taptap_game">TapTap游戏模板</option>
-                                    <option value="steam_game">Steam游戏模板</option>
-                                </select>
+                                <div class="flex items-center gap-2">
+                                    <select id="report-template" class="flex-1 bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
+                                        <option value="general_game">通用游戏模板</option>
+                                        <option value="taptap_game">TapTap游戏模板</option>
+                                        <option value="steam_game">Steam游戏模板</option>
+                                    </select>
+                                    <button class="btn btn-ghost h-10 px-3 text-xs shrink-0 border border-white/10" type="button" onclick="uploadReportTemplate()">上传 YAML</button>
+                                </div>
                                 <small class="text-zinc-500 mt-2 block" id="report-template-help"></small>
                             </div>
                             <div class="report-precheck mt-6" id="report-precheck" style="display: none;"></div>
@@ -897,6 +900,72 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-provider-config')">取消</button>
                 <button class="btn btn-primary" onclick="saveProviderConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Upload / Editor Modal -->
+    <div class="modal-overlay" id="modal-report-template">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>上传 / 编辑分析模板</h2>
+                <button class="btn-close" onclick="closeModal('modal-report-template')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Tab switcher -->
+                <div class="flex gap-0 border-b border-white/10 mb-6">
+                    <button class="px-4 py-2 text-sm font-medium transition-colors border-b-2 text-violet-400 border-violet-500" data-tmpl-tab="visual" onclick="switchReportTemplateTab('visual')">可视化编辑</button>
+                    <button class="px-4 py-2 text-sm font-medium transition-colors border-b-2 border-transparent text-zinc-400" data-tmpl-tab="upload" onclick="switchReportTemplateTab('upload')">文件上传</button>
+                </div>
+
+                <!-- Visual Editor Tab -->
+                <div id="tmpl-tab-visual">
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">模板名称 / NAME</label>
+                        <input type="text" id="tmpl-name" class="w-full bg-zinc-800 border border-white/5 focus:border-violet-500/50 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none" placeholder="例如：我的自定义模板">
+                    </div>
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">描述 / DESCRIPTION</label>
+                        <textarea id="tmpl-desc" rows="2" class="w-full bg-zinc-800 border border-white/5 focus:border-violet-500/50 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none resize-none" placeholder="模板用途说明"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">必需采集器 / REQUIRED</label>
+                        <div class="grid grid-cols-2 gap-2" id="tmpl-required-cols"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">可选采集器 / OPTIONAL</label>
+                        <div class="grid grid-cols-2 gap-2" id="tmpl-optional-cols"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">提示指令 / PROMPT_INSTRUCTION</label>
+                        <textarea id="tmpl-prompt" rows="4" class="w-full bg-zinc-800 border border-white/5 focus:border-violet-500/50 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none resize-none font-mono text-xs" placeholder="分析指令文本..."></textarea>
+                    </div>
+                </div>
+
+                <!-- File Upload Tab -->
+                <div id="tmpl-tab-upload" style="display:none">
+                    <div class="bg-zinc-800/50 rounded-xl p-4 mb-5 border border-white/5">
+                        <h4 class="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-3">YAML 格式参考</h4>
+                        <pre class="text-xs text-zinc-300 font-mono bg-zinc-950 p-3 rounded-lg overflow-x-auto leading-relaxed border border-white/5">name: "模板名称"
+description: "模板用途说明"
+required_collectors:
+  - steam
+  - taptap
+optional_collectors:
+  - qimai
+prompt_instruction: "分析指令文本..."</pre>
+                        <p class="text-[10px] text-zinc-500 mt-2">可用采集器值：steam, taptap, gtrends, monitor, events, steam_discussions, official_site, qimai</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">选择 YAML 文件</label>
+                        <input type="file" id="tmpl-file-input" accept=".yaml,.yml" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 bg-zinc-800 border border-white/5 rounded-lg p-1.5">
+                    </div>
+                    <p class="text-[10px] text-zinc-500 mt-2">上传的 YAML 文件会保存为自定义模板，名称由文件名决定（不含扩展名）。同名文件会覆盖已有模板。</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('modal-report-template')">取消</button>
+                <button class="btn btn-primary" onclick="submitReportTemplate()" id="btn-submit-template">保存模板</button>
             </div>
         </div>
     </div>

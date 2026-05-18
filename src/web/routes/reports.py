@@ -32,6 +32,7 @@ class GenerateReportRequest(BaseModel):
     prompt: str = Field(..., description="提示词")
     data_source: str = Field(default="", description="数据源标识")
     template: str = Field(default="default", description="报告模板")
+    custom_prompt: str = Field(default="", description="自定义额外提示词约束")
     provider: str = Field(default="", description="LLM provider key, e.g. qwen/deepseek/sense/local")
     params: dict[str, Any] = Field(default_factory=dict, description="额外参数")
     record_keys: list[str] = Field(default_factory=list, description="指定用于报告的原始 JSON 记录 key")
@@ -124,6 +125,7 @@ async def generate_report(
         params=req.params,
         records=records,
         metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,
+        custom_prompt=req.custom_prompt,
     )
     return _to_report_response(report)
 
@@ -132,6 +134,55 @@ async def generate_report(
 async def get_report_templates():
     """列出可用于 Excel 报告的固定模板。"""
     return list_report_templates()
+
+
+class TemplateSaveRequest(BaseModel):
+    name: str
+    description: str = ""
+    required_collectors: list[str] = []
+    optional_collectors: list[str] = []
+    prompt_instruction: str = ""
+
+
+@router.post("/reports/templates/{template_id}")
+async def save_template(template_id: str, req: TemplateSaveRequest):
+    from src.reporting.report_templates import _manager
+    data = req.model_dump()
+    _manager.save_template(template_id, data)
+    return {"status": "success", "id": template_id}
+
+
+@router.delete("/reports/templates/{template_id}")
+async def delete_template(template_id: str):
+    from src.reporting.report_templates import _manager
+    success = _manager.delete_template(template_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot delete built-in or missing template")
+    return {"status": "deleted"}
+
+
+@router.post("/reports/templates/upload")
+async def upload_template(file: UploadFile = File(...)):
+    """上传 YAML 模板文件"""
+    import yaml
+    from src.reporting.report_templates import _manager
+
+    if not file.filename.endswith(('.yaml', '.yml')):
+        raise HTTPException(status_code=400, detail="Only YAML files are supported")
+
+    try:
+        content = await file.read()
+        data = yaml.safe_load(content.decode("utf-8"))
+        if not isinstance(data, dict) or not data.get("name"):
+            raise HTTPException(status_code=400, detail="Invalid YAML template format")
+
+        template_id = Path(file.filename).stem
+        _manager.save_template(template_id, data)
+        return {"status": "success", "id": template_id, "name": data.get("name")}
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"YAML parsing error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload template: {e}")
 
 
 @router.post("/reports/upload-json", response_model=list[UploadedJsonResponse])
@@ -295,6 +346,7 @@ async def generate_excel_report(
         params=req.params,
         records=records,
         metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,
+        custom_prompt=req.custom_prompt,
     )
     return _to_report_response(report)
 
