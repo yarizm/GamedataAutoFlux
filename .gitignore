@@ -2,6 +2,7 @@
 .idea/
 .claude/
 .pytest_cache/
+.playwright-mcp/
 __pycache__/
 *.pyc
 
@@ -21,6 +22,7 @@ node_modules/
 dist/
 src/web/static/dist/
 gamedata_autoflux.egg-info/
+
 
 *.db
 /Steam数据计划.md

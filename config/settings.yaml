@@ -39,7 +39,7 @@ embedding:
     model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
 llm:
-  provider: sense
+  provider: sensenova_deepseek
   qwen:
     model: qwen-max
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -70,15 +70,51 @@ llm:
     retry_delay: 2.0
     timeout: 180
     max_input_chars: 18000
+  # DeepSeek 模型通过商汤 API 网关调用
+  sensenova_deepseek:
+    model: deepseek-v4-flash
+    base_url: https://token.sensenova.cn/v1
+    api_key: ${SENSE_API_KEY}
+    temperature: 0.3
+    max_tokens: 2000
+    fallback_to_stub: true
+    retry_count: 2
+    retry_delay: 2.0
+    timeout: 180
+    max_input_chars: 18000
 agent:
   enabled: true
-  max_iterations: 10
+  max_iterations: 12
   session_timeout_minutes: 60
+  playwright_mcp:
+    enabled: true
+    command: "npx"
+    args: ["-y", "@playwright/mcp"]
+    headless: true
+    max_exploration_steps: 20
   system_prompt: |-
     你是一个游戏数据采集与分析系统的 AI 助手。
     你可以帮助用户查看和管理任务、配置 Pipeline、设置定时采集、
     浏览数据以及生成报告。
     请根据用户的自然语言指令，选择合适的工具完成任务。
+
+    ## Playwright 浏览器探索与动态采集规则
+    当用户要求采集某个网址的数据（但系统没有内置采集器）时，必须严格执行以下 **4步状态机** 流程：
+
+    1. **Navigate (页面导航)**:
+       - 使用 `browser_navigate` 打开目标网页 URL。
+    2. **Evaluate (脚本评估与测试)**:
+       - 调用 `browser_snapshot` 查看页面 DOM 结构，识别数据所在的元素。
+       - 调用 `browser_evaluate` 执行 JavaScript 测试数据提取。
+       - **注意**: 执行提取脚本时，必须将代码作为 `function` 参数传入，而不是 `code`。例如: `browser_evaluate({{"function": "() => {{ return {{ title: document.title }}; }}"}})`。
+       - 验证返回值是否能获取到有效数据。若失败，调整 JS 脚本，最多重试 2 次（防止无限循环）。若 2 次重试仍未成功获取核心数据，应立刻停下来告知用户遇到的问题，等待用户指示。
+    3. **Create Dynamic Pipeline (创建动态流水线)**:
+       - 成功测试提取脚本后，**必须**使用 `create_dynamic_pipeline` 工具创建 Pipeline。
+       - **绝对禁止**对动态网页采集使用 `create_pipeline` 工具，因为其 steps 参数结构过于复杂，容易生成错误格式。
+       - 调用 `create_dynamic_pipeline` 时，填入 `pipeline_name`, `url`, `js_script`（使用步骤2测试成功的 JS 脚本），以及合适的 `wait_strategy_type`（推荐 `networkidle`）。
+    4. **Create Task (创建采集任务)**:
+       - 调用 `create_task` 提交并运行刚创建的动态 Pipeline。
+       - `targets[0].name` 必须是清晰的游戏名称（如"原神"、"三角洲行动"），不能是数据源描述（如"原神官网新闻"、"steamcharts data"）。
 
     重要规则 —— 创建 Steam 采集任务时：
     1. 必须先调用 resolve_steam_app_id 搜索正确的 app_id
@@ -87,7 +123,8 @@ agent:
 
     ## 游戏标识符自动发现规则
     1. 当用户请求采集数据但未提供平台标识符时，必须先调用 search_game_identifiers 自动发现所有标识符。
-    2. 审查搜索结果：
+    2. 重要：调用 search_game_identifiers 时，参数 platforms 必须是原生的 JSON 数组列表格式，例如 ["official_site", "steam"]。绝对不要传入带方括号的字符串（如 "['official_site']"）。
+    3. 审查搜索结果：
        - 所有平台的置信度都是 HIGH → 自动填充并创建任务，无需询问用户
        - 任何平台 MEDIUM → 在回复中展示候选项，请求用户确认后再继续
        - 任何平台 LOW 或未找到 → 告知用户并建议补充标识符

@@ -20,6 +20,13 @@ from langchain_core.messages import (
 )
 from langchain_openai import ChatOpenAI
 
+try:
+    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+except ImportError:
+    from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import BaseTool
+
 from loguru import logger
 
 from src.agent.tools import ALL_TOOLS
@@ -32,6 +39,7 @@ class AgentService:
     def __init__(self) -> None:
         self._llm: ChatOpenAI | None = None
         self._agent_executor: Any = None
+        self._mcp_manager: Any | None = None
         self._histories: dict[str, list[BaseMessage]] = {}
         self._sessions_timestamps: dict[str, float] = {}
         self._initialized: bool = False
@@ -48,6 +56,26 @@ class AgentService:
             _default_system_prompt(),
         )
         self._load_histories()
+
+    def _build_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
+        """根据当前加载的工具集合，动态生成包含工具使用规范的系统提示词"""
+        tool_desc = "\n".join([f"- {t.name}: {t.description}" for t in tools])
+        system_content = (
+            f"{self._system_prompt}\n\n"
+            f"====== 非常重要：工具使用规范 ======\n"
+            f"你必须优先使用以下工具来获取事实信息或执行操作，而不能仅凭记忆臆断。"
+            f"当你需要查询数据、管理任务或进行网络请求时，必须主动且直接地调用对应的工具：\n"
+            f"{tool_desc}\n"
+            f"===================================\n"
+        )
+        return ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=system_content),
+                MessagesPlaceholder("chat_history", optional=True),
+                ("human", "{input}"),
+                MessagesPlaceholder("agent_scratchpad"),
+            ]
+        )
 
     def _ensure_initialized(self) -> None:
         """延迟初始化 LLM 和 AgentExecutor"""
@@ -78,25 +106,13 @@ class AgentService:
             streaming=True,
         )
 
-        try:
-            from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
-        except ImportError:
-            from langchain.agents import AgentExecutor, create_openai_tools_agent
-        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        all_tools = list(ALL_TOOLS)
+        prompt = self._build_prompt_with_tools(all_tools)
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", self._system_prompt),
-                MessagesPlaceholder("chat_history", optional=True),
-                ("human", "{input}"),
-                MessagesPlaceholder("agent_scratchpad"),
-            ]
-        )
-
-        agent = create_openai_tools_agent(self._llm, ALL_TOOLS, prompt)
+        agent = create_openai_tools_agent(self._llm, all_tools, prompt)
         self._agent_executor = AgentExecutor(
             agent=agent,
-            tools=ALL_TOOLS,
+            tools=all_tools,
             max_iterations=self._max_iterations,
             handle_parsing_errors=True,
             verbose=False,
@@ -104,6 +120,49 @@ class AgentService:
 
         self._initialized = True
         logger.info(f"Agent 初始化完成 (provider={provider}, model={model})")
+
+    def _create_mcp_manager(self) -> Any:
+        try:
+            from src.agent.mcp_client import PlaywrightMcpManager
+        except ImportError as exc:
+            raise RuntimeError(
+                "Playwright MCP 已启用，但缺少 mcp 依赖。请安装项目依赖，"
+                "或将 agent.playwright_mcp.enabled 设置为 false。"
+            ) from exc
+        return PlaywrightMcpManager()
+
+    async def _async_ensure_initialized(self) -> None:
+        """异步延迟初始化 LLM 和 AgentExecutor，处理 MCP 启动"""
+        if not self._initialized:
+            self._ensure_initialized()
+
+        # MCP 重连逻辑：独立于 _initialized 检查。
+        # 当 MCP 进程崩溃后（_is_running=False），下次 ainvoke 会尝试重新启动。
+        if get_config("agent.playwright_mcp.enabled", False):
+            if not self._mcp_manager:
+                self._mcp_manager = self._create_mcp_manager()
+
+            if not self._mcp_manager._is_running:
+                logger.info("MCP 未运行，尝试启动/重连 Playwright MCP Server...")
+                await self._mcp_manager.start()
+
+            # 如果 MCP 有工具且尚未注入（或需要重建），重建 AgentExecutor
+            mcp_tools = self._mcp_manager.get_langchain_tools()
+            current_tool_names = {t.name for t in (self._agent_executor.tools if self._agent_executor else [])}
+            mcp_tool_names = {t.name for t in mcp_tools}
+
+            if mcp_tools and not mcp_tool_names.issubset(current_tool_names):
+                all_tools = list(ALL_TOOLS) + list(mcp_tools)
+                prompt = self._build_prompt_with_tools(all_tools)
+                agent = create_openai_tools_agent(self._llm, all_tools, prompt)
+                self._agent_executor = AgentExecutor(
+                    agent=agent,
+                    tools=all_tools,
+                    max_iterations=self._max_iterations,
+                    handle_parsing_errors=True,
+                    verbose=False,
+                )
+                logger.info(f"成功将 {len(mcp_tools)} 个 MCP 工具注入 Agent")
 
     async def _get_history(self, session_id: str) -> list[BaseMessage]:
         """获取指定会话的聊天历史"""
@@ -128,95 +187,113 @@ class AgentService:
         # 清理超时会话
         await self._cleanup_stale_sessions()
 
-        try:
-            self._ensure_initialized()
-            final_output: str = ""
+        final_output: str = ""
+        saved = False
 
-            async for event in self._agent_executor.astream_events(
-                {
-                    "input": user_input,
-                    "chat_history": history,
-                },
-                config={"configurable": {"session_id": session_id}},
-                version="v2",
-            ):
-                kind = event.get("event")
-
-                if kind == "on_chat_model_start":
-                    yield {"type": "thinking", "content": "正在分析您的请求..."}
-
-                elif kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk is None:
-                        continue
-
-                    # 提取 reasoning/thinking 内容（DeepSeek-R1 / Qwen-QwQ 等推理模型）
-                    reasoning = None
-                    if hasattr(chunk, "additional_kwargs"):
-                        ak = chunk.additional_kwargs
-                        if isinstance(ak, dict):
-                            reasoning = (
-                                ak.get("reasoning_content")
-                                or ak.get("thinking")
-                                or ak.get("thoughts")
-                            )
-                    if reasoning:
-                        yield {"type": "thinking", "content": str(reasoning)}
-
-                    # 提取正文内容
-                    if hasattr(chunk, "content") and chunk.content:
-                        if isinstance(chunk.content, str):
-                            final_output += chunk.content
-                            yield {"type": "final", "content": chunk.content}
-                        elif isinstance(chunk.content, list):
-                            for item in chunk.content:
-                                if isinstance(item, dict):
-                                    if item.get("type") == "text":
-                                        final_output += item["text"]
-                                        yield {"type": "final", "content": item["text"]}
-                                    elif (
-                                        item.get("type") == "reasoning"
-                                        or item.get("type") == "thinking"
-                                    ):
-                                        yield {"type": "thinking", "content": item.get("text", "")}
-
-                elif kind == "on_tool_start":
-                    tool_name = event.get("name", "unknown")
-                    tool_input = event.get("data", {}).get("input", {})
-                    args = tool_input if isinstance(tool_input, dict) else {}
-                    # 生成描述性的思考内容
-                    thinking_desc = _describe_tool_action(tool_name, args)
-                    if thinking_desc:
-                        yield {"type": "thinking", "content": thinking_desc}
-                    yield {
-                        "type": "tool_call",
-                        "name": tool_name,
-                        "args": args,
-                    }
-
-                elif kind == "on_tool_end":
-                    tool_name = event.get("name", "unknown")
-                    tool_output = event.get("data", {}).get("output", "")
-                    # 截断过长的工具输出，保留足够长度以展示报告内容
-                    output_str = str(tool_output)
-                    if len(output_str) > 4000:
-                        output_str = output_str[:4000] + "...(已截断)"
-                    yield {"type": "tool_result", "name": tool_name, "content": output_str}
-
-            # 保存对话历史
+        async def _save_history_helper():
+            nonlocal saved
+            if saved:
+                return
+            saved = True
             async with self._lock:
                 history.append(HumanMessage(content=user_input))
-                history.append(AIMessage(content=final_output or "已处理"))
-
-                # 限制每条会话的历史长度，避免 token 超限
+                history.append(AIMessage(content=final_output or "已停止"))
                 if len(history) > 40:
                     self._histories[session_id] = history[-20:]
-
                 await self._save_histories()
 
+        try:
+            await self._async_ensure_initialized()
+
+            try:
+                async for event in self._agent_executor.astream_events(
+                    {
+                        "input": user_input,
+                        "chat_history": history,
+                    },
+                    config={"configurable": {"session_id": session_id}},
+                    version="v2",
+                ):
+                    kind = event.get("event")
+
+                    if kind == "on_chat_model_start":
+                        yield {"type": "thinking", "content": "正在分析您的请求..."}
+
+                    elif kind == "on_chat_model_stream":
+                        chunk = event.get("data", {}).get("chunk")
+                        if chunk is None:
+                            continue
+
+                        # 提取 reasoning/thinking 内容（DeepSeek-R1 / Qwen-QwQ 等推理模型）
+                        reasoning = None
+                        if hasattr(chunk, "additional_kwargs"):
+                            ak = chunk.additional_kwargs
+                            if isinstance(ak, dict):
+                                reasoning = (
+                                    ak.get("reasoning_content")
+                                    or ak.get("thinking")
+                                    or ak.get("thoughts")
+                                )
+                        if reasoning:
+                            yield {"type": "thinking", "content": str(reasoning)}
+
+                        # 提取正文内容
+                        if hasattr(chunk, "content") and chunk.content:
+                            if isinstance(chunk.content, str):
+                                final_output += chunk.content
+                                yield {"type": "final", "content": chunk.content}
+                            elif isinstance(chunk.content, list):
+                                for item in chunk.content:
+                                    if isinstance(item, dict):
+                                        if item.get("type") == "text":
+                                            final_output += item["text"]
+                                            yield {"type": "final", "content": item["text"]}
+                                        elif (
+                                            item.get("type") == "reasoning"
+                                            or item.get("type") == "thinking"
+                                        ):
+                                            yield {"type": "thinking", "content": item.get("text", "")}
+
+                    elif kind == "on_tool_start":
+                        tool_name = event.get("name", "unknown")
+                        tool_input = event.get("data", {}).get("input", {})
+                        args = tool_input if isinstance(tool_input, dict) else {}
+                        # 生成描述性的思考内容
+                        thinking_desc = _describe_tool_action(tool_name, args)
+                        if thinking_desc:
+                            yield {"type": "thinking", "content": thinking_desc}
+                        yield {
+                            "type": "tool_call",
+                            "name": tool_name,
+                            "args": args,
+                        }
+
+                    elif kind == "on_tool_end":
+                        tool_name = event.get("name", "unknown")
+                        tool_output = event.get("data", {}).get("output", "")
+                        # 截断过长的工具输出，保留足够长度以展示报告内容
+                        output_str = str(tool_output)
+                        if len(output_str) > 4000:
+                            output_str = output_str[:4000] + "...(已截断)"
+                        yield {"type": "tool_result", "name": tool_name, "content": output_str}
+
+                # 正常结束，保存历史
+                await _save_history_helper()
+
+            except asyncio.CancelledError:
+                logger.info(f"Agent stream cancelled for session {session_id}.")
+                await _save_history_helper()
+                raise
+            except Exception:
+                await _save_history_helper()
+                raise
+
         except Exception as e:
-            logger.error(f"Agent 执行出错: {e}")
-            yield {"type": "error", "content": f"执行出错: {e}"}
+            logger.opt(exception=True).error(f"Agent 执行出错: {e}")
+            content = f"执行出错: {e}"
+            if get_config("debug", False):
+                content += f"\n\n(异常类型: {type(e).__name__})"
+            yield {"type": "error", "content": content}
 
     async def clear_history(self, session_id: str = "default") -> None:
         """清除指定会话的对话记忆"""
@@ -410,11 +487,15 @@ def _describe_tool_action(tool_name: str, args: dict) -> str:
         "search_game_identifiers": f"自动搜索游戏平台标识符: {args.get('game_name', '')}",
         "verify_game_identifier": f"验证 {args.get('platform', '')} 标识符: {args.get('identifier', '')}",
         "review_collection_results": f"复查采集结果: {args.get('task_id', '')}",
+        "browser_navigate": f"正在浏览器中打开 URL: {args.get('url', '')}",
+        "browser_snapshot": "正在获取页面的快照数据",
+        "browser_evaluate": "正在页面中执行提取脚本",
     }
     return descriptions.get(tool_name, f"调用工具 {tool_name}")
 
 
 def _default_system_prompt() -> str:
+    """Minimal fallback prompt — detailed rules live in settings.yaml."""
     return (
         "你是一个游戏数据采集与分析系统的 AI 助手。"
         "你可以帮助用户查看和管理任务、配置 Pipeline、设置定时采集、"

@@ -315,11 +315,16 @@ async def search_data_records(
     return results
 
 
-@router.get("/data/games/{game_key}/records", response_model=list[DataRecordSummary])
+@router.get("/data/games/{game_key}/records", response_model=DataRecordPage)
 async def list_game_records(
     game_key: Annotated[str, Path(description="Game grouping key")],
     source: Annotated[str | None, Query(description="Optional data source filter")] = None,
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
+    page: Annotated[int, Query(ge=1, description="Page number, starting from 1")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, description="Records per page")] = 50,
+    sort_order: Annotated[
+        str, Query(pattern="^(asc|desc)$", description="stored_at order")
+    ] = "desc",
+    limit: Annotated[int, Query(description="Maximum source records to scan")] = 2000,
 ):
     summaries: list[DataRecordSummary] = []
     for record in await _load_source_records(limit=limit):
@@ -330,8 +335,18 @@ async def list_game_records(
             continue
         summaries.append(summary)
 
-    summaries.sort(key=lambda item: item.stored_at, reverse=True)
-    return summaries
+    reverse = sort_order == "desc"
+    summaries.sort(key=lambda item: item.stored_at, reverse=reverse)
+    total = len(summaries)
+    offset = (page - 1) * page_size
+    page_items = summaries[offset : offset + page_size]
+    return DataRecordPage(
+        items=page_items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=offset + page_size < total,
+    )
 
 
 @router.delete("/data/games/{game_key}", response_model=DeleteDataCategoryResponse)

@@ -244,6 +244,7 @@ class TaskService:
             ],
             "qimai": ["target.params.app_id"],
             "official_site": ["target.params.official_url"],
+            "dynamic_playwright": ["target.name"],
         }.get(collector_name, ["target.name or target.params"])
 
     @staticmethod
@@ -334,6 +335,16 @@ class TaskService:
                         message="Official site target needs official_url.",
                     )
                 )
+        elif collector_name == "dynamic_playwright":
+            if not name:
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="warning",
+                        code="missing_target_name",
+                        field=field,
+                        message="Dynamic Playwright target should have a game name.",
+                    )
+                )
         elif not name and not params:
             issues.append(
                 TaskPrecheckIssue(
@@ -374,7 +385,7 @@ class TaskService:
                         message="SteamDB may require a logged-in browser session.",
                     )
                 )
-        elif collector_name in {"taptap", "official_site", "qimai"}:
+        elif collector_name in {"taptap", "official_site", "qimai", "dynamic_playwright"}:
             playwright_available = importlib.util.find_spec("playwright") is not None
             credential_status["playwright"] = "available" if playwright_available else "missing"
             if not playwright_available:

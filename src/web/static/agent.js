@@ -5,6 +5,8 @@
 let agentSessionId = localStorage.getItem("agent_active_session") || "default";
 let agentStreaming = false;
 let trackedAgentTaskIds = new Set();
+let abortController = null;
+let currentResponseEvents = [];
 
 // --- Session management ---
 
@@ -36,6 +38,7 @@ function renderAgentSessions() {
         item.className = "agent-session-item" + (s.id === agentSessionId ? " active" : "");
         item.innerHTML = `
             <span class="agent-session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+            <button class="agent-session-edit" onclick="event.stopPropagation(); editAgentSession('${s.id}')" title="重命名">✎</button>
             <button class="agent-session-delete" onclick="event.stopPropagation(); deleteAgentSession('${s.id}')" title="删除会话">&times;</button>
         `;
         item.onclick = () => switchAgentSession(s.id);
@@ -53,24 +56,49 @@ function createAgentSession() {
     renderAgentSessions();
 }
 
-function switchAgentSession(id) {
-    // Cache current session messages before switching
-    cacheCurrentSessionMessages();
+function editAgentSession(id) {
+    let sessions = loadAgentSessions();
+    const sess = sessions.find(s => s.id === id);
+    if (!sess) return;
+    const newName = prompt("修改会话标题", sess.name);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) { toast("标题不能为空", "error"); return; }
+    sess.name = trimmed;
+    saveAgentSessions(sessions);
+    renderAgentSessions();
+}
 
+function switchAgentSession(id) {
+    if (agentStreaming && abortController) {
+        if (!agentFinalText) agentFinalText = "*(已中止)*";
+        cacheAgentMessage(agentSessionId, "assistant", agentFinalText,
+            currentResponseEvents.length > 0 ? currentResponseEvents : undefined);
+        agentFinalText = "";
+        try { abortController.abort(); } catch (_) {}
+        agentStreaming = false;
+        abortController = null;
+        const btn = document.getElementById("btn-send-agent");
+        const btnStop = document.getElementById("btn-stop-agent");
+        if (btn) btn.style.display = 'flex';
+        if (btnStop) btnStop.style.display = 'none';
+        _resetAgentStreamState();
+    }
+    
     agentSessionId = id;
     localStorage.setItem("agent_active_session", id);
     renderAgentSessions();
 
-    // Clear chat and restore cached messages for the new session
-    const container = document.getElementById("agent-messages");
-    if (container) container.innerHTML = "";
-
-    const cached = loadSessionMessages(id);
-    if (cached.length > 0) {
-        cached.forEach(m => appendAgentMessage(m.role, m.content));
-    } else {
-        appendAgentMessage("assistant", "你好！我是游戏数据助手，可以帮你：\n\n- 查看任务状态和系统概览\n- 创建数据采集任务\n- 配置 Pipeline 和定时任务\n- 浏览和搜索已采集数据\n- 生成数据分析报告\n\n请告诉我你需要什么帮助？");
+    const wrapper = document.getElementById("agent-messages");
+    if (wrapper) {
+        Array.from(wrapper.children).forEach(c => {
+            if (c.classList.contains("agent-session-layer")) c.style.display = "none";
+            else c.remove();
+        });
+        const layer = _getAgentLayer(id);
+        if (layer) layer.style.display = "block";
     }
+    scrollAgentToBottom();
 }
 
 function deleteAgentSession(id) {
@@ -82,13 +110,12 @@ function deleteAgentSession(id) {
     sessions = sessions.filter(s => s.id !== id);
     saveAgentSessions(sessions);
 
-    // Delete messages cache
     localStorage.removeItem("agent_msgs_" + id);
+    const layer = document.getElementById("agent-layer-" + id);
+    if (layer) layer.remove();
 
-    // Delete from server
     fetch(`/api/agent/history?session_id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
 
-    // If deleting current session, switch to first remaining
     if (id === agentSessionId) {
         switchAgentSession(sessions[0].id);
     }
@@ -101,17 +128,18 @@ function loadSessionMessages(sessionId) {
     } catch { return []; }
 }
 
-function cacheAgentMessage(sessionId, role, content) {
+function cacheAgentMessage(sessionId, role, content, steps) {
     const key = "agent_msgs_" + sessionId;
     let msgs;
     try { msgs = JSON.parse(localStorage.getItem(key) || "[]"); } catch { msgs = []; }
-    msgs.push({ role, content });
+    const entry = { role, content };
+    if (steps && steps.length > 0) entry.steps = steps;
+    msgs.push(entry);
     if (msgs.length > 40) msgs = msgs.slice(-20);
     localStorage.setItem(key, JSON.stringify(msgs));
 }
 
 function cacheCurrentSessionMessages() {
-    // No-op: messages are cached individually via cacheAgentMessage
 }
 
 // --- Provider selector ---
@@ -133,7 +161,6 @@ async function initAgentProviderSelector() {
         });
         select.value = data.active;
 
-        // Restore from localStorage if available
         const saved = localStorage.getItem("agent_provider");
         if (saved && data.providers.some(p => p.key === saved)) {
             select.value = saved;
@@ -210,7 +237,6 @@ function addProviderConfigRow(data) {
     `;
     listEl.appendChild(row);
 
-    // Update default select options whenever a row is added/removed
     refreshProviderDefaultSelect();
 }
 
@@ -262,7 +288,6 @@ async function saveProviderConfig() {
         });
         toast("配置已保存", "success");
         closeModal("modal-provider-config");
-        // Refresh the provider dropdown
         initAgentProviderSelector();
     } catch (err) {
         toast("保存失败: " + err.message, "error");
@@ -272,7 +297,7 @@ async function saveProviderConfig() {
 // --- Task progress tracking in agent ---
 
 function renderAgentTaskProgressCard(taskId, taskName) {
-    const container = document.getElementById("agent-messages");
+    const container = _getAgentLayer(agentSessionId);
     if (!container) return;
 
     const msgEl = document.createElement("div");
@@ -306,21 +331,18 @@ function updateAgentTaskCard(task) {
     const card = document.querySelector(`.agent-task-card[data-task-id="${task.id}"]`);
     if (!card) return;
 
-    // Update badge
     const badge = card.querySelector(".badge");
     if (badge) {
         badge.className = `badge badge-${task.status}`;
         badge.textContent = task.status;
     }
 
-    // Update progress bar
     const fill = card.querySelector(".agent-task-card-progress-fill");
     if (fill) {
         const pct = task.progress || 0;
         fill.style.width = pct + "%";
     }
 
-    // Update logs (show last 5)
     const logsEl = card.querySelector(".agent-task-card-logs");
     if (logsEl && task.step_logs) {
         const recentLogs = task.step_logs.slice(-5);
@@ -332,7 +354,6 @@ function updateAgentTaskCard(task) {
         ).join("");
     }
 
-    // Stop tracking on terminal status
     if (["success", "failed", "cancelled"].includes(task.status)) {
         trackedAgentTaskIds.delete(task.id);
     }
@@ -353,13 +374,11 @@ function initAgentChat() {
         });
     }
 
-    // Initialize sessions
     let sessions = loadAgentSessions();
     sessions = ensureDefaultSession(sessions);
     saveAgentSessions(sessions);
     renderAgentSessions();
 
-    // Restore active session
     const savedSession = localStorage.getItem("agent_active_session");
     if (savedSession && sessions.some(s => s.id === savedSession)) {
         agentSessionId = savedSession;
@@ -369,20 +388,86 @@ function initAgentChat() {
     }
     renderAgentSessions();
 
-    // Load cached messages for active session
-    const cached = loadSessionMessages(agentSessionId);
-    if (cached.length > 0) {
-        const container = document.getElementById("agent-messages");
-        if (container) container.innerHTML = "";
-        cached.forEach(m => appendAgentMessage(m.role, m.content));
-    }
-
-    // Initialize provider selector
+    switchAgentSession(agentSessionId);
     initAgentProviderSelector();
 }
 
-function appendAgentMessage(role, content) {
-    const container = document.getElementById("agent-messages");
+function replayStructuredMessage(msg, container) {
+    if (!container) return;
+    const wasStreaming = agentStreaming;
+    agentStreaming = true;
+
+    // Build response container DOM (mirrors createAgentResponseContainer)
+    const msgEl = document.createElement("div");
+    msgEl.className = "agent-message assistant";
+    const avatar = document.createElement("div");
+    avatar.className = "agent-avatar assistant";
+    avatar.textContent = "AI";
+    const bubble = document.createElement("div");
+    bubble.className = "agent-bubble assistant";
+    const resp = document.createElement("div");
+    resp.className = "agent-response-container";
+    const steps = document.createElement("div");
+    steps.className = "agent-response-steps";
+    resp.appendChild(steps);
+    const status = document.createElement("div");
+    status.className = "agent-status-indicator";
+    status.textContent = "已完成";
+    resp.appendChild(status);
+    resp._statusEl = status;
+    bubble.appendChild(resp);
+    msgEl.appendChild(avatar);
+    msgEl.appendChild(bubble);
+    container.appendChild(msgEl);
+
+    // Set globals so handleAgentEvent works
+    currentResponseEl = resp;
+    currentResponseSteps = steps;
+    currentStepEl = null;
+    currentThinkingDrawer = null;
+    currentThinkingBody = null;
+    currentToolLine = null;
+    currentToolResult = null;
+    agentFinalText = "";
+
+    for (const event of msg.steps) {
+        handleAgentEvent(event);
+    }
+
+    _hideStatus();
+    _resetAgentStreamState();
+    agentStreaming = wasStreaming;
+    scrollAgentToBottom();
+}
+
+function _getAgentLayer(id) {
+    const targetId = id || agentSessionId;
+    const wrapper = document.getElementById("agent-messages");
+    if (!wrapper) return null;
+    let layer = document.getElementById("agent-layer-" + targetId);
+    if (!layer) {
+        layer = document.createElement("div");
+        layer.id = "agent-layer-" + targetId;
+        layer.className = "agent-session-layer w-full";
+        wrapper.appendChild(layer);
+        const cached = loadSessionMessages(targetId);
+        if (cached.length > 0) {
+            cached.forEach((m) => {
+                if (m.steps && m.steps.length > 0) {
+                    replayStructuredMessage(m, layer);
+                } else {
+                    appendAgentMessage(m.role, m.content, layer);
+                }
+            });
+        } else {
+            appendAgentMessage("assistant", "你好！我是 GamedataAutoFlux 智能助手。\n\n我可以帮你：\n- 查询或筛选历史采集数据\n- 解释数据趋势和字段含义\n- 配置或调整数据采集 pipeline\n- 诊断采集任务的错误日志", layer);
+        }
+    }
+    return layer;
+}
+
+function appendAgentMessage(role, content, targetLayer) {
+    const container = targetLayer || _getAgentLayer(agentSessionId);
     if (!container) return;
 
     const msgEl = document.createElement("div");
@@ -421,18 +506,18 @@ function renderSafeMarkdown(content) {
 
 // --- Structured streaming response ---
 
-let currentResponseEl = null;      // .agent-message.assistant wrapper
-let currentResponseSteps = null;   // .agent-response-steps container
-let currentStepEl = null;          // current .agent-step
-let currentThinkingDrawer = null;  // current .agent-thinking-drawer <details>
-let currentThinkingBody = null;    // current thinking body div
-let currentToolLine = null;        // current .agent-tool-line
-let currentToolResult = null;      // current .agent-tool-result-inline
-let agentFinalText = "";           // accumulated text for current segment
-let currentTextBlock = null;       // current .agent-step-text inside a step
+let currentResponseEl = null;
+let currentResponseSteps = null;
+let currentStepEl = null;
+let currentThinkingDrawer = null;
+let currentThinkingBody = null;
+let currentToolLine = null;
+let currentToolResult = null;
+let agentFinalText = "";
+let currentTextBlock = null;
 
 function createAgentResponseContainer() {
-    const container = document.getElementById("agent-messages");
+    const container = _getAgentLayer(agentSessionId);
     if (!container) return null;
 
     const msgEl = document.createElement("div");
@@ -445,16 +530,13 @@ function createAgentResponseContainer() {
     const bubble = document.createElement("div");
     bubble.className = "agent-bubble assistant";
 
-    // Response structure
     const respContainer = document.createElement("div");
     respContainer.className = "agent-response-container";
 
-    // Steps area (tool calls + text segments all live here)
     currentResponseSteps = document.createElement("div");
     currentResponseSteps.className = "agent-response-steps";
     respContainer.appendChild(currentResponseSteps);
 
-    // Status indicator
     const status = document.createElement("div");
     status.className = "agent-status-indicator";
     status.textContent = "思考中...";
@@ -474,6 +556,7 @@ function createAgentResponseContainer() {
     currentThinkingBody = null;
     currentToolLine = null;
     currentToolResult = null;
+    currentResponseEvents = [];
 
     scrollAgentToBottom();
     return respContainer;
@@ -505,7 +588,6 @@ function _ensureThinkingDrawer() {
         currentThinkingBody.className = "agent-thinking-body";
         details.appendChild(currentThinkingBody);
 
-        // Insert at top of step
         currentStepEl.insertBefore(details, currentStepEl.firstChild);
         currentThinkingDrawer = details;
     }
@@ -513,7 +595,6 @@ function _ensureThinkingDrawer() {
 
 function _ensureToolLine(name, args) {
     _ensureStep();
-    // Close previous thinking drawer
     if (currentThinkingDrawer) {
         currentThinkingDrawer.open = false;
         currentThinkingDrawer = null;
@@ -561,25 +642,30 @@ function handleAgentEvent(event) {
             if (newContent && currentThinkingBody) {
                 currentThinkingBody.textContent += newContent;
             }
+            // Track: merge consecutive thinking
+            const lastThink = currentResponseEvents[currentResponseEvents.length - 1];
+            if (lastThink && lastThink.type === "thinking") {
+                lastThink.content += newContent;
+            } else {
+                currentResponseEvents.push({type: "thinking", content: newContent});
+            }
             scrollAgentToBottom();
             break;
         }
 
         case "tool_call": {
             if (!currentResponseEl) return;
-            // Close previous step's thinking
             if (currentThinkingDrawer) {
                 currentThinkingDrawer.open = false;
                 currentThinkingDrawer = null;
                 currentThinkingBody = null;
             }
-            // Finalize current text block before starting tool step
             currentTextBlock = null;
-            // Start a new step
             currentStepEl = null;
             _ensureStep();
             _ensureToolLine(event.name, event.args);
             _updateStatus("执行工具: " + escapeHtml(event.name));
+            currentResponseEvents.push({type: "tool_call", name: event.name, args: event.args});
             scrollAgentToBottom();
             break;
         }
@@ -592,12 +678,11 @@ function handleAgentEvent(event) {
             }
             _updateStatus("");
 
-            // Detect task creation
             _detectTaskCreation(content);
 
-            // Reset text accumulator so next LLM output starts a new segment
             agentFinalText = "";
             currentTextBlock = null;
+            currentResponseEvents.push({type: "tool_result", name: event.name, content: content});
 
             scrollAgentToBottom();
             break;
@@ -606,7 +691,6 @@ function handleAgentEvent(event) {
         case "final": {
             if (!currentResponseEl) return;
             _hideStatus();
-            // Close any open thinking drawer when final answer starts
             if (currentThinkingDrawer) {
                 currentThinkingDrawer.open = false;
                 currentThinkingDrawer = null;
@@ -615,7 +699,6 @@ function handleAgentEvent(event) {
 
             const chunk = event.content || "";
 
-            // Start a new text segment if needed
             if (!currentTextBlock) {
                 currentStepEl = null;
                 _ensureStep();
@@ -629,6 +712,13 @@ function handleAgentEvent(event) {
 
             agentFinalText += chunk;
             currentTextBlock.innerHTML = renderSafeMarkdown(agentFinalText);
+            // Track: merge consecutive final
+            const lastFinal = currentResponseEvents[currentResponseEvents.length - 1];
+            if (lastFinal && lastFinal.type === "final") {
+                lastFinal.content += chunk;
+            } else {
+                currentResponseEvents.push({type: "final", content: chunk});
+            }
             scrollAgentToBottom();
             break;
         }
@@ -636,7 +726,6 @@ function handleAgentEvent(event) {
         case "error": {
             if (!currentResponseEl) return;
             _hideStatus();
-            // Show error in its own step
             currentStepEl = null;
             currentTextBlock = null;
             _ensureStep();
@@ -645,6 +734,7 @@ function handleAgentEvent(event) {
             errEl.style.color = "var(--danger)";
             errEl.textContent = "错误: " + event.content;
             currentStepEl.appendChild(errEl);
+            currentResponseEvents.push({type: "error", content: event.content || ""});
             scrollAgentToBottom();
             break;
         }
@@ -710,18 +800,15 @@ function _detectTaskCreation(content) {
     } catch { /* ignore */ }
 }
 
-function clearAgentHistory() {
+async function clearAgentHistory() {
     fetch(`/api/agent/history?session_id=${encodeURIComponent(agentSessionId)}`, {
         method: "DELETE",
     }).catch(() => {});
-
-    // Clear message cache for current session
     localStorage.removeItem("agent_msgs_" + agentSessionId);
-
-    const container = document.getElementById("agent-messages");
+    const container = _getAgentLayer(agentSessionId);
     if (container) {
         container.innerHTML = "";
-        appendAgentMessage("assistant", "对话已清空。请告诉我你需要什么帮助？");
+        appendAgentMessage("assistant", "对话历史已清空", container);
     }
 }
 
@@ -735,6 +822,7 @@ function _resetAgentStreamState() {
     currentToolLine = null;
     currentToolResult = null;
     agentFinalText = "";
+    currentResponseEvents = [];
 }
 
 function scrollAgentToBottom() {
@@ -747,6 +835,7 @@ function scrollAgentToBottom() {
 async function sendAgentMessage() {
     const input = document.getElementById("agent-input");
     const btn = document.getElementById("btn-send-agent");
+    const btnStop = document.getElementById("btn-stop-agent");
     if (!input || agentStreaming) return;
 
     const message = input.value.trim();
@@ -758,13 +847,21 @@ async function sendAgentMessage() {
 
     createAgentResponseContainer();
     agentStreaming = true;
-    if (btn) btn.disabled = true;
+    if (btn) btn.style.display = 'none';
+    if (btnStop) btnStop.style.display = 'flex';
+
+    if (abortController) {
+        try { abortController.abort(); } catch (_) {}
+    }
+    abortController = new AbortController();
+    const currentFetchSessionId = agentSessionId;
 
     try {
         const response = await fetch("/api/agent/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message, session_id: agentSessionId }),
+            signal: abortController.signal,
         });
 
         if (!response.ok) {
@@ -797,14 +894,36 @@ async function sendAgentMessage() {
             }
         }
     } catch (err) {
-        appendAgentMessage("assistant", `连接出错: ${err.message}`);
+        if (err.name === "AbortError") {
+            if (currentResponseEl?._statusEl) currentResponseEl._statusEl.textContent = "已停止生成";
+            if (!agentFinalText) agentFinalText = "*(已手动中止)*";
+        } else {
+            appendAgentMessage("assistant", `连接出错: ${err.message}`, _getAgentLayer(currentFetchSessionId));
+        }
     } finally {
         agentStreaming = false;
-        if (btn) btn.disabled = false;
-        if (agentFinalText) {
-            cacheAgentMessage(agentSessionId, "assistant", agentFinalText);
+        const btn = document.getElementById("btn-send-agent");
+        const btnStop = document.getElementById("btn-stop-agent");
+        if (btn) btn.style.display = 'flex';
+        if (btnStop) btnStop.style.display = 'none';
+        abortController = null;
+        if (currentResponseEvents.length > 0) {
+            cacheAgentMessage(currentFetchSessionId, "assistant", agentFinalText, currentResponseEvents);
+        } else if (agentFinalText) {
+            cacheAgentMessage(currentFetchSessionId, "assistant", agentFinalText);
         }
-        _hideStatus();
+        
+        if (currentFetchSessionId === agentSessionId) {
+            _hideStatus();
+        } else {
+            if (currentResponseEl?._statusEl) currentResponseEl._statusEl.style.display = 'none';
+        }
         _resetAgentStreamState();
+    }
+}
+
+function stopAgentMessage() {
+    if (agentStreaming && abortController) {
+        try { abortController.abort(); } catch (_) {}
     }
 }

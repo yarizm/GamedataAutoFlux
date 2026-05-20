@@ -29,6 +29,7 @@ from src.agent.schemas import (
     SearchGameIdentifiersInput,
     VerifyGameIdentifierInput,
     VerifySteamAppIdInput,
+    CreateDynamicPipelineInput,
 )
 from src.services._utils import extract_record_identity, compute_record_completeness
 
@@ -171,7 +172,7 @@ class CreateTaskTool(BaseTool):
         ts = get_task_service()
 
         # 自动发现缺失的平台标识符
-        targets = await self._auto_fill_identifiers(targets, pipeline_name)
+        targets = await _auto_fill_identifiers(targets, pipeline_name)
 
         # 提交前预校验
         precheck = ts.precheck(
@@ -344,6 +345,68 @@ class DeletePipelineTool(BaseTool):
 
     def _run(self, name: str, confirm: bool = False) -> str:
         raise NotImplementedError("Use _arun")
+
+
+class CreateDynamicPipelineTool(BaseTool):
+    name: str = "create_dynamic_pipeline"
+    description: str = (
+        "创建一个基于 Playwright 的动态网页数据采集 Pipeline。\n"
+        "该工具会自动配置 Playwright 采集器 (dynamic_playwright) -> 降噪清洗处理器 (cleaner) "
+        "-> 本地 SQLite 存储 (local) -> 向量数据库存储 (vector)。\n"
+        "专为需要通过执行 JS 脚本进行交互或自定义提取的动态网页（如单页应用、需要复杂交互的页面）设计。\n"
+        "生成的 Pipeline 可以直接通过 create_task 来运行。"
+    )
+    args_schema: Type[BaseModel] = CreateDynamicPipelineInput
+
+    async def _arun(
+        self,
+        pipeline_name: str,
+        url: str,
+        wait_strategy_type: str = "networkidle",
+        wait_strategy_selector: str | None = None,
+        js_script: str = "",
+    ) -> str:
+        from src.core.pipeline import Pipeline
+        from src.web.app import scheduler
+
+        # 1. 组装 Playwright 采集器配置
+        collector_config = {
+            "url": url,
+            "extraction_mode": "js_evaluate",
+            "js_script": js_script,
+            "wait_strategy": {
+                "type": wait_strategy_type,
+                "timeout_ms": 10000,
+            },
+        }
+        if wait_strategy_type == "selector" and wait_strategy_selector:
+            collector_config["wait_strategy"]["selector"] = wait_strategy_selector
+
+        # 2. 构建 Pipeline 结构
+        pipeline = (
+            Pipeline(pipeline_name)
+            .add_collector("dynamic_playwright", config=collector_config)
+            .add_processor("cleaner")
+            .add_storage("local")
+            .add_storage("vector")
+        )
+
+        try:
+            await scheduler.save_pipeline(pipeline)
+            return _format_result(
+                "ok",
+                f"动态 Pipeline '{pipeline_name}' 已成功创建并保存！\n"
+                f"流程配置: Playwright 采集器 -> cleaner 处理器 -> local/vector 存储。\n"
+                f"你可以直接使用 create_task 创建任务，将 pipeline_name 设置为 '{pipeline_name}' 来执行采集。",
+                {"pipeline_name": pipeline_name, "steps_count": 4},
+                record_count=1,
+            )
+        except Exception as e:
+            return _format_result("error", f"创建动态 Pipeline 失败: {e}")
+
+    def _run(self, **kwargs) -> str:
+        raise NotImplementedError("Use _arun")
+
 
 
 # ==================== 定时任务相关工具 ====================
@@ -1141,12 +1204,28 @@ class ReviewCollectionResultsTool(BaseTool):
 
 
 async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> list[dict]:
-    """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。"""
+    """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。
+
+    如果 Playwright 不可用（如 Windows SelectorEventLoop 限制），静默跳过。
+    """
     from src.services.game_resolver import GameIdentifierResolver
+
+    # 快速检查：pipeline 类型是否可能需要自动填充
+    needs_resolve = any(
+        pipeline_name.startswith(prefix)
+        for prefix in ("steam", "taptap", "monitor", "qimai", "official_site")
+    )
+    if not needs_resolve:
+        return targets
 
     resolver = GameIdentifierResolver()
     try:
         await resolver.setup()
+    except (NotImplementedError, RuntimeError, OSError) as e:
+        logger.warning(f"标识符自动填充跳过 (Playwright/浏览器不可用): {e}")
+        return targets
+
+    try:
         for target in targets:
             params = dict(target.get("params", {}) or {})
             name = str(target.get("name", "") or "").strip()
@@ -1206,6 +1285,7 @@ ALL_TOOLS: list[BaseTool] = [
     ListPipelinesTool(),
     CreatePipelineTool(),
     DeletePipelineTool(),
+    CreateDynamicPipelineTool(),
     ListCronJobsTool(),
     CreateCronJobTool(),
     DeleteCronJobTool(),

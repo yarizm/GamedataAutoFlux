@@ -120,6 +120,11 @@ async def lifespan(app: FastAPI):
     # 关闭
     logger.info("GamedataAutoFlux 关闭中...")
     await scheduler.stop()
+
+    agent_svc = get_agent_service()
+    if agent_svc and agent_svc._mcp_manager:
+        await agent_svc._mcp_manager.stop()
+
     logger.info("GamedataAutoFlux 已关闭")
 
 
@@ -170,6 +175,10 @@ def main():
     """命令行入口"""
     import uvicorn
 
+    # Windows 下必须在 uvicorn.run 之前设置 ProactorEventLoop，
+    # 否则 Playwright MCP 子进程的 subprocess_exec 会抛 NotImplementedError。
+    _configure_windows_event_loop_policy()
+
     host = get_config("server.host", "0.0.0.0")
     port = get_config("server.port", 8000)
     debug = get_config("app.debug", False)
@@ -180,6 +189,7 @@ def main():
         port=port,
         reload=debug,
         log_level="info",
+        loop="asyncio",
     )
 
 

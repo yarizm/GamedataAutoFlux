@@ -52,6 +52,7 @@ def extract_record_identity(record: Any) -> dict[str, str] | None:
         nested_get(data, "content", "collector"),
         nested_get(data, "source_meta", "collector"),
         meta.get("collector"),
+        nested_get(meta, "source_task", "collector_name"),
     ) or detect_collector(data)
 
     app_id = first_str(
@@ -63,6 +64,7 @@ def extract_record_identity(record: Any) -> dict[str, str] | None:
         nested_get(data, "game", "app_id"),
         nested_get(data, "game", "id"),
         meta.get("app_id"),
+        nested_get(meta, "source_task", "target_params", "app_id"),
     )
 
     game_name = first_str(
@@ -74,12 +76,16 @@ def extract_record_identity(record: Any) -> dict[str, str] | None:
         nested_get(data, "game", "title"),
         data.get("keyword"),
         meta.get("target"),
+        nested_get(meta, "source_task", "target"),
+        nested_get(meta, "source_task", "task_name"),
+        nested_get(meta, "group_name"),
     )
 
     if not app_id and not game_name:
         return None
 
-    game_key = f"app:{app_id}" if app_id else f"name:{normalize_key(game_name)}"
+    # Prefer game_name as grouping key — same game across platforms shares one group
+    game_key = f"name:{normalize_key(game_name)}" if game_name else f"app:{app_id}"
     slabel = collector or getattr(record, "source", "") or "unknown"
     return {
         "game_key": game_key,
@@ -109,6 +115,8 @@ def detect_collector(data: dict[str, Any]) -> str:
         return "events"
     if "monitor_metrics" in data or "metrics" in data:
         return "monitor"
+    if ("js_script" in data or data.get("extraction_mode") in ("js_evaluate", "css_selectors")) and "url" in data:
+        return "dynamic_playwright"
     return "unknown"
 
 
@@ -122,6 +130,7 @@ def source_label(collector: str) -> str:
         "events": "Events",
         "official_site": "official website",
         "qimai": "Qimai/App Store",
+        "dynamic_playwright": "Dynamic Web Scraper",
     }
     return labels.get(collector, collector or "unknown")
 

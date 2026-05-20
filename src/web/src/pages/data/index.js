@@ -150,15 +150,15 @@ export default {
     const pageSize = currentDataPageSize;
     currentDataPage = page;
 
-    const params = new URLSearchParams();
-    params.set('page', String(page));
-    params.set('page_size', String(pageSize));
-    params.set('sort_order', sortOrder);
-    if (source) params.set('source', source);
-    if (selectedDataGame.app_id) params.set('app_id', selectedDataGame.app_id);
-
     try {
-      const result = await api(`/data/records?${params.toString()}`);
+      // Use game_key endpoint — filters correctly by computed identity, not stale SQLite columns
+      const gk = encodeURIComponent(selectedDataGame.game_key);
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('page_size', String(pageSize));
+      params.set('sort_order', sortOrder);
+      if (source) params.set('source', source);
+      const result = await api(`/data/games/${gk}/records?${params.toString()}`);
       currentDataRecords = result.items;
       currentDataTotal = result.total;
       currentDataPage = result.page;

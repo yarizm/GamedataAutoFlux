@@ -175,8 +175,10 @@ function installGlobalBridge() {
   window.deleteCronJob = action('cron', '_deleteJob');
 
   window.sendAgentMessage = action('agent', '_send', { activate: true });
+  window.stopAgentMessage = action('agent', '_stop', { activate: true });
   window.clearAgentHistory = action('agent', '_clearHistory', { activate: true });
   window.createAgentSession = action('agent', '_createSession', { activate: true });
+  window.editAgentSession = action('agent', '_editSession', { activate: true });
   window.switchAgentSession = action('agent', '_switchSession', { activate: true });
   window.deleteAgentSession = action('agent', '_deleteSession', { activate: true });
   window.showProviderConfigModal = action('agent', '_showProviderConfig', { activate: true });

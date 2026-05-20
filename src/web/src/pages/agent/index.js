@@ -16,6 +16,8 @@ let currentToolLine = null;
 let currentToolResult = null;
 let agentFinalText = '';
 let currentTextBlock = null;
+let abortController = null;
+let currentResponseEvents = [];
 
 // ── Helpers ──
 function providerLabel(key) { return key.charAt(0).toUpperCase() + key.slice(1); }
@@ -36,6 +38,7 @@ function resetStreamState() {
   currentResponseEl = null; currentResponseSteps = null; currentStepEl = null;
   currentTextBlock = null; currentThinkingDrawer = null; currentThinkingBody = null;
   currentToolLine = null; currentToolResult = null; agentFinalText = '';
+  currentResponseEvents = [];
 }
 
 // ── Session storage ──
@@ -43,10 +46,12 @@ function loadSessions() { try { return JSON.parse(localStorage.getItem('agent_se
 function saveSessions(s) { localStorage.setItem('agent_sessions', JSON.stringify(s)); }
 function loadSessionMessages(sid) { try { return JSON.parse(localStorage.getItem('agent_msgs_' + sid) || '[]'); } catch { return []; } }
 
-function cacheAgentMessage(sid, role, content) {
+function cacheAgentMessage(sid, role, content, steps) {
   const key = 'agent_msgs_' + sid;
   let msgs; try { msgs = JSON.parse(localStorage.getItem(key) || '[]'); } catch { msgs = []; }
-  msgs.push({ role, content });
+  const entry = { role, content };
+  if (steps && steps.length > 0) entry.steps = steps;
+  msgs.push(entry);
   if (msgs.length > 40) msgs = msgs.slice(-20);
   localStorage.setItem(key, JSON.stringify(msgs));
 }
@@ -102,8 +107,10 @@ export default {
       const item = document.createElement('div');
       item.className = 'agent-session-item' + (s.id === agentSessionId ? ' active' : '');
       item.innerHTML = `<span class="agent-session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+        <button class="agent-session-edit" title="重命名">✎</button>
         <button class="agent-session-delete" title="${t('common.delete')}">&times;</button>`;
-      item.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); this._deleteSession(s.id); });
+      item.querySelector('.agent-session-edit').addEventListener('click', (e) => { e.stopPropagation(); this._editSession(s.id); });
+      item.querySelector('.agent-session-delete').addEventListener('click', (e) => { e.stopPropagation(); this._deleteSession(s.id); });
       item.addEventListener('click', () => this._switchSession(s.id));
       listEl.appendChild(item);
     });
@@ -119,15 +126,33 @@ export default {
     this._renderSessions();
   },
 
+  _editSession(id) {
+    let sessions = loadSessions();
+    const sess = sessions.find(s => s.id === id);
+    if (!sess) return;
+    const newName = prompt('修改会话标题', sess.name);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) { toast('标题不能为空', 'error'); return; }
+    sess.name = trimmed;
+    saveSessions(sessions);
+    this._renderSessions();
+  },
+
   _switchSession(id) {
     agentSessionId = id;
     localStorage.setItem('agent_active_session', id);
     this._renderSessions();
-    const container = document.getElementById('agent-messages');
-    if (container) container.innerHTML = '';
-    const cached = loadSessionMessages(id);
-    if (cached.length > 0) cached.forEach(m => this._appendMessage(m.role, m.content));
-    else this._appendMessage('assistant', `${t('agent.welcome')}\n\n- ${t('agent.help.status')}\n- ${t('agent.help.create')}\n- ${t('agent.help.pipeline')}\n- ${t('agent.help.data')}\n- ${t('agent.help.report')}\n\n${t('agent.help.ask')}`);
+    const wrapper = document.getElementById('agent-messages');
+    if (wrapper) {
+      Array.from(wrapper.children).forEach(c => {
+        if (c.classList.contains('agent-session-layer')) c.style.display = 'none';
+        else c.remove();
+      });
+      const layer = this._getLayer(id);
+      if (layer) layer.style.display = 'block';
+    }
+    scrollToBottom();
   },
 
   _deleteSession(id) {
@@ -142,12 +167,9 @@ export default {
   },
 
   _restoreMessages() {
-    const cached = loadSessionMessages(agentSessionId);
-    if (cached.length > 0) {
-      const container = document.getElementById('agent-messages');
-      if (container) container.innerHTML = '';
-      cached.forEach(m => this._appendMessage(m.role, m.content));
-    }
+    const wrapper = document.getElementById('agent-messages');
+    if (wrapper) wrapper.innerHTML = '';
+    this._switchSession(agentSessionId);
   },
 
   // ── Provider ──
@@ -252,8 +274,78 @@ export default {
 
   // ── Messages ──
 
-  _appendMessage(role, content) {
-    const container = document.getElementById('agent-messages');
+  _getLayer(id) {
+    const targetId = id || agentSessionId;
+    const wrapper = document.getElementById('agent-messages');
+    if (!wrapper) return null;
+    let layer = document.getElementById('agent-layer-' + targetId);
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'agent-layer-' + targetId;
+      layer.className = 'agent-session-layer w-full';
+      wrapper.appendChild(layer);
+      const cached = loadSessionMessages(targetId);
+      if (cached.length > 0) {
+        cached.forEach(m => {
+          if (m.steps && m.steps.length > 0) {
+            this._replayStructured(m, layer);
+          } else {
+            this._appendMessage(m.role, m.content, layer);
+          }
+        });
+      } else this._appendMessage('assistant', `${t('agent.welcome')}\n\n- ${t('agent.help.status')}\n- ${t('agent.help.create')}\n- ${t('agent.help.pipeline')}\n- ${t('agent.help.data')}\n- ${t('agent.help.report')}\n\n${t('agent.help.ask')}`, layer);
+    }
+    return layer;
+  },
+
+  _replayStructured(msg, container) {
+    if (!container) return;
+    const wasStreaming = agentStreaming;
+    agentStreaming = true;
+
+    const msgEl = document.createElement('div');
+    msgEl.className = 'agent-message assistant';
+    const avatar = document.createElement('div');
+    avatar.className = 'agent-avatar assistant';
+    avatar.textContent = 'AI';
+    const bubble = document.createElement('div');
+    bubble.className = 'agent-bubble assistant';
+    const resp = document.createElement('div');
+    resp.className = 'agent-response-container';
+    const steps = document.createElement('div');
+    steps.className = 'agent-response-steps';
+    resp.appendChild(steps);
+    const status = document.createElement('div');
+    status.className = 'agent-status-indicator';
+    status.textContent = '已完成';
+    resp.appendChild(status);
+    resp._statusEl = status;
+    bubble.appendChild(resp);
+    msgEl.appendChild(avatar);
+    msgEl.appendChild(bubble);
+    container.appendChild(msgEl);
+
+    currentResponseEl = resp;
+    currentResponseSteps = steps;
+    currentStepEl = null;
+    currentThinkingDrawer = null;
+    currentThinkingBody = null;
+    currentToolLine = null;
+    currentToolResult = null;
+    agentFinalText = '';
+
+    for (const event of msg.steps) {
+      this._handleEvent(event);
+    }
+
+    this._hideStatus();
+    resetStreamState();
+    agentStreaming = wasStreaming;
+    scrollToBottom();
+  },
+
+  _appendMessage(role, content, targetLayer) {
+    const container = targetLayer || this._getLayer(agentSessionId);
     if (!container) return;
     const msgEl = document.createElement('div');
     msgEl.className = `agent-message ${role}`;
@@ -272,7 +364,7 @@ export default {
   // ── Structured SSE streaming ──
 
   _createResponseContainer() {
-    const container = document.getElementById('agent-messages');
+    const container = this._getLayer(agentSessionId);
     if (!container) return null;
     const msgEl = document.createElement('div'); msgEl.className = 'agent-message assistant';
     const avatar = document.createElement('div'); avatar.className = 'agent-avatar assistant'; avatar.textContent = 'AI';
@@ -288,6 +380,7 @@ export default {
     currentStepEl = null; currentTextBlock = null;
     currentThinkingDrawer = null; currentThinkingBody = null;
     currentToolLine = null; currentToolResult = null;
+    currentResponseEvents = [];
     scrollToBottom();
     return resp;
   },
@@ -338,6 +431,12 @@ export default {
         if (!currentResponseEl) return;
         this._updateStatus(t('agent.thinking')); this._ensureThinking();
         if (event.content && currentThinkingBody) currentThinkingBody.textContent += event.content;
+        const lastThink = currentResponseEvents[currentResponseEvents.length - 1];
+        if (lastThink && lastThink.type === 'thinking') {
+          lastThink.content += event.content || '';
+        } else {
+          currentResponseEvents.push({type: 'thinking', content: event.content || ''});
+        }
         scrollToBottom(); break;
       }
       case 'tool_call': {
@@ -346,6 +445,7 @@ export default {
         currentTextBlock = null; currentStepEl = null;
         this._ensureStep(); this._ensureToolLine(event.name, event.args);
         this._updateStatus(`${t('agent.running')}: ${escapeHtml(event.name)}`);
+        currentResponseEvents.push({type: 'tool_call', name: event.name, args: event.args});
         scrollToBottom(); break;
       }
       case 'tool_result': {
@@ -373,6 +473,7 @@ export default {
         this._updateStatus('');
         try { let obj = JSON.parse(event.content || ''); if (obj?.task_id && obj?.success) this._renderTaskCard(obj.task_id, obj.task_name || obj.task_id); } catch {}
         agentFinalText = ''; currentTextBlock = null;
+        currentResponseEvents.push({type: 'tool_result', name: event.name, content: event.content || ''});
         scrollToBottom(); break;
       }
       case 'final': {
@@ -382,6 +483,12 @@ export default {
         if (!currentTextBlock) { currentStepEl = null; this._ensureStep(); currentToolLine = null; currentToolResult = null; currentTextBlock = document.createElement('div'); currentTextBlock.className = 'agent-step-text'; currentStepEl.appendChild(currentTextBlock); }
         agentFinalText += event.content || '';
         currentTextBlock.innerHTML = renderSafeMarkdown(agentFinalText);
+        const lastFinal = currentResponseEvents[currentResponseEvents.length - 1];
+        if (lastFinal && lastFinal.type === 'final') {
+          lastFinal.content += event.content || '';
+        } else {
+          currentResponseEvents.push({type: 'final', content: event.content || ''});
+        }
         scrollToBottom(); break;
       }
       case 'error': {
@@ -391,13 +498,20 @@ export default {
         const errEl = document.createElement('div'); errEl.className = 'agent-step-text'; errEl.style.color = 'var(--danger)';
         errEl.textContent = `${t('common.error')}: ${event.content || ''}`;
         currentStepEl.appendChild(errEl);
+        currentResponseEvents.push({type: 'error', content: event.content || ''});
         scrollToBottom(); break;
       }
     }
   },
 
   _renderTaskCard(taskId, taskName) {
-    const container = document.getElementById('agent-messages');
+    let container = null;
+    if (currentResponseEl && currentResponseEl.closest) {
+      container = currentResponseEl.closest('.agent-session-layer');
+    }
+    if (!container) {
+      container = this._getLayer(agentSessionId);
+    }
     if (!container) return;
     const msgEl = document.createElement('div'); msgEl.className = 'agent-message assistant';
     const bubble = document.createElement('div'); bubble.className = 'agent-bubble assistant';
@@ -427,8 +541,8 @@ export default {
   async _clearHistory() {
     fetch(`/api/agent/history?session_id=${encodeURIComponent(agentSessionId)}`, { method: 'DELETE' }).catch(() => {});
     localStorage.removeItem('agent_msgs_' + agentSessionId);
-    const container = document.getElementById('agent-messages');
-    if (container) { container.innerHTML = ''; this._appendMessage('assistant', t('agent.cleared')); }
+    const container = this._getLayer(agentSessionId);
+    if (container) { container.innerHTML = ''; this._appendMessage('assistant', t('agent.cleared'), container); }
   },
 
   // ── Send ──
@@ -436,6 +550,7 @@ export default {
   async _send() {
     const input = document.getElementById('agent-input');
     const btn = document.getElementById('btn-send-agent');
+    const btnStop = document.getElementById('btn-stop-agent');
     if (!input || agentStreaming) return;
     const message = input.value.trim();
     if (!message) return;
@@ -445,12 +560,20 @@ export default {
     cacheAgentMessage(agentSessionId, 'user', message);
     this._createResponseContainer();
     agentStreaming = true;
-    if (btn) btn.disabled = true;
+    if (btn) btn.style.display = 'none';
+    if (btnStop) btnStop.style.display = 'flex';
+
+    if (abortController) {
+      try { abortController.abort(); } catch (_) {}
+    }
+    abortController = new AbortController();
+    const currentFetchSessionId = agentSessionId;
 
     try {
       const response = await fetch('/api/agent/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, session_id: agentSessionId }),
+        signal: abortController.signal,
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({ detail: response.statusText }));
@@ -472,13 +595,39 @@ export default {
           }
         }
       }
-    } catch (err) { this._appendMessage('assistant', `连接出错: ${err.message}`); }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        if (currentResponseEl?._statusEl) currentResponseEl._statusEl.textContent = '已停止生成';
+        if (!agentFinalText) agentFinalText = '*(已手动中止)*';
+      } else {
+        this._appendMessage('assistant', `连接出错: ${err.message}`, this._getLayer(currentFetchSessionId));
+      }
+    }
     finally {
       agentStreaming = false;
-      if (btn) btn.disabled = false;
-      if (agentFinalText) cacheAgentMessage(agentSessionId, 'assistant', agentFinalText);
-      this._hideStatus();
+      const btn = document.getElementById('btn-send-agent');
+      const btnStop = document.getElementById('btn-stop-agent');
+      if (btn) btn.style.display = 'flex';
+      if (btnStop) btnStop.style.display = 'none';
+      abortController = null;
+      if (currentResponseEvents.length > 0) {
+        cacheAgentMessage(currentFetchSessionId, 'assistant', agentFinalText, currentResponseEvents);
+      } else if (agentFinalText) {
+        cacheAgentMessage(currentFetchSessionId, 'assistant', agentFinalText);
+      }
+
+      if (currentFetchSessionId === agentSessionId) {
+        this._hideStatus();
+      } else {
+        if (currentResponseEl?._statusEl) currentResponseEl._statusEl.style.display = 'none';
+      }
       resetStreamState();
+    }
+  },
+
+  _stop() {
+    if (agentStreaming && abortController) {
+      try { abortController.abort(); } catch (_) {}
     }
   },
 };
@@ -486,8 +635,10 @@ export default {
 // Global exports
 window.initAgentChat = function () { /* handled by page init */ };
 window.sendAgentMessage = function () { if (window._agentPage) window._agentPage._send(); };
+window.stopAgentMessage = function () { if (window._agentPage) window._agentPage._stop(); };
 window.clearAgentHistory = function () { if (window._agentPage) window._agentPage._clearHistory(); };
 window.createAgentSession = function () { if (window._agentPage) window._agentPage._createSession(); };
+window.editAgentSession = function (id) { if (window._agentPage) window._agentPage._editSession(id); };
 window.switchAgentSession = function (id) { if (window._agentPage) window._agentPage._switchSession(id); };
 window.deleteAgentSession = function (id) { if (window._agentPage) window._agentPage._deleteSession(id); };
 window.showProviderConfigModal = function () { if (window._agentPage) window._agentPage._showProviderConfig(); };

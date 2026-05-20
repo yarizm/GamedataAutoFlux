@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ListTasksInput(BaseModel):
@@ -229,6 +230,21 @@ class SearchGameIdentifiersInput(BaseModel):
         description="要搜索的平台列表；为 None 时搜索所有平台",
     )
 
+    @field_validator("platforms", mode="before")
+    @classmethod
+    def parse_platforms_string(cls, v):
+        if isinstance(v, str):
+            try:
+                # Agent 经常传 "['official_site']" 这种字符串格式，尝试解析
+                # 首先处理可能是单引号的 JSON 不规范写法
+                cleaned_str = v.replace("'", '"')
+                parsed = json.loads(cleaned_str)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return v
+
 
 class VerifyGameIdentifierInput(BaseModel):
     platform: str = Field(..., description="平台: steam / taptap / qimai / monitor / official_site")
@@ -260,3 +276,29 @@ class CollectionReviewResult(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
     identifiers_used: dict | None = Field(None)
     record_count: int = Field(0)
+
+
+class CreateDynamicPipelineInput(BaseModel):
+    """创建动态数据采集 Pipeline 的输入模型"""
+
+    pipeline_name: str = Field(
+        ...,
+        description="动态 Pipeline 的唯一名称（英文/拼音标识，如 'game_x_site'）",
+    )
+    url: str = Field(
+        ...,
+        description="要采集的目标网页 URL（如果包含变量，请使用大括号，例如 https://example.com/games/{app_id}，如果没有变量，直接传入完整URL即可）",
+    )
+    wait_strategy_type: str = Field(
+        default="networkidle",
+        description="页面加载等待策略，可选: networkidle (网络空闲), selector (等待某个元素加载), domcontentloaded (DOM加载完成)",
+    )
+    wait_strategy_selector: str | None = Field(
+        default=None,
+        description="如果 wait_strategy_type 为 selector，指定的 CSS 选择器，例如 '.comments-list'",
+    )
+    js_script: str = Field(
+        ...,
+        description="用于提取数据的 JavaScript 脚本。该脚本必须是一个自执行的 JavaScript 表达式或函数，返回值应当是一个包含所需数据的对象或数组。例如: '() => { return { title: document.title, score: document.querySelector(\".score\")?.innerText }; }'",
+    )
+

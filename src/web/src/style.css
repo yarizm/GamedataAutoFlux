@@ -314,9 +314,11 @@
   .agent-session-item { @apply flex items-center justify-between p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden mb-1; }
   .agent-session-item:hover { @apply bg-white/5 border-white/5; }
   .agent-session-item.active { @apply bg-gradient-to-r from-violet-500/20 to-transparent; box-shadow: inset 3px 0 0 0 rgba(139, 92, 246, 0.8); }
-  .agent-session-name { @apply text-zinc-300 text-sm font-medium truncate pr-4; }
+  .agent-session-name { @apply text-zinc-300 text-sm font-medium truncate pr-14; }
   .agent-session-item.active .agent-session-name { @apply text-violet-300 font-bold tracking-tight; }
+  .agent-session-edit { @apply absolute right-8 text-zinc-500 opacity-0 transition-opacity p-1 hover:text-white hover:bg-white/10 rounded cursor-pointer; line-height: 1; }
   .agent-session-delete { @apply absolute right-2 text-rose-500/50 opacity-0 transition-opacity p-1 hover:text-rose-400 hover:bg-rose-500/10 rounded cursor-pointer; }
+  .agent-session-item:hover .agent-session-edit { @apply opacity-100; }
   .agent-session-item:hover .agent-session-delete { @apply opacity-100; }
   
   .agent-step-text { @apply mt-3 mb-2 text-zinc-300 leading-relaxed; }

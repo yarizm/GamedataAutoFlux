@@ -426,6 +426,17 @@ def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, A
         enriched["group_id"] = group_id or group_name
         enriched["group_name"] = group_name or group_id
 
+    # Promote key fields to top-level for SQLite column extraction
+    enriched.setdefault("collector", task.collector_name)
+    enriched.setdefault("task_id", task.id)
+    enriched.setdefault("target", enriched.get("target") or "")
+    enriched.setdefault("game_name", str(
+        enriched.get("target")
+        or enriched.get("group_name")
+        or task.name
+        or ""
+    ))
+
     refresh = task.config.get("refresh", {})
     if isinstance(refresh, dict):
         for key in (

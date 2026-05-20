@@ -186,4 +186,14 @@ PIPELINE_TEMPLATES = [
             {"type": "storage", "name": "vector", "config": {}},
         ],
     },
+    {
+        "id": "dynamic_playwright_basic",
+        "name": "动态浏览器网页采集",
+        "description": "dynamic_playwright -> cleaner -> local，Agent 探索网页后自动生成的配置采集流",
+        "steps": [
+            {"type": "collector", "name": "dynamic_playwright", "config": {}},
+            {"type": "processor", "name": "cleaner", "config": {}},
+            {"type": "storage", "name": "local", "config": {}},
+        ],
+    },
 ]
