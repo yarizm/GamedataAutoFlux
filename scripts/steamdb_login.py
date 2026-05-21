@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--browser", default="", help="Chrome/Edge executable path. Auto-detected when empty.")
     parser.add_argument("--profile-dir", default=str(Path.cwd() / "data" / "steamdb_profile"))
+    parser.add_argument("--no-wait", action="store_true", help="Do not wait for user input after launching.")
     args = parser.parse_args()
 
     browser_path = Path(args.browser) if args.browser else find_browser_executable()
@@ -59,8 +60,11 @@ def main() -> int:
     print(f"CDP endpoint: http://127.0.0.1:{args.port}")
     process = subprocess.Popen(cmd)
 
-    print("Log in to SteamDB in the opened browser window.")
-    input("Press Enter after login is complete. Keep the browser window open for collection...")
+    if not args.no_wait:
+        print("Log in to SteamDB in the opened browser window.")
+        input("Press Enter after login is complete. Keep the browser window open for collection...")
+    else:
+        print("Waiting for browser to become ready (up to 10s)...")
 
     if verify_cdp(args.port):
         print("CDP browser is reachable. You can now run SteamDB collection.")

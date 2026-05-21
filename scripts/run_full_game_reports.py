@@ -14,12 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from loguru import logger
 
 from src.core.config import load_settings
 from src.core.pipeline import Pipeline
-from src.core.task import Task, TaskStatus, TaskTarget
-from src.reporting.generator import ReportGenerator
+from src.core.task import Task, TaskTarget
 from src.storage.base import StorageRecord
 
 

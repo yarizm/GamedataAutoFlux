@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import os
+import aiofiles
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -63,7 +65,10 @@ class AgentService:
         system_content = (
             f"{self._system_prompt}\n\n"
             f"====== 非常重要：工具使用规范 ======\n"
-            f"你必须优先使用以下工具来获取事实信息或执行操作，而不能仅凭记忆臆断。"
+            f"你必须优先使用以下工具来获取事实信息或执行操作，而不能仅凭记忆臆断。\n"
+            f"**绝对禁止伪造或虚构工具调用结果！绝对禁止在没有实际发起函数调用的情况下回复用户你已经完成了操作！**\n"
+            f"所有的查询、页面导航、数据采集动作都必须通过实际的工具调用（Tool Call/Function Call）来执行。\n"
+            f"切勿在正文中手写类似 `⚙ xxx` 或 `### Result` 的伪造日志！必须使用原生工具调用。\n"
             f"当你需要查询数据、管理任务或进行网络请求时，必须主动且直接地调用对应的工具：\n"
             f"{tool_desc}\n"
             f"===================================\n"
@@ -334,7 +339,10 @@ class AgentService:
 
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-            self._persist_path.write_text(serialized, encoding="utf-8")
+            tmp_path = self._persist_path.with_suffix(".tmp")
+            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
+                await f.write(serialized)
+            os.replace(tmp_path, self._persist_path)
         except OSError as exc:
             logger.warning(f"保存 Agent 会话历史失败: {exc}")
         else:

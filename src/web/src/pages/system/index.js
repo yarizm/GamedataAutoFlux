@@ -61,6 +61,10 @@ export default {
       return;
     }
     list.innerHTML = checks.map((check) => {
+      let actionBtn = "";
+      if (check.details && check.details.action === "open_steamdb_browser") {
+        actionBtn = `<div class="mt-2"><button class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded shadow transition-colors" onclick="window._launchSteamDBBrowser()">一键启动浏览器</button></div>`;
+      }
       const details = check.details && Object.keys(check.details).length
         ? `<pre class="system-check-details terminal-console mt-3 p-3 bg-zinc-950 border border-white/5 rounded-lg text-[12px] shadow-[inset_0_0_15px_rgba(0,0,0,0.5)]">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
         : '';
@@ -76,6 +80,7 @@ export default {
               <span class="text-[10px] font-mono uppercase tracking-widest ${check.status === 'ok' ? 'text-emerald-400' : 'text-rose-400'}">${escapeHtml(check.status)}</span>
             </div>
             <div class="text-xs text-zinc-500 leading-relaxed">${escapeHtml(check.message)}</div>
+            ${actionBtn}
             ${details}
           </div>
         </div>
@@ -98,6 +103,22 @@ export default {
       </div>`
     ).join('') + `</div>`;
   },
+};
+
+let _spaSteamdbLaunching = false;
+window._launchSteamDBBrowser = async function() {
+    if (_spaSteamdbLaunching) return;
+    _spaSteamdbLaunching = true;
+    try {
+        await api("/diagnostics/steamdb/launch", { method: "POST" });
+        setTimeout(() => {
+            window.loadSystemDiagnostics();
+            _spaSteamdbLaunching = false;
+        }, 5000);
+    } catch (err) {
+        console.error("启动浏览器失败:", err);
+        _spaSteamdbLaunching = false;
+    }
 };
 
 window.loadSystemDiagnostics = function (options) {

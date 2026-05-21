@@ -29,6 +29,8 @@ dependencies = [
     "firecrawl-py>=1.0.0",
     # Utilities
     "python-multipart>=0.0.9",
+    "aiofiles>=23.2.0",
+    "tenacity>=8.0.0",
     # Google Trends
     "pytrends>=4.9.2",
     # Excel report generation

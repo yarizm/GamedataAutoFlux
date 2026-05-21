@@ -957,6 +957,10 @@ function renderSystemChecks(checks) {
     }
 
     list.innerHTML = checks.map((check) => {
+        let actionBtn = "";
+        if (check.details && check.details.action === "open_steamdb_browser") {
+            actionBtn = `<div style="margin-top: 8px;"><button class="btn btn-primary btn-sm" onclick="launchSteamDBBrowser()">一键启动浏览器</button></div>`;
+        }
         const details = check.details && Object.keys(check.details).length
             ? `<pre class="system-check-details">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
             : "";
@@ -967,6 +971,7 @@ function renderSystemChecks(checks) {
                     <div>
                         <div class="system-check-name">${escapeHtml(check.name)}</div>
                         <div class="system-check-message">${escapeHtml(check.message)}</div>
+                        ${actionBtn}
                     </div>
                 </div>
                 ${details}
@@ -989,6 +994,24 @@ function renderSystemPaths(paths) {
             <code>${escapeHtml(value)}</code>
         </div>
     `).join("");
+}
+
+let _steamdbLaunching = false;
+async function launchSteamDBBrowser() {
+    if (_steamdbLaunching) return;
+    _steamdbLaunching = true;
+    toast("正在启动浏览器，请稍候...", "info");
+    try {
+        await api("/diagnostics/steamdb/launch", { method: "POST" });
+        toast("启动命令已发送", "success");
+        setTimeout(() => {
+            loadSystemDiagnostics();
+            _steamdbLaunching = false;
+        }, 5000);
+    } catch (err) {
+        toast(`启动浏览器失败: ${err.message}`, "error");
+        _steamdbLaunching = false;
+    }
 }
 
 

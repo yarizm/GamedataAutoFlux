@@ -39,7 +39,7 @@ embedding:
     model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
 llm:
-  provider: sensenova_deepseek
+  provider: sense
   qwen:
     model: qwen-max
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -70,7 +70,6 @@ llm:
     retry_delay: 2.0
     timeout: 180
     max_input_chars: 18000
-  # DeepSeek 模型通过商汤 API 网关调用
   sensenova_deepseek:
     model: deepseek-v4-flash
     base_url: https://token.sensenova.cn/v1
@@ -84,7 +83,7 @@ llm:
     max_input_chars: 18000
 agent:
   enabled: true
-  max_iterations: 12
+  max_iterations: 40
   session_timeout_minutes: 60
   playwright_mcp:
     enabled: true

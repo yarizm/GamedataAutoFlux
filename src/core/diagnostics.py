@@ -201,15 +201,42 @@ def _steamdb_config_check() -> dict[str, Any]:
     if not enabled:
         return _check("steam.steamdb", "ok", "SteamDB collection is disabled")
     cdp_enabled = bool(get_config("steam.steamdb.cdp_enabled", False))
-    cdp_port = get_config("steam.steamdb.cdp_port", "")
+    cdp_port = get_config("steam.steamdb.cdp_port", 9222)
     profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
+    
+    if not cdp_enabled:
+        return _check(
+            "steam.steamdb",
+            "ok",
+            "SteamDB collection is enabled without CDP. Expect captchas.",
+            cdp_enabled=False,
+        )
+
+    # Check if CDP port is actually listening
+    import urllib.request
+    try:
+        url = f"http://127.0.0.1:{cdp_port}/json/version"
+        with urllib.request.urlopen(url, timeout=1) as response:
+            if response.status == 200:
+                return _check(
+                    "steam.steamdb",
+                    "ok",
+                    "SteamDB CDP 浏览器已连接并就绪",
+                    cdp_enabled=True,
+                    cdp_port=cdp_port,
+                    profile_dir=profile_dir,
+                )
+    except Exception:
+        pass
+
     return _check(
         "steam.steamdb",
-        "warning" if cdp_enabled else "ok",
-        "SteamDB collection is enabled; keep a logged-in browser session if Cloudflare appears",
-        cdp_enabled=cdp_enabled,
+        "warning",
+        "未检测到 SteamDB 浏览器运行。请先启动登录浏览器以开放 CDP 端口。",
+        cdp_enabled=True,
         cdp_port=cdp_port,
         profile_dir=profile_dir,
+        action="open_steamdb_browser",
     )
 
 

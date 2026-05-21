@@ -3,7 +3,6 @@
 运行此脚本会弹出一个浏览器窗口，请您手动完成七麦的登录。
 登录完成后，关闭浏览器即可。系统会自动将登录凭证保存在 data/qimai_profile 目录中。
 """
-import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 

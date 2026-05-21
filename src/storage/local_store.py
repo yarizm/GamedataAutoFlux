@@ -312,8 +312,8 @@ class LocalStorage(BaseStorage):
             conditions.append("key LIKE ?")
             filter_params.append(f"{query[4:]}%")
         elif query.strip():
-            conditions.append("(key LIKE ? OR source LIKE ?)")
-            filter_params.extend([f"%{query}%", f"%{query}%"])
+            conditions.append("(key LIKE ? OR source LIKE ? OR game_name LIKE ?)")
+            filter_params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
 
         # 精确字段过滤（通过生成列）
         for field in ("collector", "game_name", "app_id", "group_id", "task_id"):

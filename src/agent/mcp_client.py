@@ -70,48 +70,66 @@ class PlaywrightMcpManager:
             await self.stop()
 
     async def _run_manager_task(self, start_future: asyncio.Future) -> None:
-        """Dedicated background task to hold the anyio/MCP context managers."""
-        # Ensure stale connection resources are released before reconnecting.
-        await self._cleanup_old_resources()
-        self._exit_stack = AsyncExitStack()
+        """Dedicated background task to hold the anyio/MCP context managers with auto-restart."""
+        base_backoff = 2.0
+        max_backoff = 60.0
+        attempt = 0
 
-        server_params = StdioServerParameters(
-            command=self._command,
-            args=self._args,
-            env=None
-        )
+        while True:
+            if self._stop_event and self._stop_event.is_set():
+                break
 
-        try:
-            read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(server_params))
-            self._session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
-
-            await self._session.initialize()
-            
-            # Pre-fetch tools
-            await self._fetch_tools()
-
-            # Reset all tool failure counters after a successful reconnect.
-            for tool in self._tools_cache:
-                if hasattr(tool, '_consecutive_failures'):
-                    tool._consecutive_failures = 0
-
-            self._is_running = True
-            logger.info("Playwright MCP Server initialized successfully.")
-            start_future.set_result(True)
-            
-            # Block this task until stop is requested or cancelled
-            if self._stop_event:
-                await self._stop_event.wait()
-                
-        except Exception as e:
-            if not start_future.done():
-                start_future.set_exception(e)
-            else:
-                logger.error(f"MCP background task crashed: {e}")
-        finally:
-            self._is_running = False
             await self._cleanup_old_resources()
-            logger.info("Playwright MCP Server stopped and resources cleaned.")
+            self._exit_stack = AsyncExitStack()
+
+            server_params = StdioServerParameters(
+                command=self._command,
+                args=self._args,
+                env=None
+            )
+
+            try:
+                read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(server_params))
+                self._session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+
+                await self._session.initialize()
+                await self._fetch_tools()
+
+                for tool in self._tools_cache:
+                    if hasattr(tool, '_consecutive_failures'):
+                        tool._consecutive_failures = 0
+
+                self._is_running = True
+                attempt = 0
+                logger.info("Playwright MCP Server initialized successfully.")
+                
+                if not start_future.done():
+                    start_future.set_result(True)
+
+                if self._stop_event:
+                    await self._stop_event.wait()
+
+            except Exception as e:
+                self._is_running = False
+                if not start_future.done():
+                    start_future.set_exception(e)
+                    break
+                
+                if self._stop_event and self._stop_event.is_set():
+                    break
+                    
+                attempt += 1
+                backoff = min(max_backoff, base_backoff * (2 ** (attempt - 1)))
+                logger.error(f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt})...")
+                await asyncio.sleep(backoff)
+                
+            finally:
+                self._is_running = False
+                await self._cleanup_old_resources()
+                logger.info("Playwright MCP Server stopped and resources cleaned.")
+                
+            if self._stop_event and self._stop_event.is_set():
+                break
 
     async def _cleanup_old_resources(self) -> None:
         """Close stale MCP connection resources, ignoring cleanup errors."""
