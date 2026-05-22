@@ -14,11 +14,11 @@
 @layer base {
   body {
     /* Extreme dark canvas with subtle grid pattern */
-    @apply bg-zinc-950 text-zinc-300 font-sans antialiased;
+    @apply bg-[#050505] text-zinc-300 font-sans antialiased;
     background-image: 
-      linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 24px 24px;
+      linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
     background-attachment: fixed;
     line-height: 1.6;
     letter-spacing: 0;
@@ -113,11 +113,16 @@
     @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 mb-8;
   }
   .stat-card {
-    @apply bg-zinc-900 border border-white/5 rounded-xl p-5 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden;
+    @apply bg-zinc-900/20 backdrop-blur-2xl border border-white/5 rounded-2xl p-5 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.3)];
   }
   .stat-card:hover {
-    @apply -translate-y-1 border-violet-500/30 shadow-[0_8px_30px_rgba(139,92,246,0.1)];
+    @apply -translate-y-1 scale-[1.02] border-violet-500/30 shadow-[0_12px_40px_rgba(139,92,246,0.15)];
   }
+  .stat-card::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-500;
+  }
+  .stat-card:hover::before { @apply opacity-100; }
   .stat-value { @apply text-3xl font-bold text-zinc-100 tabular-nums tracking-tight transition-all duration-300; }
   .stat-label { @apply text-xs font-medium text-zinc-500 mt-1 uppercase tracking-wider; }
   
@@ -125,12 +130,12 @@
   .stat-success:hover .stat-value, .stat-success .stat-value { @apply text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]; }
   .stat-failed:hover .stat-value, .stat-failed .stat-value { @apply text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]; }
 
-  /* Cards */
+  /* Cards - Glassmorphism Upgrade */
   .card {
-    @apply bg-zinc-900 border border-white/5 rounded-xl p-6 mb-6 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)];
+    @apply bg-zinc-900/20 backdrop-blur-2xl border border-white/5 rounded-2xl p-6 mb-6 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[0_4px_24px_rgba(0,0,0,0.4)];
   }
   .card:hover {
-    @apply border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.8)];
+    @apply border-white/10 shadow-[0_8px_32px_rgba(139,92,246,0.1)] -translate-y-1;
   }
   .card-header {
     @apply flex items-center justify-between mb-5 px-0 pt-0 pb-4 border-b border-white/5 gap-4;
@@ -149,10 +154,10 @@
   .btn:active { @apply scale-[0.96]; }
   
   .btn-primary { 
-    @apply bg-violet-600 border-violet-500 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]; 
+    @apply bg-gradient-to-r from-violet-600 to-indigo-600 border-none text-white shadow-[0_0_20px_rgba(139,92,246,0.4)]; 
   }
   .btn-primary:hover { 
-    @apply bg-violet-500 border-violet-400 shadow-[0_0_25px_rgba(139,92,246,0.5)] -translate-y-px; 
+    @apply bg-gradient-to-r from-violet-500 to-indigo-500 shadow-[0_0_30px_rgba(139,92,246,0.6)] -translate-y-px scale-[1.02]; 
   }
   
   .btn-secondary:hover, .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost):not(.btn-close):hover { 
@@ -307,9 +312,9 @@
   .agent-avatar.assistant { @apply bg-zinc-800 text-zinc-400 border border-white/10; }
   .agent-avatar.user { @apply bg-violet-600 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]; }
   
-  .agent-bubble { @apply p-4 rounded-2xl text-sm leading-relaxed shadow-lg; }
-  .agent-bubble.assistant { @apply bg-zinc-800 border border-white/5 text-zinc-300 rounded-tl-sm; }
-  .agent-bubble.user { @apply bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-tr-sm shadow-[0_0_15px_rgba(139,92,246,0.3)]; }
+  .agent-bubble { @apply p-4 rounded-2xl text-[14px] leading-relaxed shadow-lg backdrop-blur-xl border border-white/10; }
+  .agent-bubble.assistant { @apply bg-zinc-900/60 text-zinc-300 rounded-tl-sm; }
+  .agent-bubble.user { @apply bg-violet-900/30 text-violet-100 rounded-tr-sm border-violet-500/30 shadow-[0_4px_20px_rgba(139,92,246,0.15)]; }
   
   .agent-session-item { @apply flex items-center justify-between p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden mb-1; }
   .agent-session-item:hover { @apply bg-white/5 border-white/5; }

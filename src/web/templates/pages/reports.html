@@ -1,0 +1,108 @@
+<section class="tab-content" id="tab-reports">
+            <div class="section-header">
+                <h1 class="text-3xl font-black tracking-tighter text-white">报告生成</h1>
+                <button class="btn btn-primary" onclick="generateReport()" id="btn-generate-report">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    开始分析
+                </button>
+            </div>
+
+            <div class="reports-layout grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
+                <div class="flex flex-col gap-6">
+                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                        <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
+                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">分析参数配置</h2>
+                        </div>
+                        <div class="card-body px-6 pb-6">
+                            <div class="form-group">
+                                <label for="report-prompt" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">核心提示词 / PROMPT</label>
+                                <textarea id="report-prompt" rows="5" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" placeholder="例如：总结最近落库的移动端游戏表现"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-data-source" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">数据源过滤 / SOURCE_FILTER</label>
+                                <input type="text" id="report-data-source" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" placeholder="如 steam / taptap">
+                            </div>
+                            <div class="form-group">
+                                <label for="report-record-keys" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">指定原始记录 / RECORD_KEYS</label>
+                                <textarea id="report-record-keys" rows="3" class="bg-zinc-800 border-white/5 focus:border-violet-500/50 font-mono text-xs" placeholder="从数据浏览页选择记录后自动填充" oninput="syncReportRecordKeysFromTextarea()"></textarea>
+                                <div class="flex justify-between items-start mt-2">
+                                    <small class="text-zinc-600 text-[10px]">每行一个 storage key</small>
+                                    <button class="btn btn-ghost px-2 h-6 text-[10px] border border-white/10 rounded" type="button" onclick="clearSelectedReportRecords()">清空</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-json-files" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">上传数据集 / UPLOAD_JSON</label>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <input type="file" id="report-json-files" accept=".json,application/json" multiple class="flex-1 text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 bg-zinc-800 border border-white/5 rounded-lg p-1.5">
+                                    <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="uploadReportJsonFiles()">导入</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">已锁定数据源 / LOCKED_SOURCES</label>
+                                <div class="selected-source-list flex flex-wrap gap-2 min-h-[40px] p-3 bg-zinc-800 border border-white/5 rounded-lg" id="report-selected-records">
+                                    <p class="text-zinc-600 text-xs italic">Awaiting input data...</p>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-group-select" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">通过组导入 / IMPORT_GROUP</label>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <select id="report-group-select" class="flex-1 bg-zinc-800 border-white/5 focus:border-violet-500/50 text-xs h-8 py-1"></select>
+                                    <button class="btn btn-primary h-8 px-3 text-xs shrink-0" type="button" onclick="importReportGroupRecords()">Import</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="report-provider" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">LLM 模型 / PROVIDER</label>
+                                <select id="report-provider" class="bg-zinc-800 border-white/5 focus:border-violet-500/50">
+                                    <option value="">使用默认</option>
+                                </select>
+                                <small class="text-zinc-500 mt-2 block text-[10px]">从 Agent 已配置的模型中选择。如需增减模型，请前往 Agent 页面配置。</small>
+                            </div>
+                            <div class="form-group mb-0">
+                                <label for="report-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">分析模板 / TEMPLATE</label>
+                                <div class="flex items-center gap-2">
+                                    <select id="report-template" class="flex-1 bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="updateReportTemplateHelp()">
+                                        <option value="general_game">通用游戏模板</option>
+                                        <option value="taptap_game">TapTap游戏模板</option>
+                                        <option value="steam_game">Steam游戏模板</option>
+                                    </select>
+                                    <button class="btn btn-ghost h-10 px-3 text-xs shrink-0 border border-white/10" type="button" onclick="uploadReportTemplate()">上传 YAML</button>
+                                </div>
+                                <small class="text-zinc-500 mt-2 block" id="report-template-help"></small>
+                            </div>
+                            <div class="report-precheck mt-6" id="report-precheck" style="display: none;"></div>
+                            <div class="report-progress mt-6 bg-zinc-800 p-4 rounded-xl border border-white/5" id="report-progress" style="display: none;">
+                                <div class="flex justify-between items-end mb-2">
+                                    <span id="report-progress-stage" class="font-mono text-[10px] tracking-[0.2em] uppercase text-violet-400 px-1">Preparing</span>
+                                    <span id="report-progress-percent" class="text-xs font-mono text-zinc-300">0%</span>
+                                </div>
+                                <div class="progress-bar h-1.5 bg-zinc-900 rounded-full overflow-hidden mb-2">
+                                    <div class="progress-fill h-full bg-violet-500 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(139,92,246,0.6)]" style="background-image: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%); background-size: 200% 100%; animation: scan 2s linear infinite;" id="report-progress-fill"></div>
+                                </div>
+                                <div class="text-[11px] text-zinc-500 font-mono truncate" id="report-progress-message">Waiting...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                        <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
+                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">报告历史记录</h2>
+                        </div>
+                        <div class="card-body px-6 pb-6" id="reports-list">
+                            <p class="text-zinc-600 text-sm">暂无历史记录</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="h-full flex flex-col min-h-[800px]">
+                    <div class="flex items-center justify-between mb-4 px-2">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+                            输出控制台
+                        </h2>
+                    </div>
+                    <div class="flex-1 bg-zinc-950 border border-white/5 rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
+                        <pre class="report-output bg-transparent border-none p-0 shadow-none m-0 w-full h-full text-zinc-300 whitespace-pre-wrap font-sans text-[15px] leading-relaxed" id="report-content"><span class="text-zinc-600 font-mono text-sm">Waiting for analysis initialization...</span></pre>
+                    </div>
+                </div>
+            </div>
+        </section>

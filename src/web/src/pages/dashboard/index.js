@@ -89,9 +89,9 @@ export default {
       series: [{
         name: t('dashboard.taskDistribution'),
         type: 'pie',
-        radius: ['55%', '80%'],
+        radius: ['70%', '85%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 4, borderColor: '#18181b', borderWidth: 2 },
+        itemStyle: { borderRadius: 8, borderColor: '#050505', borderWidth: 3 },
         label: { show: false, position: 'center' },
         emphasis: { 
           label: { show: true, fontSize: 18, fontWeight: 'bold', color: '#e4e4e7' },

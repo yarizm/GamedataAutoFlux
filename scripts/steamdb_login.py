@@ -16,10 +16,11 @@ DEFAULT_PORT = 9222
 
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description="Start Chrome/Edge for SteamDB login via CDP.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--browser", default="", help="Chrome/Edge executable path. Auto-detected when empty.")
-    parser.add_argument("--profile-dir", default=str(Path.cwd() / "data" / "steamdb_profile"))
+    parser.add_argument("--profile-dir", default=str(project_root / "data" / "steamdb_profile"))
     parser.add_argument("--no-wait", action="store_true", help="Do not wait for user input after launching.")
     args = parser.parse_args()
 
@@ -28,7 +29,7 @@ def main() -> int:
         print("Could not find Chrome/Edge. Pass --browser C:\\path\\to\\chrome.exe")
         return 1
 
-    profile_dir = Path(args.profile_dir)
+    profile_dir = Path(args.profile_dir).resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
@@ -51,14 +52,19 @@ def main() -> int:
         "--disable-default-apps",
         "--disable-extensions",
         "--disable-popup-blocking",
-
+        "--new-window",
 
         "https://steamdb.info/login/",
     ]
     print(f"Starting browser: {browser_path}")
     print(f"Profile dir: {profile_dir}")
     print(f"CDP endpoint: http://127.0.0.1:{args.port}")
-    process = subprocess.Popen(cmd)
+    
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+
+    process = subprocess.Popen(cmd, **kwargs)
 
     if not args.no_wait:
         print("Log in to SteamDB in the opened browser window.")
@@ -83,16 +89,21 @@ def find_browser_executable() -> Path | None:
         env_value = os.environ.get(env_name, "").strip()
         if env_value:
             candidates.append(Path(env_value))
-    for executable in ("chrome.exe", "msedge.exe"):
-        resolved = shutil.which(executable)
-        if resolved:
-            candidates.append(Path(resolved))
+            
+    # 先检查标准的绝对路径，避免被 PATH 环境变量中的 shim/wrapper 劫持参数
     candidates.extend([
         Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
         Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
         Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
         Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
     ])
+    
+    # 最后检查 PATH 中的可执行文件
+    for executable in ("chrome.exe", "msedge.exe"):
+        resolved = shutil.which(executable)
+        if resolved:
+            candidates.append(Path(resolved))
+            
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return candidate

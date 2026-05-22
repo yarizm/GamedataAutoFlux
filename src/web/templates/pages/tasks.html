@@ -1,0 +1,53 @@
+<section class="tab-content" id="tab-tasks">
+            <div class="section-header flex-wrap">
+                <div class="flex items-center gap-4">
+                    <h1>任务管理</h1>
+                    <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20" id="tasks-refresh-hint">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_5px_rgba(6,182,212,0.8)]"></span>
+                        <span class="text-[11px] text-cyan-400 font-bold tracking-widest uppercase">Auto Refresh</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4 mt-4 sm:mt-0">
+                    <div class="bg-zinc-800 border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                        <select id="task-status-filter" onchange="loadTasks()" class="bg-transparent border-none text-zinc-100 font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white">
+                            <option value="" class="bg-zinc-800 text-zinc-300">全部状态</option>
+                            <option value="pending" class="bg-zinc-800 text-amber-400">等待中</option>
+                            <option value="running" class="bg-zinc-800 text-cyan-400">运行中</option>
+                            <option value="success" class="bg-zinc-800 text-emerald-400">已完成</option>
+                            <option value="failed" class="bg-zinc-800 text-rose-400">失败</option>
+                            <option value="cancelled" class="bg-zinc-800 text-zinc-400">已取消</option>
+                        </select>
+                        <div class="w-px h-5 bg-white/10 mx-1"></div>
+                        <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5 hover:text-white" onclick="loadTasks()" title="手动刷新">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        </button>
+                    </div>
+                    <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task">+ 创建任务</button>
+                </div>
+            </div>
+
+            <div class="card mb-0 bg-zinc-900 border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务列表</h2>
+                </div>
+                <div class="card-body overflow-x-auto px-6 pb-6">
+                    <table class="table" id="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>Pipeline</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>目标数</th>
+                                <th>耗时</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasks-body">
+                            <tr><td colspan="8" class="text-muted">暂无任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>

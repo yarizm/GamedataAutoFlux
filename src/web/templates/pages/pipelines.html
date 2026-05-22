@@ -1,0 +1,29 @@
+<section class="tab-content" id="tab-pipelines">
+            <div class="section-header">
+                <h1 class="text-3xl font-black tracking-tighter text-white">Pipeline 组装流</h1>
+                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    新建 Pipeline
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">可用组件库</h2>
+                    </div>
+                    <div class="card-body overflow-y-auto max-h-[calc(100vh-200px)] px-6 pb-6" id="components-list">
+                        <p class="text-zinc-600 text-sm">加载中...</p>
+                    </div>
+                </div>
+
+                <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">已配置流水线</h2>
+                    </div>
+                    <div class="card-body px-6 pb-6" id="pipelines-list">
+                        <p class="text-zinc-600 text-sm">暂无 Pipeline</p>
+                    </div>
+                </div>
+            </div>
+        </section>
