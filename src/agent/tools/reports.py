@@ -22,9 +22,9 @@ def _extract_prompt_keywords(prompt: str) -> list[str]:
         "for", "the", "a", "an",
     }
     split_pattern = re.compile(
-        r"[，。！？、；：（）\s"
-        r"请对|进行|包括|并提|要求|帮我|生成|分析|综合|全面|完整|详细"
-        r"]+|[a-zA-Z]{2,}"
+        r"[，。！？、；：（）\s]+"
+        r"|请对|进行|包括|并提|要求|帮我|生成|分析|综合|全面|完整|详细"
+        r"|[a-zA-Z]{2,}"
     )
     raw_parts = re.findall(r"[一-鿿]{2,}", prompt)
     keywords = []

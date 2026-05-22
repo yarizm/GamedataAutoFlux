@@ -32,23 +32,12 @@ class LaunchSteamDBBrowserTool(BaseTool):
 
     async def _arun(self) -> str:
         import subprocess
-        import sys
         import asyncio
         from src.core.config import get as get_config
-        from src.core.config import get_root_dir
+        from src.core.diagnostics import build_steamdb_launch_command
 
         cdp_port = get_config("steam.steamdb.cdp_port", 9222)
-        profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
-        
-        cmd = [
-            sys.executable,
-            str(get_root_dir() / "scripts" / "steamdb_login.py"),
-            "--no-wait",
-        ]
-        if cdp_port is not None:
-            cmd.extend(["--port", str(cdp_port)])
-        if profile_dir:
-            cmd.extend(["--profile-dir", profile_dir])
+        cmd = build_steamdb_launch_command()
             
         try:
             subprocess.Popen(cmd)

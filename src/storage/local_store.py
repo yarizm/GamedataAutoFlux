@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,43 @@ class LocalStorage(BaseStorage):
         """)
 
         await self._migrate_schema()
+
+        # 初始化 FTS5 全文搜索表 (必须在_migrate_schema之后，此时game_name列已存在)
+        await self._db.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
+                key, source, game_name,
+                content=records, content_rowid=rowid
+            )
+        """)
+        # 同步触发器
+        await self._db.execute("""
+            CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
+                INSERT INTO records_fts(rowid, key, source, game_name)
+                VALUES (new.rowid, new.key, new.source, new.game_name);
+            END;
+        """)
+        await self._db.execute("""
+            CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
+                INSERT INTO records_fts(records_fts, rowid, key, source, game_name)
+                VALUES ('delete', old.rowid, old.key, old.source, old.game_name);
+            END;
+        """)
+        await self._db.execute("""
+            CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
+                INSERT INTO records_fts(records_fts, rowid, key, source, game_name)
+                VALUES ('delete', old.rowid, old.key, old.source, old.game_name);
+                INSERT INTO records_fts(rowid, key, source, game_name)
+                VALUES (new.rowid, new.key, new.source, new.game_name);
+            END;
+        """)
+        
+        # 初始同步（如果 FTS 表为空但记录表有数据）
+        fts_count = (await (await self._db.execute("SELECT COUNT(*) FROM records_fts")).fetchone())[0]
+        if fts_count == 0:
+            await self._db.execute("""
+                INSERT INTO records_fts(rowid, key, source, game_name)
+                SELECT rowid, key, source, game_name FROM records
+            """)
 
         await self._db.commit()
         logger.info(f"本地存储已初始化: DB={self._db_path}, JSON={self._json_dir}")
@@ -312,8 +350,16 @@ class LocalStorage(BaseStorage):
             conditions.append("key LIKE ?")
             filter_params.append(f"{query[4:]}%")
         elif query.strip():
-            conditions.append("(key LIKE ? OR source LIKE ? OR game_name LIKE ?)")
-            filter_params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
+            # 使用 FTS5 全文搜索，清理特殊字符避免语法错误
+            safe_query = re.sub(r'[^\w\s]', ' ', query)
+            safe_query = re.sub(r'\s+', ' ', safe_query).strip()
+            if safe_query:
+                conditions.append("records.rowid IN (SELECT rowid FROM records_fts WHERE records_fts MATCH ?)")
+                filter_params.append(safe_query)
+            else:
+                # 纯特殊字符查询回退到 LIKE
+                conditions.append("(key LIKE ? OR source LIKE ? OR game_name LIKE ?)")
+                filter_params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
 
         # 精确字段过滤（通过生成列）
         for field in ("collector", "game_name", "app_id", "group_id", "task_id"):

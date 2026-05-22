@@ -278,3 +278,25 @@ def _overall_status(checks: list[dict[str, Any]]) -> str:
     if "warning" in statuses:
         return "warning"
     return "ok"
+
+
+def build_steamdb_launch_command() -> list[str]:
+    """构建启动 SteamDB 登录浏览器的 subprocess 命令列表"""
+    import sys
+
+    from src.core.config import get as get_config
+    from src.core.config import get_root_dir
+
+    cdp_port = get_config("steam.steamdb.cdp_port", 9222)
+    profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
+
+    cmd = [
+        sys.executable,
+        str(get_root_dir() / "scripts" / "steamdb_login.py"),
+        "--no-wait",
+    ]
+    if cdp_port is not None:
+        cmd.extend(["--port", str(cdp_port)])
+    if profile_dir:
+        cmd.extend(["--profile-dir", profile_dir])
+    return cmd

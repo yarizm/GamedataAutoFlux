@@ -18,6 +18,7 @@ logs/
 outputs/
 docs/
 tmp/
+scratch*
 node_modules/
 dist/
 src/web/static/dist/

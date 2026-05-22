@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 import os
-import aiofiles
+import aiosqlite
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -51,13 +51,14 @@ class AgentService:
 
         self._max_iterations: int = get_config("agent.max_iterations", 10)
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
-        self._persist_path: Path = get_data_dir() / "agent_sessions.json"
+        self._db_path: Path = get_data_dir() / "autoflux.db"
+        self._old_persist_path: Path = get_data_dir() / "agent_sessions.json"
+        self._histories_loaded: bool = False
 
         self._system_prompt: str = get_config(
             "agent.system_prompt",
             _default_system_prompt(),
         )
-        self._load_histories()
 
     def _build_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
         """根据当前加载的工具集合，动态生成包含工具使用规范的系统提示词"""
@@ -138,6 +139,10 @@ class AgentService:
 
     async def _async_ensure_initialized(self) -> None:
         """异步延迟初始化 LLM 和 AgentExecutor，处理 MCP 启动"""
+        if not self._histories_loaded:
+            await self._load_histories()
+            self._histories_loaded = True
+
         if not self._initialized:
             self._ensure_initialized()
 
@@ -310,7 +315,7 @@ class AgentService:
     MAX_PERSISTED_SESSIONS: int = 50
 
     async def _save_histories(self, force: bool = False) -> None:
-        """持久化会话历史到 JSON 文件（最多保留 MAX_PERSISTED_SESSIONS 个会话）
+        """持久化会话历史到 SQLite（最多保留 MAX_PERSISTED_SESSIONS 个会话）
 
         调用者必须持有 self._lock。
         """
@@ -329,71 +334,109 @@ class AgentService:
                 self._histories.pop(sid, None)
                 self._sessions_timestamps.pop(sid, None)
 
-        data: dict[str, dict] = {}
-        for sid, msgs in self._histories.items():
-            data[sid] = {
-                "last_active_at": self._sessions_timestamps.get(sid, now),
-                "messages": [msg.model_dump(mode="json") for msg in msgs],
-            }
-        serialized = json.dumps(data, ensure_ascii=False)
-
         try:
-            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self._persist_path.with_suffix(".tmp")
-            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-                await f.write(serialized)
-            os.replace(tmp_path, self._persist_path)
-        except OSError as exc:
-            logger.warning(f"保存 Agent 会话历史失败: {exc}")
-        else:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_sessions (
+                        session_id TEXT PRIMARY KEY,
+                        messages TEXT,
+                        last_active_at REAL
+                    )
+                """)
+                for sid, msgs in self._histories.items():
+                    messages_json = json.dumps([msg.model_dump(mode="json") for msg in msgs], ensure_ascii=False)
+                    last_active = self._sessions_timestamps.get(sid, now)
+                    await db.execute("""
+                        INSERT OR REPLACE INTO agent_sessions (session_id, messages, last_active_at)
+                        VALUES (?, ?, ?)
+                    """, (sid, messages_json, last_active))
+                
+                active_sids = list(self._histories.keys())
+                if active_sids:
+                    placeholders = ",".join("?" for _ in active_sids)
+                    await db.execute(f"DELETE FROM agent_sessions WHERE session_id NOT IN ({placeholders})", active_sids)
+                
+                await db.commit()
             self._last_save_time = now
+        except Exception as exc:
+            logger.warning(f"保存 Agent 会话历史到 SQLite 失败: {exc}")
 
-    def _load_histories(self) -> None:
-        """从 JSON 文件恢复会话历史"""
-        if not self._persist_path.exists():
-            return
+    async def _load_histories(self) -> None:
+        """从 SQLite 恢复会话历史，包含兼容 JSON 迁移"""
         try:
-            data = json.loads(self._persist_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning(f"加载 Agent 会话历史失败: {exc}")
-            return
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_sessions (
+                        session_id TEXT PRIMARY KEY,
+                        messages TEXT,
+                        last_active_at REAL
+                    )
+                """)
+                await db.commit()
+                
+                if self._old_persist_path.exists():
+                    logger.info("发现旧版 JSON 会话数据，正在迁移到 SQLite...")
+                    try:
+                        data = json.loads(self._old_persist_path.read_text(encoding="utf-8"))
+                        for sid, blob in data.items():
+                            if isinstance(blob, dict) and "messages" in blob:
+                                raw_msgs = blob.get("messages", [])
+                                last_active = blob.get("last_active_at", time.time())
+                            elif isinstance(blob, list):
+                                raw_msgs = blob
+                                last_active = time.time()
+                            else:
+                                continue
+                                
+                            messages_json = json.dumps(raw_msgs, ensure_ascii=False)
+                            await db.execute("""
+                                INSERT OR IGNORE INTO agent_sessions (session_id, messages, last_active_at)
+                                VALUES (?, ?, ?)
+                            """, (sid, messages_json, last_active))
+                        await db.commit()
+                        os.replace(str(self._old_persist_path), str(self._old_persist_path.with_suffix(".json.bak")))
+                        logger.info("JSON 数据迁移完成，已重命名为 .bak")
+                    except Exception as e:
+                        logger.warning(f"迁移 JSON 会话历史失败: {e}")
+                
+                cursor = await db.execute("SELECT session_id, messages, last_active_at FROM agent_sessions")
+                rows = await cursor.fetchall()
+                
+                _MSG_CLASSES: dict[str, type[BaseMessage]] = {
+                    "human": HumanMessage,
+                    "ai": AIMessage,
+                    "system": SystemMessage,
+                    "tool": ToolMessage,
+                    "function": FunctionMessage,
+                    "chat": ChatMessage,
+                }
+                
+                for row in rows:
+                    sid = row[0]
+                    try:
+                        raw_msgs = json.loads(row[1])
+                    except json.JSONDecodeError:
+                        continue
+                        
+                    last_active = row[2]
+                    
+                    msgs: list[BaseMessage] = []
+                    for raw in raw_msgs:
+                        msg_type = raw.get("type", "")
+                        cls = _MSG_CLASSES.get(msg_type)
+                        if cls is not None:
+                            msgs.append(cls.model_validate(raw))
+                        else:
+                            logger.warning(f"恢复会话时跳过未知消息类型: {msg_type!r}")
 
-        _MSG_CLASSES: dict[str, type[BaseMessage]] = {
-            "human": HumanMessage,
-            "ai": AIMessage,
-            "system": SystemMessage,
-            "tool": ToolMessage,
-            "function": FunctionMessage,
-            "chat": ChatMessage,
-        }
+                    if msgs:
+                        self._histories[sid] = msgs
+                        self._sessions_timestamps[sid] = last_active
 
-        for sid, blob in data.items():
-            if isinstance(blob, dict) and "messages" in blob:
-                # 新格式: {last_active_at, messages}
-                raw_msgs = blob.get("messages", [])
-                last_active = blob.get("last_active_at", time.time())
-            elif isinstance(blob, list):
-                # 旧格式兼容: 纯消息列表
-                raw_msgs = blob
-                last_active = time.time()
-            else:
-                continue
-
-            msgs: list[BaseMessage] = []
-            for raw in raw_msgs:
-                msg_type = raw.get("type", "")
-                cls = _MSG_CLASSES.get(msg_type)
-                if cls is not None:
-                    msgs.append(cls.model_validate(raw))
-                else:
-                    logger.warning(f"恢复会话时跳过未知消息类型: {msg_type!r}")
-
-            if msgs:
-                self._histories[sid] = msgs
-                self._sessions_timestamps[sid] = last_active
-
-        if self._histories:
-            logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
+                if self._histories:
+                    logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
+        except Exception as e:
+            logger.warning(f"加载 Agent 会话历史失败: {e}")
 
     async def _cleanup_stale_sessions(self) -> None:
         """清理超时的会话记忆"""
@@ -410,6 +453,13 @@ class AgentService:
                 self._histories.pop(sid, None)
                 self._sessions_timestamps.pop(sid, None)
             if stale:
+                try:
+                    async with aiosqlite.connect(self._db_path) as db:
+                        placeholders = ",".join("?" for _ in stale)
+                        await db.execute(f"DELETE FROM agent_sessions WHERE session_id IN ({placeholders})", stale)
+                        await db.commit()
+                except Exception as e:
+                    logger.warning(f"清理过期数据库会话失败: {e}")
                 logger.debug(f"清理了 {len(stale)} 个超时会话")
 
     def list_sessions(self) -> list[str]:
