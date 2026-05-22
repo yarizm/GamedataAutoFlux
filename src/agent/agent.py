@@ -23,9 +23,9 @@ from langchain_core.messages import (
 from langchain_openai import ChatOpenAI
 
 try:
-    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent, create_structured_chat_agent
 except ImportError:
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
+    from langchain.agents import AgentExecutor, create_openai_tools_agent, create_structured_chat_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
 
@@ -83,6 +83,57 @@ class AgentService:
             ]
         )
 
+    def _build_react_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
+        """为 ReAct 范式动态生成包含工具使用规范的系统提示词"""
+        prefix = f"""Respond to the human as helpfully and accurately as possible. You have access to the following tools:
+
+{{tools}}
+
+Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
+
+Valid "action" values: "Final Answer" or {{tool_names}}
+
+Provide only ONE action per $JSON_BLOB, as shown:
+
+```
+{{{{
+  "action": $TOOL_NAME,
+  "action_input": $INPUT
+}}}}
+```
+
+Follow this format:
+
+Question: input question to answer
+Thought: consider previous and subsequent steps
+Action:
+```
+$JSON_BLOB
+```
+Observation: action result
+... (repeat Thought/Action/Observation N times)
+Thought: I know what to respond
+Action:
+```
+{{{{
+  "action": "Final Answer",
+  "action_input": "Final response to human"
+}}}}
+```
+
+Additional Rules:
+{self._system_prompt}
+"""
+        suffix = """Begin! Reminder to ALWAYS respond with a valid json blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB```then Observation"""
+        
+        return ChatPromptTemplate.from_messages(
+            [
+                ("system", prefix),
+                MessagesPlaceholder("chat_history", optional=True),
+                ("human", "{input}\n\n" + suffix + "\n\n{agent_scratchpad}"),
+            ]
+        )
+
     def _ensure_initialized(self) -> None:
         """延迟初始化 LLM 和 AgentExecutor"""
         if self._initialized:
@@ -113,9 +164,14 @@ class AgentService:
         )
 
         all_tools = list(ALL_TOOLS)
-        prompt = self._build_prompt_with_tools(all_tools)
-
-        agent = create_openai_tools_agent(self._llm, all_tools, prompt)
+        agent_type = get_config("agent.agent_type", "openai_tools")
+        
+        if agent_type == "react":
+            prompt = self._build_react_prompt_with_tools(all_tools)
+            agent = create_structured_chat_agent(self._llm, all_tools, prompt)
+        else:
+            prompt = self._build_prompt_with_tools(all_tools)
+            agent = create_openai_tools_agent(self._llm, all_tools, prompt)
         self._agent_executor = AgentExecutor(
             agent=agent,
             tools=all_tools,
@@ -163,8 +219,13 @@ class AgentService:
 
             if mcp_tools and not mcp_tool_names.issubset(current_tool_names):
                 all_tools = list(ALL_TOOLS) + list(mcp_tools)
-                prompt = self._build_prompt_with_tools(all_tools)
-                agent = create_openai_tools_agent(self._llm, all_tools, prompt)
+                agent_type = get_config("agent.agent_type", "openai_tools")
+                if agent_type == "react":
+                    prompt = self._build_react_prompt_with_tools(all_tools)
+                    agent = create_structured_chat_agent(self._llm, all_tools, prompt)
+                else:
+                    prompt = self._build_prompt_with_tools(all_tools)
+                    agent = create_openai_tools_agent(self._llm, all_tools, prompt)
                 self._agent_executor = AgentExecutor(
                     agent=agent,
                     tools=all_tools,
@@ -215,6 +276,110 @@ class AgentService:
         try:
             await self._async_ensure_initialized()
 
+            in_thinking_block = False
+            content_buffer = ""
+            suppress_final_stream = get_config("agent.agent_type", "openai_tools") == "react"
+            
+            in_react_action = False
+            react_emitted_len = 0
+            
+            def process_react_chunk(text: str) -> list[dict]:
+                nonlocal content_buffer, in_react_action, react_emitted_len
+                content_buffer += text
+                events = []
+                
+                if in_react_action:
+                    return []
+                
+                markers = ["Action:", "```json", '{"action"', '{ "action"', '{\n  "action"']
+                idx = -1
+                for m in markers:
+                    i = content_buffer.find(m)
+                    if i != -1:
+                        if idx == -1 or i < idx:
+                            idx = i
+                            
+                if idx != -1:
+                    in_react_action = True
+                    thought_text = content_buffer[react_emitted_len:idx]
+                    if react_emitted_len == 0 and thought_text.startswith("Thought:"):
+                        thought_text = thought_text[8:].lstrip()
+                    if thought_text:
+                        events.append({"type": "thinking", "content": thought_text})
+                    return events
+                
+                tail_safe = max(len(m) for m in markers)  # 最长 marker 12 字符
+                safe_len = max(0, len(content_buffer) - tail_safe)
+                if safe_len > react_emitted_len:
+                    thought_text = content_buffer[react_emitted_len:safe_len]
+                    if react_emitted_len == 0 and content_buffer.startswith("Thought:"):
+                        if safe_len >= 8:
+                            thought_text = content_buffer[8:safe_len].lstrip()
+                            react_emitted_len = safe_len
+                            if thought_text:
+                                events.append({"type": "thinking", "content": thought_text})
+                    else:
+                        react_emitted_len = safe_len
+                        if thought_text:
+                            events.append({"type": "thinking", "content": thought_text})
+                
+                return events
+
+            def process_text_chunk(text: str) -> list[dict]:
+                nonlocal in_thinking_block, content_buffer, final_output
+                content_buffer += text
+                events = []
+                while True:
+                    if not in_thinking_block:
+                        idx = content_buffer.find("<think>")
+                        if idx != -1:
+                            if idx > 0:
+                                pre_text = content_buffer[:idx]
+                                if not suppress_final_stream:
+                                    final_output += pre_text
+                                    events.append({"type": "final", "content": pre_text})
+                            in_thinking_block = True
+                            content_buffer = content_buffer[idx + 7:]
+                            continue
+                        
+                        last_lt = content_buffer.rfind("<")
+                        if last_lt != -1 and len(content_buffer) - last_lt < 7:
+                            if last_lt > 0:
+                                pre_text = content_buffer[:last_lt]
+                                if not suppress_final_stream:
+                                    final_output += pre_text
+                                    events.append({"type": "final", "content": pre_text})
+                                content_buffer = content_buffer[last_lt:]
+                            break
+                        else:
+                            if content_buffer:
+                                if not suppress_final_stream:
+                                    final_output += content_buffer
+                                    events.append({"type": "final", "content": content_buffer})
+                                content_buffer = ""
+                            break
+                    else:
+                        idx = content_buffer.find("</think>")
+                        if idx != -1:
+                            if idx > 0:
+                                events.append({"type": "thinking", "content": content_buffer[:idx]})
+                            in_thinking_block = False
+                            content_buffer = content_buffer[idx + 8:]
+                            continue
+                            
+                        last_lt = content_buffer.rfind("<")
+                        if last_lt != -1 and len(content_buffer) - last_lt < 8:
+                            if last_lt > 0:
+                                events.append({"type": "thinking", "content": content_buffer[:last_lt]})
+                                content_buffer = content_buffer[last_lt:]
+                            break
+                        else:
+                            if content_buffer:
+                                events.append({"type": "thinking", "content": content_buffer})
+                                content_buffer = ""
+                            break
+                return events
+
             try:
                 async for event in self._agent_executor.astream_events(
                     {
@@ -227,7 +392,12 @@ class AgentService:
                     kind = event.get("event")
 
                     if kind == "on_chat_model_start":
-                        yield {"type": "thinking", "content": "正在分析您的请求..."}
+                        in_react_action = False
+                        react_emitted_len = 0
+                        content_buffer = ""
+                        # Only yield this if not in react mode, because react mode will yield Thought: soon
+                        if not suppress_final_stream:
+                            yield {"type": "thinking", "content": "正在分析您的请求..."}
 
                     elif kind == "on_chat_model_stream":
                         chunk = event.get("data", {}).get("chunk")
@@ -236,6 +406,7 @@ class AgentService:
 
                         # 提取 reasoning/thinking 内容（DeepSeek-R1 / Qwen-QwQ 等推理模型）
                         reasoning = None
+
                         if hasattr(chunk, "additional_kwargs"):
                             ak = chunk.additional_kwargs
                             if isinstance(ak, dict):
@@ -250,14 +421,22 @@ class AgentService:
                         # 提取正文内容
                         if hasattr(chunk, "content") and chunk.content:
                             if isinstance(chunk.content, str):
-                                final_output += chunk.content
-                                yield {"type": "final", "content": chunk.content}
+                                if suppress_final_stream:
+                                    for e in process_react_chunk(chunk.content):
+                                        yield e
+                                else:
+                                    for e in process_text_chunk(chunk.content):
+                                        yield e
                             elif isinstance(chunk.content, list):
                                 for item in chunk.content:
                                     if isinstance(item, dict):
                                         if item.get("type") == "text":
-                                            final_output += item["text"]
-                                            yield {"type": "final", "content": item["text"]}
+                                            if suppress_final_stream:
+                                                for e in process_react_chunk(item["text"]):
+                                                    yield e
+                                            else:
+                                                for e in process_text_chunk(item["text"]):
+                                                    yield e
                                         elif (
                                             item.get("type") == "reasoning"
                                             or item.get("type") == "thinking"
@@ -286,6 +465,74 @@ class AgentService:
                         if len(output_str) > 4000:
                             output_str = output_str[:4000] + "...(已截断)"
                         yield {"type": "tool_result", "name": tool_name, "content": output_str}
+
+                    elif kind == "on_chain_end":
+                        if event.get("name") == "AgentExecutor":
+                            out = event.get("data", {}).get("output", {})
+                            if isinstance(out, dict) and "output" in out:
+                                final_ans = out["output"]
+                                if suppress_final_stream:
+                                    if "Final Answer" in final_ans:
+                                        try:
+                                            start = final_ans.find('{')
+                                            end = final_ans.rfind('}')
+                                            if start != -1 and end != -1 and end > start:
+                                                json_str = final_ans[start:end+1]
+                                                import json
+                                                parsed_ok = False
+                                                try:
+                                                    data = json.loads(json_str, strict=False)
+                                                    if data.get("action") == "Final Answer" and "action_input" in data:
+                                                        final_ans = str(data["action_input"])
+                                                        parsed_ok = True
+                                                except Exception:
+                                                    pass
+                                                
+                                                if not parsed_ok:
+                                                    import re
+                                                    match = re.search(r'"action_input"\s*:\s*"(.*?)"\s*\}', json_str, re.DOTALL)
+                                                    if match:
+                                                        extracted = match.group(1)
+                                                        final_ans = extracted.replace('\\n', '\n').replace('\\"', '"')
+                                                    else:
+                                                        prefix = final_ans[:start].strip()
+                                                        if prefix and not prefix.startswith("Thought:"):
+                                                            final_ans = prefix
+                                        except Exception:
+                                            pass
+                                    final_ans = final_ans.replace("Action:", "").replace("Thought:", "").strip()
+                                    if final_ans.startswith("```json"):
+                                        final_ans = final_ans[7:]
+                                    if final_ans.endswith("```"):
+                                        final_ans = final_ans[:-3]
+                                    final_ans = final_ans.strip()
+                                    if not final_ans:
+                                        final_ans = out["output"]
+                                    if not final_ans:
+                                        final_ans = "(无文本输出)"
+
+                                    yield {"type": "final", "content": final_ans}
+                                    final_output += final_ans
+                            break
+
+                # 流结束，刷新剩余缓冲区
+                if content_buffer:
+                    if suppress_final_stream:
+                        if not in_react_action and len(content_buffer) > react_emitted_len:
+                            thought_text = content_buffer[react_emitted_len:]
+                            if react_emitted_len == 0 and thought_text.startswith("Thought:"):
+                                if len(thought_text) >= 8:
+                                    thought_text = thought_text[8:].lstrip()
+                                else:
+                                    thought_text = ""
+                            if thought_text:
+                                yield {"type": "thinking", "content": thought_text}
+                    else:
+                        if in_thinking_block:
+                            yield {"type": "thinking", "content": content_buffer}
+                        else:
+                            final_output += content_buffer
+                            yield {"type": "final", "content": content_buffer}
 
                 # 正常结束，保存历史
                 await _save_history_helper()

@@ -207,7 +207,7 @@ class PlaywrightMcpManager:
             if is_required:
                 fields[prop_name] = (python_type, ...)
             else:
-                fields[prop_name] = (Optional[python_type], None)
+                fields[prop_name] = (Optional[python_type], prop_info.get("default", None))
 
         # Create dynamic pydantic model
         schema_model = create_model(f"McpTool_{name}Schema", **fields)
