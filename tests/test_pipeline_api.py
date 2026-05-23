@@ -31,7 +31,7 @@ def test_create_and_delete_pipeline():
         "steps": [
             {"type": "collector", "name": "steam", "config": {"request_delay": 0.5}},
             {"type": "processor", "name": "cleaner"},
-            {"type": "storage", "name": "local"},
+            {"type": "storage", "name": "sqlalchemy"},
         ],
     }
     with TestClient(app) as client:

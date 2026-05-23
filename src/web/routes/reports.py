@@ -22,7 +22,7 @@ from src.reporting.report_templates import (
     delete_template as tmpl_delete,
 )
 from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
+from src.storage.factory import get_storage
 from src.services._utils import source_label
 from src.web.safety import require_explicit_confirmation
 
@@ -217,7 +217,7 @@ async def upload_report_json(
     if not files:
         raise HTTPException(400, "No files uploaded")
 
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     responses: list[UploadedJsonResponse] = []
     try:
@@ -426,7 +426,7 @@ def _to_summary_response(report: ReportSummary) -> ReportSummaryResponse:
 
 
 async def _load_selected_records(record_keys: list[str]):
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         records = []
@@ -445,7 +445,7 @@ async def _load_report_precheck_records(req: GenerateReportRequest) -> list[Stor
         return await _load_selected_records(req.record_keys)
 
     limit = max(1, min(int(req.params.get("limit", 100) or 100), 1000))
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         if req.data_source:

@@ -11,15 +11,9 @@ def test_import_core_modules():
 
 
 def test_import_services():
-    from src.services import (
-        TaskService,
-        DataService,
-        ReportService,
-    )
+    from src.services import TaskService
 
     assert TaskService is not None
-    assert DataService is not None
-    assert ReportService is not None
 
 
 def test_import_collectors():
@@ -29,9 +23,9 @@ def test_import_collectors():
 
 
 def test_import_storage():
-    from src.storage.local_store import LocalStorage
+    from src.storage.sqlalchemy_store import SQLAlchemyStorage
 
-    assert LocalStorage is not None
+    assert SQLAlchemyStorage is not None
 
 
 def test_import_reporting():

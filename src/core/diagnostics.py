@@ -47,7 +47,6 @@ def build_config_diagnostics() -> dict[str, Any]:
         _dependency_check("playwright", required=True),
         _dependency_check("langchain-openai", import_name="langchain_openai", required=False),
         _llm_provider_check(),
-        _embedding_provider_check(),
         _steam_config_check(),
         _steamdb_config_check(),
         _scheduler_config_check(),
@@ -159,28 +158,6 @@ def _llm_provider_check() -> dict[str, Any]:
         "llm.provider",
         "ok",
         f"Default LLM provider is usable: {provider}",
-        provider=provider,
-    )
-
-
-def _embedding_provider_check() -> dict[str, Any]:
-    provider = str(get_config("embedding.provider", "") or "").strip()
-    if not provider:
-        return _check("embedding.provider", "warning", "Embedding provider is not configured")
-    if provider == "local":
-        return _check("embedding.provider", "ok", "Embedding uses local model", provider=provider)
-    api_key = str(get_config(f"embedding.{provider}.api_key", "") or "").strip()
-    if not api_key:
-        return _check(
-            "embedding.provider",
-            "warning",
-            f"Embedding provider is missing api_key: {provider}",
-            provider=provider,
-        )
-    return _check(
-        "embedding.provider",
-        "ok",
-        f"Embedding provider is configured: {provider}",
         provider=provider,
     )
 

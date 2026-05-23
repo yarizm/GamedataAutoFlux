@@ -28,19 +28,8 @@ class ServerConfig(_FlexibleModel):
 
 
 class DatabaseConfig(_FlexibleModel):
-    url: str = "sqlite+aiosqlite:///data/autoflux.db"
-    json_store_dir: str = "data/results"
-
-
-class VectorStoreLocalConfig(_FlexibleModel):
-    db_name: str = "vector_store.db"
-    json_dir: str = "vector_records"
-    fallback_to_stub: bool = True
-
-
-class VectorStoreConfig(_FlexibleModel):
-    provider: str = "local"
-    local: VectorStoreLocalConfig = Field(default_factory=VectorStoreLocalConfig)
+    provider: str = "sqlalchemy"
+    sqlalchemy_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
 
 
 class ProviderConfig(_FlexibleModel):
@@ -58,23 +47,6 @@ class ProviderConfig(_FlexibleModel):
 
 class LLMConfig(_FlexibleModel):
     provider: str = "stub"
-
-
-class EmbeddingProviderConfig(_FlexibleModel):
-    api_key: str | None = None
-    base_url: str | None = None
-    model: str | None = None
-    model_name: str | None = None
-    dimensions: int | None = Field(default=None, ge=1)
-    timeout: float | None = Field(default=None, ge=0)
-    fallback_to_stub: bool | None = None
-
-
-class EmbeddingConfig(_FlexibleModel):
-    provider: str = "stub"
-    qwen: EmbeddingProviderConfig = Field(default_factory=EmbeddingProviderConfig)
-    openai: EmbeddingProviderConfig = Field(default_factory=EmbeddingProviderConfig)
-    local: EmbeddingProviderConfig = Field(default_factory=EmbeddingProviderConfig)
 
 
 class AgentConfig(_FlexibleModel):
@@ -167,12 +139,17 @@ class LoggingConfig(_FlexibleModel):
     retention: str = "30 days"
 
 
+class AlertConfig(_FlexibleModel):
+    enabled: bool = False
+    type: str = "dingtalk"
+    webhook_url: str = ""
+
+
 class SettingsModel(_FlexibleModel):
     app: AppConfig = Field(default_factory=AppConfig)
+    alerts: AlertConfig = Field(default_factory=AlertConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
-    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     steam: SteamConfig = Field(default_factory=SteamConfig)

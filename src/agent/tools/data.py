@@ -36,9 +36,9 @@ class ListDataGamesTool(BaseTool):
     args_schema: Type[BaseModel] = ListDataGamesInput
 
     async def _arun(self, limit: int = 50) -> str:
-        from src.storage.local_store import LocalStorage
+        from src.storage.factory import get_storage
 
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             result = await store.query("key:", limit=limit)
@@ -80,9 +80,9 @@ class SearchDataTool(BaseTool):
     args_schema: Type[BaseModel] = SearchDataInput
 
     async def _arun(self, query: str, limit: int = 20) -> str:
-        from src.storage.local_store import LocalStorage
+        from src.storage.factory import get_storage
 
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             result = await store.query(query, limit=limit)
@@ -129,14 +129,14 @@ class ReviewCollectionResultsTool(BaseTool):
 
     async def _arun(self, task_id: str, auto_retry: bool = False) -> str:
         from src.web.app import get_task_service
-        from src.storage.local_store import LocalStorage
+        from src.storage.factory import get_storage
         from src.core.task import TaskStatus
 
         task = get_task_service().get_task(task_id)
         if task is None:
             return _format_result("error", f"任务不存在: {task_id}")
 
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             issues: list[CollectionReviewIssue] = []
@@ -222,9 +222,9 @@ class GetDataRecordContentTool(BaseTool):
     args_schema: Type[BaseModel] = GetDataRecordContentInput
 
     async def _arun(self, record_key: str) -> str:
-        from src.storage.local_store import LocalStorage
+        from src.storage.factory import get_storage
 
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             record = await store.load(record_key)

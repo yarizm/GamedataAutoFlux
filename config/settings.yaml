@@ -10,33 +10,8 @@ server:
   port: 8000
 
 database:
-  url: "sqlite+aiosqlite:///data/autoflux.db"
-  json_store_dir: "data/results"
-
-vector_store:
-  provider: "local"
-  local:
-    db_name: "vector_store.db"
-    json_dir: "vector_records"
-    fallback_to_stub: true
-
-embedding:
-  provider: "qwen"
-  qwen:
-    api_key: "${DASHSCOPE_API_KEY}"
-    base_url: "https://dashscope.aliyuncs.com/api/v1"
-    model: "text-embedding-v4"
-    dimensions: 1024
-    text_type: "document"
-    output_type: "dense"
-    instruct: null
-    timeout: 30
-    fallback_to_stub: true
-  openai:
-    api_key: "${OPENAI_API_KEY}"
-    model: "text-embedding-3-small"
-  local:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  provider: "sqlalchemy"
+  sqlalchemy_url: "${DATABASE_URL}"
 
 llm:
   provider: sensenova_deepseek

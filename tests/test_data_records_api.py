@@ -3,12 +3,11 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
+from src.storage.factory import get_storage
 from src.web.app import app
 
 
 def test_data_records_api_returns_paginated_records(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
     for index in range(3):
         _save_record(
             StorageRecord(
@@ -35,7 +34,6 @@ def test_data_records_api_returns_paginated_records(tmp_path, monkeypatch) -> No
 
 
 def test_data_records_api_filters_by_source_and_sort_order(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
     for index, source in enumerate(["steam", "steam", "taptap"]):
         _save_record(
             StorageRecord(
@@ -57,7 +55,6 @@ def test_data_records_api_filters_by_source_and_sort_order(tmp_path, monkeypatch
 
 
 def test_data_records_api_validates_page_size(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
 
     with TestClient(app) as client:
         response = client.get("/api/data/records?page_size=201")
@@ -69,7 +66,7 @@ def _save_record(record: StorageRecord) -> None:
     import asyncio
 
     async def run() -> None:
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             await store.save(record)

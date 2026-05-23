@@ -6,8 +6,8 @@ import asyncio
 import json
 import time
 import os
-import aiosqlite
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -51,9 +51,10 @@ class AgentService:
 
         self._max_iterations: int = get_config("agent.max_iterations", 10)
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
-        self._db_path: Path = get_data_dir() / "autoflux.db"
         self._old_persist_path: Path = get_data_dir() / "agent_sessions.json"
         self._histories_loaded: bool = False
+        self._agent_engine: Any = None
+        self._agent_session_factory: Any = None
 
         self._system_prompt: str = get_config(
             "agent.system_prompt",
@@ -561,8 +562,28 @@ Additional Rules:
 
     MAX_PERSISTED_SESSIONS: int = 50
 
+    async def _ensure_agent_db(self) -> None:
+        """延迟初始化 Agent 会话的 SQLAlchemy 引擎和表"""
+        if self._agent_engine is not None:
+            return
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+        from src.core.config import get_settings
+        from src.storage.models import Base
+
+        settings = get_settings()
+        url = settings.get("database", {}).get(
+            "sqlalchemy_url",
+            "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
+        )
+        self._agent_engine = create_async_engine(url, echo=False)
+        self._agent_session_factory = async_sessionmaker(
+            self._agent_engine, expire_on_commit=False, class_=AsyncSession
+        )
+        async with self._agent_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
     async def _save_histories(self, force: bool = False) -> None:
-        """持久化会话历史到 SQLite（最多保留 MAX_PERSISTED_SESSIONS 个会话）
+        """持久化会话历史到数据库（最多保留 MAX_PERSISTED_SESSIONS 个会话）
 
         调用者必须持有 self._lock。
         """
@@ -581,50 +602,61 @@ Additional Rules:
                 self._histories.pop(sid, None)
                 self._sessions_timestamps.pop(sid, None)
 
+        await self._ensure_agent_db()
+
         try:
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS agent_sessions (
-                        session_id TEXT PRIMARY KEY,
-                        messages TEXT,
-                        last_active_at REAL
-                    )
-                """)
+            from src.storage.models import AgentSessionModel
+            from sqlalchemy import select, delete
+
+            async with self._agent_session_factory() as session:
                 for sid, msgs in self._histories.items():
-                    messages_json = json.dumps([msg.model_dump(mode="json") for msg in msgs], ensure_ascii=False)
+                    messages_json = json.dumps(
+                        [msg.model_dump(mode="json") for msg in msgs], ensure_ascii=False
+                    )
                     last_active = self._sessions_timestamps.get(sid, now)
-                    await db.execute("""
-                        INSERT OR REPLACE INTO agent_sessions (session_id, messages, last_active_at)
-                        VALUES (?, ?, ?)
-                    """, (sid, messages_json, last_active))
-                
+                    result = await session.execute(
+                        select(AgentSessionModel).where(AgentSessionModel.session_id == sid)
+                    )
+                    existing = result.scalars().first()
+                    if existing:
+                        existing.messages = messages_json
+                        existing.last_active_at = datetime.fromtimestamp(last_active, tz=timezone.utc)
+                    else:
+                        session.add(
+                            AgentSessionModel(
+                                session_id=sid,
+                                messages=messages_json,
+                                last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
+                            )
+                        )
+
                 active_sids = list(self._histories.keys())
                 if active_sids:
-                    placeholders = ",".join("?" for _ in active_sids)
-                    await db.execute(f"DELETE FROM agent_sessions WHERE session_id NOT IN ({placeholders})", active_sids)
-                
-                await db.commit()
+                    await session.execute(
+                        delete(AgentSessionModel).where(
+                            ~AgentSessionModel.session_id.in_(active_sids)
+                        )
+                    )
+
+                await session.commit()
             self._last_save_time = now
         except Exception as exc:
-            logger.warning(f"保存 Agent 会话历史到 SQLite 失败: {exc}")
+            logger.warning(f"保存 Agent 会话历史失败: {exc}")
 
     async def _load_histories(self) -> None:
-        """从 SQLite 恢复会话历史，包含兼容 JSON 迁移"""
+        """从数据库恢复 Agent 会话历史，包含兼容旧版 JSON 迁移"""
+        from src.storage.models import AgentSessionModel
+        from sqlalchemy import select
+
+        await self._ensure_agent_db()
+
         try:
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS agent_sessions (
-                        session_id TEXT PRIMARY KEY,
-                        messages TEXT,
-                        last_active_at REAL
-                    )
-                """)
-                await db.commit()
-                
-                if self._old_persist_path.exists():
-                    logger.info("发现旧版 JSON 会话数据，正在迁移到 SQLite...")
-                    try:
-                        data = json.loads(self._old_persist_path.read_text(encoding="utf-8"))
+            # JSON 迁移：如果旧版 JSON 文件存在，先迁入数据库
+            if self._old_persist_path.exists():
+                logger.info("发现旧版 JSON 会话数据，正在迁移到数据库...")
+                try:
+                    data = json.loads(self._old_persist_path.read_text(encoding="utf-8"))
+                    async with self._agent_session_factory() as session:
                         for sid, blob in data.items():
                             if isinstance(blob, dict) and "messages" in blob:
                                 raw_msgs = blob.get("messages", [])
@@ -634,21 +666,31 @@ Additional Rules:
                                 last_active = time.time()
                             else:
                                 continue
-                                
-                            messages_json = json.dumps(raw_msgs, ensure_ascii=False)
-                            await db.execute("""
-                                INSERT OR IGNORE INTO agent_sessions (session_id, messages, last_active_at)
-                                VALUES (?, ?, ?)
-                            """, (sid, messages_json, last_active))
-                        await db.commit()
-                        os.replace(str(self._old_persist_path), str(self._old_persist_path.with_suffix(".json.bak")))
-                        logger.info("JSON 数据迁移完成，已重命名为 .bak")
-                    except Exception as e:
-                        logger.warning(f"迁移 JSON 会话历史失败: {e}")
-                
-                cursor = await db.execute("SELECT session_id, messages, last_active_at FROM agent_sessions")
-                rows = await cursor.fetchall()
-                
+
+                            result = await session.execute(
+                                select(AgentSessionModel).where(AgentSessionModel.session_id == sid)
+                            )
+                            if result.scalars().first() is None:
+                                session.add(
+                                    AgentSessionModel(
+                                        session_id=sid,
+                                        messages=raw_msgs,
+                                        last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
+                                    )
+                                )
+                        await session.commit()
+                    os.replace(
+                        str(self._old_persist_path),
+                        str(self._old_persist_path.with_suffix(".json.bak")),
+                    )
+                    logger.info("JSON 数据迁移完成，已重命名为 .bak")
+                except Exception as e:
+                    logger.warning(f"迁移 JSON 会话历史失败: {e}")
+
+            async with self._agent_session_factory() as session:
+                result = await session.execute(select(AgentSessionModel))
+                rows = result.scalars().all()
+
                 _MSG_CLASSES: dict[str, type[BaseMessage]] = {
                     "human": HumanMessage,
                     "ai": AIMessage,
@@ -657,16 +699,18 @@ Additional Rules:
                     "function": FunctionMessage,
                     "chat": ChatMessage,
                 }
-                
+
                 for row in rows:
-                    sid = row[0]
+                    sid = row.session_id
                     try:
-                        raw_msgs = json.loads(row[1])
-                    except json.JSONDecodeError:
+                        raw_msgs = row.messages if isinstance(row.messages, list) else json.loads(row.messages)
+                    except (json.JSONDecodeError, TypeError):
                         continue
-                        
-                    last_active = row[2]
-                    
+
+                    last_active = row.last_active_at
+                    if hasattr(last_active, "timestamp"):
+                        last_active = last_active.timestamp()
+
                     msgs: list[BaseMessage] = []
                     for raw in raw_msgs:
                         msg_type = raw.get("type", "")
@@ -701,10 +745,17 @@ Additional Rules:
                 self._sessions_timestamps.pop(sid, None)
             if stale:
                 try:
-                    async with aiosqlite.connect(self._db_path) as db:
-                        placeholders = ",".join("?" for _ in stale)
-                        await db.execute(f"DELETE FROM agent_sessions WHERE session_id IN ({placeholders})", stale)
-                        await db.commit()
+                    from src.storage.models import AgentSessionModel
+                    from sqlalchemy import delete
+
+                    await self._ensure_agent_db()
+                    async with self._agent_session_factory() as session:
+                        await session.execute(
+                            delete(AgentSessionModel).where(
+                                AgentSessionModel.session_id.in_(stale)
+                            )
+                        )
+                        await session.commit()
                 except Exception as e:
                     logger.warning(f"清理过期数据库会话失败: {e}")
                 logger.debug(f"清理了 {len(stale)} 个超时会话")

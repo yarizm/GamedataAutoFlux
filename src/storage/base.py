@@ -2,9 +2,7 @@
 存储层抽象基类
 
 存储层负责持久化采集和处理后的数据。
-支持结构化（SQLite）和非结构化（JSON + 向量数据库）两种模式。
-
-通过 @registry.register("storage", "name") 装饰器注册到系统。
+基于 SQLAlchemy ORM，通过 @registry.register("storage", "name") 装饰器注册到系统。
 """
 
 from __future__ import annotations
@@ -40,13 +38,13 @@ class BaseStorage(ABC):
     存储层抽象基类。
 
     子类实现示例:
-        @registry.register("storage", "sqlite")
-        class SQLiteStorage(BaseStorage):
+        @registry.register("storage", "sqlalchemy")
+        class SQLAlchemyStorage(BaseStorage):
             async def save(self, record):
-                await self.db.execute(...)
+                ...
 
             async def load(self, key):
-                row = await self.db.fetchone(...)
+                ...
                 return StorageRecord(...)
     """
 

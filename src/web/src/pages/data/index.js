@@ -151,7 +151,7 @@ export default {
     currentDataPage = page;
 
     try {
-      // Use game_key endpoint — filters correctly by computed identity, not stale SQLite columns
+      // Use game_key endpoint — filters correctly by computed identity, not stale DB columns
       const gk = encodeURIComponent(selectedDataGame.game_key);
       const params = new URLSearchParams();
       params.set('page', String(page));

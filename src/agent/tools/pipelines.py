@@ -106,7 +106,7 @@ class CreateDynamicPipelineTool(BaseTool):
     description: str = (
         "创建一个基于 Playwright 的动态网页数据采集 Pipeline。\n"
         "该工具会自动配置 Playwright 采集器 (dynamic_playwright) -> 降噪清洗处理器 (cleaner) "
-        "-> 本地 SQLite 存储 (local) -> 向量数据库存储 (vector)。\n"
+        "-> 数据库存储 (sqlalchemy) -> 向量数据库存储 (vector)。\n"
         "专为需要通过执行 JS 脚本进行交互或自定义提取的动态网页（如单页应用、需要复杂交互的页面）设计。\n"
         "生成的 Pipeline 可以直接通过 create_task 来运行。"
     )
@@ -158,3 +158,5 @@ class CreateDynamicPipelineTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
+
+

@@ -1,8 +1,29 @@
 services:
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: autoflux_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=autoflux
+    volumes:
+      - autoflux_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d autoflux"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   autoflux:
     build: .
     image: gamedata-autoflux:latest
     container_name: autoflux_app
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
@@ -15,3 +36,7 @@ services:
     environment:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/autoflux
+
+volumes:
+  autoflux_pgdata:

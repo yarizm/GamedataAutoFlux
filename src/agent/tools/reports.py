@@ -79,13 +79,13 @@ class GenerateReportTool(BaseTool):
         record_keys: list[str] | None = None,
     ) -> str:
         from src.web.app import report_generator
-        from src.storage.local_store import LocalStorage
+        from src.storage.factory import get_storage
 
         record_keys = record_keys or []
         records = None
         metadata = None
 
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             if record_keys:
@@ -106,7 +106,7 @@ class GenerateReportTool(BaseTool):
                 # LocalStorage query supports searching by 'query' which matches key or source
                 if keywords:
                     primary_keyword = keywords[0]
-                    # We pass the keyword to `query` method to reduce the result set at SQLite level
+                    # Pass keyword to query method to reduce result set at database level
                     result = await store.query(primary_keyword, limit=500)
                 else:
                     result = await store.query("key:", limit=2000)

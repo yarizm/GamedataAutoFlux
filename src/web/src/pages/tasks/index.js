@@ -268,7 +268,22 @@ export default {
       officialSiteUrl: getVal('task-official-site-url'),
     });
 
-    if (targetsRaw) { try { targets = JSON.parse(targetsRaw); } catch { toast(t('message.targetsJsonInvalid'), 'error'); return; } }
+    if (targetsRaw) {
+      try {
+        let parsed = JSON.parse(targetsRaw);
+        if (!Array.isArray(parsed)) {
+          if (typeof parsed === 'object' && parsed !== null) {
+            parsed = [{ name: targetName || 'Target', target_type: 'game', params: parsed }];
+          } else {
+            throw new Error('Invalid targets JSON');
+          }
+        }
+        targets = parsed;
+      } catch {
+        toast(t('message.targetsJsonInvalid'), 'error');
+        return;
+      }
+    }
     if (!targets.length) { toast(t('message.targetRequired'), 'error'); return; }
 
     const enableReport = getChecked('task-enable-report');

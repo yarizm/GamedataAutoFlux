@@ -26,8 +26,8 @@ from src.core.config import get as get_config
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskStatus
-from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
+from src.storage.base import BaseStorage, StorageRecord
+from src.core.registry import registry
 
 
 class Scheduler:
@@ -54,6 +54,8 @@ class Scheduler:
             else get_config("scheduler.default_retry_count", 3)
         )
         self._task_store_config = task_store_config or {
+            "provider": get_config("database.provider", "local"),
+            "sqlalchemy_url": get_config("database.sqlalchemy_url") or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
             "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
             "json_dir": get_config("scheduler.persistence.json_dir", "scheduler_tasks"),
         }
@@ -62,7 +64,7 @@ class Scheduler:
         self._tasks: dict[str, Task] = {}
         self._pipelines: dict[str, Pipeline] = {}
         self._running_futures: dict[str, asyncio.Task] = {}
-        self._task_store: LocalStorage | None = None
+        self._task_store: BaseStorage | None = None
         self._background_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
 
         # APScheduler 用于 cron 定时
@@ -72,7 +74,17 @@ class Scheduler:
     async def start(self) -> None:
         """启动调度器"""
         self._semaphore = asyncio.Semaphore(self._max_concurrent)
-        self._task_store = LocalStorage(self._task_store_config)
+        # Refresh from config to support test overrides
+        self._task_store_config["provider"] = get_config("database.provider", "local")
+        self._task_store_config["sqlalchemy_url"] = get_config("database.sqlalchemy_url") or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
+        
+        provider = self._task_store_config.get("provider", "sqlalchemy")
+        if provider == "sqlalchemy":
+            provider = "sqlalchemy_scheduler"
+        
+        store_cls = registry.get("storage", provider)
+        self._task_store = store_cls(self._task_store_config)
+            
         await self._task_store.initialize()
         await self._restore_pipelines()
         await self._restore_tasks()
@@ -211,6 +223,12 @@ class Scheduler:
                             task.fail(error_msg)
                             await self._persist_task(task)
                             logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
+                            from src.services.alert_service import AlertService
+                            asyncio.create_task(AlertService.get_instance().send_alert(
+                                f"任务执行失败: {task.name}",
+                                f"**Task ID**: {task.id}\n**Error**: {error_msg}",
+                                level="error"
+                            ))
 
                     return result
 
@@ -234,6 +252,12 @@ class Scheduler:
                         task.fail(error_msg)
                         await self._persist_task(task)
                         logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
+                        from src.services.alert_service import AlertService
+                        asyncio.create_task(AlertService.get_instance().send_alert(
+                            f"任务执行异常: {task.name}",
+                            f"**Task ID**: {task.id}\n**Exception**: {error_msg}",
+                            level="error"
+                        ))
                         return None
 
                 finally:

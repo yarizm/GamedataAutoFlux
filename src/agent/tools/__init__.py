@@ -10,6 +10,7 @@ from .data import ListDataGamesTool, SearchDataTool, ReviewCollectionResultsTool
 from .reports import GenerateReportTool, GetReportContentTool
 from .identifiers import ResolveSteamAppIdTool, VerifySteamAppIdTool, SearchGameIdentifiersTool, VerifyGameIdentifierTool
 from .system import GetSystemStatsTool, LaunchSteamDBBrowserTool
+from .semantic_search import SemanticSearchTool
 
 ALL_TOOLS: list[BaseTool] = [
     LaunchSteamDBBrowserTool(),
@@ -36,4 +37,5 @@ ALL_TOOLS: list[BaseTool] = [
     VerifyGameIdentifierTool(),
     ReviewCollectionResultsTool(),
     GetDataRecordContentTool(),
+    SemanticSearchTool(),
 ]

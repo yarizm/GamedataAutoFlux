@@ -23,17 +23,17 @@ from src.services._utils import (
     roll_time_params,
 )
 from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
-from src.storage.vector_store import VectorStorage
+from src.storage.base import BaseStorage
+from src.storage.factory import get_storage
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["data"])
 
 
 @contextlib.asynccontextmanager
-async def _local_store() -> AsyncIterator[LocalStorage]:
+async def _local_store() -> AsyncIterator[BaseStorage]:
     """Shared async context manager for LocalStorage connections."""
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         yield store
@@ -105,7 +105,6 @@ class DeleteDataCategoryResponse(BaseModel):
     game_key: str = ""
     group_id: str = ""
     records_deleted: int = 0
-    vector_records_deleted: int = 0
     tasks_deleted: int = 0
     cron_jobs_deleted: int = 0
     reports_deleted: int = 0
@@ -245,7 +244,7 @@ async def list_data_records(
 ):
     query_text = f"source:{source.strip()}" if source.strip() else (q.strip() or "key:")
     offset = (page - 1) * page_size
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         result = await store.query(
@@ -490,9 +489,7 @@ async def _delete_data_category(
     )
 
     records_deleted = await _delete_local_records(record_keys)
-    vector_deleted = await _delete_vector_records(
-        record_keys=record_keys, game_key=game_key, group_ids=group_ids, group_names=group_names
-    )
+
     tasks_deleted = await _delete_related_tasks(
         task_ids=task_ids, group_ids=group_ids, group_names=group_names
     )
@@ -510,7 +507,6 @@ async def _delete_data_category(
         game_key=game_key,
         group_id=group_id or next(iter(group_ids), ""),
         records_deleted=records_deleted,
-        vector_records_deleted=vector_deleted,
         tasks_deleted=tasks_deleted,
         cron_jobs_deleted=cron_deleted,
         reports_deleted=reports_deleted,
@@ -518,7 +514,7 @@ async def _delete_data_category(
 
 
 async def _delete_local_records(record_keys: set[str]) -> int:
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     deleted = 0
     try:
@@ -530,38 +526,6 @@ async def _delete_local_records(record_keys: set[str]) -> int:
     return deleted
 
 
-async def _delete_vector_records(
-    *,
-    record_keys: set[str],
-    game_key: str,
-    group_ids: set[str],
-    group_names: set[str],
-) -> int:
-    vector = VectorStorage()
-    await vector.initialize()
-    deleted = 0
-    deleted_keys: set[str] = set()
-    try:
-        for key in record_keys:
-            if await vector.delete(key):
-                deleted += 1
-                deleted_keys.add(key)
-
-        for key in await vector.list_keys(limit=100000):
-            if key in deleted_keys:
-                continue
-            record = await vector.load(key)
-            if record is None:
-                continue
-            if _record_matches_category(
-                record, game_key=game_key, group_ids=group_ids, group_names=group_names
-            ):
-                if await vector.delete(key):
-                    deleted += 1
-                    deleted_keys.add(key)
-    finally:
-        await vector.close()
-    return deleted
 
 
 async def _ensure_related_tasks_are_not_running(
@@ -770,7 +734,7 @@ async def download_data_record(record_key: Annotated[str, Path(description="Stor
 
 
 async def _load_source_records(limit: int = 1000) -> list[StorageRecord]:
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         result = await store.query("key:", limit=limit)
@@ -780,7 +744,7 @@ async def _load_source_records(limit: int = 1000) -> list[StorageRecord]:
 
 
 async def _load_record(key: str) -> StorageRecord:
-    store = LocalStorage()
+    store = get_storage()
     await store.initialize()
     try:
         record = await store.load(key)

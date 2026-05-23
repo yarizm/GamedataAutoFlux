@@ -276,3 +276,30 @@ def roll_time_params(params: dict[str, Any]) -> None:
         window = max((end_date - start_date).days, 0)
         params[start_key] = replace_date_prefix(str(start_raw), today - timedelta(days=window))
         params[end_key] = replace_date_prefix(str(end_raw), today)
+
+
+# ---------------------------------------------------------------------------
+# Embeddings Factory
+# ---------------------------------------------------------------------------
+
+def get_embeddings() -> Any:
+    """Return a configured Embeddings instance based on settings."""
+    from src.core.config import get_settings
+    from langchain_community.embeddings import DashScopeEmbeddings
+    from loguru import logger
+    
+    settings = get_settings()
+    llm_config = settings.get("llm", {}).get("qwen", {})
+    api_key = llm_config.get("api_key")
+
+    try:
+        # For DashScope, base_url is typically handled via environment variable or client kwargs
+        # if using the compatible mode. But standard DashScopeEmbeddings doesn't accept base_url easily.
+        # The model "text-embedding-v2" is fixed for 1536 dims.
+        return DashScopeEmbeddings(
+            model="text-embedding-v2",
+            dashscope_api_key=api_key
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize embeddings: {e}")
+        return None

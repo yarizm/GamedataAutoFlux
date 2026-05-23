@@ -22,8 +22,7 @@ from pydantic import BaseModel, Field
 from src.core.config import get as get_config
 from src.core.config import get_data_dir
 from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
-from src.storage.vector_store import VectorStorage
+from src.storage.factory import get_storage
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.excel_exporter import export_to_excel
 from src.reporting.report_templates import get_report_template, validate_template_sources
@@ -56,7 +55,6 @@ class ReportGenerator:
         self,
         source_storage_config: dict[str, Any] | None = None,
         report_storage_config: dict[str, Any] | None = None,
-        vector_storage_config: dict[str, Any] | None = None,
     ):
         self._source_storage_config = source_storage_config or {}
         self._report_storage_config = {
@@ -64,11 +62,7 @@ class ReportGenerator:
             "json_dir": "reports",
             **(report_storage_config or {}),
         }
-        self._vector_storage_config = vector_storage_config or {
-            "provider": get_config("vector_store.provider", "local"),
-            "db_name": get_config("vector_store.local.db_name", "vector_store.db"),
-            "json_dir": get_config("vector_store.local.json_dir", "vector_records"),
-        }
+
         self._llm_provider = get_config("llm.provider", "stub")
 
     async def generate(
@@ -296,7 +290,7 @@ class ReportGenerator:
         return report
 
     async def list_reports(self, limit: int = 20) -> list[ReportSummary]:
-        store = LocalStorage(self._report_storage_config)
+        store = get_storage()
         await store.initialize()
         try:
             result = await store.query("key:report:", limit=limit)
@@ -307,7 +301,7 @@ class ReportGenerator:
             await store.close()
 
     async def get_report(self, report_id: str) -> GeneratedReport | None:
-        store = LocalStorage(self._report_storage_config)
+        store = get_storage()
         await store.initialize()
         try:
             record = await store.load(f"report:{report_id}")
@@ -359,7 +353,7 @@ class ReportGenerator:
                     path.unlink()
             except Exception:
                 pass
-        store = LocalStorage(self._report_storage_config)
+        store = get_storage()
         await store.initialize()
         try:
             await store.delete(f"report:{report_id}")
@@ -368,7 +362,7 @@ class ReportGenerator:
         return True
 
     async def _save_report(self, report: GeneratedReport) -> None:
-        store = LocalStorage(self._report_storage_config)
+        store = get_storage()
         await store.initialize()
         try:
             await store.save(
@@ -394,14 +388,8 @@ class ReportGenerator:
         params: dict[str, Any],
     ) -> list[StorageRecord]:
         limit = int(params.get("limit", 5))
-        use_vector = params.get("use_vector", True)
 
-        if use_vector:
-            vector_records = await self._load_vector_records(prompt=prompt, limit=limit)
-            if vector_records:
-                return vector_records
-
-        store = LocalStorage(self._source_storage_config)
+        store = get_storage()
         await store.initialize()
         try:
             if data_source:
@@ -418,14 +406,6 @@ class ReportGenerator:
         finally:
             await store.close()
 
-    async def _load_vector_records(self, prompt: str, limit: int) -> list[StorageRecord]:
-        store = VectorStorage(self._vector_storage_config)
-        await store.initialize()
-        try:
-            result = await store.query(prompt, limit=limit)
-            return result.records
-        finally:
-            await store.close()
 
     def _extract_keywords(self, prompt: str) -> list[str]:
         cleaned = re.sub(r"[^\w\u4e00-\u9fff]+", " ", prompt.lower())

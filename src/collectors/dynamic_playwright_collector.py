@@ -1,34 +1,17 @@
 import asyncio
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from loguru import logger
-from playwright.sync_api import sync_playwright
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.core.registry import registry
 
 
-def _should_use_threaded_playwright() -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        loop = asyncio.get_running_loop()
-        return isinstance(loop, asyncio.SelectorEventLoop)
-    except RuntimeError:
-        return False
-
-
 @registry.register("collector", "dynamic_playwright")
 class DynamicPlaywrightCollector(BaseCollector):
-    """A generic, config-driven Playwright collector.
-
-    On Windows SelectorEventLoop (which can't spawn subprocesses), it uses
-    sync_playwright in a dedicated single-thread executor — same pattern
-    as the existing steamdb / qimai / taptap scrapers.
-    """
+    """A generic, config-driven Playwright collector using an isolated worker thread."""
 
     _SINGLE_EXECUTOR: Optional[ThreadPoolExecutor] = None
 
@@ -40,9 +23,11 @@ class DynamicPlaywrightCollector(BaseCollector):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
+        self._pw_mgr = None
         self._pw = None
         self._browser = None
         self._context = None
+        self._worker_loop = None
         if self.config:
             self._normalize_config(self.config)
 
@@ -95,98 +80,121 @@ class DynamicPlaywrightCollector(BaseCollector):
         loop = asyncio.get_running_loop()
         executor = self._get_executor()
 
-        def _sync_setup():
-            pw = sync_playwright().start()
-            browser = pw.chromium.launch(headless=self.config.get("headless", True))
-            ua = self.config.get(
-                "user_agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
-            )
-            context = browser.new_context(user_agent=ua)
-            return pw, browser, context
+        def _worker_setup():
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
 
-        self._pw, self._browser, self._context = await loop.run_in_executor(executor, _sync_setup)
+            async def _do_setup():
+                from playwright.async_api import async_playwright
+                pw_mgr = async_playwright()
+                pw = await pw_mgr.start()
+                browser = await pw.chromium.launch(headless=self.config.get("headless", True))
+                ua = self.config.get(
+                    "user_agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+                )
+                context = await browser.new_context(user_agent=ua)
+                return pw_mgr, pw, browser, context
+
+            pw_mgr, pw, browser, context = new_loop.run_until_complete(_do_setup())
+            return new_loop, pw_mgr, pw, browser, context
+
+        self._worker_loop, self._pw_mgr, self._pw, self._browser, self._context = await loop.run_in_executor(executor, _worker_setup)
 
     async def teardown(self) -> None:
-        if self._pw is None:
+        if not self._worker_loop:
             return
 
         loop = asyncio.get_running_loop()
         executor = self._get_executor()
 
-        def _sync_teardown():
-            if self._context:
-                self._context.close()
-            if self._browser:
-                self._browser.close()
-            if self._pw:
-                self._pw.stop()
+        def _worker_teardown():
+            async def _do_teardown():
+                if self._context:
+                    await self._context.close()
+                if self._browser:
+                    await self._browser.close()
+                if self._pw:
+                    await self._pw.stop()
+            self._worker_loop.run_until_complete(_do_teardown())
 
-        await loop.run_in_executor(executor, _sync_teardown)
+        await loop.run_in_executor(executor, _worker_teardown)
         self._context = None
         self._browser = None
         self._pw = None
+        self._pw_mgr = None
+        self._worker_loop = None
 
     async def collect(self, target: CollectTarget) -> CollectResult:
-        if not self._context:
+        if not self._worker_loop:
             return CollectResult(target=target, success=False, error="Browser not initialized")
 
         loop = asyncio.get_running_loop()
         executor = self._get_executor()
         config = self.config
 
-        def _sync_collect() -> CollectResult:
-            url_template = config.get("url", "")
-            try:
-                url = url_template.format(**target.params)
-            except KeyError as e:
-                return CollectResult(target=target, success=False, error=f"Missing URL param: {e}")
+        def _worker_collect():
+            async def _do_collect():
+                url_template = config.get("url", "")
+                try:
+                    url = url_template.format(**target.params)
+                except KeyError as e:
+                    return CollectResult(target=target, success=False, error=f"Missing URL param: {e}")
 
-            page = self._context.new_page()
-            try:
-                logger.info(f"[dynamic_playwright] Navigating to: {url}")
-                page.goto(url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000))
+                page = await self._context.new_page()
+                try:
+                    logger.info(f"[dynamic_playwright] Navigating to: {url}")
+                    await page.goto(url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000))
 
-                wait_strategy = config.get("wait_strategy", {})
-                if isinstance(wait_strategy, dict):
-                    stype = wait_strategy.get("type", "")
-                    timeout = wait_strategy.get("timeout_ms", 10000)
-                    if stype == "selector":
-                        sel = wait_strategy.get("selector", "")
-                        if sel:
-                            page.wait_for_selector(sel, timeout=timeout)
-                    elif stype == "networkidle":
-                        page.wait_for_load_state("networkidle", timeout=timeout)
+                    wait_strategy = config.get("wait_strategy", {})
+                    if isinstance(wait_strategy, dict):
+                        stype = wait_strategy.get("type", "")
+                        timeout = wait_strategy.get("timeout_ms", 10000)
+                        if stype == "selector":
+                            sel = wait_strategy.get("selector", "")
+                            if sel:
+                                await page.wait_for_selector(sel, timeout=timeout)
+                        elif stype == "networkidle":
+                            await page.wait_for_load_state("networkidle", timeout=timeout)
 
-                if config.get("scroll_to_bottom", False):
-                    delay_ms = config.get("scroll_delay_ms", 500)
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(delay_ms / 1000.0)
+                    if config.get("scroll_to_bottom", False):
+                        delay_ms = config.get("scroll_delay_ms", 500)
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(delay_ms / 1000.0)
 
-                data = _sync_extract(page, config)
-                return CollectResult(
-                    target=target,
-                    success=True,
-                    data=data,
-                    metadata={
-                        "collector": "dynamic_playwright",
-                        "url": url,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                )
-            finally:
-                page.close()
+                    data = await _async_extract(page, config)
+                    return CollectResult(
+                        target=target,
+                        success=True,
+                        data=data,
+                        metadata={
+                            "collector": "dynamic_playwright",
+                            "url": url,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                    )
+                except Exception as e:
+                    logger.error(f"[dynamic_playwright] Error collecting {url}: {e}")
+                    # Ensure str(e) is never empty, as empty strings cause logging issues upstream
+                    err_msg = str(e) if str(e).strip() else repr(e)
+                    return CollectResult(target=target, success=False, error=err_msg)
+                finally:
+                    await page.close()
 
-        return await loop.run_in_executor(executor, _sync_collect)
+            return self._worker_loop.run_until_complete(_do_collect())
+
+        return await loop.run_in_executor(executor, _worker_collect)
 
 
-def _sync_extract(page, config: dict) -> Dict[str, Any]:
-    """Extract data using sync Playwright page."""
+async def _async_extract(page, config: dict) -> Dict[str, Any]:
+    """Extract data using async Playwright page."""
     mode = config.get("extraction_mode", "css_selectors")
 
     if mode == "js_evaluate":
         js_script = config.get("js_script", "")
-        return page.evaluate(js_script)
+        return await page.evaluate(js_script)
 
     elif mode == "css_selectors":
         fields = config.get("fields", {})
@@ -203,25 +211,25 @@ def _sync_extract(page, config: dict) -> Dict[str, Any]:
                 continue
 
             if multiple:
-                elements = page.query_selector_all(selector)
+                elements = await page.query_selector_all(selector)
                 values = []
                 for el in elements:
                     if attribute == "innerText":
-                        values.append(el.inner_text())
+                        values.append(await el.inner_text())
                     elif attribute == "textContent":
-                        values.append(el.text_content())
+                        values.append(await el.text_content())
                     else:
-                        values.append(el.get_attribute(attribute))
+                        values.append(await el.get_attribute(attribute))
                 result[field_name] = values
             else:
-                element = page.query_selector(selector)
+                element = await page.query_selector(selector)
                 if element:
                     if attribute == "innerText":
-                        result[field_name] = element.inner_text()
+                        result[field_name] = await element.inner_text()
                     elif attribute == "textContent":
-                        result[field_name] = element.text_content()
+                        result[field_name] = await element.text_content()
                     else:
-                        result[field_name] = element.get_attribute(attribute)
+                        result[field_name] = await element.get_attribute(attribute)
                 else:
                     result[field_name] = None
         return result

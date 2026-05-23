@@ -8,6 +8,19 @@ from src.core.pipeline import Pipeline
 from src.storage.base import StorageRecord
 
 
+@pytest.fixture(autouse=True)
+def isolated_db_config(tmp_path, monkeypatch):
+    """Ensure all tests use an isolated file database by default."""
+    db_path = tmp_path / "test_autoflux.db"
+    test_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", test_url)
+    
+    from src.core.config import load_settings
+    load_settings()
+    
+    yield
+
+
 @pytest.fixture
 def sample_record_steam():
     return StorageRecord(

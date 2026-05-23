@@ -145,10 +145,22 @@ export default {
 
     let steps = this._buildStepsFromForm();
     if (stepsRaw) {
-      try { steps = JSON.parse(stepsRaw); }
+      try { 
+        const parsed = JSON.parse(stepsRaw); 
+        if (Array.isArray(parsed)) {
+          steps = parsed;
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          // Assume it's config for the collector if it's an object
+          if (steps.length > 0 && steps[0].type === 'collector') {
+            steps[0].config = parsed;
+          } else {
+            steps = [parsed]; // Fallback to array replacement if no collector
+          }
+        }
+      }
       catch { toast(t('message.pipelineJsonInvalid'), 'error'); return; }
     }
-    if (!steps.length) { toast(t('message.pipelineStepsRequired'), 'error'); return; }
+    if (!steps || !steps.length) { toast(t('message.pipelineStepsRequired'), 'error'); return; }
 
     try {
       await api('/pipelines', { method: 'POST', body: JSON.stringify({ name, steps }) });

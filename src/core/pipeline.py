@@ -10,7 +10,7 @@ Pipeline 编排引擎
         .add_collector("steam", config={...})
         .add_processor("cleaner")
         .add_processor("embedding")
-        .add_storage("sqlite")
+        .add_storage("sqlalchemy")
         .add_storage("vector")
     )
 
@@ -348,9 +348,14 @@ class Pipeline:
     async def _instantiate_steps(self, steps: list[PipelineStep], component_type: str) -> None:
         """实例化步骤中的组件"""
         for step in steps:
-            cls_ = registry.get(component_type, step.component_name)
-            step.instance = cls_(config=step.config)
-            logger.debug(f"  实例化 [{component_type}] {step.component_name}")
+            if component_type == "storage":
+                from src.storage.factory import get_storage
+                step.instance = get_storage()
+                logger.debug(f"  实例化 [storage] via factory: {step.instance.__class__.__name__}")
+            else:
+                cls_ = registry.get(component_type, step.component_name)
+                step.instance = cls_(config=step.config)
+                logger.debug(f"  实例化 [{component_type}] {step.component_name}")
 
     def to_config(self) -> dict[str, Any]:
         """导出 Pipeline 配置（用于持久化和 API）"""
@@ -426,7 +431,7 @@ def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, A
         enriched["group_id"] = group_id or group_name
         enriched["group_name"] = group_name or group_id
 
-    # Promote key fields to top-level for SQLite column extraction
+    # Promote key fields to top-level for storage column extraction
     enriched.setdefault("collector", task.collector_name)
     enriched.setdefault("task_id", task.id)
     enriched.setdefault("target", enriched.get("target") or "")

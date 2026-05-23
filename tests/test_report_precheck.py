@@ -3,12 +3,11 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from src.storage.base import StorageRecord
-from src.storage.local_store import LocalStorage
+from src.storage.factory import get_storage
 from src.web.app import app
 
 
 def test_report_precheck_reports_missing_template_sources(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
     _save_record(
         tmp_path,
         StorageRecord(
@@ -40,7 +39,6 @@ def test_report_precheck_reports_missing_template_sources(tmp_path, monkeypatch)
 
 
 def test_report_precheck_accepts_complete_taptap_template(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
     _save_record(
         tmp_path,
         StorageRecord(
@@ -68,7 +66,6 @@ def test_report_precheck_accepts_complete_taptap_template(tmp_path, monkeypatch)
 
 
 def test_report_precheck_rejects_missing_record(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
 
     with TestClient(app) as client:
         response = client.post(
@@ -84,7 +81,6 @@ def test_report_precheck_rejects_missing_record(tmp_path, monkeypatch) -> None:
 
 
 def test_report_precheck_empty_result_keeps_template_requirements(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("src.storage.local_store.get_data_dir", lambda: tmp_path)
 
     with TestClient(app) as client:
         response = client.post(
@@ -108,7 +104,7 @@ def _save_record(tmp_path, record: StorageRecord) -> None:
     import asyncio
 
     async def run() -> None:
-        store = LocalStorage()
+        store = get_storage()
         await store.initialize()
         try:
             await store.save(record)

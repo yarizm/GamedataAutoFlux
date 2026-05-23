@@ -43,7 +43,7 @@ class ComponentRegistry:
 
         Args:
             component_type: 组件类型，如 "collector", "processor", "storage"
-            name: 组件名称，如 "steam", "cleaner", "sqlite"
+            name: 组件名称，如 "steam", "cleaner", "sqlalchemy"
 
         Returns:
             装饰器函数
