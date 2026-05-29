@@ -7,22 +7,27 @@ from sqlalchemy.ext.compiler import compiles
 
 try:
     from pgvector.sqlalchemy import Vector
+
     VectorType = Vector(1536)
 except ImportError:
     VectorType = JSON
 
 Base = declarative_base()
 
+
 # Custom JSON type that falls back to JSONB on PostgreSQL for better performance
 class JSONType(JSON):
     pass
+
 
 @compiles(JSONType, "postgresql")
 def compile_json_postgresql(type_, compiler, **kw):
     return "JSONB"
 
+
 def utcnow():
     return datetime.now(timezone.utc)
+
 
 class RecordModel(Base):
     __tablename__ = "records"
@@ -34,12 +39,12 @@ class RecordModel(Base):
     app_id = Column(String, default="", index=True)
     group_id = Column(String, default="")
     task_id = Column(String, default="")
-    
+
     metadata_ = Column("metadata", JSONType, default=dict)
     tags = Column(JSONType, default=list)
     data = Column(JSONType, default=dict)
     embedding = Column(VectorType)
-    
+
     stored_at = Column(DateTime, default=utcnow, index=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -51,6 +56,7 @@ class SchedulerStateModel(Base):
     state_type = Column(String, nullable=False, index=True)
     data = Column(JSONType, default=dict)
     metadata_ = Column("metadata", JSONType, default=dict)
+    task_status = Column(String, nullable=True, index=True)
     stored_at = Column(DateTime, default=utcnow, index=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -61,4 +67,3 @@ class AgentSessionModel(Base):
     session_id = Column(String, primary_key=True)
     messages = Column(JSONType, default=list)
     last_active_at = Column(DateTime, default=utcnow)
-

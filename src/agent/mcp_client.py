@@ -44,7 +44,7 @@ class PlaywrightMcpManager:
         self._tools_cache: List[BaseTool] = []
         self._is_running = False
         self._call_lock = asyncio.Lock()
-        
+
         self._manager_task: Optional[asyncio.Task] = None
         self._stop_event: Optional[asyncio.Event] = None
 
@@ -56,13 +56,15 @@ class PlaywrightMcpManager:
         if self._manager_task and not self._manager_task.done():
             return
 
-        logger.info(f"Starting Playwright MCP Server in background task: {self._command} {' '.join(self._args)}")
-        
+        logger.info(
+            f"Starting Playwright MCP Server in background task: {self._command} {' '.join(self._args)}"
+        )
+
         loop = asyncio.get_running_loop()
         start_future = loop.create_future()
         self._stop_event = asyncio.Event()
         self._manager_task = asyncio.create_task(self._run_manager_task(start_future))
-        
+
         try:
             await start_future
         except Exception as e:
@@ -82,27 +84,27 @@ class PlaywrightMcpManager:
             await self._cleanup_old_resources()
             self._exit_stack = AsyncExitStack()
 
-            server_params = StdioServerParameters(
-                command=self._command,
-                args=self._args,
-                env=None
-            )
+            server_params = StdioServerParameters(command=self._command, args=self._args, env=None)
 
             try:
-                read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(server_params))
-                self._session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+                read_stream, write_stream = await self._exit_stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+                self._session = await self._exit_stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                )
 
                 await self._session.initialize()
                 await self._fetch_tools()
 
                 for tool in self._tools_cache:
-                    if hasattr(tool, '_consecutive_failures'):
+                    if hasattr(tool, "_consecutive_failures"):
                         tool._consecutive_failures = 0
 
                 self._is_running = True
                 attempt = 0
                 logger.info("Playwright MCP Server initialized successfully.")
-                
+
                 if not start_future.done():
                     start_future.set_result(True)
 
@@ -114,20 +116,22 @@ class PlaywrightMcpManager:
                 if not start_future.done():
                     start_future.set_exception(e)
                     break
-                
+
                 if self._stop_event and self._stop_event.is_set():
                     break
-                    
+
                 attempt += 1
                 backoff = min(max_backoff, base_backoff * (2 ** (attempt - 1)))
-                logger.error(f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt})...")
+                logger.error(
+                    f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt})..."
+                )
                 await asyncio.sleep(backoff)
-                
+
             finally:
                 self._is_running = False
                 await self._cleanup_old_resources()
                 logger.info("Playwright MCP Server stopped and resources cleaned.")
-                
+
             if self._stop_event and self._stop_event.is_set():
                 break
 
@@ -146,14 +150,14 @@ class PlaywrightMcpManager:
         self._is_running = False
         if self._stop_event:
             self._stop_event.set()
-        
+
         if self._manager_task and not self._manager_task.done():
             try:
                 # Wait for the task to finish cleanup
                 await asyncio.wait_for(self._manager_task, timeout=5.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._manager_task.cancel()
-        
+
         self._manager_task = None
         self._tools_cache = []
 
@@ -224,10 +228,7 @@ class PlaywrightMcpManager:
             _consecutive_failures: int = 0
 
             async def _arun(
-                self,
-                *args,
-                run_manager: Optional[CallbackManagerForToolRun] = None,
-                **kwargs
+                self, *args, run_manager: Optional[CallbackManagerForToolRun] = None, **kwargs
             ) -> str:
                 # --- Guard: MCP server already known to be dead ---
                 if not manager_ref._is_running:
@@ -256,7 +257,9 @@ class PlaywrightMcpManager:
                 try:
                     # Serialize call_tool; MCP stdio is a single JSON-RPC connection.
                     async with manager_ref._call_lock:
-                        result: CallToolResult = await session.call_tool(self.name, arguments=clean_arguments)
+                        result: CallToolResult = await session.call_tool(
+                            self.name, arguments=clean_arguments
+                        )
 
                     # Serialize the result
                     output_parts = []
@@ -264,7 +267,9 @@ class PlaywrightMcpManager:
                         if content.type == "text":
                             output_parts.append(content.text)
                         elif content.type == "image":
-                            output_parts.append(f"[Image content returned (base64 omitted), mime_type: {content.mimeType}]")
+                            output_parts.append(
+                                f"[Image content returned (base64 omitted), mime_type: {content.mimeType}]"
+                            )
                         else:
                             output_parts.append(f"[Unknown content type: {content.type}]")
 

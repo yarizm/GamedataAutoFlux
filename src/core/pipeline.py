@@ -350,6 +350,7 @@ class Pipeline:
         for step in steps:
             if component_type == "storage":
                 from src.storage.factory import get_storage
+
                 step.instance = get_storage()
                 logger.debug(f"  实例化 [storage] via factory: {step.instance.__class__.__name__}")
             else:
@@ -435,12 +436,9 @@ def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, A
     enriched.setdefault("collector", task.collector_name)
     enriched.setdefault("task_id", task.id)
     enriched.setdefault("target", enriched.get("target") or "")
-    enriched.setdefault("game_name", str(
-        enriched.get("target")
-        or enriched.get("group_name")
-        or task.name
-        or ""
-    ))
+    enriched.setdefault(
+        "game_name", str(enriched.get("target") or enriched.get("group_name") or task.name or "")
+    )
 
     refresh = task.config.get("refresh", {})
     if isinstance(refresh, dict):

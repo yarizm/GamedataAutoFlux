@@ -1,6 +1,7 @@
 """
 任务管理工具
 """
+
 from typing import Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from src.agent.schemas import (
 )
 from src.agent.tools.utils import _format_result
 from src.agent.tools.identifiers import _auto_fill_identifiers
+
 
 class ListTasksTool(BaseTool):
     name: str = "list_tasks"
@@ -51,6 +53,7 @@ class ListTasksTool(BaseTool):
     def _run(self, status: str | None = None) -> str:
         raise NotImplementedError("Use _arun")
 
+
 class GetTaskDetailTool(BaseTool):
     name: str = "get_task_detail"
     description: str = "获取单个任务的详细信息，包括步骤日志和结果摘要"
@@ -76,6 +79,7 @@ class GetTaskDetailTool(BaseTool):
 
     def _run(self, task_id: str) -> str:
         raise NotImplementedError("Use _arun")
+
 
 class CreateTaskTool(BaseTool):
     name: str = "create_task"
@@ -151,6 +155,7 @@ class CreateTaskTool(BaseTool):
 
             code = classify_exception(e)
             from loguru import logger
+
             logger.error(f"Agent 创建任务失败: [{code.value}] {e}")
             return _format_result(
                 "error",
@@ -161,6 +166,7 @@ class CreateTaskTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
+
 
 class CancelTaskTool(BaseTool):
     name: str = "cancel_task"

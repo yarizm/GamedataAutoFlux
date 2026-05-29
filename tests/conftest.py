@@ -14,10 +14,11 @@ def isolated_db_config(tmp_path, monkeypatch):
     db_path = tmp_path / "test_autoflux.db"
     test_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
     monkeypatch.setenv("DATABASE_URL", test_url)
-    
+
     from src.core.config import load_settings
+
     load_settings()
-    
+
     yield
 
 

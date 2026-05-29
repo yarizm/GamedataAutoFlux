@@ -30,6 +30,7 @@ report_generator = ReportGenerator()
 
 # Agent 服务单例（延迟初始化）
 _agent_service = None
+_agent_session_service = None  # 在 lifespan 中初始化
 
 
 def get_agent_service():
@@ -41,7 +42,7 @@ def get_agent_service():
         try:
             from src.agent.agent import AgentService
 
-            _agent_service = AgentService()
+            _agent_service = AgentService(session_service=_agent_session_service)
             logger.info("Agent 服务已初始化")
         except Exception as e:
             logger.warning(f"Agent 服务初始化失败: {e}")
@@ -111,7 +112,40 @@ async def lifespan(app: FastAPI):
     loop_name = asyncio.get_running_loop().__class__.__name__
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
+
+    # 初始化共享 DB session factory
+    from src.storage.session_factory import init_shared_session_factory
+
+    session_factory = await init_shared_session_factory()
+
+    # 创建 Agent 会话持久化服务
+    from src.services.agent_session_service import AgentSessionService
+
+    global _agent_session_service
+    _agent_session_service = AgentSessionService(
+        session_factory=session_factory,
+        session_timeout=get_config("agent.session_timeout_minutes", 60) * 60,
+        max_sessions=50,
+    )
+
     _auto_discover_plugins()
+
+    # 注入 repositories 到 scheduler
+    from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
+
+    scheduler._task_repo = SQLAlchemyTaskRepository(session_factory)
+
+    # 注册事件 hooks
+    from src.core.events import event_bus
+    from src.core.hooks import ReportGenerationHook, AlertHook, WebSocketBroadcastHook
+    from src.services.alert_service import AlertService
+    from src.web.routes.ws import manager
+
+    scheduler._event_bus = event_bus
+    event_bus.on("task_completed", ReportGenerationHook(report_generator).handle)
+    event_bus.on("task_completed", AlertHook(AlertService.get_instance()).handle)
+    event_bus.on("task_updated", WebSocketBroadcastHook(manager).handle)
+
     await scheduler.start()
     logger.info("GamedataAutoFlux 启动完成 ✓")
 
@@ -124,6 +158,11 @@ async def lifespan(app: FastAPI):
     agent_svc = get_agent_service()
     if agent_svc and agent_svc._mcp_manager:
         await agent_svc._mcp_manager.stop()
+
+    # 关闭共享 DB session factory
+    from src.storage.session_factory import close_shared_session_factory
+
+    await close_shared_session_factory()
 
     logger.info("GamedataAutoFlux 已关闭")
 

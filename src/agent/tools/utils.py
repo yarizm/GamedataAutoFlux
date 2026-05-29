@@ -1,8 +1,10 @@
 """
 Agent 工具公共方法
 """
+
 import json
 from typing import Any
+
 
 def _safe_json(obj: Any) -> str:
     """序列化为 JSON 字符串，处理 Pydantic 模型与 datetime"""
