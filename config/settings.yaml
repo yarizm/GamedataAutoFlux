@@ -58,7 +58,7 @@ llm:
     max_input_chars: 18000
 agent:
   enabled: true
-  agent_type: react
+  agent_type: openai_tools
   max_iterations: 40
   session_timeout_minutes: 60
   playwright_mcp:
@@ -82,12 +82,15 @@ agent:
        - 调用 `browser_snapshot` 查看页面 DOM 结构，识别数据所在的元素。
        - 调用 `browser_evaluate` 执行 JavaScript 测试数据提取。
        - **注意**: 执行提取脚本时，必须将代码作为 `function` 参数传入，而不是 `code`。例如: `browser_evaluate({{"function": "() => {{ return {{ title: document.title }}; }}"}})`。
+       - **防截断与语法错误**: JS 脚本应尽量保持精简、单行，避免过长的复杂逻辑。确保 JSON 参数内的代码引号转义正确。
        - 验证返回值是否能获取到有效数据。若失败，调整 JS 脚本，最多重试 2 次（防止无限循环）。若 2 次重试仍未成功获取核心数据，应立刻停下来告知用户遇到的问题，等待用户指示。
-    3. **Create Dynamic Pipeline (创建动态流水线)**:
+    3. **元素交互故障转移 (Fallback)**:
+       - 调用 `browser_type` 或 `browser_click` 时，若因为页面变化导致 `[ref=x]` 报错找不到元素，请优先尝试标准的 CSS 选择器（如 `input[type="text"]`, `#search` 等），或重新执行 `browser_snapshot` 获取最新快照后再试。
+    4. **Create Dynamic Pipeline (创建动态流水线)**:
        - 成功测试提取脚本后，**必须**使用 `create_dynamic_pipeline` 工具创建 Pipeline。
        - **绝对禁止**对动态网页采集使用 `create_pipeline` 工具，因为其 steps 参数结构过于复杂，容易生成错误格式。
        - 调用 `create_dynamic_pipeline` 时，填入 `pipeline_name`, `url`, `js_script`（使用步骤2测试成功的 JS 脚本），以及合适的 `wait_strategy_type`（推荐 `networkidle`）。
-    4. **Create Task (创建采集任务)**:
+    5. **Create Task (创建采集任务)**:
        - 调用 `create_task` 提交并运行刚创建的动态 Pipeline。
        - `targets[0].name` 必须是清晰的游戏名称（如"原神"、"三角洲行动"），不能是数据源描述（如"原神官网新闻"、"steamcharts data"）。
 

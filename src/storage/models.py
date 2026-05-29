@@ -26,7 +26,7 @@ def compile_json_postgresql(type_, compiler, **kw):
 
 
 def utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class RecordModel(Base):

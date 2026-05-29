@@ -39,6 +39,9 @@ def get_agent_service():
     if not get_config("agent.enabled", True):
         return None
     if _agent_service is None:
+        if _agent_session_service is None:
+            logger.debug("Agent 会话服务尚未初始化，跳过")
+            return None
         try:
             from src.agent.agent import AgentService
 

@@ -38,6 +38,17 @@ _MSG_CLASSES: dict[str, type[BaseMessage]] = {
 }
 
 
+def _utc_timestamp(dt: datetime) -> float:
+    """将 naive（假设 UTC）或 aware datetime 转为 Unix timestamp。
+
+    utcnow() 写入 DB 的是 naive UTC datetime，读出后需按 UTC 解释，
+    而非依赖本地时区（datetime.timestamp() 的默认行为）。
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 class AgentSessionService:
     """Agent 会话持久化服务。
 
@@ -93,9 +104,11 @@ class AgentSessionService:
                     except (json.JSONDecodeError, TypeError):
                         continue
 
-                    last_active = row.last_active_at
-                    if hasattr(last_active, "timestamp"):
-                        last_active = last_active.timestamp()
+                    last_active = (
+                        _utc_timestamp(row.last_active_at)
+                        if row.last_active_at is not None
+                        else time.time()
+                    )
 
                     msgs: list[BaseMessage] = []
                     for raw in raw_msgs:
@@ -177,13 +190,15 @@ class AgentSessionService:
                         existing.messages = messages_json
                         existing.last_active_at = datetime.fromtimestamp(
                             last_active, tz=timezone.utc
-                        )
+                        ).replace(tzinfo=None)
                     else:
                         session.add(
                             AgentSessionModel(
                                 session_id=sid,
                                 messages=messages_json,
-                                last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
+                                last_active_at=datetime.fromtimestamp(
+                                    last_active, tz=timezone.utc
+                                ).replace(tzinfo=None),
                             )
                         )
 
@@ -262,7 +277,9 @@ class AgentSessionService:
                             AgentSessionModel(
                                 session_id=sid,
                                 messages=raw_msgs,
-                                last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
+                                last_active_at=datetime.fromtimestamp(
+                                    last_active, tz=timezone.utc
+                                ).replace(tzinfo=None),
                             )
                         )
                 await session.commit()

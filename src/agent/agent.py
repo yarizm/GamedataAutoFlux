@@ -3,22 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-import os
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
-    ChatMessage,
-    FunctionMessage,
     HumanMessage,
     SystemMessage,
-    ToolMessage,
 )
 from langchain_openai import ChatOpenAI
 
@@ -47,13 +40,13 @@ from src.agent.stream_parser import (
     process_text_chunk,
 )
 from src.agent.tools import ALL_TOOLS
-from src.core.config import get as get_config, get_data_dir
+from src.core.config import get as get_config
 
 
 class AgentService:
     """管理 LangChain Agent 会话和流式调用"""
 
-    def __init__(self, session_service: Any = None) -> None:
+    def __init__(self, session_service: Any) -> None:
         self._llm: ChatOpenAI | None = None
         self._agent_executor: Any = None
         self._mcp_manager: Any | None = None
@@ -63,14 +56,11 @@ class AgentService:
         self._provider_override: str | None = None
         self._lock = asyncio.Lock()
         self._last_save_time: float = 0
-        self._session_service = session_service  # AgentSessionService | None
+        self._session_service = session_service
 
         self._max_iterations: int = get_config("agent.max_iterations", 10)
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
-        self._old_persist_path: Path = get_data_dir() / "agent_sessions.json"
         self._histories_loaded: bool = False
-        self._agent_engine: Any = None
-        self._agent_session_factory: Any = None
 
         self._system_prompt: str = get_config(
             "agent.system_prompt",
@@ -87,6 +77,8 @@ class AgentService:
             f"**绝对禁止伪造或虚构工具调用结果！绝对禁止在没有实际发起函数调用的情况下回复用户你已经完成了操作！**\n"
             f"所有的查询、页面导航、数据采集动作都必须通过实际的工具调用（Tool Call/Function Call）来执行。\n"
             f"切勿在正文中手写类似 `⚙ xxx` 或 `### Result` 的伪造日志！必须使用原生工具调用。\n"
+            f"在你决定调用工具或输出最终结果之前，请务必先进行充分的逻辑推理和步骤规划，并将所有思考过程包裹在 `<think>` 和 `</think>` 标签内。例如：\n"
+            f"<think>\n为了完成这个任务，我需要先搜索...然后再提取...\n</think>\n"
             f"当你需要查询数据、管理任务或进行网络请求时，必须主动且直接地调用对应的工具：\n"
             f"{tool_desc}\n"
             f"===================================\n"
@@ -437,204 +429,23 @@ Additional Rules:
             self._sessions_timestamps.pop(session_id, None)
             await self._save_histories(force=True)
 
-    MAX_PERSISTED_SESSIONS: int = 50
-
-    async def _ensure_agent_db(self) -> None:
-        """延迟初始化 Agent 会话的 SQLAlchemy 引擎和表"""
-        if self._agent_engine is not None:
-            return
-        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-        from src.core.config import get_settings
-        from src.storage.models import Base
-
-        settings = get_settings()
-        url = settings.get("database", {}).get(
-            "sqlalchemy_url",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
-        )
-        self._agent_engine = create_async_engine(url, echo=False)
-        self._agent_session_factory = async_sessionmaker(
-            self._agent_engine, expire_on_commit=False, class_=AsyncSession
-        )
-        async with self._agent_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
     async def _save_histories(self, force: bool = False) -> None:
-        """持久化会话历史到数据库（最多保留 MAX_PERSISTED_SESSIONS 个会话）
-
-        调用者必须持有 self._lock。
-        """
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            self._last_save_time = await self._session_service.save_histories(
-                self._histories,
-                self._sessions_timestamps,
-                last_save_time=self._last_save_time,
-                force=force,
-            )
-            return
-
-        # 旧路径：自建 DB engine
-        now = time.time()
-        if not force and now - self._last_save_time < 5:
-            return
-
-        if len(self._histories) > self.MAX_PERSISTED_SESSIONS:
-            sorted_sids = sorted(
-                self._histories.keys(),
-                key=lambda sid: self._sessions_timestamps.get(sid, 0),
-                reverse=True,
-            )
-            stale = sorted_sids[self.MAX_PERSISTED_SESSIONS :]
-            for sid in stale:
-                self._histories.pop(sid, None)
-                self._sessions_timestamps.pop(sid, None)
-
-        await self._ensure_agent_db()
-
-        try:
-            from src.storage.models import AgentSessionModel
-            from sqlalchemy import select, delete
-
-            async with self._agent_session_factory() as session:
-                for sid, msgs in self._histories.items():
-                    messages_json = json.dumps(
-                        [msg.model_dump(mode="json") for msg in msgs], ensure_ascii=False
-                    )
-                    last_active = self._sessions_timestamps.get(sid, now)
-                    result = await session.execute(
-                        select(AgentSessionModel).where(AgentSessionModel.session_id == sid)
-                    )
-                    existing = result.scalars().first()
-                    if existing:
-                        existing.messages = messages_json
-                        existing.last_active_at = datetime.fromtimestamp(
-                            last_active, tz=timezone.utc
-                        )
-                    else:
-                        session.add(
-                            AgentSessionModel(
-                                session_id=sid,
-                                messages=messages_json,
-                                last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
-                            )
-                        )
-
-                active_sids = list(self._histories.keys())
-                if active_sids:
-                    await session.execute(
-                        delete(AgentSessionModel).where(
-                            ~AgentSessionModel.session_id.in_(active_sids)
-                        )
-                    )
-
-                await session.commit()
-            self._last_save_time = now
-        except Exception as exc:
-            logger.warning(f"保存 Agent 会话历史失败: {exc}")
+        """持久化会话历史到数据库。调用者必须持有 self._lock。"""
+        self._last_save_time = await self._session_service.save_histories(
+            self._histories,
+            self._sessions_timestamps,
+            last_save_time=self._last_save_time,
+            force=force,
+        )
 
     async def _load_histories(self) -> None:
-        """从数据库恢复 Agent 会话历史，包含兼容旧版 JSON 迁移"""
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            try:
-                histories, timestamps = await self._session_service.load_histories()
-                self._histories = histories
-                self._sessions_timestamps = timestamps
-                if self._histories:
-                    logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
-            except Exception as e:
-                logger.warning(f"加载 Agent 会话历史失败: {e}")
-            return
-
-        # 旧路径：自建 DB engine
-        from src.storage.models import AgentSessionModel
-        from sqlalchemy import select
-
-        await self._ensure_agent_db()
-
+        """从数据库恢复 Agent 会话历史"""
         try:
-            # JSON 迁移：如果旧版 JSON 文件存在，先迁入数据库
-            if self._old_persist_path.exists():
-                logger.info("发现旧版 JSON 会话数据，正在迁移到数据库...")
-                try:
-                    data = json.loads(self._old_persist_path.read_text(encoding="utf-8"))
-                    async with self._agent_session_factory() as session:
-                        for sid, blob in data.items():
-                            if isinstance(blob, dict) and "messages" in blob:
-                                raw_msgs = blob.get("messages", [])
-                                last_active = blob.get("last_active_at", time.time())
-                            elif isinstance(blob, list):
-                                raw_msgs = blob
-                                last_active = time.time()
-                            else:
-                                continue
-
-                            result = await session.execute(
-                                select(AgentSessionModel).where(AgentSessionModel.session_id == sid)
-                            )
-                            if result.scalars().first() is None:
-                                session.add(
-                                    AgentSessionModel(
-                                        session_id=sid,
-                                        messages=raw_msgs,
-                                        last_active_at=datetime.fromtimestamp(
-                                            last_active, tz=timezone.utc
-                                        ),
-                                    )
-                                )
-                        await session.commit()
-                    os.replace(
-                        str(self._old_persist_path),
-                        str(self._old_persist_path.with_suffix(".json.bak")),
-                    )
-                    logger.info("JSON 数据迁移完成，已重命名为 .bak")
-                except Exception as e:
-                    logger.warning(f"迁移 JSON 会话历史失败: {e}")
-
-            async with self._agent_session_factory() as session:
-                result = await session.execute(select(AgentSessionModel))
-                rows = result.scalars().all()
-
-                _MSG_CLASSES: dict[str, type[BaseMessage]] = {
-                    "human": HumanMessage,
-                    "ai": AIMessage,
-                    "system": SystemMessage,
-                    "tool": ToolMessage,
-                    "function": FunctionMessage,
-                    "chat": ChatMessage,
-                }
-
-                for row in rows:
-                    sid = row.session_id
-                    try:
-                        raw_msgs = (
-                            row.messages
-                            if isinstance(row.messages, list)
-                            else json.loads(row.messages)
-                        )
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-
-                    last_active = row.last_active_at
-                    if hasattr(last_active, "timestamp"):
-                        last_active = last_active.timestamp()
-
-                    msgs: list[BaseMessage] = []
-                    for raw in raw_msgs:
-                        msg_type = raw.get("type", "")
-                        cls = _MSG_CLASSES.get(msg_type)
-                        if cls is not None:
-                            msgs.append(cls.model_validate(raw))
-                        else:
-                            logger.warning(f"恢复会话时跳过未知消息类型: {msg_type!r}")
-
-                    if msgs:
-                        self._histories[sid] = msgs
-                        self._sessions_timestamps[sid] = last_active
-
-                if self._histories:
-                    logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
+            histories, timestamps = await self._session_service.load_histories()
+            self._histories = histories
+            self._sessions_timestamps = timestamps
+            if self._histories:
+                logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
         except Exception as e:
             logger.warning(f"加载 Agent 会话历史失败: {e}")
 
@@ -643,39 +454,8 @@ Additional Rules:
         if not self._session_timeout:
             return
 
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            async with self._lock:
-                await self._session_service.cleanup_stale(
-                    self._histories, self._sessions_timestamps
-                )
-            return
-
-        # 旧路径：自建 DB engine
         async with self._lock:
-            now = time.time()
-            stale = [
-                sid
-                for sid, ts in list(self._sessions_timestamps.items())
-                if now - ts > self._session_timeout
-            ]
-            for sid in stale:
-                self._histories.pop(sid, None)
-                self._sessions_timestamps.pop(sid, None)
-            if stale:
-                try:
-                    from src.storage.models import AgentSessionModel
-                    from sqlalchemy import delete
-
-                    await self._ensure_agent_db()
-                    async with self._agent_session_factory() as session:
-                        await session.execute(
-                            delete(AgentSessionModel).where(AgentSessionModel.session_id.in_(stale))
-                        )
-                        await session.commit()
-                except Exception as e:
-                    logger.warning(f"清理过期数据库会话失败: {e}")
-                logger.debug(f"清理了 {len(stale)} 个超时会话")
+            await self._session_service.cleanup_stale(self._histories, self._sessions_timestamps)
 
     def list_sessions(self) -> list[str]:
         """返回当前有聊天历史的 session ID 列表"""
