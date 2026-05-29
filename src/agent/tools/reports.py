@@ -1,6 +1,7 @@
 """
 报告生成与查询工具
 """
+
 import json
 from typing import Type
 from langchain_core.tools import BaseTool
@@ -14,12 +15,37 @@ from src.agent.schemas import (
 from src.agent.tools.data import _list_available_games
 from src.services._utils import extract_record_identity
 
+
 def _extract_prompt_keywords(prompt: str) -> list[str]:
     import re
+
     stop_words = {
-        "帮我", "生成", "报告", "一个", "一份", "的", "了", "是", "在", "和", "请", "要", "需要",
-        "分析", "综合", "全面", "关于", "对于", "这个", "include", "report", "generate",
-        "for", "the", "a", "an",
+        "帮我",
+        "生成",
+        "报告",
+        "一个",
+        "一份",
+        "的",
+        "了",
+        "是",
+        "在",
+        "和",
+        "请",
+        "要",
+        "需要",
+        "分析",
+        "综合",
+        "全面",
+        "关于",
+        "对于",
+        "这个",
+        "include",
+        "report",
+        "generate",
+        "for",
+        "the",
+        "a",
+        "an",
     }
     split_pattern = re.compile(
         r"[，。！？、；：（）\s]+"
@@ -62,6 +88,7 @@ def _filter_records_by_keywords(records: list, keywords: list[str]) -> list:
                 break
     return matched
 
+
 class GenerateReportTool(BaseTool):
     name: str = "generate_report"
     description: str = (
@@ -101,7 +128,7 @@ class GenerateReportTool(BaseTool):
                 metadata = {"selected_record_keys": record_keys}
             else:
                 keywords = _extract_prompt_keywords(prompt)
-                
+
                 # OPTIMIZATION: If we have keywords, query the storage directly with the first keyword to reduce memory load
                 # LocalStorage query supports searching by 'query' which matches key or source
                 if keywords:
@@ -110,7 +137,7 @@ class GenerateReportTool(BaseTool):
                     result = await store.query(primary_keyword, limit=500)
                 else:
                     result = await store.query("key:", limit=2000)
-                    
+
                 all_records = result.records
                 if not all_records:
                     return json.dumps(

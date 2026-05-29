@@ -1,9 +1,11 @@
 """
 系统概览工具
 """
+
 from langchain_core.tools import BaseTool
 
 from src.agent.tools.utils import _format_result
+
 
 class GetSystemStatsTool(BaseTool):
     name: str = "get_system_stats"
@@ -26,6 +28,7 @@ class GetSystemStatsTool(BaseTool):
     def _run(self) -> str:
         raise NotImplementedError("Use _arun")
 
+
 class LaunchSteamDBBrowserTool(BaseTool):
     name: str = "launch_steamdb_browser"
     description: str = "一键启动用于 SteamDB 采集的浏览器，并开放 CDP 端口。系统检查报错找不到 SteamDB 浏览器时，可以通过此工具自动打开。"
@@ -38,13 +41,12 @@ class LaunchSteamDBBrowserTool(BaseTool):
 
         cdp_port = get_config("steam.steamdb.cdp_port", 9222)
         cmd = build_steamdb_launch_command()
-            
+
         try:
             subprocess.Popen(cmd)
-            
-            
+
             success = await asyncio.to_thread(self._wait_for_cdp, cdp_port)
-            
+
             if success:
                 return _format_result(
                     "ok",
@@ -72,6 +74,7 @@ class LaunchSteamDBBrowserTool(BaseTool):
     def _wait_for_cdp(port: int, timeout: int = 10) -> bool:
         import time
         import urllib.request
+
         deadline = time.time() + timeout
         url = f"http://127.0.0.1:{port}/json/version"
         while time.time() < deadline:

@@ -406,7 +406,6 @@ class ReportGenerator:
         finally:
             await store.close()
 
-
     def _extract_keywords(self, prompt: str) -> list[str]:
         cleaned = re.sub(r"[^\w\u4e00-\u9fff]+", " ", prompt.lower())
         tokens = [token for token in cleaned.split() if len(token) >= 2]

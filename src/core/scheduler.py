@@ -23,11 +23,15 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
 from src.core.config import get as get_config
+from src.core.events import EventBus
 from src.core.pipeline import Pipeline, PipelineResult
+from src.core.registry import registry
 from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskStatus
+from src.services.task_repository import TaskRepository
+from src.services.cron_repository import CronRepository, CronJobConfig
+from src.services.pipeline_repository import PipelineRepository
 from src.storage.base import BaseStorage, StorageRecord
-from src.core.registry import registry
 
 
 class Scheduler:
@@ -42,6 +46,10 @@ class Scheduler:
         max_concurrent: int | None = None,
         default_retries: int | None = None,
         task_store_config: dict[str, Any] | None = None,
+        task_repo: TaskRepository | None = None,
+        cron_repo: CronRepository | None = None,
+        pipeline_repo: PipelineRepository | None = None,
+        event_bus: EventBus | None = None,
     ):
         self._max_concurrent = (
             max_concurrent
@@ -55,10 +63,17 @@ class Scheduler:
         )
         self._task_store_config = task_store_config or {
             "provider": get_config("database.provider", "local"),
-            "sqlalchemy_url": get_config("database.sqlalchemy_url") or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
+            "sqlalchemy_url": get_config("database.sqlalchemy_url")
+            or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
             "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
             "json_dir": get_config("scheduler.persistence.json_dir", "scheduler_tasks"),
         }
+
+        # 注入的仓储层（向后兼容：None 时走旧路径）
+        self._task_repo = task_repo
+        self._cron_repo = cron_repo
+        self._pipeline_repo = pipeline_repo
+        self._event_bus = event_bus
 
         self._semaphore: asyncio.Semaphore | None = None
         self._tasks: dict[str, Task] = {}
@@ -76,15 +91,18 @@ class Scheduler:
         self._semaphore = asyncio.Semaphore(self._max_concurrent)
         # Refresh from config to support test overrides
         self._task_store_config["provider"] = get_config("database.provider", "local")
-        self._task_store_config["sqlalchemy_url"] = get_config("database.sqlalchemy_url") or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
-        
+        self._task_store_config["sqlalchemy_url"] = (
+            get_config("database.sqlalchemy_url")
+            or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
+        )
+
         provider = self._task_store_config.get("provider", "sqlalchemy")
         if provider == "sqlalchemy":
             provider = "sqlalchemy_scheduler"
-        
+
         store_cls = registry.get("storage", provider)
         self._task_store = store_cls(self._task_store_config)
-            
+
         await self._task_store.initialize()
         await self._restore_pipelines()
         await self._restore_tasks()
@@ -138,7 +156,9 @@ class Scheduler:
             return False
 
         del self._pipelines[name]
-        if self._task_store is not None:
+        if self._pipeline_repo is not None:
+            await self._pipeline_repo.delete(name)
+        elif self._task_store is not None:
             await self._task_store.delete(f"pipeline:{name}")
         logger.info(f"Pipeline deleted: {name}")
         return True
@@ -204,8 +224,24 @@ class Scheduler:
                     result = await pipeline.execute(task)
 
                     if result.success:
-                        if self._should_generate_report(task):
-                            await self._generate_report_for_task(task, pipeline, result)
+                        if self._event_bus is not None:
+                            # 通过 EventBus 触发报告生成和告警
+                            from src.core.events import TaskCompletedEvent
+
+                            await self._event_bus.emit(
+                                "task_completed",
+                                TaskCompletedEvent(
+                                    task_id=task.id,
+                                    success=True,
+                                    result=result,
+                                    task=task,
+                                    errors=[],
+                                ),
+                            )
+                        else:
+                            # 旧路径：内联报告生成
+                            if self._should_generate_report(task):
+                                await self._generate_report_for_task(task, pipeline, result)
                         task.complete(result)
                         await self._persist_task(task)
                         logger.info(f"任务执行成功: [{task.id}] {task.name}")
@@ -223,12 +259,29 @@ class Scheduler:
                             task.fail(error_msg)
                             await self._persist_task(task)
                             logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
-                            from src.services.alert_service import AlertService
-                            asyncio.create_task(AlertService.get_instance().send_alert(
-                                f"任务执行失败: {task.name}",
-                                f"**Task ID**: {task.id}\n**Error**: {error_msg}",
-                                level="error"
-                            ))
+                            if self._event_bus is not None:
+                                from src.core.events import TaskCompletedEvent
+
+                                await self._event_bus.emit(
+                                    "task_completed",
+                                    TaskCompletedEvent(
+                                        task_id=task.id,
+                                        success=False,
+                                        result=result,
+                                        task=task,
+                                        errors=result.errors,
+                                    ),
+                                )
+                            else:
+                                from src.services.alert_service import AlertService
+
+                                asyncio.create_task(
+                                    AlertService.get_instance().send_alert(
+                                        f"任务执行失败: {task.name}",
+                                        f"**Task ID**: {task.id}\n**Error**: {error_msg}",
+                                        level="error",
+                                    )
+                                )
 
                     return result
 
@@ -252,12 +305,29 @@ class Scheduler:
                         task.fail(error_msg)
                         await self._persist_task(task)
                         logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
-                        from src.services.alert_service import AlertService
-                        asyncio.create_task(AlertService.get_instance().send_alert(
-                            f"任务执行异常: {task.name}",
-                            f"**Task ID**: {task.id}\n**Exception**: {error_msg}",
-                            level="error"
-                        ))
+                        if self._event_bus is not None:
+                            from src.core.events import TaskCompletedEvent
+
+                            await self._event_bus.emit(
+                                "task_completed",
+                                TaskCompletedEvent(
+                                    task_id=task.id,
+                                    success=False,
+                                    result=None,
+                                    task=task,
+                                    errors=[error_msg],
+                                ),
+                            )
+                        else:
+                            from src.services.alert_service import AlertService
+
+                            asyncio.create_task(
+                                AlertService.get_instance().send_alert(
+                                    f"任务执行异常: {task.name}",
+                                    f"**Task ID**: {task.id}\n**Exception**: {error_msg}",
+                                    level="error",
+                                )
+                            )
                         return None
 
                 finally:
@@ -298,7 +368,9 @@ class Scheduler:
             return False
 
         del self._tasks[task_id]
-        if self._task_store is not None:
+        if self._task_repo is not None:
+            await self._task_repo.delete(task_id)
+        elif self._task_store is not None:
             await self._task_store.delete(f"task:{task_id}")
         logger.info(f"Task deleted: [{task_id}] {task.name}")
         return True
@@ -385,7 +457,9 @@ class Scheduler:
         """移除定时任务"""
         try:
             self._cron_scheduler.remove_job(name)
-            if self._task_store is not None:
+            if self._cron_repo is not None:
+                asyncio.create_task(self._cron_repo.delete(name))
+            elif self._task_store is not None:
                 asyncio.create_task(self._task_store.delete(f"cron:{name}"))
             logger.info(f"定时任务已移除: {name}")
             return True
@@ -539,56 +613,70 @@ class Scheduler:
 
     async def _persist_task(self, task: Task) -> None:
         """持久化任务快照，并向前端广播状态。"""
-        if self._task_store is None:
-            return
-
         # 提取给前端的简明数据
         task_payload = redact_sensitive(task.to_storage_payload())
 
-        # 保存到数据库
-        await self._task_store.save(
-            StorageRecord(
-                key=f"task:{task.id}",
-                data=task_payload,
-                metadata={
-                    "kind": "task",
-                    "status": task.status.value,
-                    "pipeline_name": task.pipeline_name,
-                },
-                source="scheduler",
-                tags=["task", task.status.value],
+        # 优先使用注入的 TaskRepository
+        if self._task_repo is not None:
+            await self._task_repo.save(task)
+        elif self._task_store is not None:
+            await self._task_store.save(
+                StorageRecord(
+                    key=f"task:{task.id}",
+                    data=task_payload,
+                    metadata={
+                        "kind": "task",
+                        "status": task.status.value,
+                        "pipeline_name": task.pipeline_name,
+                    },
+                    source="scheduler",
+                    tags=["task", task.status.value],
+                )
             )
-        )
 
-        # WebSocket 广播
-        try:
-            from src.web.routes.ws import manager
+        # 优先使用 EventBus 广播
+        if self._event_bus is not None:
+            from src.core.events import TaskUpdatedEvent
 
-            # 防止阻塞持久化逻辑，采用 create_task 背景发送
-            bg_task = asyncio.create_task(
-                manager.broadcast({"type": "task_update", "task": task_payload})
+            await self._event_bus.emit(
+                "task_updated",
+                TaskUpdatedEvent(
+                    task_id=task.id,
+                    payload=task_payload,
+                    status=task.status.value,
+                    pipeline_name=task.pipeline_name,
+                ),
             )
-            bg_task.add_done_callback(_on_background_task_done)
-            self._background_tasks.add(bg_task)
-        except Exception as exc:
-            logger.debug(f"Failed to broadcast task update: {exc}")
+        else:
+            # 旧路径：直接 WebSocket 广播
+            try:
+                from src.web.routes.ws import manager
+
+                bg_task = asyncio.create_task(
+                    manager.broadcast({"type": "task_update", "task": task_payload})
+                )
+                bg_task.add_done_callback(_on_background_task_done)
+                self._background_tasks.add(bg_task)
+            except Exception as exc:
+                logger.debug(f"Failed to broadcast task update: {exc}")
 
     async def _persist_pipeline(self, pipeline: Pipeline) -> None:
         """Persist a pipeline snapshot."""
-        if self._task_store is None:
-            return
-        await self._task_store.save(
-            StorageRecord(
-                key=f"pipeline:{pipeline.name}",
-                data=pipeline.to_config(),
-                metadata={
-                    "kind": "pipeline",
-                    "pipeline_name": pipeline.name,
-                },
-                source="scheduler",
-                tags=["pipeline"],
+        if self._pipeline_repo is not None:
+            await self._pipeline_repo.save(pipeline)
+        elif self._task_store is not None:
+            await self._task_store.save(
+                StorageRecord(
+                    key=f"pipeline:{pipeline.name}",
+                    data=pipeline.to_config(),
+                    metadata={
+                        "kind": "pipeline",
+                        "pipeline_name": pipeline.name,
+                    },
+                    source="scheduler",
+                    tags=["pipeline"],
+                )
             )
-        )
 
     async def _persist_cron_job(
         self,
@@ -598,86 +686,119 @@ class Scheduler:
         cron_expr: str,
         task_template: dict[str, Any],
     ) -> None:
-        if self._task_store is None:
-            return
-        refresh = {}
-        if isinstance(task_template, dict):
-            config = task_template.get("config", {})
-            if isinstance(config, dict) and isinstance(config.get("refresh"), dict):
-                refresh = config["refresh"]
-        await self._task_store.save(
-            StorageRecord(
-                key=f"cron:{name}",
-                data={
-                    "name": name,
-                    "pipeline_name": pipeline_name,
-                    "cron_expr": cron_expr,
-                    "task_template": task_template,
-                },
-                metadata={
-                    "kind": "cron",
-                    "pipeline_name": pipeline_name,
-                    "refresh_kind": refresh.get("refresh_kind", ""),
-                },
-                source="scheduler",
-                tags=["cron"],
-            )
-        )
-
-    async def _restore_pipelines(self) -> None:
-        """Restore persisted pipelines from local storage."""
-        if self._task_store is None:
-            return
-        result = await self._task_store.query("key:pipeline:", limit=1000)
-        for record in result.records:
-            if not isinstance(record.data, dict):
-                continue
-            try:
-                pipeline = Pipeline.from_config(record.data)
-            except Exception as exc:
-                logger.warning(f"Failed to restore pipeline {record.key}: {exc}")
-                continue
-            self._pipelines[pipeline.name] = pipeline
-
-    async def _restore_tasks(self) -> None:
-        """从本地存储恢复任务快照。"""
-        if self._task_store is None:
-            return
-        result = await self._task_store.query("key:task:", limit=1000)
-        for record in result.records:
-            if not isinstance(record.data, dict):
-                continue
-            task = Task.from_storage_payload(record.data)
-            if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.RETRYING):
-                task.cancel()
-                task.error = (
-                    "Recovered from a previous session without a live worker; marked cancelled."
-                )
-            self._tasks[task.id] = task
-
-    async def _restore_cron_jobs(self) -> None:
-        if self._task_store is None:
-            return
-        result = await self._task_store.query("key:cron:", limit=1000)
-        for record in result.records:
-            if not isinstance(record.data, dict):
-                continue
-            name = str(record.data.get("name") or "").strip()
-            pipeline_name = str(record.data.get("pipeline_name") or "").strip()
-            cron_expr = str(record.data.get("cron_expr") or "").strip()
-            task_template = record.data.get("task_template", {})
-            if not name or not pipeline_name or not cron_expr:
-                continue
-            try:
-                self.add_cron_job(
+        if self._cron_repo is not None:
+            await self._cron_repo.save(
+                CronJobConfig(
                     name=name,
                     pipeline_name=pipeline_name,
                     cron_expr=cron_expr,
-                    task_template=task_template if isinstance(task_template, dict) else {},
-                    persist=False,
+                    task_template=task_template,
                 )
-            except Exception as exc:
-                logger.warning(f"Failed to restore cron job {name}: {exc}")
+            )
+        elif self._task_store is not None:
+            refresh = {}
+            if isinstance(task_template, dict):
+                config = task_template.get("config", {})
+                if isinstance(config, dict) and isinstance(config.get("refresh"), dict):
+                    refresh = config["refresh"]
+            await self._task_store.save(
+                StorageRecord(
+                    key=f"cron:{name}",
+                    data={
+                        "name": name,
+                        "pipeline_name": pipeline_name,
+                        "cron_expr": cron_expr,
+                        "task_template": task_template,
+                    },
+                    metadata={
+                        "kind": "cron",
+                        "pipeline_name": pipeline_name,
+                        "refresh_kind": refresh.get("refresh_kind", ""),
+                    },
+                    source="scheduler",
+                    tags=["cron"],
+                )
+            )
+
+    async def _restore_pipelines(self) -> None:
+        """Restore persisted pipelines from repository or local storage."""
+        if self._pipeline_repo is not None:
+            pipelines = await self._pipeline_repo.list_all()
+            for pipeline in pipelines:
+                self._pipelines[pipeline.name] = pipeline
+        elif self._task_store is not None:
+            result = await self._task_store.query("key:pipeline:", limit=1000)
+            for record in result.records:
+                if not isinstance(record.data, dict):
+                    continue
+                try:
+                    pipeline = Pipeline.from_config(record.data)
+                except Exception as exc:
+                    logger.warning(f"Failed to restore pipeline {record.key}: {exc}")
+                    continue
+                self._pipelines[pipeline.name] = pipeline
+
+    async def _restore_tasks(self) -> None:
+        """从本地存储恢复任务快照。"""
+        if self._task_repo is not None:
+            tasks = await self._task_repo.query(limit=1000)
+            for task in tasks:
+                if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.RETRYING):
+                    task.cancel()
+                    task.error = (
+                        "Recovered from a previous session without a live worker; marked cancelled."
+                    )
+                self._tasks[task.id] = task
+        elif self._task_store is not None:
+            result = await self._task_store.query("key:task:", limit=1000)
+            for record in result.records:
+                if not isinstance(record.data, dict):
+                    continue
+                task = Task.from_storage_payload(record.data)
+                if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.RETRYING):
+                    task.cancel()
+                    task.error = (
+                        "Recovered from a previous session without a live worker; marked cancelled."
+                    )
+                self._tasks[task.id] = task
+
+    async def _restore_cron_jobs(self) -> None:
+        if self._cron_repo is not None:
+            jobs = await self._cron_repo.list_all()
+            for job in jobs:
+                try:
+                    self.add_cron_job(
+                        name=job.name,
+                        pipeline_name=job.pipeline_name,
+                        cron_expr=job.cron_expr,
+                        task_template=job.task_template
+                        if isinstance(job.task_template, dict)
+                        else {},
+                        persist=False,
+                    )
+                except Exception as exc:
+                    logger.warning(f"Failed to restore cron job {job.name}: {exc}")
+        elif self._task_store is not None:
+            result = await self._task_store.query("key:cron:", limit=1000)
+            for record in result.records:
+                if not isinstance(record.data, dict):
+                    continue
+                name = str(record.data.get("name") or "").strip()
+                pipeline_name = str(record.data.get("pipeline_name") or "").strip()
+                cron_expr = str(record.data.get("cron_expr") or "").strip()
+                task_template = record.data.get("task_template", {})
+                if not name or not pipeline_name or not cron_expr:
+                    continue
+                try:
+                    self.add_cron_job(
+                        name=name,
+                        pipeline_name=pipeline_name,
+                        cron_expr=cron_expr,
+                        task_template=task_template if isinstance(task_template, dict) else {},
+                        persist=False,
+                    )
+                except Exception as exc:
+                    logger.warning(f"Failed to restore cron job {name}: {exc}")
 
 
 def _on_background_task_done(task: asyncio.Task) -> None:

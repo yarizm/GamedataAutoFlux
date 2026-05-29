@@ -301,5 +301,3 @@ class CreateDynamicPipelineInput(BaseModel):
         ...,
         description="用于提取数据的 JavaScript 脚本。该脚本必须是一个自执行的 JavaScript 表达式或函数，返回值应当是一个包含所需数据的对象或数组。例如: '() => { return { title: document.title, score: document.querySelector(\".score\")?.innerText }; }'",
     )
-
-

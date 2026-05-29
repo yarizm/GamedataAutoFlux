@@ -180,7 +180,7 @@ def _steamdb_config_check() -> dict[str, Any]:
     cdp_enabled = bool(get_config("steam.steamdb.cdp_enabled", False))
     cdp_port = get_config("steam.steamdb.cdp_port", 9222)
     profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
-    
+
     if not cdp_enabled:
         return _check(
             "steam.steamdb",
@@ -191,6 +191,7 @@ def _steamdb_config_check() -> dict[str, Any]:
 
     # Check if CDP port is actually listening
     import urllib.request
+
     try:
         url = f"http://127.0.0.1:{cdp_port}/json/version"
         with urllib.request.urlopen(url, timeout=1) as response:

@@ -36,4 +36,5 @@ async def launch_steamdb_browser():
         return {"status": "ok", "message": "Browser launch command executed"}
     except Exception as e:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=500, detail=str(e))
