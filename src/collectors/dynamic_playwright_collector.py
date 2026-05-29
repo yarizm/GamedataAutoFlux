@@ -88,7 +88,6 @@ class DynamicPlaywrightCollector(BaseCollector):
 
             async def _do_setup():
                 from playwright.async_api import async_playwright
-
                 pw_mgr = async_playwright()
                 pw = await pw_mgr.start()
                 browser = await pw.chromium.launch(headless=self.config.get("headless", True))
@@ -102,13 +101,7 @@ class DynamicPlaywrightCollector(BaseCollector):
             pw_mgr, pw, browser, context = new_loop.run_until_complete(_do_setup())
             return new_loop, pw_mgr, pw, browser, context
 
-        (
-            self._worker_loop,
-            self._pw_mgr,
-            self._pw,
-            self._browser,
-            self._context,
-        ) = await loop.run_in_executor(executor, _worker_setup)
+        self._worker_loop, self._pw_mgr, self._pw, self._browser, self._context = await loop.run_in_executor(executor, _worker_setup)
 
     async def teardown(self) -> None:
         if not self._worker_loop:
@@ -125,7 +118,6 @@ class DynamicPlaywrightCollector(BaseCollector):
                     await self._browser.close()
                 if self._pw:
                     await self._pw.stop()
-
             self._worker_loop.run_until_complete(_do_teardown())
 
         await loop.run_in_executor(executor, _worker_teardown)
@@ -149,16 +141,12 @@ class DynamicPlaywrightCollector(BaseCollector):
                 try:
                     url = url_template.format(**target.params)
                 except KeyError as e:
-                    return CollectResult(
-                        target=target, success=False, error=f"Missing URL param: {e}"
-                    )
+                    return CollectResult(target=target, success=False, error=f"Missing URL param: {e}")
 
                 page = await self._context.new_page()
                 try:
                     logger.info(f"[dynamic_playwright] Navigating to: {url}")
-                    await page.goto(
-                        url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000)
-                    )
+                    await page.goto(url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000))
 
                     wait_strategy = config.get("wait_strategy", {})
                     if isinstance(wait_strategy, dict):

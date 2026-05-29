@@ -2,12 +2,11 @@ import httpx
 from loguru import logger
 from src.core.config import get_settings
 
-
 class AlertService:
     _instance = None
 
     @classmethod
-    def get_instance(cls) -> "AlertService":
+    def get_instance(cls) -> 'AlertService':
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -22,7 +21,7 @@ class AlertService:
         """
         settings = get_settings()
         alert_cfg = settings.get("alerts", {})
-
+        
         if not alert_cfg.get("enabled", False):
             return
 
@@ -49,8 +48,8 @@ class AlertService:
             "msgtype": "markdown",
             "markdown": {
                 "title": title,
-                "text": f"### <font color='{color}'>{title}</font>\n\n{content}",
-            },
+                "text": f"### <font color='{color}'>{title}</font>\n\n{content}"
+            }
         }
         response = await self._client.post(url, json=payload)
         response.raise_for_status()
@@ -58,15 +57,21 @@ class AlertService:
     async def _send_discord(self, url: str, title: str, content: str, level: str):
         color_map = {"info": 3447003, "warning": 16776960, "error": 15158332, "critical": 10038562}
         payload = {
-            "embeds": [
-                {"title": title, "description": content, "color": color_map.get(level, 15158332)}
-            ]
+            "embeds": [{
+                "title": title,
+                "description": content,
+                "color": color_map.get(level, 15158332)
+            }]
         }
         response = await self._client.post(url, json=payload)
         response.raise_for_status()
 
     async def _send_generic(self, url: str, title: str, content: str, level: str):
-        payload = {"title": title, "content": content, "level": level}
+        payload = {
+            "title": title,
+            "content": content,
+            "level": level
+        }
         response = await self._client.post(url, json=payload)
         response.raise_for_status()
 

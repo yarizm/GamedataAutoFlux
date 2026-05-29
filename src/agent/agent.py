@@ -23,29 +23,14 @@ from langchain_core.messages import (
 from langchain_openai import ChatOpenAI
 
 try:
-    from langchain_classic.agents import (
-        AgentExecutor,
-        create_openai_tools_agent,
-        create_structured_chat_agent,
-    )
+    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent, create_structured_chat_agent
 except ImportError:
-    from langchain.agents import (
-        AgentExecutor,
-        create_openai_tools_agent,
-        create_structured_chat_agent,
-    )
+    from langchain.agents import AgentExecutor, create_openai_tools_agent, create_structured_chat_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
 
 from loguru import logger
 
-from src.agent.stream_parser import (
-    StreamState,
-    flush_buffer,
-    parse_react_final_answer,
-    process_react_chunk,
-    process_text_chunk,
-)
 from src.agent.tools import ALL_TOOLS
 from src.core.config import get as get_config, get_data_dir
 
@@ -53,7 +38,7 @@ from src.core.config import get as get_config, get_data_dir
 class AgentService:
     """管理 LangChain Agent 会话和流式调用"""
 
-    def __init__(self, session_service: Any = None) -> None:
+    def __init__(self) -> None:
         self._llm: ChatOpenAI | None = None
         self._agent_executor: Any = None
         self._mcp_manager: Any | None = None
@@ -63,7 +48,6 @@ class AgentService:
         self._provider_override: str | None = None
         self._lock = asyncio.Lock()
         self._last_save_time: float = 0
-        self._session_service = session_service  # AgentSessionService | None
 
         self._max_iterations: int = get_config("agent.max_iterations", 10)
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
@@ -142,7 +126,7 @@ Additional Rules:
 {self._system_prompt}
 """
         suffix = """Begin! Reminder to ALWAYS respond with a valid json blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB```then Observation"""
-
+        
         return ChatPromptTemplate.from_messages(
             [
                 ("system", prefix),
@@ -182,7 +166,7 @@ Additional Rules:
 
         all_tools = list(ALL_TOOLS)
         agent_type = get_config("agent.agent_type", "openai_tools")
-
+        
         if agent_type == "react":
             prompt = self._build_react_prompt_with_tools(all_tools)
             agent = create_structured_chat_agent(self._llm, all_tools, prompt)
@@ -231,9 +215,7 @@ Additional Rules:
 
             # 如果 MCP 有工具且尚未注入（或需要重建），重建 AgentExecutor
             mcp_tools = self._mcp_manager.get_langchain_tools()
-            current_tool_names = {
-                t.name for t in (self._agent_executor.tools if self._agent_executor else [])
-            }
+            current_tool_names = {t.name for t in (self._agent_executor.tools if self._agent_executor else [])}
             mcp_tool_names = {t.name for t in mcp_tools}
 
             if mcp_tools and not mcp_tool_names.issubset(current_tool_names):
@@ -295,8 +277,109 @@ Additional Rules:
         try:
             await self._async_ensure_initialized()
 
-            state = StreamState()
+            in_thinking_block = False
+            content_buffer = ""
             suppress_final_stream = get_config("agent.agent_type", "openai_tools") == "react"
+            
+            in_react_action = False
+            react_emitted_len = 0
+            
+            def process_react_chunk(text: str) -> list[dict]:
+                nonlocal content_buffer, in_react_action, react_emitted_len
+                content_buffer += text
+                events = []
+                
+                if in_react_action:
+                    return []
+                
+                markers = ["Action:", "```json", '{"action"', '{ "action"', '{\n  "action"']
+                idx = -1
+                for m in markers:
+                    i = content_buffer.find(m)
+                    if i != -1:
+                        if idx == -1 or i < idx:
+                            idx = i
+                            
+                if idx != -1:
+                    in_react_action = True
+                    thought_text = content_buffer[react_emitted_len:idx]
+                    if react_emitted_len == 0 and thought_text.startswith("Thought:"):
+                        thought_text = thought_text[8:].lstrip()
+                    if thought_text:
+                        events.append({"type": "thinking", "content": thought_text})
+                    return events
+                
+                tail_safe = max(len(m) for m in markers)  # 最长 marker 12 字符
+                safe_len = max(0, len(content_buffer) - tail_safe)
+                if safe_len > react_emitted_len:
+                    thought_text = content_buffer[react_emitted_len:safe_len]
+                    if react_emitted_len == 0 and content_buffer.startswith("Thought:"):
+                        if safe_len >= 8:
+                            thought_text = content_buffer[8:safe_len].lstrip()
+                            react_emitted_len = safe_len
+                            if thought_text:
+                                events.append({"type": "thinking", "content": thought_text})
+                    else:
+                        react_emitted_len = safe_len
+                        if thought_text:
+                            events.append({"type": "thinking", "content": thought_text})
+                
+                return events
+
+            def process_text_chunk(text: str) -> list[dict]:
+                nonlocal in_thinking_block, content_buffer, final_output
+                content_buffer += text
+                events = []
+                while True:
+                    if not in_thinking_block:
+                        idx = content_buffer.find("<think>")
+                        if idx != -1:
+                            if idx > 0:
+                                pre_text = content_buffer[:idx]
+                                if not suppress_final_stream:
+                                    final_output += pre_text
+                                    events.append({"type": "final", "content": pre_text})
+                            in_thinking_block = True
+                            content_buffer = content_buffer[idx + 7:]
+                            continue
+                        
+                        last_lt = content_buffer.rfind("<")
+                        if last_lt != -1 and len(content_buffer) - last_lt < 7:
+                            if last_lt > 0:
+                                pre_text = content_buffer[:last_lt]
+                                if not suppress_final_stream:
+                                    final_output += pre_text
+                                    events.append({"type": "final", "content": pre_text})
+                                content_buffer = content_buffer[last_lt:]
+                            break
+                        else:
+                            if content_buffer:
+                                if not suppress_final_stream:
+                                    final_output += content_buffer
+                                    events.append({"type": "final", "content": content_buffer})
+                                content_buffer = ""
+                            break
+                    else:
+                        idx = content_buffer.find("</think>")
+                        if idx != -1:
+                            if idx > 0:
+                                events.append({"type": "thinking", "content": content_buffer[:idx]})
+                            in_thinking_block = False
+                            content_buffer = content_buffer[idx + 8:]
+                            continue
+                            
+                        last_lt = content_buffer.rfind("<")
+                        if last_lt != -1 and len(content_buffer) - last_lt < 8:
+                            if last_lt > 0:
+                                events.append({"type": "thinking", "content": content_buffer[:last_lt]})
+                                content_buffer = content_buffer[last_lt:]
+                            break
+                        else:
+                            if content_buffer:
+                                events.append({"type": "thinking", "content": content_buffer})
+                                content_buffer = ""
+                            break
+                return events
 
             try:
                 async for event in self._agent_executor.astream_events(
@@ -310,9 +393,10 @@ Additional Rules:
                     kind = event.get("event")
 
                     if kind == "on_chat_model_start":
-                        state.in_react_action = False
-                        state.react_emitted_len = 0
-                        state.content_buffer = ""
+                        in_react_action = False
+                        react_emitted_len = 0
+                        content_buffer = ""
+                        # Only yield this if not in react mode, because react mode will yield Thought: soon
                         if not suppress_final_stream:
                             yield {"type": "thinking", "content": "正在分析您的请求..."}
 
@@ -321,8 +405,9 @@ Additional Rules:
                         if chunk is None:
                             continue
 
-                        # 提取 reasoning/thinking 内容
+                        # 提取 reasoning/thinking 内容（DeepSeek-R1 / Qwen-QwQ 等推理模型）
                         reasoning = None
+
                         if hasattr(chunk, "additional_kwargs"):
                             ak = chunk.additional_kwargs
                             if isinstance(ak, dict):
@@ -338,42 +423,32 @@ Additional Rules:
                         if hasattr(chunk, "content") and chunk.content:
                             if isinstance(chunk.content, str):
                                 if suppress_final_stream:
-                                    events, state = process_react_chunk(chunk.content, state)
-                                    for e in events:
+                                    for e in process_react_chunk(chunk.content):
                                         yield e
                                 else:
-                                    events, state = process_text_chunk(
-                                        chunk.content, state, suppress_final_stream
-                                    )
-                                    for e in events:
+                                    for e in process_text_chunk(chunk.content):
                                         yield e
                             elif isinstance(chunk.content, list):
                                 for item in chunk.content:
                                     if isinstance(item, dict):
                                         if item.get("type") == "text":
                                             if suppress_final_stream:
-                                                events, state = process_react_chunk(
-                                                    item["text"], state
-                                                )
+                                                for e in process_react_chunk(item["text"]):
+                                                    yield e
                                             else:
-                                                events, state = process_text_chunk(
-                                                    item["text"], state, suppress_final_stream
-                                                )
-                                            for e in events:
-                                                yield e
+                                                for e in process_text_chunk(item["text"]):
+                                                    yield e
                                         elif (
                                             item.get("type") == "reasoning"
                                             or item.get("type") == "thinking"
                                         ):
-                                            yield {
-                                                "type": "thinking",
-                                                "content": item.get("text", ""),
-                                            }
+                                            yield {"type": "thinking", "content": item.get("text", "")}
 
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         tool_input = event.get("data", {}).get("input", {})
                         args = tool_input if isinstance(tool_input, dict) else {}
+                        # 生成描述性的思考内容
                         thinking_desc = _describe_tool_action(tool_name, args)
                         if thinking_desc:
                             yield {"type": "thinking", "content": thinking_desc}
@@ -386,6 +461,7 @@ Additional Rules:
                     elif kind == "on_tool_end":
                         tool_name = event.get("name", "unknown")
                         tool_output = event.get("data", {}).get("output", "")
+                        # 截断过长的工具输出，保留足够长度以展示报告内容
                         output_str = str(tool_output)
                         if len(output_str) > 4000:
                             output_str = output_str[:4000] + "...(已截断)"
@@ -395,21 +471,69 @@ Additional Rules:
                         if event.get("name") == "AgentExecutor":
                             out = event.get("data", {}).get("output", {})
                             if isinstance(out, dict) and "output" in out:
+                                final_ans = out["output"]
                                 if suppress_final_stream:
-                                    final_ans = parse_react_final_answer(out["output"])
+                                    if "Final Answer" in final_ans:
+                                        try:
+                                            start = final_ans.find('{')
+                                            end = final_ans.rfind('}')
+                                            if start != -1 and end != -1 and end > start:
+                                                json_str = final_ans[start:end+1]
+                                                import json
+                                                parsed_ok = False
+                                                try:
+                                                    data = json.loads(json_str, strict=False)
+                                                    if data.get("action") == "Final Answer" and "action_input" in data:
+                                                        final_ans = str(data["action_input"])
+                                                        parsed_ok = True
+                                                except Exception:
+                                                    pass
+                                                
+                                                if not parsed_ok:
+                                                    import re
+                                                    match = re.search(r'"action_input"\s*:\s*"(.*?)"\s*\}', json_str, re.DOTALL)
+                                                    if match:
+                                                        extracted = match.group(1)
+                                                        final_ans = extracted.replace('\\n', '\n').replace('\\"', '"')
+                                                    else:
+                                                        prefix = final_ans[:start].strip()
+                                                        if prefix and not prefix.startswith("Thought:"):
+                                                            final_ans = prefix
+                                        except Exception:
+                                            pass
+                                    final_ans = final_ans.replace("Action:", "").replace("Thought:", "").strip()
+                                    if final_ans.startswith("```json"):
+                                        final_ans = final_ans[7:]
+                                    if final_ans.endswith("```"):
+                                        final_ans = final_ans[:-3]
+                                    final_ans = final_ans.strip()
                                     if not final_ans:
                                         final_ans = out["output"]
                                     if not final_ans:
                                         final_ans = "(无文本输出)"
+
                                     yield {"type": "final", "content": final_ans}
                                     final_output += final_ans
                             break
 
                 # 流结束，刷新剩余缓冲区
-                events, state = flush_buffer(state, suppress_final_stream)
-                for e in events:
-                    yield e
-                final_output += state.final_output
+                if content_buffer:
+                    if suppress_final_stream:
+                        if not in_react_action and len(content_buffer) > react_emitted_len:
+                            thought_text = content_buffer[react_emitted_len:]
+                            if react_emitted_len == 0 and thought_text.startswith("Thought:"):
+                                if len(thought_text) >= 8:
+                                    thought_text = thought_text[8:].lstrip()
+                                else:
+                                    thought_text = ""
+                            if thought_text:
+                                yield {"type": "thinking", "content": thought_text}
+                    else:
+                        if in_thinking_block:
+                            yield {"type": "thinking", "content": content_buffer}
+                        else:
+                            final_output += content_buffer
+                            yield {"type": "final", "content": content_buffer}
 
                 # 正常结束，保存历史
                 await _save_history_helper()
@@ -463,17 +587,6 @@ Additional Rules:
 
         调用者必须持有 self._lock。
         """
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            self._last_save_time = await self._session_service.save_histories(
-                self._histories,
-                self._sessions_timestamps,
-                last_save_time=self._last_save_time,
-                force=force,
-            )
-            return
-
-        # 旧路径：自建 DB engine
         now = time.time()
         if not force and now - self._last_save_time < 5:
             return
@@ -507,9 +620,7 @@ Additional Rules:
                     existing = result.scalars().first()
                     if existing:
                         existing.messages = messages_json
-                        existing.last_active_at = datetime.fromtimestamp(
-                            last_active, tz=timezone.utc
-                        )
+                        existing.last_active_at = datetime.fromtimestamp(last_active, tz=timezone.utc)
                     else:
                         session.add(
                             AgentSessionModel(
@@ -534,19 +645,6 @@ Additional Rules:
 
     async def _load_histories(self) -> None:
         """从数据库恢复 Agent 会话历史，包含兼容旧版 JSON 迁移"""
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            try:
-                histories, timestamps = await self._session_service.load_histories()
-                self._histories = histories
-                self._sessions_timestamps = timestamps
-                if self._histories:
-                    logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
-            except Exception as e:
-                logger.warning(f"加载 Agent 会话历史失败: {e}")
-            return
-
-        # 旧路径：自建 DB engine
         from src.storage.models import AgentSessionModel
         from sqlalchemy import select
 
@@ -577,9 +675,7 @@ Additional Rules:
                                     AgentSessionModel(
                                         session_id=sid,
                                         messages=raw_msgs,
-                                        last_active_at=datetime.fromtimestamp(
-                                            last_active, tz=timezone.utc
-                                        ),
+                                        last_active_at=datetime.fromtimestamp(last_active, tz=timezone.utc),
                                     )
                                 )
                         await session.commit()
@@ -607,11 +703,7 @@ Additional Rules:
                 for row in rows:
                     sid = row.session_id
                     try:
-                        raw_msgs = (
-                            row.messages
-                            if isinstance(row.messages, list)
-                            else json.loads(row.messages)
-                        )
+                        raw_msgs = row.messages if isinstance(row.messages, list) else json.loads(row.messages)
                     except (json.JSONDecodeError, TypeError):
                         continue
 
@@ -641,16 +733,6 @@ Additional Rules:
         """清理超时的会话记忆"""
         if not self._session_timeout:
             return
-
-        # 优先使用注入的 session_service
-        if self._session_service is not None:
-            async with self._lock:
-                await self._session_service.cleanup_stale(
-                    self._histories, self._sessions_timestamps
-                )
-            return
-
-        # 旧路径：自建 DB engine
         async with self._lock:
             now = time.time()
             stale = [
@@ -669,7 +751,9 @@ Additional Rules:
                     await self._ensure_agent_db()
                     async with self._agent_session_factory() as session:
                         await session.execute(
-                            delete(AgentSessionModel).where(AgentSessionModel.session_id.in_(stale))
+                            delete(AgentSessionModel).where(
+                                AgentSessionModel.session_id.in_(stale)
+                            )
                         )
                         await session.commit()
                 except Exception as e:

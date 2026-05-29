@@ -1,7 +1,6 @@
 """
 数据浏览相关工具
 """
-
 from typing import Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -15,7 +14,6 @@ from src.agent.schemas import (
 )
 from src.agent.tools.utils import _format_result, _safe_json
 from src.services._utils import extract_record_identity, compute_record_completeness
-
 
 def _list_available_games(records: list) -> str:
     """列出 records 中可用的游戏名（去重，最多 10 个）"""
@@ -31,7 +29,6 @@ def _list_available_games(records: list) -> str:
     if len(games) > 10:
         return ", ".join(names) + f" 等{len(games)}款"
     return ", ".join(names) if names else "无"
-
 
 class ListDataGamesTool(BaseTool):
     name: str = "list_data_games"
@@ -77,7 +74,6 @@ class ListDataGamesTool(BaseTool):
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
 
-
 class SearchDataTool(BaseTool):
     name: str = "search_data"
     description: str = "搜索已采集的数据，按关键词匹配"
@@ -121,7 +117,6 @@ class SearchDataTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
-
 
 class ReviewCollectionResultsTool(BaseTool):
     name: str = "review_collection_results"
@@ -218,10 +213,8 @@ class ReviewCollectionResultsTool(BaseTool):
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
 
-
 class GetDataRecordContentInput(BaseModel):
     record_key: str
-
 
 class GetDataRecordContentTool(BaseTool):
     name: str = "get_data_record_content"
@@ -237,13 +230,13 @@ class GetDataRecordContentTool(BaseTool):
             record = await store.load(record_key)
             if not record:
                 return _format_result("error", f"未找到数据记录: {record_key}")
-
+            
             return _format_result(
-                "ok",
-                f"记录 {record_key} 详情内容",
+                "ok", 
+                f"记录 {record_key} 详情内容", 
                 record.data,
                 record_count=1,
-                max_data_length=15000,
+                max_data_length=15000
             )
         finally:
             await store.close()

@@ -1,7 +1,6 @@
 """
 平台标识符相关工具
 """
-
 import json
 from pathlib import Path
 from typing import ClassVar, Type
@@ -17,7 +16,6 @@ from src.agent.schemas import (
 )
 from src.agent.tools.utils import _format_result, _safe_json
 from loguru import logger
-
 
 async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> list[dict]:
     """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。"""
@@ -137,9 +135,7 @@ class ResolveSteamAppIdTool(BaseTool):
 
             try:
                 resp = await fetch_with_retry(
-                    client,
-                    self.STORE_SEARCH_URL,
-                    params={"term": game_name, "l": "english", "cc": "us"},
+                    client, self.STORE_SEARCH_URL, params={"term": game_name, "l": "english", "cc": "us"}
                 )
                 data = resp.json()
                 add_items(data.get("items", []), key_id="id")
@@ -148,9 +144,7 @@ class ResolveSteamAppIdTool(BaseTool):
 
             try:
                 resp = await fetch_with_retry(
-                    client,
-                    self.STORE_SEARCH_URL,
-                    params={"term": game_name, "l": "schinese", "cc": "cn"},
+                    client, self.STORE_SEARCH_URL, params={"term": game_name, "l": "schinese", "cc": "cn"}
                 )
                 data = resp.json()
                 add_items(data.get("items", []), key_id="id")
@@ -224,7 +218,6 @@ class ResolveSteamAppIdTool(BaseTool):
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
 
-
 class VerifySteamAppIdTool(BaseTool):
     name: str = "verify_steam_app_id"
     description: str = (
@@ -264,7 +257,6 @@ class VerifySteamAppIdTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
-
 
 class SearchGameIdentifiersTool(BaseTool):
     name: str = "search_game_identifiers"
@@ -307,7 +299,6 @@ class SearchGameIdentifiersTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
-
 
 class VerifyGameIdentifierTool(BaseTool):
     name: str = "verify_game_identifier"

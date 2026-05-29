@@ -1,7 +1,6 @@
 """
 Pipeline 管理相关工具
 """
-
 from typing import Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -12,7 +11,6 @@ from src.agent.schemas import (
     DeletePipelineInput,
 )
 from src.agent.tools.utils import _format_result, _safe_json
-
 
 class ListPipelineTemplatesTool(BaseTool):
     name: str = "list_pipeline_templates"
@@ -30,7 +28,6 @@ class ListPipelineTemplatesTool(BaseTool):
     def _run(self) -> str:
         raise NotImplementedError("Use _arun")
 
-
 class ListPipelinesTool(BaseTool):
     name: str = "list_pipelines"
     description: str = "获取已保存的自定义 Pipeline 列表"
@@ -44,7 +41,6 @@ class ListPipelinesTool(BaseTool):
 
     def _run(self) -> str:
         raise NotImplementedError("Use _arun")
-
 
 class CreatePipelineTool(BaseTool):
     name: str = "create_pipeline"
@@ -85,7 +81,6 @@ class CreatePipelineTool(BaseTool):
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
 
-
 class DeletePipelineTool(BaseTool):
     name: str = "delete_pipeline"
     description: str = "删除一个已保存的 Pipeline"
@@ -105,7 +100,6 @@ class DeletePipelineTool(BaseTool):
 
     def _run(self, name: str, confirm: bool = False) -> str:
         raise NotImplementedError("Use _arun")
-
 
 class CreateDynamicPipelineTool(BaseTool):
     name: str = "create_dynamic_pipeline"
@@ -164,3 +158,5 @@ class CreateDynamicPipelineTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
+
+
