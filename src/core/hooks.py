@@ -34,21 +34,22 @@ class ReportGenerationHook:
         if not report_config.get("enabled"):
             return
 
-        pipeline = event.result
-        if pipeline is None:
+        pipeline_result = event.result
+        if pipeline_result is None:
             return
 
         prompt = str(report_config.get("prompt") or self._build_default_prompt(task))
         template = str(report_config.get("template", "default"))
         params = dict(report_config.get("params", {}))
-        if "use_vector" not in params:
-            from src.core.pipeline import StepType
-
+        if "use_vector" not in params and event.pipeline is not None:
             params["use_vector"] = any(
-                step.step_type == StepType.STORAGE and step.component_name == "vector"
-                for step in pipeline.pipeline_name  # type: ignore
-                # Note: 此处需要 pipeline steps 列表，实际由调用方传入
+                step.step_type.value == "storage" and step.component_name == "vector"
+                for step in event.pipeline.steps
             )
+
+        from src.core.task import TaskStatus
+
+        task.add_step_log("report:auto", TaskStatus.RUNNING, "开始生成报告")
 
         try:
             report = await self._report_generator.generate_excel(
@@ -58,8 +59,8 @@ class ReportGenerationHook:
                 ),
                 template=template,
                 params=params,
-                records=list(pipeline.output_records)
-                if hasattr(pipeline, "output_records")
+                records=list(pipeline_result.output_records)
+                if hasattr(pipeline_result, "output_records")
                 else [],
                 metadata={
                     "task_id": task.id,
@@ -67,8 +68,17 @@ class ReportGenerationHook:
                     "auto_generated": True,
                 },
             )
+            pipeline_result.generated_report_id = report.id
+            pipeline_result.generated_report_title = report.title
+            pipeline_result.generated_report_matched_records = report.matched_records
+            task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
             logger.info(f"报告自动生成完成: {report.title}")
         except Exception as exc:
+            error_msg = f"auto_report: {exc}"
+            pipeline_result.success = False
+            pipeline_result.errors.append(error_msg)
+            task.result = pipeline_result
+            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=str(exc))
             logger.error(f"自动报告生成失败: {exc}")
 
     @staticmethod

@@ -312,6 +312,7 @@ Additional Rules:
                     if kind == "on_chat_model_start":
                         state.in_react_action = False
                         state.react_emitted_len = 0
+                        state.in_thinking_block = False
                         state.content_buffer = ""
                         if not suppress_final_stream:
                             yield {"type": "thinking", "content": "正在分析您的请求..."}

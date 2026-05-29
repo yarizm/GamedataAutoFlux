@@ -106,28 +106,35 @@ async def _migrate_schema(conn) -> None:
     from sqlalchemy import inspect as sa_inspect, text
 
     def _run(sync_conn):
-        inspector = sa_inspect(sync_conn)
-        existing = {col["name"] for col in inspector.get_columns("scheduler_states")}
-        if "metadata" not in existing:
-            sync_conn.execute(
-                text("ALTER TABLE scheduler_states ADD COLUMN metadata JSON DEFAULT '{}'")
-            )
-            logger.info("Migrated scheduler_states: added metadata column")
-        if "stored_at" not in existing:
-            sync_conn.execute(text("ALTER TABLE scheduler_states ADD COLUMN stored_at TIMESTAMP"))
-            logger.info("Migrated scheduler_states: added stored_at column")
-        if "task_status" not in existing:
-            sync_conn.execute(text("ALTER TABLE scheduler_states ADD COLUMN task_status VARCHAR"))
-            logger.info("Migrated scheduler_states: added task_status column")
-            try:
+        try:
+            inspector = sa_inspect(sync_conn)
+            existing = {col["name"] for col in inspector.get_columns("scheduler_states")}
+            if "metadata" not in existing:
                 sync_conn.execute(
-                    text(
-                        "CREATE INDEX IF NOT EXISTS ix_scheduler_states_task_status "
-                        "ON scheduler_states (task_status)"
-                    )
+                    text("ALTER TABLE scheduler_states ADD COLUMN metadata JSON DEFAULT '{}'")
                 )
-                logger.info("Created index on scheduler_states.task_status")
-            except Exception:
-                pass  # Index may already exist
+                logger.info("Migrated scheduler_states: added metadata column")
+            if "stored_at" not in existing:
+                sync_conn.execute(
+                    text("ALTER TABLE scheduler_states ADD COLUMN stored_at TIMESTAMP")
+                )
+                logger.info("Migrated scheduler_states: added stored_at column")
+            if "task_status" not in existing:
+                sync_conn.execute(
+                    text("ALTER TABLE scheduler_states ADD COLUMN task_status VARCHAR")
+                )
+                logger.info("Migrated scheduler_states: added task_status column")
+                try:
+                    sync_conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_scheduler_states_task_status "
+                            "ON scheduler_states (task_status)"
+                        )
+                    )
+                    logger.info("Created index on scheduler_states.task_status")
+                except Exception:
+                    pass  # Index may already exist or DB doesn't support IF NOT EXISTS
+        except Exception as exc:
+            logger.warning(f"Schema migration skipped: {exc}")
 
     await conn.run_sync(_run)

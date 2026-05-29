@@ -235,6 +235,7 @@ class Scheduler:
                                     success=True,
                                     result=result,
                                     task=task,
+                                    pipeline=pipeline,
                                     errors=[],
                                 ),
                             )
@@ -242,6 +243,17 @@ class Scheduler:
                             # 旧路径：内联报告生成
                             if self._should_generate_report(task):
                                 await self._generate_report_for_task(task, pipeline, result)
+
+                        # 重新检查：hook 可能已将 result.success 设为 False
+                        if not result.success:
+                            error_msg = "; ".join(result.errors)
+                            task.fail(error_msg)
+                            await self._persist_task(task)
+                            logger.error(
+                                f"任务执行失败（报告生成）: [{task.id}] {task.name} - {error_msg}"
+                            )
+                            return result
+
                         task.complete(result)
                         await self._persist_task(task)
                         logger.info(f"任务执行成功: [{task.id}] {task.name}")
@@ -269,6 +281,7 @@ class Scheduler:
                                         success=False,
                                         result=result,
                                         task=task,
+                                        pipeline=pipeline,
                                         errors=result.errors,
                                     ),
                                 )
@@ -315,6 +328,7 @@ class Scheduler:
                                     success=False,
                                     result=None,
                                     task=task,
+                                    pipeline=pipeline,
                                     errors=[error_msg],
                                 ),
                             )
@@ -442,7 +456,7 @@ class Scheduler:
         )
 
         logger.info(f"定时任务已添加: {name} → [{cron_expr}] → Pipeline [{pipeline_name}]")
-        if persist and self._task_store is not None:
+        if persist and (self._cron_repo is not None or self._task_store is not None):
             asyncio.create_task(
                 self._persist_cron_job(
                     name=name,
@@ -634,19 +648,23 @@ class Scheduler:
                 )
             )
 
-        # 优先使用 EventBus 广播
+        # 优先使用 EventBus 广播（即发即弃，不阻塞持久化）
         if self._event_bus is not None:
             from src.core.events import TaskUpdatedEvent
 
-            await self._event_bus.emit(
-                "task_updated",
-                TaskUpdatedEvent(
-                    task_id=task.id,
-                    payload=task_payload,
-                    status=task.status.value,
-                    pipeline_name=task.pipeline_name,
-                ),
+            bg_task = asyncio.create_task(
+                self._event_bus.emit(
+                    "task_updated",
+                    TaskUpdatedEvent(
+                        task_id=task.id,
+                        payload=task_payload,
+                        status=task.status.value,
+                        pipeline_name=task.pipeline_name,
+                    ),
+                )
             )
+            bg_task.add_done_callback(_on_background_task_done)
+            self._background_tasks.add(bg_task)
         else:
             # 旧路径：直接 WebSocket 广播
             try:

@@ -132,8 +132,12 @@ async def lifespan(app: FastAPI):
 
     # 注入 repositories 到 scheduler
     from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
+    from src.services.sqlalchemy_cron_repository import SQLAlchemyCronRepository
+    from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
 
     scheduler._task_repo = SQLAlchemyTaskRepository(session_factory)
+    scheduler._cron_repo = SQLAlchemyCronRepository(session_factory)
+    scheduler._pipeline_repo = SQLAlchemyPipelineRepository(session_factory)
 
     # 注册事件 hooks
     from src.core.events import event_bus
@@ -154,6 +158,11 @@ async def lifespan(app: FastAPI):
     # 关闭
     logger.info("GamedataAutoFlux 关闭中...")
     await scheduler.stop()
+
+    # 注销所有 EventBus handlers，防止重复注册
+    from src.core.events import event_bus
+
+    event_bus.clear()
 
     agent_svc = get_agent_service()
     if agent_svc and agent_svc._mcp_manager:

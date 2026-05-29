@@ -46,6 +46,7 @@ class TaskCompletedEvent:
     success: bool
     result: Any  # PipelineResult
     task: Any  # Task（避免循环导入，用 Any）
+    pipeline: Any = None  # Pipeline 实例（供 hooks 访问 steps 等）
     errors: list[str] = field(default_factory=list)
 
 
@@ -107,16 +108,14 @@ class EventBus:
             )
             for result in results:
                 if isinstance(result, Exception):
-                    logger.error(f"EventBus handler error in '{event_type}': {result}")
+                    logger.opt(exception=result).error(
+                        f"EventBus handler error in '{event_type}': {result}"
+                    )
 
     @staticmethod
     async def _safe_call(handler: Handler, event: Any) -> None:
-        """安全调用处理器，捕获异常"""
-        try:
-            await handler(event)
-        except Exception as exc:
-            logger.opt(exception=exc).error(f"EventBus handler {handler.__name__} raised: {exc}")
-            raise
+        """安全调用处理器，异常由 emit() 的 gather 统一收集并记录"""
+        await handler(event)
 
     def clear(self, event_type: str | None = None) -> None:
         """清除处理器。event_type=None 时清除所有。"""
