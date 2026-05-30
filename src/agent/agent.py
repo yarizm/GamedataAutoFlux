@@ -465,6 +465,15 @@ Additional Rules:
         """返回当前有聊天历史的 session ID 列表"""
         return list(self._histories.keys())
 
+    def get_session_history(self, session_id: str) -> list[dict[str, str]]:
+        """返回指定会话的消息历史（role + content）"""
+        messages = self._histories.get(session_id, [])
+        result = []
+        for msg in messages:
+            role = "user" if isinstance(msg, HumanMessage) else "assistant"
+            result.append({"role": role, "content": msg.content})
+        return result
+
     def get_active_provider(self) -> str:
         """返回当前生效的 LLM provider 名称"""
         return self._provider_override or get_config("llm.provider", "qwen")

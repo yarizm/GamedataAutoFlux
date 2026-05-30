@@ -47,6 +47,18 @@ async def agent_chat(req: ChatRequest):
     )
 
 
+@router.get("/agent/history")
+async def get_agent_history(session_id: str = "default"):
+    """获取指定会话的消息历史"""
+    from src.web.app import get_agent_service
+
+    agent_service = get_agent_service()
+    if not agent_service:
+        raise HTTPException(503, "Agent 服务未启用")
+    messages = agent_service.get_session_history(session_id)
+    return {"session_id": session_id, "messages": messages}
+
+
 @router.delete("/agent/history")
 async def clear_agent_history(session_id: str = "default"):
     """清除指定会话的对话历史"""

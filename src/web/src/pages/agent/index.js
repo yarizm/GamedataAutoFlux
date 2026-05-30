@@ -18,13 +18,21 @@ let agentFinalText = '';
 let currentTextBlock = null;
 let abortController = null;
 let currentResponseEvents = [];
+let autoScroll = true;
 
 // ── Helpers ──
 function providerLabel(key) { return key.charAt(0).toUpperCase() + key.slice(1); }
 
 function scrollToBottom() {
   const c = document.getElementById('agent-messages');
-  if (c) c.scrollTop = c.scrollHeight;
+  if (c && autoScroll) c.scrollTop = c.scrollHeight;
+}
+
+function checkAutoScroll() {
+  const c = document.getElementById('agent-messages');
+  if (!c) return;
+  const threshold = 60;
+  autoScroll = c.scrollHeight - c.scrollTop - c.clientHeight < threshold;
 }
 
 function renderSafeMarkdown(content) {
@@ -79,6 +87,20 @@ export default {
           e.preventDefault(); this._send();
         }
       });
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 128) + 'px';
+      });
+    }
+
+    const msgContainer = document.getElementById('agent-messages');
+    if (msgContainer) {
+      msgContainer.addEventListener('scroll', () => checkAutoScroll());
+    }
+
+    const searchInput = document.getElementById('agent-session-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => this._filterSessions(searchInput.value));
     }
 
     let sessions = loadSessions();
@@ -103,7 +125,10 @@ export default {
     if (!listEl) return;
     const sessions = loadSessions();
     listEl.innerHTML = '';
+    const searchInput = document.getElementById('agent-session-search');
+    const filter = searchInput?.value?.toLowerCase().trim() || '';
     sessions.forEach(s => {
+      if (filter && !s.name.toLowerCase().includes(filter)) return;
       const item = document.createElement('div');
       item.className = 'agent-session-item' + (s.id === agentSessionId ? ' active' : '');
       item.innerHTML = `<span class="agent-session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
@@ -114,6 +139,10 @@ export default {
       item.addEventListener('click', () => this._switchSession(s.id));
       listEl.appendChild(item);
     });
+  },
+
+  _filterSessions(query) {
+    this._renderSessions();
   },
 
   _createSession() {
@@ -170,6 +199,26 @@ export default {
     const wrapper = document.getElementById('agent-messages');
     if (wrapper) wrapper.innerHTML = '';
     this._switchSession(agentSessionId);
+    this._syncServerHistory();
+  },
+
+  async _syncServerHistory() {
+    try {
+      const data = await api(`/agent/history?session_id=${encodeURIComponent(agentSessionId)}`);
+      if (data.messages?.length > 0) {
+        const cached = loadSessionMessages(agentSessionId);
+        if (cached.length < data.messages.length) {
+          const key = 'agent_msgs_' + agentSessionId;
+          const serialized = data.messages.map(m => ({ role: m.role, content: m.content }));
+          localStorage.setItem(key, JSON.stringify(serialized.slice(-20)));
+          const layer = document.getElementById('agent-layer-' + agentSessionId);
+          if (layer) {
+            layer.innerHTML = '';
+            serialized.forEach(m => this._appendMessage(m.role, m.content, layer));
+          }
+        }
+      }
+    } catch { /* server history not available, use localStorage */ }
   },
 
   // ── Provider ──
@@ -303,27 +352,8 @@ export default {
     const wasStreaming = agentStreaming;
     agentStreaming = true;
 
-    const msgEl = document.createElement('div');
-    msgEl.className = 'agent-message assistant';
-    const avatar = document.createElement('div');
-    avatar.className = 'agent-avatar assistant';
-    avatar.textContent = 'AI';
-    const bubble = document.createElement('div');
-    bubble.className = 'agent-bubble assistant';
-    const resp = document.createElement('div');
-    resp.className = 'agent-response-container';
-    const steps = document.createElement('div');
-    steps.className = 'agent-response-steps';
-    resp.appendChild(steps);
-    const status = document.createElement('div');
-    status.className = 'agent-status-indicator';
-    status.textContent = '已完成';
-    resp.appendChild(status);
-    resp._statusEl = status;
-    bubble.appendChild(resp);
-    msgEl.appendChild(avatar);
-    msgEl.appendChild(bubble);
-    container.appendChild(msgEl);
+    const { resp, steps } = this._createAssistantBubble('已完成');
+    container.appendChild(resp.closest('.agent-message'));
 
     currentResponseEl = resp;
     currentResponseSteps = steps;
@@ -355,31 +385,76 @@ export default {
     const bubble = document.createElement('div');
     bubble.className = `agent-bubble ${role}`;
     bubble.innerHTML = role === 'assistant' ? renderSafeMarkdown(content) : '';
-    if (role === 'user') bubble.textContent = content;
+    if (role === 'user') {
+      bubble.textContent = content;
+      const resendBtn = document.createElement('button');
+      resendBtn.className = 'agent-resend-btn';
+      resendBtn.title = '重发';
+      resendBtn.textContent = '↻';
+      resendBtn.addEventListener('click', () => this._resend(content));
+      bubble.appendChild(resendBtn);
+    }
     msgEl.appendChild(avatar); msgEl.appendChild(bubble);
     container.appendChild(msgEl);
+    autoScroll = true;
     scrollToBottom();
+  },
+
+  _resend(message) {
+    if (agentStreaming) {
+      this._stop();
+      setTimeout(() => {
+        const input = document.getElementById('agent-input');
+        if (input) input.value = message;
+        this._send();
+      }, 100);
+    } else {
+      const input = document.getElementById('agent-input');
+      if (input) input.value = message;
+      this._send();
+    }
   },
 
   // ── Structured SSE streaming ──
 
+  _createAssistantBubble(statusText) {
+    const msgEl = document.createElement('div');
+    msgEl.className = 'agent-message assistant';
+    const avatar = document.createElement('div');
+    avatar.className = 'agent-avatar assistant';
+    avatar.textContent = 'AI';
+    const bubble = document.createElement('div');
+    bubble.className = 'agent-bubble assistant';
+    const resp = document.createElement('div');
+    resp.className = 'agent-response-container';
+    const steps = document.createElement('div');
+    steps.className = 'agent-response-steps';
+    resp.appendChild(steps);
+    const status = document.createElement('div');
+    status.className = 'agent-status-indicator';
+    status.textContent = statusText;
+    resp.appendChild(status);
+    resp._statusEl = status;
+    bubble.appendChild(resp);
+    msgEl.appendChild(avatar);
+    msgEl.appendChild(bubble);
+    return { msgEl, bubble, resp, steps, status };
+  },
+
   _createResponseContainer() {
     const container = this._getLayer(agentSessionId);
     if (!container) return null;
-    const msgEl = document.createElement('div'); msgEl.className = 'agent-message assistant';
-    const avatar = document.createElement('div'); avatar.className = 'agent-avatar assistant'; avatar.textContent = 'AI';
-    const bubble = document.createElement('div'); bubble.className = 'agent-bubble assistant';
-    const resp = document.createElement('div'); resp.className = 'agent-response-container';
-    currentResponseSteps = document.createElement('div'); currentResponseSteps.className = 'agent-response-steps';
-    resp.appendChild(currentResponseSteps);
-    const status = document.createElement('div'); status.className = 'agent-status-indicator'; status.textContent = t('agent.thinking');
-    resp.appendChild(status); resp._statusEl = status;
-    bubble.appendChild(resp); msgEl.appendChild(avatar); msgEl.appendChild(bubble);
+    const { msgEl, resp, steps } = this._createAssistantBubble(t('agent.thinking'));
     container.appendChild(msgEl);
-    currentResponseEl = resp; agentFinalText = '';
-    currentStepEl = null; currentTextBlock = null;
-    currentThinkingDrawer = null; currentThinkingBody = null;
-    currentToolLine = null; currentToolResult = null;
+    currentResponseEl = resp;
+    currentResponseSteps = steps;
+    agentFinalText = '';
+    currentStepEl = null;
+    currentTextBlock = null;
+    currentThinkingDrawer = null;
+    currentThinkingBody = null;
+    currentToolLine = null;
+    currentToolResult = null;
     currentResponseEvents = [];
     scrollToBottom();
     return resp;
@@ -426,82 +501,131 @@ export default {
   _hideStatus() { if (currentResponseEl?._statusEl) currentResponseEl._statusEl.style.display = 'none'; },
 
   _handleEvent(event) {
-    switch (event.type) {
-      case 'thinking': {
-        if (!currentResponseEl) return;
-        this._updateStatus(t('agent.thinking')); this._ensureThinking();
-        if (event.content && currentThinkingBody) currentThinkingBody.textContent += event.content;
-        const lastThink = currentResponseEvents[currentResponseEvents.length - 1];
-        if (lastThink && lastThink.type === 'thinking') {
-          lastThink.content += event.content || '';
-        } else {
-          currentResponseEvents.push({type: 'thinking', content: event.content || ''});
-        }
-        scrollToBottom(); break;
-      }
-      case 'tool_call': {
-        if (!currentResponseEl) return;
-        if (currentThinkingDrawer) { currentThinkingDrawer.open = false; currentThinkingDrawer = null; currentThinkingBody = null; }
-        currentTextBlock = null; currentStepEl = null;
-        this._ensureStep(); this._ensureToolLine(event.name, event.args);
-        this._updateStatus(`${t('agent.running')}: ${escapeHtml(event.name)}`);
-        currentResponseEvents.push({type: 'tool_call', name: event.name, args: event.args});
-        scrollToBottom(); break;
-      }
-      case 'tool_result': {
-        if (!currentResponseEl) return;
-        if (currentToolResult) {
-          let parsed = null; try { parsed = JSON.parse(event.content || ''); } catch {}
-          if (parsed && parsed.status && parsed.summary) {
-            const sc = { success: 'success', ok: 'success', error: 'error', warning: 'warning' }[parsed.status] || '';
-            const sl = { success: t('status.success'), ok: t('common.ok'), error: t('status.failed'), warning: t('common.warning') }[parsed.status] || parsed.status;
-            let html = `<div class="tool-result-card ${sc}"><span class="tool-result-status">${escapeHtml(sl)}</span><span class="tool-result-summary">${escapeHtml(parsed.summary)}</span>`;
-            if (parsed.record_count !== undefined) html += `<span class="tool-result-count">${parsed.record_count} 条</span>`;
-            if (parsed.suggestion) html += `<div class="tool-result-suggestion">建议: ${escapeHtml(parsed.suggestion)}</div>`;
-            if (parsed.data_truncated) html += '<div class="tool-result-truncated">Data was truncated. Please narrow the query.</div>';
-            else if (parsed.data !== undefined && parsed.data !== null) {
-              const pv = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2);
-              html += `<details class="tool-result-data"><summary>Data preview (${pv.length})</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
-            }
-            if (parsed.warnings?.length) { html += '<div class="tool-result-warnings">' + parsed.warnings.map(w => `<div class="tool-result-warning-item">⚠ ${escapeHtml(w)}</div>`).join('') + '</div>'; }
-            currentToolResult.innerHTML = html + '</div>';
-          } else {
-            currentToolResult.textContent = event.content.length > 300 ? event.content.substring(0, 300) + '...' : event.content;
-            currentToolResult.title = event.content;
-          }
-        }
-        this._updateStatus('');
-        try { let obj = JSON.parse(event.content || ''); if (obj?.task_id && obj?.success) this._renderTaskCard(obj.task_id, obj.task_name || obj.task_id); } catch {}
-        agentFinalText = ''; currentTextBlock = null;
-        currentResponseEvents.push({type: 'tool_result', name: event.name, content: event.content || ''});
-        scrollToBottom(); break;
-      }
-      case 'final': {
-        if (!currentResponseEl) return;
-        this._hideStatus();
-        if (currentThinkingDrawer) { currentThinkingDrawer.open = false; currentThinkingDrawer = null; currentThinkingBody = null; }
-        if (!currentTextBlock) { currentStepEl = null; this._ensureStep(); currentToolLine = null; currentToolResult = null; currentTextBlock = document.createElement('div'); currentTextBlock.className = 'agent-step-text'; currentStepEl.appendChild(currentTextBlock); }
-        agentFinalText += event.content || '';
-        currentTextBlock.innerHTML = renderSafeMarkdown(agentFinalText);
-        const lastFinal = currentResponseEvents[currentResponseEvents.length - 1];
-        if (lastFinal && lastFinal.type === 'final') {
-          lastFinal.content += event.content || '';
-        } else {
-          currentResponseEvents.push({type: 'final', content: event.content || ''});
-        }
-        scrollToBottom(); break;
-      }
-      case 'error': {
-        if (!currentResponseEl) return;
-        this._hideStatus(); currentStepEl = null; currentTextBlock = null;
-        this._ensureStep();
-        const errEl = document.createElement('div'); errEl.className = 'agent-step-text'; errEl.style.color = 'var(--danger)';
-        errEl.textContent = `${t('common.error')}: ${event.content || ''}`;
-        currentStepEl.appendChild(errEl);
-        currentResponseEvents.push({type: 'error', content: event.content || ''});
-        scrollToBottom(); break;
+    const handlers = {
+      thinking: '_handleThinking',
+      tool_call: '_handleToolCall',
+      tool_result: '_handleToolResult',
+      final: '_handleFinal',
+      error: '_handleError',
+    };
+    const fn = handlers[event.type];
+    if (fn) this[fn](event);
+  },
+
+  _handleThinking(event) {
+    if (!currentResponseEl) return;
+    this._updateStatus(t('agent.thinking'));
+    this._ensureThinking();
+    if (event.content && currentThinkingBody) currentThinkingBody.textContent += event.content;
+    const last = currentResponseEvents[currentResponseEvents.length - 1];
+    if (last && last.type === 'thinking') {
+      last.content += event.content || '';
+    } else {
+      currentResponseEvents.push({ type: 'thinking', content: event.content || '' });
+    }
+    scrollToBottom();
+  },
+
+  _handleToolCall(event) {
+    if (!currentResponseEl) return;
+    if (currentThinkingDrawer) {
+      currentThinkingDrawer.open = false;
+      currentThinkingDrawer = null;
+      currentThinkingBody = null;
+    }
+    currentTextBlock = null;
+    currentStepEl = null;
+    this._ensureStep();
+    this._ensureToolLine(event.name, event.args);
+    this._updateStatus(`${t('agent.running')}: ${escapeHtml(event.name)}`);
+    currentResponseEvents.push({ type: 'tool_call', name: event.name, args: event.args });
+    scrollToBottom();
+  },
+
+  _handleToolResult(event) {
+    if (!currentResponseEl) return;
+    if (currentToolResult) {
+      let parsed = null;
+      try { parsed = JSON.parse(event.content || ''); } catch {}
+      if (parsed && parsed.status && parsed.summary) {
+        currentToolResult.innerHTML = this._renderToolResultCard(parsed);
+      } else {
+        currentToolResult.textContent = event.content.length > 300 ? event.content.substring(0, 300) + '...' : event.content;
+        currentToolResult.title = event.content;
       }
     }
+    this._updateStatus('');
+    try {
+      const obj = JSON.parse(event.content || '');
+      if (obj?.task_id && obj?.success) this._renderTaskCard(obj.task_id, obj.task_name || obj.task_id);
+    } catch {}
+    agentFinalText = '';
+    currentTextBlock = null;
+    currentResponseEvents.push({ type: 'tool_result', name: event.name, content: event.content || '' });
+    scrollToBottom();
+  },
+
+  _renderToolResultCard(parsed) {
+    const statusMap = { success: 'success', ok: 'success', error: 'error', warning: 'warning' };
+    const labelMap = { success: t('status.success'), ok: t('common.ok'), error: t('status.failed'), warning: t('common.warning') };
+    const sc = statusMap[parsed.status] || '';
+    const sl = labelMap[parsed.status] || parsed.status;
+    let html = `<div class="tool-result-card ${sc}"><span class="tool-result-status">${escapeHtml(sl)}</span><span class="tool-result-summary">${escapeHtml(parsed.summary)}</span>`;
+    if (parsed.record_count !== undefined) html += `<span class="tool-result-count">${parsed.record_count} 条</span>`;
+    if (parsed.suggestion) html += `<div class="tool-result-suggestion">建议: ${escapeHtml(parsed.suggestion)}</div>`;
+    if (parsed.data_truncated) {
+      html += '<div class="tool-result-truncated">Data was truncated. Please narrow the query.</div>';
+    } else if (parsed.data !== undefined && parsed.data !== null) {
+      const pv = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2);
+      html += `<details class="tool-result-data"><summary>Data preview (${pv.length})</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
+    }
+    if (parsed.warnings?.length) {
+      html += '<div class="tool-result-warnings">' + parsed.warnings.map(w => `<div class="tool-result-warning-item">⚠ ${escapeHtml(w)}</div>`).join('') + '</div>';
+    }
+    return html + '</div>';
+  },
+
+  _handleFinal(event) {
+    if (!currentResponseEl) return;
+    this._hideStatus();
+    if (currentThinkingDrawer) {
+      currentThinkingDrawer.open = false;
+      currentThinkingDrawer = null;
+      currentThinkingBody = null;
+    }
+    if (!currentTextBlock) {
+      currentStepEl = null;
+      this._ensureStep();
+      currentToolLine = null;
+      currentToolResult = null;
+      currentTextBlock = document.createElement('div');
+      currentTextBlock.className = 'agent-step-text';
+      currentStepEl.appendChild(currentTextBlock);
+    }
+    agentFinalText += event.content || '';
+    currentTextBlock.innerHTML = renderSafeMarkdown(agentFinalText);
+    const last = currentResponseEvents[currentResponseEvents.length - 1];
+    if (last && last.type === 'final') {
+      last.content += event.content || '';
+    } else {
+      currentResponseEvents.push({ type: 'final', content: event.content || '' });
+    }
+    scrollToBottom();
+  },
+
+  _handleError(event) {
+    if (!currentResponseEl) return;
+    this._hideStatus();
+    currentStepEl = null;
+    currentTextBlock = null;
+    this._ensureStep();
+    const errEl = document.createElement('div');
+    errEl.className = 'agent-step-text';
+    errEl.style.color = 'var(--danger)';
+    errEl.textContent = `${t('common.error')}: ${event.content || ''}`;
+    currentStepEl.appendChild(errEl);
+    currentResponseEvents.push({ type: 'error', content: event.content || '' });
+    scrollToBottom();
   },
 
   _renderTaskCard(taskId, taskName) {
@@ -555,6 +679,7 @@ export default {
     const message = input.value.trim();
     if (!message) return;
     input.value = '';
+    input.style.height = 'auto';
 
     this._appendMessage('user', message);
     cacheAgentMessage(agentSessionId, 'user', message);
@@ -632,35 +757,6 @@ export default {
   },
 };
 
-// Global exports
-window.initAgentChat = function () { /* handled by page init */ };
-window.sendAgentMessage = function () { if (window._agentPage) window._agentPage._send(); };
-window.stopAgentMessage = function () { if (window._agentPage) window._agentPage._stop(); };
-window.clearAgentHistory = function () { if (window._agentPage) window._agentPage._clearHistory(); };
-window.createAgentSession = function () { if (window._agentPage) window._agentPage._createSession(); };
-window.editAgentSession = function (id) { if (window._agentPage) window._agentPage._editSession(id); };
-window.switchAgentSession = function (id) { if (window._agentPage) window._agentPage._switchSession(id); };
-window.deleteAgentSession = function (id) { if (window._agentPage) window._agentPage._deleteSession(id); };
-window.showProviderConfigModal = function () { if (window._agentPage) window._agentPage._showProviderConfig(); };
-window.addProviderConfigRow = function (d) { if (window._agentPage) window._agentPage._addConfigRow(d); };
-window.refreshProviderDefaultSelect = function () { if (window._agentPage) window._agentPage._refreshDefaultSelect(); };
-window.saveProviderConfig = function () { if (window._agentPage) window._agentPage._saveProviderConfig(); };
-window.onAgentProviderChange = function () { if (window._agentPage) window._agentPage._onProviderChange(); };
-window.initAgentProviderSelector = function () { if (window._agentPage) window._agentPage._initProviderSelector(); };
-window.renderAgentSessions = function () { if (window._agentPage) window._agentPage._renderSessions(); };
-window.appendAgentMessage = function (r, c) { if (window._agentPage) window._agentPage._appendMessage(r, c); };
+// Global exports — only those needed by HTML onclick handlers outside main.js bridge
+// Main agent actions (send/stop/clear/session/provider) are bridched via main.js installGlobalBridge()
 window.renderSafeMarkdown = renderSafeMarkdown;
-window.scrollAgentToBottom = scrollToBottom;
-window.handleAgentEvent = function (e) { if (window._agentPage) window._agentPage._handleEvent(e); };
-window.createAgentResponseContainer = function () { if (window._agentPage) return window._agentPage._createResponseContainer(); };
-window.renderAgentTaskProgressCard = function (id, n) { if (window._agentPage) window._agentPage._renderTaskCard(id, n); };
-window.updateAgentTaskCard = function (t) { if (window._agentPage) window._agentPage._updateTaskCard(t); };
-window.loadAgentSessions = loadSessions;
-window.saveAgentSessions = saveSessions;
-window.ensureDefaultSession = function (s) { if (!s.some(x => x.id === 'default')) s.unshift({ id: 'default', name: '默认会话', created_at: new Date().toISOString() }); return s; };
-window.loadSessionMessages = loadSessionMessages;
-window.cacheAgentMessage = cacheAgentMessage;
-window.cacheCurrentSessionMessages = function () {};
-window.setReportProgress = function () {};
-window.resetReportProgress = function () {};
-window.handleReportProgress = function () {};

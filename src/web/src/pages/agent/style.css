@@ -1,0 +1,139 @@
+/* Agent page styles */
+
+/* Session list items */
+.agent-session-item {
+  @apply flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200;
+}
+.agent-session-item.active {
+  @apply bg-violet-500/10 text-violet-300 border border-violet-500/20;
+}
+.agent-session-name {
+  @apply flex-1 truncate;
+}
+.agent-session-edit,
+.agent-session-delete {
+  @apply opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-300 bg-transparent border-none cursor-pointer text-xs p-1;
+}
+.agent-session-item:hover .agent-session-edit,
+.agent-session-item:hover .agent-session-delete {
+  @apply opacity-100;
+}
+
+/* Tool call line */
+.agent-tool-line {
+  @apply flex items-center gap-2 py-1.5 text-xs;
+}
+.agent-tool-badge {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800 border border-white/10 text-zinc-300 font-mono text-[11px];
+}
+.agent-tool-result-inline {
+  @apply text-zinc-500 text-xs;
+}
+
+/* Tool result card */
+.tool-result-card {
+  @apply rounded-lg border p-3 text-xs space-y-1.5;
+}
+.tool-result-card.success {
+  @apply bg-emerald-500/5 border-emerald-500/20 text-emerald-300;
+}
+.tool-result-card.error {
+  @apply bg-rose-500/5 border-rose-500/20 text-rose-300;
+}
+.tool-result-card.warning {
+  @apply bg-amber-500/5 border-amber-500/20 text-amber-300;
+}
+.tool-result-status {
+  @apply font-bold uppercase tracking-wider text-[10px];
+}
+.tool-result-summary {
+  @apply text-zinc-300;
+}
+.tool-result-count {
+  @apply text-zinc-500;
+}
+.tool-result-suggestion {
+  @apply text-zinc-400 italic;
+}
+.tool-result-data summary {
+  @apply cursor-pointer text-zinc-500 hover:text-zinc-300 transition-colors;
+}
+.tool-result-data pre {
+  @apply mt-1 p-2 bg-zinc-900 rounded text-[11px] text-zinc-400 overflow-x-auto max-h-40;
+}
+.tool-result-warnings {
+  @apply space-y-1;
+}
+.tool-result-warning-item {
+  @apply text-amber-400/80 text-[11px];
+}
+
+/* Thinking drawer */
+.agent-thinking-drawer {
+  @apply text-xs;
+}
+.agent-thinking-drawer summary {
+  @apply cursor-pointer text-zinc-500 hover:text-violet-400 transition-colors select-none py-1;
+}
+.agent-thinking-body {
+  @apply pl-3 border-l-2 border-violet-500/20 text-zinc-500 whitespace-pre-wrap font-mono text-[11px] leading-relaxed max-h-48 overflow-y-auto;
+}
+
+/* Step text (final response) */
+.agent-step-text {
+  @apply text-sm leading-relaxed text-zinc-200;
+}
+.agent-step-text p { @apply mb-2; }
+.agent-step-text ul, .agent-step-text ol { @apply pl-5 mb-2 space-y-1; }
+.agent-step-text li { @apply text-zinc-300; }
+.agent-step-text code {
+  @apply bg-zinc-800 px-1.5 py-0.5 rounded text-[12px] text-violet-300 font-mono;
+}
+.agent-step-text pre {
+  @apply bg-zinc-900 border border-white/5 rounded-lg p-3 overflow-x-auto mb-2;
+}
+.agent-step-text pre code {
+  @apply bg-transparent p-0 text-zinc-300;
+}
+.agent-step-text table {
+  @apply w-full border-collapse mb-2 text-xs;
+}
+.agent-step-text th {
+  @apply bg-zinc-800 border border-white/10 px-2 py-1.5 text-left text-zinc-300 font-medium;
+}
+.agent-step-text td {
+  @apply border border-white/5 px-2 py-1.5 text-zinc-400;
+}
+
+/* Status indicator */
+.agent-status-indicator {
+  @apply text-xs text-zinc-500 py-1 flex items-center gap-2;
+}
+.agent-status-indicator::before {
+  content: '';
+  @apply w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse;
+}
+
+/* Resend button */
+.agent-resend-btn {
+  @apply absolute -bottom-6 right-0 opacity-0 group-hover:opacity-100 transition-opacity
+         text-zinc-600 hover:text-violet-400 bg-transparent border-none cursor-pointer
+         text-xs px-1.5 py-0.5 rounded;
+}
+.agent-bubble.user {
+  @apply relative;
+}
+.agent-message.user:hover .agent-resend-btn {
+  @apply opacity-100;
+}
+
+/* Response container */
+.agent-response-container {
+  @apply space-y-2;
+}
+.agent-response-steps {
+  @apply space-y-1;
+}
+.agent-step {
+  @apply space-y-1;
+}
