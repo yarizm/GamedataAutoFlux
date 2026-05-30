@@ -99,7 +99,13 @@ class ReportGenerator:
             )
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
-        extracted = extract_from_records(records, data_source)
+        usable_records = [r for r in records if r.data is not None]
+        raw_data_list = [r.data for r in usable_records]
+        extracted = extract_from_records(
+            raw_data_list,
+            record_keys=[r.key for r in usable_records],
+            metadata_list=[r.metadata for r in usable_records],
+        )
         template_validation = validate_template_sources(template, extracted.source_coverage)
 
         await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")

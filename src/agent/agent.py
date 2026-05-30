@@ -55,6 +55,7 @@ class AgentService:
         self._initialized: bool = False
         self._provider_override: str | None = None
         self._lock = asyncio.Lock()
+        self._init_lock = asyncio.Lock()
         self._last_save_time: float = 0
         self._session_service = session_service
 
@@ -204,47 +205,50 @@ Additional Rules:
 
     async def _async_ensure_initialized(self) -> None:
         """异步延迟初始化 LLM 和 AgentExecutor，处理 MCP 启动"""
-        if not self._histories_loaded:
-            await self._load_histories()
-            self._histories_loaded = True
-
-        if not self._initialized:
-            self._ensure_initialized()
-
-        # MCP 重连逻辑：独立于 _initialized 检查。
-        # 当 MCP 进程崩溃后（_is_running=False），下次 ainvoke 会尝试重新启动。
-        if get_config("agent.playwright_mcp.enabled", False):
-            if not self._mcp_manager:
-                self._mcp_manager = self._create_mcp_manager()
-
-            if not self._mcp_manager._is_running:
-                logger.info("MCP 未运行，尝试启动/重连 Playwright MCP Server...")
-                await self._mcp_manager.start()
-
-            # 如果 MCP 有工具且尚未注入（或需要重建），重建 AgentExecutor
-            mcp_tools = self._mcp_manager.get_langchain_tools()
-            current_tool_names = {
-                t.name for t in (self._agent_executor.tools if self._agent_executor else [])
-            }
-            mcp_tool_names = {t.name for t in mcp_tools}
-
-            if mcp_tools and not mcp_tool_names.issubset(current_tool_names):
-                all_tools = list(ALL_TOOLS) + list(mcp_tools)
-                agent_type = get_config("agent.agent_type", "openai_tools")
-                if agent_type == "react":
-                    prompt = self._build_react_prompt_with_tools(all_tools)
-                    agent = create_structured_chat_agent(self._llm, all_tools, prompt)
-                else:
-                    prompt = self._build_prompt_with_tools(all_tools)
-                    agent = create_openai_tools_agent(self._llm, all_tools, prompt)
-                self._agent_executor = AgentExecutor(
-                    agent=agent,
-                    tools=all_tools,
-                    max_iterations=self._max_iterations,
-                    handle_parsing_errors=True,
-                    verbose=False,
-                )
-                logger.info(f"成功将 {len(mcp_tools)} 个 MCP 工具注入 Agent")
+        async with self._init_lock:
+            if not self._histories_loaded:
+                await self._load_histories()
+                self._histories_loaded = True
+    
+            if not self._initialized:
+                self._ensure_initialized()
+    
+            # MCP 重连逻辑：独立于 _initialized 检查。
+            # 当 MCP 进程崩溃后（_is_running=False），下次 ainvoke 会尝试重新启动。
+            if get_config("agent.playwright_mcp.enabled", False):
+                if not self._mcp_manager:
+                    self._mcp_manager = self._create_mcp_manager()
+    
+                mcp_restarted = False
+                if not self._mcp_manager._is_running:
+                    logger.info("MCP 未运行，尝试启动/重连 Playwright MCP Server...")
+                    await self._mcp_manager.start()
+                    mcp_restarted = True
+    
+                # 如果 MCP 有工具且尚未注入（或需要重建），重建 AgentExecutor
+                mcp_tools = self._mcp_manager.get_langchain_tools()
+                current_tool_names = {
+                    t.name for t in (self._agent_executor.tools if self._agent_executor else [])
+                }
+                mcp_tool_names = {t.name for t in mcp_tools}
+    
+                if mcp_tools and (mcp_restarted or not mcp_tool_names.issubset(current_tool_names)):
+                    all_tools = list(ALL_TOOLS) + list(mcp_tools)
+                    agent_type = get_config("agent.agent_type", "openai_tools")
+                    if agent_type == "react":
+                        prompt = self._build_react_prompt_with_tools(all_tools)
+                        agent = create_structured_chat_agent(self._llm, all_tools, prompt)
+                    else:
+                        prompt = self._build_prompt_with_tools(all_tools)
+                        agent = create_openai_tools_agent(self._llm, all_tools, prompt)
+                    self._agent_executor = AgentExecutor(
+                        agent=agent,
+                        tools=all_tools,
+                        max_iterations=self._max_iterations,
+                        handle_parsing_errors=True,
+                        verbose=False,
+                    )
+                    logger.info(f"成功将 {len(mcp_tools)} 个 MCP 工具注入 Agent")
 
     async def _get_history(self, session_id: str) -> list[BaseMessage]:
         """获取指定会话的聊天历史"""

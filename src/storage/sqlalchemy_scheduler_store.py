@@ -4,6 +4,7 @@ from typing import Any
 from src.storage.models import utcnow
 from loguru import logger
 from sqlalchemy import select, func, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from src.core.registry import registry
@@ -108,28 +109,24 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             )
 
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(SchedulerStateModel).where(SchedulerStateModel.key == record.key)
+            stmt = insert(SchedulerStateModel).values(
+                key=record.key,
+                state_type=state_type,
+                data=data_to_save,
+                metadata_=record.metadata or {},
+                task_status=task_status,
             )
-            db_record = result.scalars().first()
-
-            if db_record:
-                db_record.state_type = state_type
-                db_record.data = data_to_save
-                db_record.metadata_ = record.metadata or {}
-                if task_status is not None:
-                    db_record.task_status = task_status
-                db_record.updated_at = utcnow()
-            else:
-                db_record = SchedulerStateModel(
-                    key=record.key,
-                    state_type=state_type,
-                    data=data_to_save,
-                    metadata_=record.metadata or {},
-                    task_status=task_status,
-                )
-                session.add(db_record)
-
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[SchedulerStateModel.key],
+                set_={
+                    "state_type": stmt.excluded.state_type,
+                    "data": stmt.excluded.data,
+                    "metadata": stmt.excluded.metadata,
+                    "task_status": stmt.excluded.task_status if task_status is not None else SchedulerStateModel.task_status,
+                    "updated_at": utcnow(),
+                }
+            )
+            await session.execute(stmt)
             await session.commit()
 
     async def load(self, key: str) -> StorageRecord | None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.services.cron_repository import CronJobConfig, CronRepository
@@ -22,11 +23,6 @@ class SQLAlchemyCronRepository(CronRepository):
 
     async def save(self, job: CronJobConfig) -> None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(SchedulerStateModel).where(SchedulerStateModel.key == f"cron:{job.name}")
-            )
-            db_record = result.scalars().first()
-
             data = {
                 "name": job.name,
                 "pipeline_name": job.pipeline_name,
@@ -34,24 +30,24 @@ class SQLAlchemyCronRepository(CronRepository):
                 "task_template": job.task_template,
             }
 
-            if db_record:
-                db_record.state_type = "cron"
-                db_record.data = data
-                db_record.metadata_ = {
+            stmt = insert(SchedulerStateModel).values(
+                key=f"cron:{job.name}",
+                state_type="cron",
+                data=data,
+                metadata_={
                     "kind": "cron",
                     "pipeline_name": job.pipeline_name,
+                },
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[SchedulerStateModel.key],
+                set_={
+                    "state_type": stmt.excluded.state_type,
+                    "data": stmt.excluded.data,
+                    "metadata": stmt.excluded.metadata,
                 }
-            else:
-                db_record = SchedulerStateModel(
-                    key=f"cron:{job.name}",
-                    state_type="cron",
-                    data=data,
-                    metadata_={
-                        "kind": "cron",
-                        "pipeline_name": job.pipeline_name,
-                    },
-                )
-                session.add(db_record)
+            )
+            await session.execute(stmt)
 
             await session.commit()
 

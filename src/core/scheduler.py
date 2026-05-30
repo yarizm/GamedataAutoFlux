@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import weakref
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -80,7 +79,7 @@ class Scheduler:
         self._pipelines: dict[str, Pipeline] = {}
         self._running_futures: dict[str, asyncio.Task] = {}
         self._task_store: BaseStorage | None = None
-        self._background_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
+        self._background_tasks: set[asyncio.Task] = set()
 
         # APScheduler 用于 cron 定时
         self._cron_scheduler = AsyncIOScheduler()
@@ -123,6 +122,15 @@ class Scheduler:
                 future.cancel()
                 logger.info(f"取消运行中的任务: {task_id}")
         self._running_futures.clear()
+        
+        if self._background_tasks:
+            # Cancel running background tasks and wait for them to finish
+            for bg_task in self._background_tasks:
+                if not bg_task.done():
+                    bg_task.cancel()
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
         self._cron_scheduler.shutdown(wait=False)
         if self._task_store is not None:
             await self._task_store.close()
@@ -266,6 +274,8 @@ class Scheduler:
                                 f"[{task.id}] {task.name} - {error_msg}"
                             )
                             should_retry = True
+                            backoff = min(60, 2 ** task.retry_count)
+                            await asyncio.sleep(backoff)
                             continue
                         else:
                             task.fail(error_msg)
@@ -313,6 +323,8 @@ class Scheduler:
                             f"[{task.id}] {task.name} - {error_msg}"
                         )
                         should_retry = True
+                        backoff = min(60, 2 ** task.retry_count)
+                        await asyncio.sleep(backoff)
                         continue
                     else:
                         task.fail(error_msg)
@@ -663,7 +675,7 @@ class Scheduler:
                     ),
                 )
             )
-            bg_task.add_done_callback(_on_background_task_done)
+            bg_task.add_done_callback(lambda t: _on_background_task_done(t, self._background_tasks))
             self._background_tasks.add(bg_task)
         else:
             # 旧路径：直接 WebSocket 广播
@@ -673,7 +685,7 @@ class Scheduler:
                 bg_task = asyncio.create_task(
                     manager.broadcast({"type": "task_update", "task": task_payload})
                 )
-                bg_task.add_done_callback(_on_background_task_done)
+                bg_task.add_done_callback(lambda t: _on_background_task_done(t, self._background_tasks))
                 self._background_tasks.add(bg_task)
             except Exception as exc:
                 logger.debug(f"Failed to broadcast task update: {exc}")
@@ -819,8 +831,9 @@ class Scheduler:
                     logger.warning(f"Failed to restore cron job {name}: {exc}")
 
 
-def _on_background_task_done(task: asyncio.Task) -> None:
+def _on_background_task_done(task: asyncio.Task, tasks_set: set[asyncio.Task]) -> None:
     """Callback for fire-and-forget tasks to log exceptions."""
+    tasks_set.discard(task)
     if task.cancelled():
         return
     exc = task.exception()

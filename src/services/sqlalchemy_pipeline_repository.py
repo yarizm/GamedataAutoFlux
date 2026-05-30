@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.pipeline import Pipeline
@@ -23,33 +24,26 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
 
     async def save(self, pipeline: Pipeline) -> None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(SchedulerStateModel).where(
-                    SchedulerStateModel.key == f"pipeline:{pipeline.name}"
-                )
-            )
-            db_record = result.scalars().first()
-
             config = pipeline.to_config()
 
-            if db_record:
-                db_record.state_type = "pipeline"
-                db_record.data = config
-                db_record.metadata_ = {
+            stmt = insert(SchedulerStateModel).values(
+                key=f"pipeline:{pipeline.name}",
+                state_type="pipeline",
+                data=config,
+                metadata_={
                     "kind": "pipeline",
                     "pipeline_name": pipeline.name,
+                },
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[SchedulerStateModel.key],
+                set_={
+                    "state_type": stmt.excluded.state_type,
+                    "data": stmt.excluded.data,
+                    "metadata": stmt.excluded.metadata,
                 }
-            else:
-                db_record = SchedulerStateModel(
-                    key=f"pipeline:{pipeline.name}",
-                    state_type="pipeline",
-                    data=config,
-                    metadata_={
-                        "kind": "pipeline",
-                        "pipeline_name": pipeline.name,
-                    },
-                )
-                session.add(db_record)
+            )
+            await session.execute(stmt)
 
             await session.commit()
 

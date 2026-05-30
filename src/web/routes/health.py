@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter
 
 from src.core.diagnostics import build_config_diagnostics, build_health_report
+
+_launch_lock = asyncio.Lock()
 
 router = APIRouter(tags=["health"])
 
@@ -29,12 +33,13 @@ async def launch_steamdb_browser():
     import subprocess
     from src.core.diagnostics import build_steamdb_launch_command
 
-    cmd = build_steamdb_launch_command()
+    async with _launch_lock:
+        cmd = build_steamdb_launch_command()
 
-    try:
-        subprocess.Popen(cmd)
-        return {"status": "ok", "message": "Browser launch command executed"}
-    except Exception as e:
-        from fastapi import HTTPException
+        try:
+            subprocess.Popen(cmd)
+            return {"status": "ok", "message": "Browser launch command executed"}
+        except Exception as e:
+            from fastapi import HTTPException
 
-        raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
