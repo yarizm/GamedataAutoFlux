@@ -202,14 +202,6 @@ class AgentSessionService:
                             )
                         )
 
-                # 清理数据库中已不存在于内存的过期会话
-                active_sids = list(histories.keys())
-                if active_sids:
-                    await session.execute(
-                        delete(AgentSessionModel).where(
-                            ~AgentSessionModel.session_id.in_(active_sids)
-                        )
-                    )
 
                 await session.commit()
             return now

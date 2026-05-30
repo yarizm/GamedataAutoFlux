@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from loguru import logger
 from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.task import Task, TaskStatus
@@ -29,33 +30,27 @@ class SQLAlchemyTaskRepository(TaskRepository):
         status_value = task.status.value
 
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(SchedulerStateModel).where(SchedulerStateModel.key == f"task:{task.id}")
-            )
-            db_record = result.scalars().first()
-
-            if db_record:
-                db_record.data = payload
-                db_record.task_status = status_value
-                db_record.metadata_ = {
+            stmt = insert(SchedulerStateModel).values(
+                key=f"task:{task.id}",
+                state_type="task",
+                data=payload,
+                metadata_={
                     "kind": "task",
                     "status": status_value,
                     "pipeline_name": task.pipeline_name,
+                },
+                task_status=status_value,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[SchedulerStateModel.key],
+                set_={
+                    "data": stmt.excluded.data,
+                    "task_status": stmt.excluded.task_status,
+                    "metadata": stmt.excluded.metadata,
+                    "updated_at": utcnow(),
                 }
-                db_record.updated_at = utcnow()
-            else:
-                db_record = SchedulerStateModel(
-                    key=f"task:{task.id}",
-                    state_type="task",
-                    data=payload,
-                    metadata_={
-                        "kind": "task",
-                        "status": status_value,
-                        "pipeline_name": task.pipeline_name,
-                    },
-                    task_status=status_value,
-                )
-                session.add(db_record)
+            )
+            await session.execute(stmt)
 
             await session.commit()
 
@@ -126,16 +121,7 @@ class SQLAlchemyTaskRepository(TaskRepository):
             result = await session.execute(stmt)
             db_records = result.scalars().all()
 
-            # 如果索引列无数据（旧数据），回退到 JSON 扫描
-            if not db_records:
-                stmt = (
-                    select(SchedulerStateModel)
-                    .where(SchedulerStateModel.state_type == "task")
-                    .order_by(SchedulerStateModel.stored_at.desc())
-                    .limit(1000)
-                )
-                result = await session.execute(stmt)
-                db_records = result.scalars().all()
+            # Removed full table scan fallback on empty index
 
             tasks = []
             for r in db_records:

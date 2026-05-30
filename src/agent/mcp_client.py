@@ -3,7 +3,7 @@ from contextlib import AsyncExitStack
 from typing import Any, List, Optional, Type
 
 from loguru import logger
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, create_model, PrivateAttr
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
 
@@ -75,6 +75,7 @@ class PlaywrightMcpManager:
         """Dedicated background task to hold the anyio/MCP context managers with auto-restart."""
         base_backoff = 2.0
         max_backoff = 60.0
+        max_retries = 5
         attempt = 0
 
         while True:
@@ -115,15 +116,20 @@ class PlaywrightMcpManager:
                 self._is_running = False
                 if not start_future.done():
                     start_future.set_exception(e)
-                    break
 
                 if self._stop_event and self._stop_event.is_set():
                     break
 
                 attempt += 1
+                if attempt > max_retries:
+                    logger.error(
+                        f"MCP background task failed after {max_retries} attempts, giving up: {e}"
+                    )
+                    break
+
                 backoff = min(max_backoff, base_backoff * (2 ** (attempt - 1)))
                 logger.error(
-                    f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt})..."
+                    f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt}/{max_retries})..."
                 )
                 await asyncio.sleep(backoff)
 
@@ -225,7 +231,7 @@ class PlaywrightMcpManager:
             name: str = tool_name
             description: str = tool_desc
             args_schema: Type[BaseModel] = schema_model
-            _consecutive_failures: int = 0
+            _consecutive_failures: int = PrivateAttr(default=0)
 
             async def _arun(
                 self, *args, run_manager: Optional[CallbackManagerForToolRun] = None, **kwargs

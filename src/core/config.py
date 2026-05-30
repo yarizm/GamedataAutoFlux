@@ -78,8 +78,12 @@ def load_settings(config_path: str | Path | None = None) -> dict[str, Any]:
         _settings_validation = _validate_settings(_settings)
         return _settings
 
-    with open(path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        logger.error(f"配置文件解析失败: {exc}")
+        raw = {}
 
     _settings = _resolve_env_vars(raw)
     _settings_validation = _validate_settings(_settings)
@@ -144,6 +148,26 @@ def get(key: str, default: Any = None) -> Any:
             return default
         if value is None:
             return default
+    
+    if value is not None and default is not None:
+        if isinstance(default, bool) and not isinstance(value, bool):
+            if isinstance(value, str):
+                value = value.lower() in ("true", "1", "yes", "on")
+            elif isinstance(value, int):
+                value = value != 0
+            else:
+                value = bool(value)
+        elif isinstance(default, int) and not isinstance(value, int):
+            try:
+                value = int(value)
+            except (ValueError, TypeError):
+                pass
+        elif isinstance(default, float) and not isinstance(value, float):
+            try:
+                value = float(value)
+            except (ValueError, TypeError):
+                pass
+
     return value
 
 

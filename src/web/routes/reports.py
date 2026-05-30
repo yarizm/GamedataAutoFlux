@@ -222,7 +222,9 @@ async def upload_report_json(
     responses: list[UploadedJsonResponse] = []
     try:
         for index, file in enumerate(files, start=1):
-            raw = await file.read()
+            raw = await file.read(size=20_971_520 + 1)
+            if len(raw) > 20_971_520:
+                raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
             try:
                 payload = json.loads(raw.decode("utf-8-sig"))
             except Exception as exc:

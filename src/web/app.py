@@ -115,11 +115,19 @@ async def lifespan(app: FastAPI):
     loop_name = asyncio.get_running_loop().__class__.__name__
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
+    # 发现并注册组件（需要在任何 get_storage() 等工厂函数调用前执行）
+    _auto_discover_plugins()
 
     # 初始化共享 DB session factory
     from src.storage.session_factory import init_shared_session_factory
 
     session_factory = await init_shared_session_factory()
+
+    # 初始化全局存储
+    from src.storage.factory import get_storage
+    
+    app.state.storage = get_storage()
+    await app.state.storage.initialize()
 
     # 创建 Agent 会话持久化服务
     from src.services.agent_session_service import AgentSessionService
@@ -131,7 +139,6 @@ async def lifespan(app: FastAPI):
         max_sessions=50,
     )
 
-    _auto_discover_plugins()
 
     # 注入 repositories 到 scheduler
     from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
@@ -171,6 +178,13 @@ async def lifespan(app: FastAPI):
     if agent_svc and agent_svc._mcp_manager:
         await agent_svc._mcp_manager.stop()
 
+    # 关闭全局存储并重置单例
+    import src.storage.factory
+
+    if hasattr(app.state, "storage") and app.state.storage:
+        await app.state.storage.close()
+    src.storage.factory._global_storage = None
+
     # 关闭共享 DB session factory
     from src.storage.session_factory import close_shared_session_factory
 
@@ -186,6 +200,16 @@ def create_app() -> FastAPI:
         description="游戏行业数据监控与分析工作流",
         version="0.1.0",
         lifespan=lifespan,
+    )
+
+    from fastapi.middleware.cors import CORSMiddleware
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # 注册路由

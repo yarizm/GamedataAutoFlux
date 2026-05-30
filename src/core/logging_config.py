@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 from loguru import logger
 
-from src.core.config import get as get_config
+from src.core.config import get_raw_section
 from src.core.config import get_root_dir
 
 
@@ -49,19 +49,22 @@ def _normalize_handler(handler: dict[str, Any], root_dir: Path) -> dict[str, Any
         sink_path.parent.mkdir(parents=True, exist_ok=True)
         normalized["sink"] = str(sink_path)
 
+    logging_config = get_raw_section("logging") or {}
+
     if "level" in normalized:
-        normalized["level"] = get_config("logging.level", normalized["level"])
+        normalized["level"] = logging_config.get("level", normalized["level"])
     if "rotation" in normalized:
-        normalized["rotation"] = get_config("logging.rotation", normalized["rotation"])
+        normalized["rotation"] = logging_config.get("rotation", normalized["rotation"])
     if "retention" in normalized:
-        normalized["retention"] = get_config("logging.retention", normalized["retention"])
+        normalized["retention"] = logging_config.get("retention", normalized["retention"])
 
     return normalized
 
 
 def _default_stdout_handler() -> dict[str, Any]:
+    logging_config = get_raw_section("logging") or {}
     return {
         "sink": sys.stdout,
-        "level": get_config("logging.level", "INFO"),
+        "level": logging_config.get("level", "INFO"),
         "format": "<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{message}</cyan>",
     }
