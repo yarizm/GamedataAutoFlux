@@ -83,7 +83,7 @@ def test_discovery_filters_include_and_exclude_patterns(monkeypatch):
     }
     collector = OfficialSiteCollector({"playwright_enabled": False})
 
-    async def fake_fetch(url: str, *, use_playwright: str = "auto"):
+    async def fake_fetch(url: str, *, use_playwright: str = "auto", wait_for_networkidle: bool = False):
         return FetchResult(url, 200 if url in pages else 404, pages.get(url, ""))
 
     monkeypatch.setattr(collector, "_fetch_page", fake_fetch)
@@ -120,7 +120,7 @@ def test_collect_returns_standard_structure(monkeypatch):
     }
     collector = OfficialSiteCollector({"playwright_enabled": False})
 
-    async def fake_fetch(url: str, *, use_playwright: str = "auto"):
+    async def fake_fetch(url: str, *, use_playwright: str = "auto", wait_for_networkidle: bool = False):
         clean = url.rstrip("/")
         return FetchResult(clean, 200 if clean in pages else 404, pages.get(clean, ""))
 
@@ -163,7 +163,7 @@ def test_collect_uses_config_recipe_when_url_is_missing(monkeypatch):
     }
     collector = OfficialSiteCollector({"playwright_enabled": False})
 
-    async def fake_fetch(url: str, *, use_playwright: str = "auto"):
+    async def fake_fetch(url: str, *, use_playwright: str = "auto", wait_for_networkidle: bool = False):
         clean = url.rstrip("/")
         return FetchResult(clean, 200 if clean in pages else 404, pages.get(clean, ""))
 

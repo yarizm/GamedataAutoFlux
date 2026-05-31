@@ -208,6 +208,12 @@ class MonitorCollector(BaseCollector):
         siteurl: str | None,
         days: int,
     ) -> dict[str, Any]:
+        mode = _resolve_mode(self.config)
+        confidence_threshold = float(
+            self.config.get("confidence_threshold",
+                           get_config("smart_collector.confidence_threshold", 0.5))
+        )
+
         resolved_siteurl = siteurl or _resolve_sully_siteurl_override(
             app_id, target_name, twitch_name
         )
@@ -217,7 +223,24 @@ class MonitorCollector(BaseCollector):
             candidates = await self._collect_sully_candidates(search_names)
             if not candidates:
                 raise ValueError(f'No SullyGnome result found for "{target_name}"')
-            resolved_siteurl = _choose_best_sully_siteurl(candidates, search_names)
+
+            resolved_siteurl = await _choose_best_sully_siteurl(
+                candidates, search_names,
+                mode=mode, game_name=target_name, app_id=app_id,
+                twitch_name=twitch_name, confidence_threshold=confidence_threshold,
+            )
+
+            # auto 模式：fast 失败时降级到 smart
+            if resolved_siteurl is None and mode == "auto":
+                logger.info(f"[Monitor] fast mode failed for {target_name}, trying smart")
+                resolved_siteurl = await _choose_best_sully_siteurl(
+                    candidates, search_names,
+                    mode="smart", game_name=target_name, app_id=app_id,
+                    twitch_name=twitch_name, confidence_threshold=confidence_threshold,
+                )
+
+            if not resolved_siteurl:
+                raise ValueError(f'Failed to resolve SullyGnome page for "{target_name}"')
 
         summary_html = await self._fetch_text(SULLY_SUMMARY_URL.format(siteurl=resolved_siteurl))
         pageinfo = _parse_pageinfo(summary_html)
@@ -337,6 +360,14 @@ class MonitorCollector(BaseCollector):
         return True
 
 
+def _resolve_mode(config: dict[str, Any]) -> str:
+    """从 config 中解析 mode 参数，默认 fast。"""
+    mode = str(config.get("mode", "fast") or "fast").lower().strip()
+    if mode not in {"fast", "smart", "auto"}:
+        return "fast"
+    return mode
+
+
 def _normalize_metrics(raw_metrics: Any) -> list[str]:
     if not isinstance(raw_metrics, list) or not raw_metrics:
         return ["twitch_viewer_trend"]
@@ -395,10 +426,36 @@ def _normalize_name(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
-def _choose_best_sully_siteurl(candidates: list[dict[str, Any]], names: list[str]) -> str:
+async def _choose_best_sully_siteurl(
+    candidates: list[dict[str, Any]],
+    names: list[str],
+    *,
+    mode: str = "fast",
+    game_name: str = "",
+    app_id: int = 0,
+    twitch_name: str | None = None,
+    confidence_threshold: float = 0.5,
+) -> str | None:
+    """从 SullyGnome 候选中选择最佳匹配。
+
+    mode=fast: SequenceMatcher 模糊匹配
+    mode=smart: LLM 验证候选
+    mode=auto: 先 fast，失败返回 None
+    """
+    if mode == "smart":
+        from src.collectors.llm_extractor import verify_game_candidate
+
+        result = await verify_game_candidate(candidates, game_name, app_id, twitch_name)
+        if result["confidence"] >= confidence_threshold and result["matched_index"] >= 0:
+            idx = result["matched_index"]
+            if idx < len(candidates):
+                return str(candidates[idx]["siteurl"])
+        return None
+
+    # fast 模式
     normalized_names = [_normalize_name(name) for name in names if _normalize_name(name)]
     if not normalized_names:
-        return str(candidates[0]["siteurl"])
+        return str(candidates[0]["siteurl"]) if candidates else None
 
     best_item = None
     best_score = 0.0
@@ -414,7 +471,7 @@ def _choose_best_sully_siteurl(candidates: list[dict[str, Any]], names: list[str
                 best_score = score
                 best_item = item
     if best_item is None:
-        raise ValueError("unable to match SullyGnome game")
+        return None
     return str(best_item["siteurl"])
 
 

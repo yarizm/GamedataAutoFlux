@@ -180,7 +180,12 @@ class OfficialSiteCollector(BaseCollector):
         listing_only = bool(params.get("listing_only", False))
         warnings: list[str] = []
 
-        home = await self._fetch_page(entry_url, use_playwright=use_playwright)
+        mode = _resolve_collector_mode(params)
+        wait_networkidle = mode == "smart"
+
+        home = await self._fetch_page(
+            entry_url, use_playwright=use_playwright, wait_for_networkidle=wait_networkidle
+        )
         if home.status_code < 200 or home.status_code >= 300 or not home.html:
             if home.status_code in (403, 429):
                 err_code = (
@@ -221,6 +226,7 @@ class OfficialSiteCollector(BaseCollector):
             warnings.append("No official news/update/event pages were discovered.")
 
         pages: list[ParsedPage] = []
+        pages_html: list[tuple[str, str]] = []  # (url, html) for LLM extraction
         seen_pages = {home.url}
         for candidate in candidates[:max_pages]:
             if candidate.url in seen_pages:
@@ -228,7 +234,9 @@ class OfficialSiteCollector(BaseCollector):
             seen_pages.add(candidate.url)
             if request_delay > 0:
                 await asyncio.sleep(request_delay)
-            fetched = await self._fetch_page(candidate.url, use_playwright=use_playwright)
+            fetched = await self._fetch_page(
+                candidate.url, use_playwright=use_playwright, wait_for_networkidle=wait_networkidle
+            )
             if fetched.status_code < 200 or fetched.status_code >= 300 or not fetched.html:
                 warnings.append(f"Failed to fetch candidate page: {candidate.url}")
                 continue
@@ -238,6 +246,7 @@ class OfficialSiteCollector(BaseCollector):
                 _extract_listing_items(parsed_page, fetched.html, include_patterns=include_patterns)
             )
             pages.append(parsed_page)
+            pages_html.append((fetched.url, fetched.html))
 
         items = _dedupe_items(
             embedded_items
@@ -247,6 +256,23 @@ class OfficialSiteCollector(BaseCollector):
                 if _is_content_page(page, include_patterns)
             ]
         )
+
+        # auto 模式降级：正则无结果时用 LLM
+        if mode == "auto" and _should_fallback_to_smart(items):
+            logger.info(f"[OfficialSite] fast mode yielded 0 items for {target.name}, trying smart")
+            mode = "smart"
+
+        # smart 模式：LLM 提取
+        if mode == "smart":
+            smart_items = await self._extract_with_llm(
+                pages_html=pages_html,
+                home_html=home.html,
+                home_url=home.url,
+                entry_url=entry_url,
+            )
+            if smart_items:
+                items = _dedupe_items(items + smart_items)
+
         cutoff = datetime.now(timezone.utc).date() - timedelta(days=since_days)
         items = [
             item
@@ -448,13 +474,15 @@ class OfficialSiteCollector(BaseCollector):
 
         return links
 
-    async def _fetch_page(self, url: str, *, use_playwright: str = "auto") -> FetchResult:
+    async def _fetch_page(
+        self, url: str, *, use_playwright: str = "auto", wait_for_networkidle: bool = False
+    ) -> FetchResult:
         if use_playwright == "always":
-            result = await self._fetch_with_playwright(url)
+            result = await self._fetch_with_playwright(url, wait_for_networkidle=wait_for_networkidle)
             if result.status_code == 404:
                 retry_url = _slash_retry_url(url)
                 if retry_url:
-                    retry = await self._fetch_with_playwright(retry_url)
+                    retry = await self._fetch_with_playwright(retry_url, wait_for_networkidle=wait_for_networkidle)
                     if retry.status_code < 400 and retry.html:
                         return retry
             return result
@@ -469,7 +497,7 @@ class OfficialSiteCollector(BaseCollector):
         if use_playwright == "never" or not self.playwright_enabled:
             return result
         if _needs_playwright_fallback(result):
-            fallback = await self._fetch_with_playwright(url)
+            fallback = await self._fetch_with_playwright(url, wait_for_networkidle=wait_for_networkidle)
             if fallback.status_code == 404:
                 retry_url = _slash_retry_url(url)
                 if retry_url:
@@ -498,23 +526,27 @@ class OfficialSiteCollector(BaseCollector):
             logger.debug("[OfficialSite] httpx fetch failed {}: {}", url, exc)
             return FetchResult(url, 0, "", "httpx", str(exc))
 
-    async def _fetch_with_playwright(self, url: str) -> FetchResult:
+    async def _fetch_with_playwright(
+        self, url: str, *, wait_for_networkidle: bool = False
+    ) -> FetchResult:
         try:
             if not self._browser:
                 return FetchResult(url, 0, "", "playwright", "playwright is not initialized")
             page = await self._browser.new_page(user_agent=self.user_agent)
             try:
+                wait_until = "networkidle" if wait_for_networkidle else "domcontentloaded"
                 response = await page.goto(
-                    url, wait_until="domcontentloaded", timeout=self.playwright_timeout
+                    url, wait_until=wait_until, timeout=self.playwright_timeout
                 )
-                if "bungie.net" in urlparse(url).netloc.lower():
+                if not wait_for_networkidle and "bungie.net" in urlparse(url).netloc.lower():
                     try:
                         await page.wait_for_load_state(
                             "networkidle", timeout=min(self.playwright_timeout, 15000)
                         )
                     except Exception:
                         pass
-                await page.wait_for_timeout(800)
+                extra_wait = 3000 if wait_for_networkidle else 800
+                await page.wait_for_timeout(extra_wait)
                 html = await page.content()
                 final_url = page.url
                 status = response.status if response else 200
@@ -524,6 +556,37 @@ class OfficialSiteCollector(BaseCollector):
         except Exception as exc:
             logger.debug("[OfficialSite] playwright fetch failed {}: {}", url, exc)
             return FetchResult(url, 0, "", "playwright", str(exc))
+
+    async def _extract_with_llm(
+        self,
+        pages_html: list[tuple[str, str]],
+        home_html: str,
+        home_url: str,
+        entry_url: str,
+    ) -> list[dict[str, Any]]:
+        """用 LLM 从页面 HTML 中提取新闻条目。"""
+        from src.collectors.llm_extractor import extract_items_from_html
+
+        all_items: list[dict[str, Any]] = []
+
+        for url, html in pages_html:
+            if not html or len(html) < 100:
+                continue
+            try:
+                items = await extract_items_from_html(html, url)
+                all_items.extend(items)
+            except Exception as e:
+                logger.debug(f"[OfficialSite] LLM extraction failed for {url}: {e}")
+
+        # 如果 pages 没有结果，尝试用首页
+        if not all_items and home_html:
+            try:
+                items = await extract_items_from_html(home_html, home_url)
+                all_items.extend(items)
+            except Exception as e:
+                logger.debug(f"[OfficialSite] LLM extraction failed for home: {e}")
+
+        return all_items
 
 
 class _SimpleHTMLExtractor(HTMLParser):
@@ -1044,6 +1107,19 @@ def _needs_playwright_fallback(result: FetchResult) -> bool:
         or (js_shell and len(parsed.content) < 700)
         or (not parsed.title and len(parsed.content) < 300)
     )
+
+
+def _resolve_collector_mode(params: dict[str, Any]) -> str:
+    """从参数中解析采集模式，默认 fast。"""
+    mode = str(params.get("mode", "fast") or "fast").lower().strip()
+    if mode not in {"fast", "smart", "auto"}:
+        return "fast"
+    return mode
+
+
+def _should_fallback_to_smart(items: list[dict[str, Any]]) -> bool:
+    """判断是否需要降级到 smart 模式。"""
+    return len(items) == 0
 
 
 def _compact_params(params: dict[str, Any]) -> dict[str, Any]:

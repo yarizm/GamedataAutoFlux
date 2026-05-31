@@ -52,6 +52,11 @@ class CreatePipelineTool(BaseTool):
         "创建自定义 Pipeline。"
         'steps 格式: [{"type": "collector/processor/storage", "name": "组件名", "config": {}}]。'
         "可用组件用 list_pipeline_templates 查看。"
+        "\n\n采集器 config 支持 mode 参数："
+        "- fast: 纯代码提取（默认，零 LLM 成本）"
+        "- smart: LLM 辅助提取/验证（适应复杂网站）"
+        "- auto: 先试 fast，失败自动降级 smart"
+        '示例: {"mode": "auto", "official_url": "https://..."}'
     )
     args_schema: Type[BaseModel] = CreatePipelineInput
 
@@ -121,6 +126,7 @@ class CreateDynamicPipelineTool(BaseTool):
         "-> 数据库存储 (sqlalchemy) -> 向量数据库存储 (vector)。\n"
         "专为需要通过执行 JS 脚本进行交互或自定义提取的动态网页（如单页应用、需要复杂交互的页面）设计。\n"
         "生成的 Pipeline 可以直接通过 create_task 来运行。"
+        "\n\n采集器 config 支持 mode 参数：fast/smart/auto。"
     )
     args_schema: Type[BaseModel] = CreateDynamicPipelineInput
 

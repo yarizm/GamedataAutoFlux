@@ -363,6 +363,11 @@ monitor:
     "Delta Force": "delta_force_hawk_ops"
     "三角洲行动": "delta_force_hawk_ops"
 
+smart_collector:
+  enabled: true
+  max_html_tokens: 4000
+  confidence_threshold: 0.5
+
 firecrawl:
   api_key: "${FIRECRAWL_API_KEY}"
   timeout: 30

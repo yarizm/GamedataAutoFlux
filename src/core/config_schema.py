@@ -107,6 +107,17 @@ class MonitorConfig(_FlexibleModel):
     metric_concurrency: int = Field(default=4, ge=1)
 
 
+class SmartCollectorLLMConfig(_FlexibleModel):
+    provider: str = ""
+
+
+class SmartCollectorConfig(_FlexibleModel):
+    enabled: bool = True
+    max_html_tokens: int = Field(default=4000, ge=100, le=50000)
+    confidence_threshold: float = Field(default=0.5, ge=0, le=1)
+    llm: SmartCollectorLLMConfig = Field(default_factory=SmartCollectorLLMConfig)
+
+
 class GTrendsConfig(_FlexibleModel):
     geo: str = ""
     hl: str = "zh-CN"
@@ -162,6 +173,7 @@ class SettingsModel(_FlexibleModel):
     qimai: RequestCollectorConfig = Field(default_factory=RequestCollectorConfig)
     official_site: OfficialSiteConfig = Field(default_factory=OfficialSiteConfig)
     monitor: MonitorConfig = Field(default_factory=MonitorConfig)
+    smart_collector: SmartCollectorConfig = Field(default_factory=SmartCollectorConfig)
     gtrends: GTrendsConfig = Field(default_factory=GTrendsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
