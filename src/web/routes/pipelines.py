@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from src.core.pipeline import Pipeline
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
-from src.web.safety import require_explicit_confirmation
+from src.web.safety import require_explicit_confirmation, validate_dynamic_playwright_config
 
 router = APIRouter(tags=["pipelines"])
 
@@ -81,6 +81,8 @@ async def create_pipeline(
             raise HTTPException(400, str(exc))
 
         if step.type == "collector":
+            if step.name == "dynamic_playwright":
+                validate_dynamic_playwright_config(step.config)
             pipeline.add_collector(step.name, step.config)
         elif step.type == "processor":
             pipeline.add_processor(step.name, step.config)

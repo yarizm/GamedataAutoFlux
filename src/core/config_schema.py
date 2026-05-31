@@ -23,8 +23,12 @@ class AppConfig(_FlexibleModel):
 
 
 class ServerConfig(_FlexibleModel):
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+    api_key: str = ""
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:8000", "http://127.0.0.1:8000"]
+    )
 
 
 class DatabaseConfig(_FlexibleModel):

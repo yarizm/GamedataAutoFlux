@@ -135,7 +135,7 @@ class BatchRecordRequest(BaseModel):
 
 @router.get("/data/games", response_model=list[DataGameSummary])
 async def list_data_games(
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
+    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
     records = await _load_source_records(limit=limit)
     grouped: dict[str, dict[str, Any]] = {}
@@ -196,7 +196,7 @@ async def list_data_games(
 
 @router.get("/data/groups", response_model=list[DataGroupSummary])
 async def list_data_groups(
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
+    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
     groups: dict[str, dict[str, Any]] = {}
     for record in await _load_source_records(limit=limit):
@@ -277,7 +277,7 @@ async def delete_data_group(
 @router.get("/data/search", response_model=list[DataRecordSummary])
 async def search_data_records(
     q: Annotated[str, Query(description="Search text for key, task id/name, game or group")],
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
+    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
     needle = q.strip().lower()
     if not needle:
@@ -317,7 +317,7 @@ async def list_game_records(
     sort_order: Annotated[
         str, Query(pattern="^(asc|desc)$", description="stored_at order")
     ] = "desc",
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 2000,
+    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 2000,
 ):
     summaries: list[DataRecordSummary] = []
     for record in await _load_source_records(limit=limit):

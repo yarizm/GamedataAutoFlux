@@ -166,7 +166,11 @@ async def save_template(template_id: str, req: TemplateSaveRequest):
 
 
 @router.delete("/reports/templates/{template_id}")
-async def delete_template(template_id: str):
+async def delete_template(
+    template_id: str,
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
+):
+    require_explicit_confirmation(confirm, "report template deletion")
     try:
         success = tmpl_delete(template_id)
     except ValueError as e:
@@ -268,7 +272,7 @@ async def upload_report_json(
 
 
 @router.get("/reports", response_model=list[ReportSummaryResponse])
-async def list_reports(limit: Annotated[int, Query(description="返回数量限制")] = 20):
+async def list_reports(limit: Annotated[int, Query(ge=1, le=200, description="返回数量限制")] = 20):
     """获取历史报告列表。"""
     from src.web.app import report_generator
 
@@ -280,7 +284,7 @@ async def list_reports(limit: Annotated[int, Query(description="返回数量限�
 async def list_group_records_for_report(
     group_id: Annotated[str, Query(description="Data group id")],
     source: Annotated[str | None, Query(description="Optional data source label")] = None,
-    limit: Annotated[int, Query(description="Maximum source records to scan")] = 1000,
+    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
     from src.web.routes.data import _load_source_records, _record_summary
 

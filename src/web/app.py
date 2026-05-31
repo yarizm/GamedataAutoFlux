@@ -14,7 +14,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
@@ -215,7 +215,9 @@ def create_app() -> FastAPI:
 
     from fastapi.middleware.cors import CORSMiddleware
     
-    cors_origins = get_config("server.cors_origins", ["*"])
+    cors_origins = get_config(
+        "server.cors_origins", ["http://localhost:8000", "http://127.0.0.1:8000"]
+    )
     if isinstance(cors_origins, str):
         cors_origins = [cors_origins]
         
@@ -235,13 +237,15 @@ def create_app() -> FastAPI:
     from src.web.routes.ws import router as ws_router
     from src.web.routes.agent import router as agent_router
     from src.web.routes.health import router as health_router
+    from src.web.safety import require_admin
 
-    app.include_router(tasks_router, prefix="/api")
-    app.include_router(pipelines_router, prefix="/api")
-    app.include_router(reports_router, prefix="/api")
-    app.include_router(data_router, prefix="/api")
+    admin_dependencies = [Depends(require_admin)]
+    app.include_router(tasks_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(pipelines_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(reports_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(data_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(ws_router, prefix="/api")
-    app.include_router(agent_router, prefix="/api")
+    app.include_router(agent_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(health_router, prefix="/api")
 
     # 注册页面路由
@@ -269,7 +273,7 @@ def main():
     # 否则 Playwright MCP 子进程的 subprocess_exec 会抛 NotImplementedError。
     _configure_windows_event_loop_policy()
 
-    host = get_config("server.host", "0.0.0.0")
+    host = get_config("server.host", "127.0.0.1")
     port = get_config("server.port", 8000)
     debug = get_config("app.debug", False)
 

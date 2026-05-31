@@ -16,6 +16,15 @@ router = APIRouter(tags=["agent"])
 _TIMEOUT_SECONDS = 300
 
 
+def _safe_provider_api_key(value: str) -> tuple[str, bool]:
+    value = str(value or "")
+    if not value:
+        return "", False
+    if value.startswith("${") and value.endswith("}"):
+        return value, False
+    return "", True
+
+
 @router.post("/agent/chat")
 async def agent_chat(req: ChatRequest):
     """与 AI 助手对话（SSE 流式响应）"""
@@ -126,12 +135,14 @@ async def get_llm_providers_config():
     for key, cfg in llm_config.items():
         if key == "provider" or not isinstance(cfg, dict):
             continue
+        safe_api_key, has_api_key = _safe_provider_api_key(str(cfg.get("api_key", "")))
         items.append(
             ProviderConfigItem(
                 key=key,
                 model=str(cfg.get("model", "")),
                 base_url=str(cfg.get("base_url", "")),
-                api_key=str(cfg.get("api_key", "")),
+                api_key=safe_api_key,
+                has_api_key=has_api_key,
                 temperature=float(cfg.get("temperature", 0.3)),
                 max_tokens=int(cfg.get("max_tokens", 2000)),
             ).model_dump()
@@ -147,9 +158,10 @@ async def get_llm_providers_config():
 async def update_llm_providers_config(req: UpdateProviderConfigRequest):
     """批量保存 LLM provider 配置到 settings.yaml"""
     from src.core.config import save_section
-    from src.core.config import get as get_config
+    from src.core.config import get as get_config, get_raw_section
 
     # 构建 llm section 字典
+    raw_llm = get_raw_section("llm")
     llm_section: dict = {"provider": req.provider}
     for item in req.items:
         cfg: dict = {"model": item.model}
@@ -157,6 +169,8 @@ async def update_llm_providers_config(req: UpdateProviderConfigRequest):
             cfg["base_url"] = item.base_url
         if item.api_key:
             cfg["api_key"] = item.api_key
+        elif isinstance(raw_llm.get(item.key), dict) and raw_llm[item.key].get("api_key"):
+            cfg["api_key"] = raw_llm[item.key]["api_key"]
         cfg["temperature"] = item.temperature
         cfg["max_tokens"] = item.max_tokens
         # 保留已有的其他字段（fallback_to_stub, retry_count 等）

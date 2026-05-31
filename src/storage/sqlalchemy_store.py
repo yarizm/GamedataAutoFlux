@@ -171,7 +171,7 @@ class SQLAlchemyStorage(BaseStorage):
             await self.initialize()
 
         offset = max(0, int(kwargs.get("offset", 0) or 0))
-        limit = max(0, int(limit or 0))
+        limit = min(max(1, int(limit or 1000)), 5000)
         order = str(kwargs.get("order", "desc") or "desc").lower()
 
         async with self._session_factory() as session:
@@ -210,8 +210,7 @@ class SQLAlchemyStorage(BaseStorage):
             else:
                 stmt = stmt.order_by(RecordModel.stored_at.desc())
 
-            if limit > 0:
-                stmt = stmt.limit(limit).offset(offset)
+            stmt = stmt.limit(limit).offset(offset)
 
             result = await session.execute(stmt)
             db_records = result.scalars().all()

@@ -172,6 +172,8 @@ class DynamicPlaywrightCollector(BaseCollector):
 
                 page = await self._context.new_page()
                 try:
+                    from src.web.safety import validate_url_runtime
+                    validate_url_runtime(url)
                     logger.info(f"[dynamic_playwright] Navigating to: {url}")
                     await page.goto(
                         url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000)

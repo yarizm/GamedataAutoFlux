@@ -146,6 +146,7 @@ class ProviderConfigItem(BaseModel):
     model: str = Field("", description="模型名称")
     base_url: str = Field("", description="API base URL")
     api_key: str = Field("", description="API key（支持 ${ENV_VAR} 占位符）")
+    has_api_key: bool = Field(False, description="是否已配置非占位 API key")
     temperature: float = Field(0.3, description="温度参数")
     max_tokens: int = Field(2000, description="最大 token 数")
 

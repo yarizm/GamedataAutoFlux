@@ -275,16 +275,19 @@ export default {
   _addConfigRow(data) {
     const listEl = document.getElementById('provider-config-list');
     if (!listEl) return;
-    data = data || { key: '', model: '', base_url: '', api_key: '', temperature: 0.3, max_tokens: 2000 };
+    data = data || { key: '', model: '', base_url: '', api_key: '', has_api_key: false, temperature: 0.3, max_tokens: 2000 };
+    const apiKeyPlaceholder = data.has_api_key ? '留空表示保留当前密钥' : '${ENV_VAR} 或明文';
     const row = document.createElement('div');
     row.className = 'provider-config-row';
     row.innerHTML = `
       <div><label>Key</label><input type="text" class="prov-cfg-key" value="${escapeHtml(data.key || '')}" placeholder="qwen" ${data.key ? 'readonly' : ''}></div>
       <div><label>模型</label><input type="text" class="prov-cfg-model" value="${escapeHtml(data.model || '')}" placeholder="qwen-max"></div>
       <div><label>Base URL</label><input type="text" class="prov-cfg-url" value="${escapeHtml(data.base_url || '')}" placeholder="https://..."></div>
-      <div><label>API Key</label><input type="text" class="prov-cfg-keyval" value="${escapeHtml(data.api_key || '')}" placeholder="\${ENV_VAR} 或明文"></div>
+      <div><label>API Key</label><input type="text" class="prov-cfg-keyval" value="${escapeHtml(data.api_key || '')}"></div>
       <div><button class="provider-config-delete" title="${t('common.delete')}">&times;</button></div>`;
     row.querySelector('.provider-config-delete').addEventListener('click', () => { row.remove(); this._refreshDefaultSelect(); });
+    const apiKeyInput = row.querySelector('.prov-cfg-keyval');
+    if (apiKeyInput) apiKeyInput.placeholder = apiKeyPlaceholder;
     listEl.appendChild(row);
     this._refreshDefaultSelect();
   },

@@ -41,6 +41,7 @@ _DEFAULT_SETTINGS_FILE = _CONFIG_DIR / "settings.yaml"
 
 _settings: dict[str, Any] | None = None
 _settings_validation: dict[str, Any] | None = None
+_raw_sections: dict[str, dict[str, Any]] | None = None
 _settings_lock = threading.RLock()
 
 
@@ -193,7 +194,14 @@ def get_data_dir() -> Path:
 
 
 def get_raw_section(key: str) -> dict[str, Any]:
-    """读取原始配置 section（不解析 ${ENV_VAR}），返回原始占位符文本"""
+    """读取原始配置 section（不解析 ${ENV_VAR}），返回原始占位符文本。
+
+    结果会被缓存，调用 invalidate_raw_section_cache() 清除。
+    """
+    global _raw_sections
+    if _raw_sections is not None and key in _raw_sections:
+        return _raw_sections[key]
+
     path = _DEFAULT_SETTINGS_FILE
     if not path.exists():
         return {}
@@ -202,7 +210,18 @@ def get_raw_section(key: str) -> dict[str, Any]:
         raw = yaml.safe_load(f) or {}
 
     value = raw.get(key)
-    return value if isinstance(value, dict) else {}
+    result = value if isinstance(value, dict) else {}
+
+    if _raw_sections is None:
+        _raw_sections = {}
+    _raw_sections[key] = result
+    return result
+
+
+def invalidate_raw_section_cache() -> None:
+    """清除 raw section 缓存（在 save_section 后调用）。"""
+    global _raw_sections
+    _raw_sections = None
 
 
 def save_section(key: str, value: Any, config_path: str | Path | None = None) -> None:
@@ -210,7 +229,7 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
 
     通过替换 YAML 文本中对应 section 来实现，尽可能保留原始格式。
     """
-    global _settings, _settings_validation
+    global _settings, _settings_validation, _raw_sections
 
     path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
 
@@ -241,6 +260,7 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
         with _settings_lock:
             _settings = None
             _settings_validation = None
+            _raw_sections = None
         logger.info(f"配置 section '{key}' 已保存到 {path}")
     else:
         logger.warning(f"未找到 section '{key}' 或内容未变化，跳过保存")

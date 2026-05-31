@@ -224,7 +224,8 @@ function addProviderConfigRow(data) {
     const listEl = document.getElementById("provider-config-list");
     if (!listEl) return;
 
-    data = data || { key: "", model: "", base_url: "", api_key: "", temperature: 0.3, max_tokens: 2000 };
+    data = data || { key: "", model: "", base_url: "", api_key: "", has_api_key: false, temperature: 0.3, max_tokens: 2000 };
+    const apiKeyPlaceholder = data.has_api_key ? "留空表示保留当前密钥" : "${ENV_VAR} 或明文";
 
     const row = document.createElement("div");
     row.className = "provider-config-row";
@@ -232,10 +233,12 @@ function addProviderConfigRow(data) {
         <div><label>Key</label><input type="text" class="prov-cfg-key" value="${escapeHtml(data.key || "")}" placeholder="qwen" ${data.key ? "readonly" : ""}></div>
         <div><label>模型</label><input type="text" class="prov-cfg-model" value="${escapeHtml(data.model || "")}" placeholder="qwen-max"></div>
         <div><label>Base URL</label><input type="text" class="prov-cfg-url" value="${escapeHtml(data.base_url || "")}" placeholder="https://..."></div>
-        <div><label>API Key</label><input type="text" class="prov-cfg-keyval" value="${escapeHtml(data.api_key || "")}" placeholder="\${ENV_VAR} 或明文"></div>
+        <div><label>API Key</label><input type="text" class="prov-cfg-keyval" value="${escapeHtml(data.api_key || "")}"></div>
         <div><button class="provider-config-delete" onclick="this.closest('.provider-config-row').remove()" title="删除">&times;</button></div>
     `;
     listEl.appendChild(row);
+    const apiKeyInput = row.querySelector(".prov-cfg-keyval");
+    if (apiKeyInput) apiKeyInput.placeholder = apiKeyPlaceholder;
 
     refreshProviderDefaultSelect();
 }
