@@ -9,6 +9,35 @@ from src.collectors.base import CollectTarget
 from src.collectors.official_site_collector import OfficialSiteCollector
 
 
+def _has_valid_llm() -> bool:
+    """检查是否有可用的 LLM 配置（至少一个能成功调用）。"""
+    import asyncio
+    from src.collectors.llm_extractor import _get_extraction_llms
+
+    llms = _get_extraction_llms()
+    if not llms:
+        return False
+
+    async def _probe():
+        try:
+            await llms[0].ainvoke("ping")
+            return True
+        except Exception:
+            return False
+
+    try:
+        return asyncio.run(_probe())
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _has_valid_llm(),
+    reason="No valid LLM API key configured (integration test requires real credentials)",
+)
+
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_smart_mode_extracts_from_lol_news():
