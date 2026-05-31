@@ -126,7 +126,15 @@ class DynamicPlaywrightCollector(BaseCollector):
                 if self._pw:
                     await self._pw.stop()
 
-            self._worker_loop.run_until_complete(_do_teardown())
+            try:
+                self._worker_loop.run_until_complete(_do_teardown())
+            except Exception as e:
+                logger.error(f"[dynamic_playwright] Error during teardown: {e}")
+            finally:
+                try:
+                    self._worker_loop.close()
+                except Exception:
+                    pass
 
         await loop.run_in_executor(executor, _worker_teardown)
         self._context = None
@@ -134,6 +142,15 @@ class DynamicPlaywrightCollector(BaseCollector):
         self._pw = None
         self._pw_mgr = None
         self._worker_loop = None
+
+        cls = self.__class__
+        if cls._SINGLE_EXECUTOR is not None:
+            try:
+                cls._SINGLE_EXECUTOR.shutdown(wait=False)
+            except Exception as e:
+                logger.error(f"[dynamic_playwright] Error shutting down executor: {e}")
+            finally:
+                cls._SINGLE_EXECUTOR = None
 
     async def collect(self, target: CollectTarget) -> CollectResult:
         if not self._worker_loop:

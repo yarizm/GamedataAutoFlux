@@ -10,6 +10,7 @@ import asyncio
 import importlib
 import pkgutil
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,44 +26,50 @@ from src.reporting.generator import ReportGenerator
 
 
 # 全局调度器实例
-scheduler = Scheduler()
-report_generator = ReportGenerator()
+scheduler = None
+report_generator = None
 
 # Agent 服务单例（延迟初始化）
 _agent_service = None
 _agent_session_service = None  # 在 lifespan 中初始化
 
 
+_agent_service_lock = threading.Lock()
+
 def get_agent_service():
     """获取 Agent 服务实例，未启用时返回 None"""
     global _agent_service
     if not get_config("agent.enabled", True):
         return None
+    
     if _agent_service is None:
-        if _agent_session_service is None:
-            logger.debug("Agent 会话服务尚未初始化，跳过")
-            return None
-        try:
-            from src.agent.agent import AgentService
-
-            _agent_service = AgentService(session_service=_agent_session_service)
-            logger.info("Agent 服务已初始化")
-        except Exception as e:
-            logger.warning(f"Agent 服务初始化失败: {e}")
-            return None
+        with _agent_service_lock:
+            if _agent_service is None:
+                if _agent_session_service is None:
+                    logger.debug("Agent 会话服务尚未初始化，跳过")
+                    return None
+                try:
+                    from src.agent.agent import AgentService
+                    _agent_service = AgentService(session_service=_agent_session_service)
+                    logger.info("Agent 服务已初始化")
+                except Exception as e:
+                    logger.warning(f"Agent 服务初始化失败: {e}")
+                    return None
     return _agent_service
 
 
 # Service layer singletons (lazy init)
 _task_service = None
+_task_service_lock = threading.Lock()
 
 
 def get_task_service():
     global _task_service
     if _task_service is None:
-        from src.services.task_service import TaskService
-
-        _task_service = TaskService(scheduler=scheduler)
+        with _task_service_lock:
+            if _task_service is None:
+                from src.services.task_service import TaskService
+                _task_service = TaskService(scheduler=scheduler)
     return _task_service
 
 
@@ -81,9 +88,6 @@ def _configure_windows_event_loop_policy() -> None:
     current_policy = asyncio.get_event_loop_policy()
     if current_policy.__class__.__name__ != "WindowsProactorEventLoopPolicy":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-
-_configure_windows_event_loop_policy()
 
 
 def _auto_discover_plugins():
@@ -115,6 +119,13 @@ async def lifespan(app: FastAPI):
     loop_name = asyncio.get_running_loop().__class__.__name__
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
+
+    global scheduler, report_generator
+    if scheduler is None:
+        scheduler = Scheduler()
+    if report_generator is None:
+        report_generator = ReportGenerator()
+
     # 发现并注册组件（需要在任何 get_storage() 等工厂函数调用前执行）
     _auto_discover_plugins()
 
@@ -204,10 +215,14 @@ def create_app() -> FastAPI:
 
     from fastapi.middleware.cors import CORSMiddleware
     
+    cors_origins = get_config("server.cors_origins", ["*"])
+    if isinstance(cors_origins, str):
+        cors_origins = [cors_origins]
+        
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
+        allow_origins=cors_origins,
+        allow_credentials=True if cors_origins != ["*"] else False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

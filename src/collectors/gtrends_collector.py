@@ -100,12 +100,46 @@ class GoogleTrendsCollector(BaseCollector):
         self._trend_req = None
         await super().teardown()
 
-    async def validate_config(self, config: dict[str, Any] | None = None) -> bool:
+    def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         cfg = {**self.config, **(config or {})}
         keyword = cfg.get("keyword", "")
         if not keyword:
             logger.warning("[GTrends] no keyword configured")
         return True
+
+    async def collect_batch(self, targets: list[CollectTarget]) -> list[CollectResult]:
+        """批量采集，遇到 429 时进行指数退避等待，避免整个 batch 全军覆没"""
+        results = []
+        consecutive_429 = 0
+        
+        for target in targets:
+            if consecutive_429 > 0:
+                # 若之前遇到过 429，在下一个目标前先强制等待
+                sleep_time = min(300, (2 ** consecutive_429) * 10)
+                logger.warning(f"[GTrends] 主动退避 {sleep_time} 秒以应对 429 限流...")
+                await asyncio.sleep(sleep_time)
+                
+            try:
+                result = await self.collect(target)
+                if not result.success and result.error and ("429" in result.error or "Too Many Requests" in result.error):
+                    consecutive_429 += 1
+                else:
+                    consecutive_429 = 0
+                results.append(result)
+            except Exception as e:
+                code = classify_exception(e)
+                error_msg = str(e)
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    consecutive_429 += 1
+                results.append(
+                    CollectResult(
+                        target=target,
+                        success=False,
+                        error=error_msg,
+                        error_code=code.value,
+                    )
+                )
+        return results
 
     async def collect(self, target: CollectTarget) -> CollectResult:
         keyword = target.params.get("keyword") or target.name

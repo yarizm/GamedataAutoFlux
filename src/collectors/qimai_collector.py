@@ -264,14 +264,24 @@ class QimaiCollector(BaseCollector):
             finally:
                 state.stop_capture()
                 try:
-                    if page is not None and on_response is not None:
-                        page.remove_listener("response", on_response)
+                    if page is not None:
+                        if on_response is not None:
+                            page.remove_listener("response", on_response)
+                        await page.close()
                 except Exception:
                     pass
                 if "capture_tasks" in locals() and capture_tasks:
                     await asyncio.gather(*capture_tasks, return_exceptions=True)
-                if not is_cdp:
-                    await context.close()
+                if context is not None:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                if is_cdp and browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
 
         return state.build_result()
 
@@ -344,10 +354,19 @@ class QimaiCollector(BaseCollector):
                 try:
                     if page is not None:
                         page.remove_listener("response", state.capture_sync)
+                        page.close()
                 except Exception:
                     pass
-                if not is_cdp:
-                    context.close()
+                if context is not None:
+                    try:
+                        context.close()
+                    except Exception:
+                        pass
+                if is_cdp and browser is not None:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
 
         return state.build_result()
 

@@ -99,6 +99,53 @@ class SQLAlchemyStorage(BaseStorage):
 
             await session.commit()
 
+    async def save_batch(self, records: list[StorageRecord]) -> None:
+        if not records:
+            return
+        if self._session_factory is None:
+            await self.initialize()
+
+        async with self._session_factory() as session:
+            for record in records:
+                meta_copy = dict(record.metadata or {})
+                embedding_val = meta_copy.pop("embedding", None)
+                data_to_save = record.data
+                if hasattr(data_to_save, "model_dump"):
+                    data_to_save = data_to_save.model_dump()
+
+                stmt = insert(RecordModel).values(
+                    key=record.key,
+                    source=record.source,
+                    collector=str(meta_copy.get("collector", "")),
+                    game_name=str(meta_copy.get("game_name", "")),
+                    app_id=str(meta_copy.get("app_id", "")),
+                    group_id=str(meta_copy.get("group_id", "")),
+                    task_id=str(meta_copy.get("task_id", "")),
+                    metadata_=meta_copy,
+                    tags=record.tags,
+                    data=data_to_save,
+                    embedding=embedding_val,
+                    stored_at=record.stored_at,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[RecordModel.key],
+                    set_={
+                        "source": stmt.excluded.source,
+                        "collector": stmt.excluded.collector,
+                        "game_name": stmt.excluded.game_name,
+                        "app_id": stmt.excluded.app_id,
+                        "group_id": stmt.excluded.group_id,
+                        "task_id": stmt.excluded.task_id,
+                        "metadata": stmt.excluded.metadata,
+                        "tags": stmt.excluded.tags,
+                        "data": stmt.excluded.data,
+                        "embedding": stmt.excluded.embedding if embedding_val is not None else RecordModel.embedding,
+                        "updated_at": utcnow(),
+                    }
+                )
+                await session.execute(stmt)
+            await session.commit()
+
     async def load(self, key: str) -> StorageRecord | None:
         if self._session_factory is None:
             await self.initialize()
@@ -133,14 +180,16 @@ class SQLAlchemyStorage(BaseStorage):
             if query.startswith("source:"):
                 stmt = stmt.where(RecordModel.source == query[7:])
             elif query.startswith("key:"):
-                stmt = stmt.where(RecordModel.key.like(f"{query[4:]}%"))
+                key_prefix = query[4:].replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                stmt = stmt.where(RecordModel.key.like(f"{key_prefix}%", escape='\\'))
             elif query.strip():
-                q = f"%{query.strip()}%"
+                escaped_query = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                q = f"%{escaped_query}%"
                 stmt = stmt.where(
                     or_(
-                        RecordModel.key.like(q),
-                        RecordModel.source.like(q),
-                        RecordModel.game_name.like(q),
+                        RecordModel.key.like(q, escape='\\'),
+                        RecordModel.source.like(q, escape='\\'),
+                        RecordModel.game_name.like(q, escape='\\'),
                     )
                 )
 
@@ -239,7 +288,8 @@ class SQLAlchemyStorage(BaseStorage):
         async with self._session_factory() as session:
             stmt = select(RecordModel.key)
             if prefix:
-                stmt = stmt.where(RecordModel.key.like(f"{prefix}%"))
+                escaped_prefix = prefix.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                stmt = stmt.where(RecordModel.key.like(f"{escaped_prefix}%", escape='\\'))
             stmt = stmt.limit(limit)
 
             result = await session.execute(stmt)

@@ -81,9 +81,17 @@ class Scheduler:
         self._task_store: BaseStorage | None = None
         self._background_tasks: set[asyncio.Task] = set()
 
-        # APScheduler 用于 cron 定时
+        import threading
+        self._lock = threading.Lock()
+
         self._cron_scheduler = AsyncIOScheduler()
         self._started = False
+
+    def _create_background_task(self, coro) -> asyncio.Task:
+        bg_task = asyncio.create_task(coro)
+        bg_task.add_done_callback(lambda t: _on_background_task_done(t, self._background_tasks))
+        self._background_tasks.add(bg_task)
+        return bg_task
 
     async def start(self) -> None:
         """启动调度器"""
@@ -117,11 +125,23 @@ class Scheduler:
         """停止调度器，取消所有运行中的任务"""
         self._started = False
         # 取消运行中的异步任务
-        for task_id, future in list(self._running_futures.items()):
+        with self._lock:
+            futures = list(self._running_futures.items())
+        for task_id, future in futures:
             if not future.done():
                 future.cancel()
                 logger.info(f"取消运行中的任务: {task_id}")
-        self._running_futures.clear()
+
+        if futures:
+            _, pending = await asyncio.wait(
+                [f for _, f in futures],
+                timeout=10.0,
+            )
+            if pending:
+                logger.warning(f"停止超时，{len(pending)} 个任务仍在运行")
+
+        with self._lock:
+            self._running_futures.clear()
         
         if self._background_tasks:
             # Cancel running background tasks and wait for them to finish
@@ -141,7 +161,7 @@ class Scheduler:
         """注册 Pipeline 配置"""
         self._pipelines[pipeline.name] = pipeline
         if self._started:
-            asyncio.create_task(self._persist_pipeline(pipeline))
+            self._create_background_task(self._persist_pipeline(pipeline))
         logger.info(f"Pipeline 已注册: {pipeline.name}")
 
     def get_pipeline(self, name: str) -> Pipeline | None:
@@ -205,7 +225,8 @@ class Scheduler:
         if task.max_retries is None:  # 未显式设置，使用调度器默认值
             task.max_retries = self._default_retries
 
-        self._tasks[task.id] = task
+        with self._lock:
+            self._tasks[task.id] = task
         await self._persist_task(task)
 
         # 设置进度回调
@@ -214,7 +235,8 @@ class Scheduler:
 
         # 提交执行
         future = asyncio.create_task(self._execute_task(task, pipeline))
-        self._running_futures[task.id] = future
+        with self._lock:
+            self._running_futures[task.id] = future
 
         logger.info(f"任务已提交: [{task.id}] {task.name} → Pipeline [{pipeline.name}]")
         return task.id
@@ -222,12 +244,14 @@ class Scheduler:
     async def _execute_task(self, task: Task, pipeline: Pipeline) -> PipelineResult | None:
         """在信号量控制下执行任务，使用循环实现重试"""
         while True:
+            should_retry = False
+            backoff = 0
+
             async with self._semaphore:
                 task.start()
                 await self._persist_task(task)
                 logger.info(f"任务开始执行: [{task.id}] {task.name}")
 
-                should_retry = False
                 try:
                     result = await pipeline.execute(task)
 
@@ -250,7 +274,10 @@ class Scheduler:
                         else:
                             # 旧路径：内联报告生成
                             if self._should_generate_report(task):
-                                await self._generate_report_for_task(task, pipeline, result)
+                                try:
+                                    await self._generate_report_for_task(task, pipeline, result)
+                                except Exception as e:
+                                    logger.error(f"任务报告生成失败 (不影响任务成功状态): [{task.id}] {e}")
 
                         # 重新检查：hook 可能已将 result.success 设为 False
                         if not result.success:
@@ -275,8 +302,6 @@ class Scheduler:
                             )
                             should_retry = True
                             backoff = min(60, 2 ** task.retry_count)
-                            await asyncio.sleep(backoff)
-                            continue
                         else:
                             task.fail(error_msg)
                             await self._persist_task(task)
@@ -298,7 +323,7 @@ class Scheduler:
                             else:
                                 from src.services.alert_service import AlertService
 
-                                asyncio.create_task(
+                                self._create_background_task(
                                     AlertService.get_instance().send_alert(
                                         f"任务执行失败: {task.name}",
                                         f"**Task ID**: {task.id}\n**Error**: {error_msg}",
@@ -306,7 +331,8 @@ class Scheduler:
                                     )
                                 )
 
-                    return result
+                    if not should_retry:
+                        return result
 
                 except asyncio.CancelledError:
                     task.cancel()
@@ -316,6 +342,7 @@ class Scheduler:
 
                 except Exception as e:
                     error_msg = str(e)
+                    task.fail(error_msg)  # 先标记为 FAILED，再判断是否可重试
                     if task.retry():
                         await self._persist_task(task)
                         logger.warning(
@@ -324,10 +351,7 @@ class Scheduler:
                         )
                         should_retry = True
                         backoff = min(60, 2 ** task.retry_count)
-                        await asyncio.sleep(backoff)
-                        continue
                     else:
-                        task.fail(error_msg)
                         await self._persist_task(task)
                         logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
                         if self._event_bus is not None:
@@ -347,7 +371,7 @@ class Scheduler:
                         else:
                             from src.services.alert_service import AlertService
 
-                            asyncio.create_task(
+                            self._create_background_task(
                                 AlertService.get_instance().send_alert(
                                     f"任务执行异常: {task.name}",
                                     f"**Task ID**: {task.id}\n**Exception**: {error_msg}",
@@ -358,7 +382,11 @@ class Scheduler:
 
                 finally:
                     if not should_retry:
-                        self._running_futures.pop(task.id, None)
+                        with self._lock:
+                            self._running_futures.pop(task.id, None)
+
+            if should_retry:
+                await asyncio.sleep(backoff)
 
     async def cancel(self, task_id: str) -> bool:
         """
@@ -370,12 +398,15 @@ class Scheduler:
         Returns:
             是否成功取消
         """
-        future = self._running_futures.get(task_id)
+        with self._lock:
+            future = self._running_futures.get(task_id)
+            task = self._tasks.get(task_id)
+
         if future and not future.done():
             future.cancel()
             return True
 
-        task = self._tasks.get(task_id)
+
         if task and not task.is_terminal:
             task.cancel()
             await self._persist_task(task)
@@ -385,15 +416,17 @@ class Scheduler:
 
     async def delete_task(self, task_id: str) -> bool:
         """Delete a non-running task and its persisted snapshot."""
-        future = self._running_futures.get(task_id)
-        if future and not future.done():
-            return False
+        with self._lock:
+            future = self._running_futures.get(task_id)
+            if future and not future.done():
+                return False
 
-        task = self._tasks.get(task_id)
-        if task is None:
-            return False
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
 
-        del self._tasks[task_id]
+            del self._tasks[task_id]
+        
         if self._task_repo is not None:
             await self._task_repo.delete(task_id)
         elif self._task_store is not None:
@@ -403,19 +436,23 @@ class Scheduler:
 
     def get_task(self, task_id: str) -> Task | None:
         """获取任务"""
-        return self._tasks.get(task_id)
+        with self._lock:
+            return self._tasks.get(task_id)
 
     def get_all_tasks(self) -> list[Task]:
         """获取所有任务"""
-        return list(self._tasks.values())
+        with self._lock:
+            return list(self._tasks.values())
 
     def get_tasks_by_status(self, status: TaskStatus) -> list[Task]:
         """按状态筛选任务"""
-        return [t for t in self._tasks.values() if t.status == status]
+        with self._lock:
+            return [t for t in self._tasks.values() if t.status == status]
 
     async def _on_task_progress(self, task_id: str, progress: float, message: str) -> None:
         """内部进度回调"""
-        task = self._tasks.get(task_id)
+        with self._lock:
+            task = self._tasks.get(task_id)
         if task:
             task.update_progress(progress, message)
             await self._persist_task(task)
@@ -469,7 +506,7 @@ class Scheduler:
 
         logger.info(f"定时任务已添加: {name} → [{cron_expr}] → Pipeline [{pipeline_name}]")
         if persist and (self._cron_repo is not None or self._task_store is not None):
-            asyncio.create_task(
+            self._create_background_task(
                 self._persist_cron_job(
                     name=name,
                     pipeline_name=pipeline_name,
@@ -484,9 +521,9 @@ class Scheduler:
         try:
             self._cron_scheduler.remove_job(name)
             if self._cron_repo is not None:
-                asyncio.create_task(self._cron_repo.delete(name))
+                self._create_background_task(self._cron_repo.delete(name))
             elif self._task_store is not None:
-                asyncio.create_task(self._task_store.delete(f"cron:{name}"))
+                self._create_background_task(self._task_store.delete(f"cron:{name}"))
             logger.info(f"定时任务已移除: {name}")
             return True
         except Exception:
@@ -532,13 +569,17 @@ class Scheduler:
     def get_stats(self) -> dict[str, Any]:
         """获取调度器统计信息"""
         status_counts = {}
-        for task in self._tasks.values():
+        with self._lock:
+            tasks_values = list(self._tasks.values())
+            running_futures_len = len(self._running_futures)
+            
+        for task in tasks_values:
             status = task.status.value
             status_counts[status] = status_counts.get(status, 0) + 1
 
         return {
-            "total_tasks": len(self._tasks),
-            "running_tasks": len(self._running_futures),
+            "total_tasks": len(tasks_values),
+            "running_tasks": running_futures_len,
             "max_concurrent": self._max_concurrent,
             "status_counts": status_counts,
             "cron_jobs": len(self._cron_scheduler.get_jobs()),
@@ -660,11 +701,10 @@ class Scheduler:
                 )
             )
 
-        # 优先使用 EventBus 广播（即发即弃，不阻塞持久化）
         if self._event_bus is not None:
             from src.core.events import TaskUpdatedEvent
 
-            bg_task = asyncio.create_task(
+            self._create_background_task(
                 self._event_bus.emit(
                     "task_updated",
                     TaskUpdatedEvent(
@@ -675,18 +715,14 @@ class Scheduler:
                     ),
                 )
             )
-            bg_task.add_done_callback(lambda t: _on_background_task_done(t, self._background_tasks))
-            self._background_tasks.add(bg_task)
         else:
             # 旧路径：直接 WebSocket 广播
             try:
                 from src.web.routes.ws import manager
 
-                bg_task = asyncio.create_task(
+                self._create_background_task(
                     manager.broadcast({"type": "task_update", "task": task_payload})
                 )
-                bg_task.add_done_callback(lambda t: _on_background_task_done(t, self._background_tasks))
-                self._background_tasks.add(bg_task)
             except Exception as exc:
                 logger.debug(f"Failed to broadcast task update: {exc}")
 
@@ -778,7 +814,8 @@ class Scheduler:
                     task.error = (
                         "Recovered from a previous session without a live worker; marked cancelled."
                     )
-                self._tasks[task.id] = task
+                with self._lock:
+                    self._tasks[task.id] = task
         elif self._task_store is not None:
             result = await self._task_store.query("key:task:", limit=1000)
             for record in result.records:
@@ -790,7 +827,8 @@ class Scheduler:
                     task.error = (
                         "Recovered from a previous session without a live worker; marked cancelled."
                     )
-                self._tasks[task.id] = task
+                with self._lock:
+                    self._tasks[task.id] = task
 
     async def _restore_cron_jobs(self) -> None:
         if self._cron_repo is not None:
@@ -838,7 +876,7 @@ def _on_background_task_done(task: asyncio.Task, tasks_set: set[asyncio.Task]) -
         return
     exc = task.exception()
     if exc is not None:
-        logger.debug(f"Background broadcast task failed: {exc}")
+        logger.error(f"Background task failed: {exc}")
 
 
 def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:

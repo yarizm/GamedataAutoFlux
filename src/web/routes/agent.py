@@ -34,7 +34,7 @@ async def agent_chat(req: ChatRequest):
             yield f"data: {json.dumps({'type': 'error', 'content': '响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"Agent SSE 流出错: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'内部错误: {e}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': '内部服务错误，请查看日志'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),

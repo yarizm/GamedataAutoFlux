@@ -187,8 +187,8 @@ async def upload_template(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only YAML files are supported")
 
     try:
-        content = await file.read(size=1_048_576)
-        if len(content) >= 1_048_576:
+        content = await file.read(size=1_048_576 + 1)
+        if len(content) > 1_048_576:
             raise HTTPException(status_code=413, detail="Template file exceeds 1 MB limit")
         data = yaml.safe_load(content.decode("utf-8"))
         if not isinstance(data, dict) or not data.get("name"):
@@ -220,52 +220,49 @@ async def upload_report_json(
     store = get_storage()
     await store.initialize()
     responses: list[UploadedJsonResponse] = []
-    try:
-        for index, file in enumerate(files, start=1):
-            raw = await file.read(size=20_971_520 + 1)
-            if len(raw) > 20_971_520:
-                raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
-            try:
-                payload = json.loads(raw.decode("utf-8-sig"))
-            except Exception as exc:
-                raise HTTPException(400, f"Invalid JSON file {file.filename}: {exc}") from exc
-            if not isinstance(payload, dict):
-                raise HTTPException(400, f"JSON file {file.filename} must contain an object")
+    for index, file in enumerate(files, start=1):
+        raw = await file.read(size=20_971_520 + 1)
+        if len(raw) > 20_971_520:
+            raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
+        try:
+            payload = json.loads(raw.decode("utf-8-sig"))
+        except Exception as exc:
+            raise HTTPException(400, f"Invalid JSON file {file.filename}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, f"JSON file {file.filename} must contain an object")
 
-            data = payload.get("data") if _looks_like_download_wrapper(payload) else payload
-            if not isinstance(data, dict):
-                raise HTTPException(400, f"JSON file {file.filename} does not contain object data")
+        data = payload.get("data") if _looks_like_download_wrapper(payload) else payload
+        if not isinstance(data, dict):
+            raise HTTPException(400, f"JSON file {file.filename} does not contain object data")
 
-            collector = normalize_collector(_infer_collector(data, payload))
-            game_name = _infer_game_name(data, payload) or "Uploaded JSON"
-            app_id = _infer_app_id(data)
-            key = f"upload:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
-            await store.save(
-                StorageRecord(
-                    key=key,
-                    data=data,
-                    metadata={
-                        "kind": "uploaded_json_source",
-                        "collector": collector,
-                        "target": game_name,
-                        "app_id": app_id or "",
-                        "uploaded_filename": file.filename or "",
-                    },
-                    source="upload",
-                    tags=["uploaded_json", collector, game_name],
-                )
+        collector = normalize_collector(_infer_collector(data, payload))
+        game_name = _infer_game_name(data, payload) or "Uploaded JSON"
+        app_id = _infer_app_id(data)
+        key = f"upload:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
+        await store.save(
+            StorageRecord(
+                key=key,
+                data=data,
+                metadata={
+                    "kind": "uploaded_json_source",
+                    "collector": collector,
+                    "target": game_name,
+                    "app_id": app_id or "",
+                    "uploaded_filename": file.filename or "",
+                },
+                source="upload",
+                tags=["uploaded_json", collector, game_name],
             )
-            responses.append(
-                UploadedJsonResponse(
-                    key=key,
-                    filename=file.filename or key,
-                    collector=collector,
-                    game_name=game_name,
-                    app_id=app_id,
-                )
+        )
+        responses.append(
+            UploadedJsonResponse(
+                key=key,
+                filename=file.filename or key,
+                collector=collector,
+                game_name=game_name,
+                app_id=app_id,
             )
-    finally:
-        await store.close()
+        )
 
     return responses
 
@@ -390,12 +387,22 @@ async def download_report(report_id: Annotated[str, Path(description="报告 ID"
             report.metadata.get("excel_path") if isinstance(report.metadata, dict) else None
         )
 
-    if not excel_path or not FilePath(excel_path).exists():
+    if excel_path:
+        from src.core.config import get as get_config
+        resolved = FilePath(excel_path).resolve()
+        allowed_dir = FilePath(get_config("storage.reports_dir", "data/reports")).resolve()
+        # 用 is_relative_to 防止 /data/reports_evil 绕过 /data/reports 前缀检查
+        if not resolved.is_relative_to(allowed_dir):
+            raise HTTPException(403, "Access denied")
+    else:
+        resolved = None
+
+    if not resolved or not resolved.exists():
         raise HTTPException(404, f"该报告没有对应的 Excel 文件: {report_id}")
 
     filename = f"report_{report_id}.xlsx"
     return FileResponse(
-        path=excel_path,
+        path=str(resolved),
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
@@ -430,16 +437,13 @@ def _to_summary_response(report: ReportSummary) -> ReportSummaryResponse:
 async def _load_selected_records(record_keys: list[str]):
     store = get_storage()
     await store.initialize()
-    try:
-        records = []
-        for key in record_keys:
-            record = await store.load(key)
-            if record is None:
-                raise HTTPException(404, f"原始数据记录不存在: {key}")
-            records.append(record)
-        return records
-    finally:
-        await store.close()
+    records = []
+    for key in record_keys:
+        record = await store.load(key)
+        if record is None:
+            raise HTTPException(404, f"原始数据记录不存在: {key}")
+        records.append(record)
+    return records
 
 
 async def _load_report_precheck_records(req: GenerateReportRequest) -> list[StorageRecord]:
@@ -449,14 +453,11 @@ async def _load_report_precheck_records(req: GenerateReportRequest) -> list[Stor
     limit = max(1, min(int(req.params.get("limit", 100) or 100), 1000))
     store = get_storage()
     await store.initialize()
-    try:
-        if req.data_source:
-            result = await store.query(f"source:{req.data_source}", limit=limit)
-        else:
-            result = await store.query("key:", limit=limit)
-        return result.records
-    finally:
-        await store.close()
+    if req.data_source:
+        result = await store.query(f"source:{req.data_source}", limit=limit)
+    else:
+        result = await store.query("key:", limit=limit)
+    return result.records
 
 
 def _build_report_precheck(template: str, records: list[StorageRecord]) -> ReportPrecheckResponse:

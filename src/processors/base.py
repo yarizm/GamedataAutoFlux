@@ -50,6 +50,14 @@ class BaseProcessor(ABC):
     def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
 
+    async def setup(self) -> None:
+        """初始化处理器资源。"""
+        pass
+
+    async def teardown(self) -> None:
+        """清理处理器资源。"""
+        pass
+
     @abstractmethod
     async def process(self, input_data: ProcessInput) -> ProcessOutput:
         """

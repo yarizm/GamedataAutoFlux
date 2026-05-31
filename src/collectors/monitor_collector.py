@@ -296,9 +296,20 @@ class MonitorCollector(BaseCollector):
         return name.strip() if isinstance(name, str) and name.strip() else None
 
     async def _fetch_text(self, url: str, *, headers: dict[str, str] | None = None) -> str:
-        response = await self._client.get(url, headers=headers)
-        response.raise_for_status()
-        return response.text
+        retries = 3
+        last_error = None
+        for attempt in range(1, retries + 1):
+            try:
+                response = await self._client.get(url, headers=headers)
+                response.raise_for_status()
+                return response.text
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt >= retries:
+                    break
+                logger.warning(f"[Monitor] HTTP fetch text retry {attempt}/{retries} for {url}: {exc!r}")
+                await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
+        raise last_error or RuntimeError(f"Monitor fetch failed: {url}")
 
     async def _fetch_json(
         self,
@@ -307,9 +318,20 @@ class MonitorCollector(BaseCollector):
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        response = await self._client.get(url, params=params, headers=headers)
-        response.raise_for_status()
-        return response.json()
+        retries = 3
+        last_error = None
+        for attempt in range(1, retries + 1):
+            try:
+                response = await self._client.get(url, params=params, headers=headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt >= retries:
+                    break
+                logger.warning(f"[Monitor] HTTP fetch json retry {attempt}/{retries} for {url}: {exc!r}")
+                await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
+        raise last_error or RuntimeError(f"Monitor fetch failed: {url}")
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True

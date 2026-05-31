@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,8 @@ def _load_dotenv() -> None:
         if env_file.exists():
             _load(env_file)
             logger.info(f".env 文件已加载: {env_file}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"加载 .env 文件出错: {e}")
 
 
 _load_dotenv()
@@ -40,6 +41,7 @@ _DEFAULT_SETTINGS_FILE = _CONFIG_DIR / "settings.yaml"
 
 _settings: dict[str, Any] | None = None
 _settings_validation: dict[str, Any] | None = None
+_settings_lock = threading.RLock()
 
 
 def _resolve_env_vars(value: Any) -> Any:
@@ -70,37 +72,40 @@ def load_settings(config_path: str | Path | None = None) -> dict[str, Any]:
     """
     global _settings, _settings_validation
 
-    path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
+    with _settings_lock:
+        path = Path(config_path) if config_path else _DEFAULT_SETTINGS_FILE
 
-    if not path.exists():
-        logger.warning(f"配置文件不存在: {path}，使用默认配置")
-        _settings = {}
+        if not path.exists():
+            logger.warning(f"配置文件不存在: {path}，使用默认配置")
+            _settings = {}
+            _settings_validation = _validate_settings(_settings)
+            return _settings
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            logger.error(f"配置文件解析失败: {exc}")
+            raw = {}
+
+        _settings = _resolve_env_vars(raw)
         _settings_validation = _validate_settings(_settings)
+        if not _settings_validation["valid"]:
+            issue_text = "; ".join(
+                f"{issue['path']}: {issue['message']}" for issue in _settings_validation["issues"]
+            )
+            logger.warning(f"settings.yaml validation warnings: {issue_text}")
+        logger.info(f"配置已加载: {path}")
         return _settings
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    except yaml.YAMLError as exc:
-        logger.error(f"配置文件解析失败: {exc}")
-        raw = {}
-
-    _settings = _resolve_env_vars(raw)
-    _settings_validation = _validate_settings(_settings)
-    if not _settings_validation["valid"]:
-        issue_text = "; ".join(
-            f"{issue['path']}: {issue['message']}" for issue in _settings_validation["issues"]
-        )
-        logger.warning(f"settings.yaml validation warnings: {issue_text}")
-    logger.info(f"配置已加载: {path}")
-    return _settings
 
 
 def get_settings() -> dict[str, Any]:
     """获取当前配置（如未加载则自动加载默认配置）"""
     global _settings
     if _settings is None:
-        load_settings()
+        with _settings_lock:
+            if _settings is None:
+                load_settings()
     return _settings
 
 
@@ -130,6 +135,7 @@ def _validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     return validate_settings_payload(settings)
 
 
+_MISSING = object()
 def get(key: str, default: Any = None) -> Any:
     """
     获取嵌套配置项，使用点号分隔路径。
@@ -143,9 +149,12 @@ def get(key: str, default: Any = None) -> Any:
     value = settings
     for k in keys:
         if isinstance(value, dict):
-            value = value.get(k)
+            value = value.get(k, _MISSING)
+            if value is _MISSING:
+                return default
         else:
             return default
+        # Allow explicit null values in yaml to be returned as None
         if value is None:
             return default
     
@@ -225,10 +234,13 @@ def save_section(key: str, value: Any, config_path: str | Path | None = None) ->
     new_content = _replace_top_level_section(original, key, dumped_body)
 
     if new_content != original:
-        path.write_text(new_content, encoding="utf-8")
+        temp_path = path.with_suffix(".yaml.tmp")
+        temp_path.write_text(new_content, encoding="utf-8")
+        temp_path.replace(path)
         # 刷新内存缓存，下次 get 时重新加载
-        _settings = None
-        _settings_validation = None
+        with _settings_lock:
+            _settings = None
+            _settings_validation = None
         logger.info(f"配置 section '{key}' 已保存到 {path}")
     else:
         logger.warning(f"未找到 section '{key}' 或内容未变化，跳过保存")

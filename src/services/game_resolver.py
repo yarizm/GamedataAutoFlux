@@ -7,6 +7,8 @@ import json
 import random
 import re
 import sys
+import threading
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -46,34 +48,41 @@ CACHE_TTL_SECONDS = 3600
 
 _names_cache: dict[str, tuple[float, IdentifierResult]] = {}
 _cache_loaded = False
+_cache_lock = threading.Lock()
 
 
 def _load_cache() -> None:
     global _names_cache, _cache_loaded
-    if _cache_loaded:
-        return
-    _cache_loaded = True
-    if not GAME_RESOLVER_CACHE.exists():
-        return
-    try:
-        raw = json.loads(GAME_RESOLVER_CACHE.read_text(encoding="utf-8"))
-        now = asyncio.get_event_loop().time()
-        for key, (ts, data) in raw.items():
-            if now - ts < CACHE_TTL_SECONDS:
-                _names_cache[key] = (ts, IdentifierResult.model_validate(data))
-    except Exception:
-        pass
+    with _cache_lock:
+        if _cache_loaded:
+            return
+        _cache_loaded = True
+        if not GAME_RESOLVER_CACHE.exists():
+            return
+        try:
+            raw = json.loads(GAME_RESOLVER_CACHE.read_text(encoding="utf-8"))
+            now = time.monotonic()
+            for key, (ts, data) in raw.items():
+                # 兼容旧版 asyncio.get_event_loop().time() 时间戳：
+                # 跳过负值、来自未来、或已过期的条目
+                if ts < 0 or ts > now + CACHE_TTL_SECONDS:
+                    continue
+                if now - ts < CACHE_TTL_SECONDS:
+                    _names_cache[key] = (ts, IdentifierResult.model_validate(data))
+        except Exception:
+            pass
 
 
 def _save_cache() -> None:
-    try:
-        GAME_RESOLVER_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        raw = {
-            key: (ts, result.model_dump(mode="json")) for key, (ts, result) in _names_cache.items()
-        }
-        GAME_RESOLVER_CACHE.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    with _cache_lock:
+        try:
+            GAME_RESOLVER_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            raw = {
+                key: (ts, result.model_dump(mode="json")) for key, (ts, result) in _names_cache.items()
+            }
+            GAME_RESOLVER_CACHE.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _cache_key(platform: str, game_name: str) -> str:
@@ -127,11 +136,16 @@ class GameIdentifierResolver:
             except Exception as exc:
                 logger.debug(f"[GameResolver] CDP 连接失败，启动新浏览器: {exc}")
 
-            self._browser = await self._pw.chromium.launch(
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-            )
-            logger.info("[GameResolver] 已启动新 Playwright 浏览器")
+            try:
+                self._browser = await self._pw.chromium.launch(
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+                )
+                logger.info("[GameResolver] 已启动新 Playwright 浏览器")
+            except Exception:
+                await self._pw.stop()
+                self._pw = None
+                raise
 
     async def teardown(self) -> None:
         if self._browser and not self._browser_is_cdp:
@@ -215,7 +229,8 @@ class GameIdentifierResolver:
     # ---- Steam ------------------------------------------------------------
 
     async def resolve_steam(self, game_name: str) -> IdentifierResult | None:
-        cached = _names_cache.get(_cache_key("steam", game_name))
+        with _cache_lock:
+            cached = _names_cache.get(_cache_key("steam", game_name))
         if cached:
             logger.debug(f"[GameResolver] Steam 缓存命中: {game_name}")
             return cached[1]
@@ -275,13 +290,15 @@ class GameIdentifierResolver:
 
         result = _build_platform_result("steam", "steam_app_id", game_name, candidates)
         if result:
-            _names_cache[_cache_key("steam", game_name)] = (asyncio.get_event_loop().time(), result)
+            with _cache_lock:
+                _names_cache[_cache_key("steam", game_name)] = (time.monotonic(), result)
         return result
 
     # ---- TapTap -----------------------------------------------------------
 
     async def resolve_taptap(self, game_name: str) -> IdentifierResult | None:
-        cached = _names_cache.get(_cache_key("taptap", game_name))
+        with _cache_lock:
+            cached = _names_cache.get(_cache_key("taptap", game_name))
         if cached:
             return cached[1]
         await self.setup()
@@ -295,10 +312,11 @@ class GameIdentifierResolver:
             result.url = (
                 f"https://www.taptap.cn/app/{result.identifier}" if result.identifier else ""
             )
-            _names_cache[_cache_key("taptap", game_name)] = (
-                asyncio.get_event_loop().time(),
-                result,
-            )
+            with _cache_lock:
+                _names_cache[_cache_key("taptap", game_name)] = (
+                    time.monotonic(),
+                    result,
+                )
         return result
 
     async def _resolve_taptap_async(self, game_name: str) -> list[IdentifierCandidate]:
@@ -383,7 +401,8 @@ class GameIdentifierResolver:
     # ---- Qimai ------------------------------------------------------------
 
     async def resolve_qimai(self, game_name: str) -> IdentifierResult | None:
-        cached = _names_cache.get(_cache_key("qimai", game_name))
+        with _cache_lock:
+            cached = _names_cache.get(_cache_key("qimai", game_name))
         if cached:
             return cached[1]
         await self.setup()
@@ -437,10 +456,11 @@ class GameIdentifierResolver:
             await page.close()
             result = _build_platform_result("qimai", "qimai_app_id", game_name, candidates)
             if result:
-                _names_cache[_cache_key("qimai", game_name)] = (
-                    asyncio.get_event_loop().time(),
-                    result,
-                )
+                with _cache_lock:
+                    _names_cache[_cache_key("qimai", game_name)] = (
+                        time.monotonic(),
+                        result,
+                    )
             return result
         finally:
             if not self._browser_is_cdp:
@@ -454,7 +474,8 @@ class GameIdentifierResolver:
     # ---- Monitor (SullyGnome) ---------------------------------------------
 
     async def resolve_monitor_name(self, game_name: str) -> IdentifierResult | None:
-        cached = _names_cache.get(_cache_key("monitor", game_name))
+        with _cache_lock:
+            cached = _names_cache.get(_cache_key("monitor", game_name))
         if cached:
             return cached[1]
 
@@ -472,10 +493,11 @@ class GameIdentifierResolver:
                 source="config",
                 url=f"https://sullygnome.com/game/{override}",
             )
-            _names_cache[_cache_key("monitor", game_name)] = (
-                asyncio.get_event_loop().time(),
-                result,
-            )
+            with _cache_lock:
+                _names_cache[_cache_key("monitor", game_name)] = (
+                    time.monotonic(),
+                    result,
+                )
             return result
 
         # 搜索变体
@@ -520,16 +542,18 @@ class GameIdentifierResolver:
             result.url = (
                 f"https://sullygnome.com/game/{result.identifier}" if result.identifier else ""
             )
-            _names_cache[_cache_key("monitor", game_name)] = (
-                asyncio.get_event_loop().time(),
-                result,
-            )
+            with _cache_lock:
+                _names_cache[_cache_key("monitor", game_name)] = (
+                    time.monotonic(),
+                    result,
+                )
         return result
 
     # ---- Official Site ----------------------------------------------------
 
     async def resolve_official_site(self, game_name: str) -> IdentifierResult | None:
-        cached = _names_cache.get(_cache_key("official_site", game_name))
+        with _cache_lock:
+            cached = _names_cache.get(_cache_key("official_site", game_name))
         if cached:
             return cached[1]
 
@@ -550,10 +574,11 @@ class GameIdentifierResolver:
                     source="config",
                     url=url,
                 )
-                _names_cache[_cache_key("official_site", game_name)] = (
-                    asyncio.get_event_loop().time(),
-                    result,
-                )
+                with _cache_lock:
+                    _names_cache[_cache_key("official_site", game_name)] = (
+                        time.monotonic(),
+                        result,
+                    )
                 return result
 
         # DuckDuckGo 搜索

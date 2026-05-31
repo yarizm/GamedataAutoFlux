@@ -35,10 +35,7 @@ async def _local_store() -> AsyncIterator[BaseStorage]:
     """Shared async context manager for LocalStorage connections."""
     store = get_storage()
     await store.initialize()
-    try:
-        yield store
-    finally:
-        await store.close()
+    yield store
 
 
 class DataSourceSummary(BaseModel):
@@ -246,20 +243,17 @@ async def list_data_records(
     offset = (page - 1) * page_size
     store = get_storage()
     await store.initialize()
-    try:
-        result = await store.query(
-            query_text,
-            limit=page_size,
-            offset=offset,
-            order=sort_order,
-            collector=collector.strip(),
-            game_name=game_name.strip(),
-            app_id=app_id.strip(),
-            group_id=group_id.strip(),
-            task_id=task_id.strip(),
-        )
-    finally:
-        await store.close()
+    result = await store.query(
+        query_text,
+        limit=page_size,
+        offset=offset,
+        order=sort_order,
+        collector=collector.strip(),
+        game_name=game_name.strip(),
+        app_id=app_id.strip(),
+        group_id=group_id.strip(),
+        task_id=task_id.strip(),
+    )
 
     summaries = [summary for record in result.records if (summary := _record_summary(record))]
     return DataRecordPage(
@@ -517,12 +511,9 @@ async def _delete_local_records(record_keys: set[str]) -> int:
     store = get_storage()
     await store.initialize()
     deleted = 0
-    try:
-        for key in record_keys:
-            if await store.delete(key):
-                deleted += 1
-    finally:
-        await store.close()
+    for key in record_keys:
+        if await store.delete(key):
+            deleted += 1
     return deleted
 
 
@@ -734,20 +725,14 @@ async def download_data_record(record_key: Annotated[str, Path(description="Stor
 async def _load_source_records(limit: int = 1000) -> list[StorageRecord]:
     store = get_storage()
     await store.initialize()
-    try:
-        result = await store.query("key:", limit=limit)
-        return result.records
-    finally:
-        await store.close()
+    result = await store.query("key:", limit=limit)
+    return result.records
 
 
 async def _load_record(key: str) -> StorageRecord:
     store = get_storage()
     await store.initialize()
-    try:
-        record = await store.load(key)
-    finally:
-        await store.close()
+    record = await store.load(key)
     if record is None:
         raise HTTPException(404, f"Data record not found: {key}")
     return record

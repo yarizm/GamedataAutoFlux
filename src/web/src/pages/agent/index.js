@@ -100,7 +100,7 @@ export default {
 
     const searchInput = document.getElementById('agent-session-search');
     if (searchInput) {
-      searchInput.addEventListener('input', () => this._filterSessions(searchInput.value));
+      searchInput.addEventListener('input', () => this._renderSessions());
     }
 
     let sessions = loadSessions();
@@ -139,10 +139,6 @@ export default {
       item.addEventListener('click', () => this._switchSession(s.id));
       listEl.appendChild(item);
     });
-  },
-
-  _filterSessions(query) {
-    this._renderSessions();
   },
 
   _createSession() {
@@ -401,17 +397,19 @@ export default {
   },
 
   _resend(message) {
-    if (agentStreaming) {
-      this._stop();
-      setTimeout(() => {
-        const input = document.getElementById('agent-input');
-        if (input) input.value = message;
-        this._send();
-      }, 100);
-    } else {
+    const doSend = () => {
       const input = document.getElementById('agent-input');
       if (input) input.value = message;
       this._send();
+    };
+    if (agentStreaming && abortController) {
+      // _stop() → abort() → finally 块同步执行，会重置 agentStreaming/abortController。
+      // 如果 doSend 同步运行（abort 事件同步触发），会在 finally 之前嵌套调用 _send()，
+      // 导致 finally 覆盖新请求的状态。用 setTimeout 确保在第一个请求完全结束后再发送。
+      this._stop();
+      setTimeout(doSend, 0);
+    } else {
+      doSend();
     }
   },
 

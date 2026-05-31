@@ -99,8 +99,8 @@ class PlaywrightMcpManager:
                 await self._fetch_tools()
 
                 for tool in self._tools_cache:
-                    if hasattr(tool, "_consecutive_failures"):
-                        tool._consecutive_failures = 0
+                    if hasattr(tool, "reset_failures"):
+                        tool.reset_failures()
 
                 self._is_running = True
                 attempt = 0
@@ -314,5 +314,8 @@ class PlaywrightMcpManager:
 
             def _run(self, *args, **kwargs) -> Any:
                 raise NotImplementedError("This tool only supports async execution.")
+
+            def reset_failures(self) -> None:
+                self._consecutive_failures = 0
 
         return McpWrappedTool()

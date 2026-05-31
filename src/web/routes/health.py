@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Header
 
+from src.core.config import get as get_config
 from src.core.diagnostics import build_config_diagnostics, build_health_report
+
+
+def verify_admin(x_api_key: str | None = Header(None, alias="X-API-Key"), api_key: str | None = None):
+    expected_key = get_config("server.api_key")
+    if expected_key:
+        token = x_api_key or api_key
+        if not token or not secrets.compare_digest(token, expected_key):
+            raise HTTPException(status_code=401, detail="Unauthorized")
 
 _launch_lock = asyncio.Lock()
 
@@ -27,7 +37,7 @@ async def config_diagnostics():
     return build_config_diagnostics()
 
 
-@router.post("/diagnostics/steamdb/launch")
+@router.post("/diagnostics/steamdb/launch", dependencies=[Depends(verify_admin)])
 async def launch_steamdb_browser():
     """Launch the SteamDB login browser via subprocess."""
     import subprocess

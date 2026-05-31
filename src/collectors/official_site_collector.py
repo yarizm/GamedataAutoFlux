@@ -114,6 +114,39 @@ class OfficialSiteCollector(BaseCollector):
                 "playwright_timeout", get_config("official_site.playwright_timeout", 30000)
             )
         )
+        self._pw_mgr = None
+        self._pw = None
+        self._browser = None
+
+    async def setup(self, config: dict[str, Any] | None = None) -> None:
+        await super().setup(config)
+        if self.playwright_enabled:
+            try:
+                from playwright.async_api import async_playwright
+                self._pw_mgr = async_playwright()
+                self._pw = await self._pw_mgr.start()
+                self._browser = await self._pw.chromium.launch(headless=self.headless)
+            except ImportError:
+                self.playwright_enabled = False
+            except Exception as e:
+                logger.error(f"Playwright setup failed: {e}")
+                self.playwright_enabled = False
+
+    async def teardown(self) -> None:
+        if self._browser:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+        if self._pw:
+            try:
+                await self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
+            self._pw_mgr = None
+        await super().teardown()
 
     async def collect(self, target: CollectTarget) -> CollectResult:
         raw_params = _compact_params(target.params or {})
@@ -352,11 +385,6 @@ class OfficialSiteCollector(BaseCollector):
         if use_playwright == "never" or not self.playwright_enabled:
             return []
 
-        try:
-            from playwright.async_api import async_playwright
-        except ImportError:
-            return []
-
         links: list[tuple[str, str]] = []
         seen: set[str] = set()
 
@@ -375,9 +403,10 @@ class OfficialSiteCollector(BaseCollector):
             return added
 
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.headless)
-                page = await browser.new_page(user_agent=self.user_agent)
+            if not self._browser:
+                return []
+            page = await self._browser.new_page(user_agent=self.user_agent)
+            try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=self.playwright_timeout)
                 await page.wait_for_timeout(1200)
                 remember(await _page_anchor_links(page))
@@ -391,8 +420,6 @@ class OfficialSiteCollector(BaseCollector):
                     )
                     channels = list(dict.fromkeys(channels))
                     if channels:
-                        # The first channel is normally the combined/latest feed. Walk it
-                        # first so the collector covers a date window before category splits.
                         ordered_channels = channels[:1] + channels[1:]
                         limit = 9
                         for channel in ordered_channels:
@@ -413,8 +440,8 @@ class OfficialSiteCollector(BaseCollector):
                                     break
                             if len(links) >= max_links:
                                 break
-
-                await browser.close()
+            finally:
+                await page.close()
         except Exception as exc:
             logger.debug("[OfficialSite] dynamic listing discovery failed {}: {}", url, exc)
             return links
@@ -473,14 +500,10 @@ class OfficialSiteCollector(BaseCollector):
 
     async def _fetch_with_playwright(self, url: str) -> FetchResult:
         try:
-            from playwright.async_api import async_playwright
-        except ImportError:
-            return FetchResult(url, 0, "", "playwright", "playwright is not installed")
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.headless)
-                page = await browser.new_page(user_agent=self.user_agent)
+            if not self._browser:
+                return FetchResult(url, 0, "", "playwright", "playwright is not initialized")
+            page = await self._browser.new_page(user_agent=self.user_agent)
+            try:
                 response = await page.goto(
                     url, wait_until="domcontentloaded", timeout=self.playwright_timeout
                 )
@@ -495,8 +518,9 @@ class OfficialSiteCollector(BaseCollector):
                 html = await page.content()
                 final_url = page.url
                 status = response.status if response else 200
-                await browser.close()
                 return FetchResult(final_url, status, html, "playwright")
+            finally:
+                await page.close()
         except Exception as exc:
             logger.debug("[OfficialSite] playwright fetch failed {}: {}", url, exc)
             return FetchResult(url, 0, "", "playwright", str(exc))

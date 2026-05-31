@@ -68,16 +68,9 @@ class ReportGenerationHook:
                     "auto_generated": True,
                 },
             )
-            pipeline_result.generated_report_id = report.id
-            pipeline_result.generated_report_title = report.title
-            pipeline_result.generated_report_matched_records = report.matched_records
             task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
             logger.info(f"报告自动生成完成: {report.title}")
         except Exception as exc:
-            error_msg = f"auto_report: {exc}"
-            pipeline_result.success = False
-            pipeline_result.errors.append(error_msg)
-            task.result = pipeline_result
             task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=str(exc))
             logger.error(f"自动报告生成失败: {exc}")
 

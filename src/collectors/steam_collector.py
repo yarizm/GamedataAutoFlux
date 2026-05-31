@@ -357,11 +357,20 @@ class SteamCollector(BaseCollector):
     async def teardown(self) -> None:
         """清理所有子组件"""
         if self._steam_api:
-            await self._steam_api.teardown()
+            try:
+                await self._steam_api.teardown()
+            except Exception as e:
+                logger.error(f"[SteamCollector] steam_api teardown failed: {e}")
         if self._steamdb:
-            await self._steamdb.teardown()
+            try:
+                await self._steamdb.teardown()
+            except Exception as e:
+                logger.error(f"[SteamCollector] steamdb teardown failed: {e}")
         if self._firecrawl:
-            await self._firecrawl.teardown()
+            try:
+                await self._firecrawl.teardown()
+            except Exception as e:
+                logger.error(f"[SteamCollector] firecrawl teardown failed: {e}")
         await super().teardown()
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:

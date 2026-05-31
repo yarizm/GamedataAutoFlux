@@ -259,9 +259,20 @@ class SteamDiscussionsCollector(BaseCollector):
         return detail
 
     async def _fetch_text(self, url: str) -> str:
-        response = await self._client.get(url)
-        response.raise_for_status()
-        return response.text
+        retries = 3
+        last_error = None
+        for attempt in range(1, retries + 1):
+            try:
+                response = await self._client.get(url)
+                response.raise_for_status()
+                return response.text
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt >= retries:
+                    break
+                logger.warning(f"[SteamDiscussions] HTTP fetch retry {attempt}/{retries} for {url}: {exc!r}")
+                await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
+        raise last_error or RuntimeError(f"SteamDiscussions fetch failed: {url}")
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True

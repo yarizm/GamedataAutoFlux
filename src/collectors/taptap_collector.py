@@ -114,14 +114,14 @@ class TapTapCollector(BaseCollector):
         layer_used = "html"
         layers = {"details": "html", "reviews": "html", "updates": "html"}
 
-        if self._client is not None:
-            self._client.headers.update(_build_http_headers(region=region, referer=page_url))
+        headers = _build_http_headers(region=region, referer=page_url)
 
         try:
             detail_html, review_html, all_info_html = await self._fetch_http_pages(
                 detail_url=page_url,
                 review_url=review_url,
                 all_info_url=all_info_url,
+                headers=headers,
             )
             detail_payloads = []
             if "details" in metrics or "updates" in metrics:
@@ -334,21 +334,21 @@ class TapTapCollector(BaseCollector):
         return CollectResult(target=target, success=True, data=data, metadata=metadata)
 
     async def _fetch_http_pages(
-        self, *, detail_url: str, review_url: str, all_info_url: str
+        self, *, detail_url: str, review_url: str, all_info_url: str, headers: dict[str, str] | None = None
     ) -> tuple[str, str, str]:
         if self._client is None:
             raise RuntimeError("TapTap collector client is not initialized")
-        detail_response = await self._fetch_with_retry(detail_url)
-        review_response = await self._fetch_with_retry(review_url)
-        all_info_response = await self._fetch_with_retry(all_info_url)
+        detail_response = await self._fetch_with_retry(detail_url, headers=headers)
+        review_response = await self._fetch_with_retry(review_url, headers=headers)
+        all_info_response = await self._fetch_with_retry(all_info_url, headers=headers)
         return detail_response.text, review_response.text, all_info_response.text
 
-    async def _fetch_with_retry(self, url: str) -> httpx.Response:
+    async def _fetch_with_retry(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
         retries = max(1, int(self.config.get("request_retries", 2)))
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                response = await self._client.get(url)
+                response = await self._client.get(url, headers=headers)
                 response.raise_for_status()
                 return response
             except httpx.HTTPError as exc:

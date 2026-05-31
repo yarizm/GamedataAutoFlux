@@ -144,6 +144,21 @@ Additional Rules:
             ]
         )
 
+    def _handle_parsing_error(self, error: Exception) -> str:
+        """自定义解析错误处理，记录连续错误次数，防止无限循环"""
+        if not hasattr(self, "_parsing_error_count"):
+            self._parsing_error_count = 0
+            
+        self._parsing_error_count += 1
+        logger.warning(f"Agent JSON 解析错误 (次数: {self._parsing_error_count}): {error}")
+        
+        if self._parsing_error_count >= 3:
+            # 超过 3 次错误，熔断
+            self._parsing_error_count = 0
+            return "Action failed because the action format was incorrect 3 times in a row. Stop using tools and ask the user for clarification."
+            
+        return f"Check your json formatting. It must be valid json with 'action' and 'action_input' keys. Error: {error}"
+
     def _ensure_initialized(self) -> None:
         """延迟初始化 LLM 和 AgentExecutor"""
         if self._initialized:
@@ -186,7 +201,7 @@ Additional Rules:
             agent=agent,
             tools=all_tools,
             max_iterations=self._max_iterations,
-            handle_parsing_errors=True,
+            handle_parsing_errors=self._handle_parsing_error,
             verbose=False,
         )
 
@@ -245,7 +260,7 @@ Additional Rules:
                         agent=agent,
                         tools=all_tools,
                         max_iterations=self._max_iterations,
-                        handle_parsing_errors=True,
+                        handle_parsing_errors=self._handle_parsing_error,
                         verbose=False,
                     )
                     logger.info(f"成功将 {len(mcp_tools)} 个 MCP 工具注入 Agent")
@@ -256,7 +271,7 @@ Additional Rules:
             if session_id not in self._histories:
                 self._histories[session_id] = []
             self._sessions_timestamps[session_id] = time.time()
-            return self._histories[session_id]
+            return list(self._histories[session_id])
 
     async def ainvoke(self, user_input: str, session_id: str = "default") -> AsyncIterator[dict]:
         """流式执行 Agent，逐步 yield 事件
@@ -282,10 +297,12 @@ Additional Rules:
                 return
             saved = True
             async with self._lock:
-                history.append(HumanMessage(content=user_input))
-                history.append(AIMessage(content=final_output or "已停止"))
-                if len(history) > 40:
-                    self._histories[session_id] = history[-20:]
+                if session_id not in self._histories:
+                    self._histories[session_id] = []
+                self._histories[session_id].append(HumanMessage(content=user_input))
+                self._histories[session_id].append(AIMessage(content=final_output or "已停止"))
+                if len(self._histories[session_id]) > 40:
+                    self._histories[session_id] = self._histories[session_id][-20:]
                 await self._save_histories()
 
         try:
@@ -295,7 +312,12 @@ Additional Rules:
             suppress_final_stream = get_config("agent.agent_type", "openai_tools") == "react"
 
             try:
-                async for event in self._agent_executor.astream_events(
+                executor = self._agent_executor
+                if not executor:
+                    yield {"type": "error", "content": "Agent was re-initialized during request."}
+                    return
+
+                async for event in executor.astream_events(
                     {
                         "input": user_input,
                         "chat_history": history,

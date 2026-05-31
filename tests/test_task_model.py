@@ -94,7 +94,10 @@ class TestTaskLifecycle:
 
     def test_retry_at_limit(self):
         t = Task(name="T", max_retries=1)
+        t.start()
+        t.fail("err")
         assert t.retry() is True
+        t.fail("err")
         assert t.retry_count == 1
         assert t.retry() is False
         assert t.retry_count == 1

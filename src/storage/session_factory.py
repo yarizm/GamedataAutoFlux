@@ -29,8 +29,11 @@ from sqlalchemy.ext.asyncio import (
 from src.core.config import get as get_config
 from src.storage.models import Base
 
+import asyncio
+
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+_init_lock: asyncio.Lock | None = None
 
 
 async def init_shared_session_factory(url: str | None = None) -> async_sessionmaker[AsyncSession]:
@@ -39,20 +42,24 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
 
     只应在应用启动时调用一次。后续通过 get_session_factory() 获取。
     """
-    global _engine, _session_factory
+    global _engine, _session_factory, _init_lock
 
-    if _session_factory is not None:
-        return _session_factory
+    if _init_lock is None:
+        _init_lock = asyncio.Lock()
 
-    if url is None:
-        url = (
-            get_config("database.sqlalchemy_url")
-            or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
-        )
+    async with _init_lock:
+        if _session_factory is not None:
+            return _session_factory
 
-    logger.info(f"Initializing shared session factory with URL: {url}")
-    _engine = create_async_engine(url, echo=False)
-    _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
+        if url is None:
+            url = (
+                get_config("database.sqlalchemy_url")
+                or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
+            )
+
+        logger.info(f"Initializing shared session factory with URL: {url}")
+        _engine = create_async_engine(url, echo=False)
+        _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
     # 创建所有表（幂等操作）
     async with _engine.begin() as conn:

@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -90,33 +90,41 @@ class Task(BaseModel):
     cron_expr: str | None = Field(default=None, description="定时调度 cron 表达式")
 
     # 时间戳
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="创建时间")
     started_at: datetime | None = Field(default=None, description="开始执行时间")
     completed_at: datetime | None = Field(default=None, description="完成时间")
 
     def start(self) -> None:
         """标记任务开始执行"""
+        if self.is_terminal:
+            raise RuntimeError(f"Cannot start task {self.id} from terminal state {self.status}")
         self.status = TaskStatus.RUNNING
-        self.started_at = datetime.now()
+        self.started_at = datetime.now(timezone.utc)
         self.progress = 0.0
 
     def complete(self, result: Any = None) -> None:
         """标记任务成功完成"""
+        if self.is_terminal:
+            return
         self.status = TaskStatus.SUCCESS
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(timezone.utc)
         self.progress = 1.0
         self.result = result
 
     def fail(self, error: str) -> None:
         """标记任务失败"""
+        if self.is_terminal:
+            return
         self.status = TaskStatus.FAILED
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(timezone.utc)
         self.error = error
 
     def cancel(self) -> None:
         """取消任务"""
+        if self.is_terminal:
+            return
         self.status = TaskStatus.CANCELLED
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(timezone.utc)
 
     def retry(self) -> bool:
         """
@@ -125,12 +133,14 @@ class Task(BaseModel):
         Returns:
             是否可以重试（未超过最大次数）
         """
+        if self.status != TaskStatus.FAILED:
+            return False
         if self.max_retries is None or self.retry_count >= self.max_retries:
             return False
         self.retry_count += 1
         self.status = TaskStatus.RETRYING
         self.error = None
-        self.started_at = datetime.now()
+        self.started_at = datetime.now(timezone.utc)
         self.completed_at = None
         return True
 
@@ -142,10 +152,12 @@ class Task(BaseModel):
                 TaskStepLog(
                     step_name="progress_update",
                     status=TaskStatus.RUNNING,
-                    started_at=datetime.now(),
+                    started_at=datetime.now(timezone.utc),
                     message=message,
                 )
             )
+            if len(self.step_logs) > 500:
+                self.step_logs = self.step_logs[-500:]
 
     def add_step_log(
         self,
@@ -159,14 +171,16 @@ class Task(BaseModel):
             TaskStepLog(
                 step_name=step_name,
                 status=status,
-                started_at=datetime.now(),
-                completed_at=datetime.now()
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc)
                 if status in (TaskStatus.SUCCESS, TaskStatus.FAILED)
                 else None,
                 message=message,
                 error=error,
             )
         )
+        if len(self.step_logs) > 500:
+            self.step_logs = self.step_logs[-500:]
 
     @property
     def is_terminal(self) -> bool:
@@ -178,7 +192,7 @@ class Task(BaseModel):
         """执行耗时（秒）"""
         if self.started_at is None:
             return None
-        end = self.completed_at or datetime.now()
+        end = self.completed_at or datetime.now(timezone.utc)
         return (end - self.started_at).total_seconds()
 
     def to_summary(self) -> dict[str, Any]:

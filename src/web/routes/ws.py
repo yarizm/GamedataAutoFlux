@@ -6,6 +6,7 @@ WebSocket 路由和连接管理器。
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -17,25 +18,38 @@ router = APIRouter(tags=["websocket"])
 class ConnectionManager:
     def __init__(self):
         # 活跃的 WebSocket 连接集合
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: set[WebSocket] = set()
+        self._lock = None
+
+    async def _get_lock(self):
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        lock = await self._get_lock()
+        async with lock:
+            self.active_connections.add(websocket)
         logger.debug(f"WebSocket client connected. Total: {len(self.active_connections)}")
 
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.debug(f"WebSocket client disconnected. Total: {len(self.active_connections)}")
+    async def disconnect(self, websocket: WebSocket):
+        lock = await self._get_lock()
+        async with lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+                logger.debug(f"WebSocket client disconnected. Total: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict[str, Any]):
         """向所有连接的客户端广播消息"""
-        if not self.active_connections:
-            return
+        lock = await self._get_lock()
+        async with lock:
+            if not self.active_connections:
+                return
+            connections = list(self.active_connections)
 
         dead_connections = []
-        for connection in list(self.active_connections):
+        for connection in connections:
             try:
                 await connection.send_json(message)
             except Exception:
@@ -43,8 +57,10 @@ class ConnectionManager:
                 dead_connections.append(connection)
 
         # 清理死连接
-        for connection in dead_connections:
-            self.disconnect(connection)
+        if dead_connections:
+            async with lock:
+                for connection in dead_connections:
+                    self.active_connections.discard(connection)
 
 
 # 全局连接管理器单例
@@ -66,7 +82,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)
     except Exception as exc:
         logger.warning(f"WebSocket connection error: {exc}")
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)

@@ -204,26 +204,28 @@ class Pipeline:
                 logger.info(f"Pipeline [{self.name}] → 采集: {step.component_name}")
 
                 await collector.setup(step.config)
-                collect_results = await collector.collect_batch(targets)
-                all_collect_results.extend(collect_results)
+                try:
+                    collect_results = await collector.collect_batch(targets)
+                    all_collect_results.extend(collect_results)
 
-                success_count = sum(1 for r in collect_results if r.success)
-                failed_results = [r for r in collect_results if not r.success]
-                failed_error = "; ".join(
-                    f"{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
-                    for r in failed_results
-                )
-                task.add_step_log(
-                    step_name,
-                    TaskStatus.SUCCESS if not failed_results else TaskStatus.FAILED,
-                    f"采集完成: {success_count}/{len(collect_results)} 成功",
-                    error=failed_error or None,
-                )
-                result.errors.extend(
-                    f"collect:{step.component_name}:{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
-                    for r in failed_results
-                )
-                await collector.teardown()
+                    success_count = sum(1 for r in collect_results if r.success)
+                    failed_results = [r for r in collect_results if not r.success]
+                    failed_error = "; ".join(
+                        f"{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
+                        for r in failed_results
+                    )
+                    task.add_step_log(
+                        step_name,
+                        TaskStatus.SUCCESS if not failed_results else TaskStatus.FAILED,
+                        f"采集完成: {success_count}/{len(collect_results)} 成功",
+                        error=failed_error or None,
+                    )
+                    result.errors.extend(
+                        f"collect:{step.component_name}:{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
+                        for r in failed_results
+                    )
+                finally:
+                    await collector.teardown()
 
                 current_phase += 1
                 progress = current_phase / total_phases * 0.9  # 预留 10% 给最终处理
@@ -268,26 +270,30 @@ class Pipeline:
                 task.add_step_log(step_name, TaskStatus.RUNNING, f"处理 {len(current_data)} 条数据")
                 logger.info(f"Pipeline [{self.name}] → 处理: {step.component_name}")
 
-                process_results = await processor.process_batch(current_data)
-                result.process_results = process_results
+                await processor.setup()
+                try:
+                    process_results = await processor.process_batch(current_data)
+                    result.process_results.extend(process_results)
 
-                # 将处理结果转为下一个处理器的输入
-                current_data = [
-                    ProcessInput(
-                        data=pr.data,
-                        metadata=pr.metadata,
-                        source=pr.processor_name,
+                    # 将处理结果转为下一个处理器的输入
+                    current_data = [
+                        ProcessInput(
+                            data=pr.data,
+                            metadata=pr.metadata,
+                            source=pr.processor_name,
+                        )
+                        for pr in process_results
+                        if pr.success and pr.data is not None
+                    ]
+
+                    success_count = sum(1 for r in process_results if r.success)
+                    task.add_step_log(
+                        step_name,
+                        TaskStatus.SUCCESS,
+                        f"处理完成: {success_count}/{len(process_results)} 成功",
                     )
-                    for pr in process_results
-                    if pr.success and pr.data is not None
-                ]
-
-                success_count = sum(1 for r in process_results if r.success)
-                task.add_step_log(
-                    step_name,
-                    TaskStatus.SUCCESS,
-                    f"处理完成: {success_count}/{len(process_results)} 成功",
-                )
+                finally:
+                    await processor.teardown()
 
                 current_phase += 1
                 progress = current_phase / total_phases * 0.9
@@ -312,12 +318,22 @@ class Pipeline:
                 task.add_step_log(step_name, TaskStatus.RUNNING, f"存储 {len(records)} 条记录")
                 logger.info(f"Pipeline [{self.name}] → 存储: {step.component_name}")
 
-                await storage.initialize()
-                await storage.save_batch(records)
-                result.storage_count += len(records)
+                try:
+                    await storage.initialize()
+                    await storage.save_batch(records)
+                    result.storage_count += len(records)
 
-                task.add_step_log(step_name, TaskStatus.SUCCESS, f"存储完成: {len(records)} 条记录")
-                await storage.close()
+                    task.add_step_log(step_name, TaskStatus.SUCCESS, f"存储完成: {len(records)} 条记录")
+                except Exception as e:
+                    logger.error(f"Pipeline [{self.name}] 存储 {step.component_name} 失败: {e}")
+                    task.add_step_log(step_name, TaskStatus.FAILED, f"存储失败: {e}")
+                    result.success = False
+                    result.errors.append(f"storage:{step.component_name} 失败: {e}")
+                finally:
+                    try:
+                        await storage.close()
+                    except Exception as e:
+                        logger.error(f"Pipeline [{self.name}] 存储 {step.component_name} close 失败: {e}")
 
                 current_phase += 1
                 progress = current_phase / total_phases * 0.9
@@ -351,7 +367,9 @@ class Pipeline:
             if component_type == "storage":
                 from src.storage.factory import get_storage
 
-                step.instance = get_storage()
+                # 优先使用 step_name, fallback to default storage
+                storage_name = step.component_name if step.component_name != "storage" else None
+                step.instance = get_storage(storage_name)
                 logger.debug(f"  实例化 [storage] via factory: {step.instance.__class__.__name__}")
             else:
                 cls_ = registry.get(component_type, step.component_name)

@@ -162,30 +162,40 @@ class AgentSessionService:
         if not force and now - last_save_time < 5:
             return last_save_time
 
-        # 裁剪超量会话
-        if len(histories) > self._max_sessions:
+        session_ids = list(histories.keys())
+        if len(session_ids) > self._max_sessions:
             sorted_sids = sorted(
-                histories.keys(),
+                session_ids,
                 key=lambda sid: timestamps.get(sid, 0),
                 reverse=True,
             )
-            stale = sorted_sids[self._max_sessions :]
-            for sid in stale:
-                histories.pop(sid, None)
-                timestamps.pop(sid, None)
+            keep_sids = set(sorted_sids[: self._max_sessions])
+            for sid in session_ids:
+                if sid not in keep_sids:
+                    histories.pop(sid, None)
+                    timestamps.pop(sid, None)
 
         try:
             async with self._session_factory() as session:
-                for sid, msgs in histories.items():
+                session_ids = list(histories.keys())
+                if not session_ids:
+                    return now
+
+                result = await session.execute(
+                    select(AgentSessionModel).where(AgentSessionModel.session_id.in_(session_ids))
+                )
+                existing_map = {row.session_id: row for row in result.scalars().all()}
+
+                for sid in session_ids:
+                    msgs = histories.get(sid)
+                    if msgs is None:
+                        continue
                     messages_json = json.dumps(
                         [msg.model_dump(mode="json") for msg in msgs],
                         ensure_ascii=False,
                     )
                     last_active = timestamps.get(sid, now)
-                    result = await session.execute(
-                        select(AgentSessionModel).where(AgentSessionModel.session_id == sid)
-                    )
-                    existing = result.scalars().first()
+                    existing = existing_map.get(sid)
                     if existing:
                         existing.messages = messages_json
                         existing.last_active_at = datetime.fromtimestamp(

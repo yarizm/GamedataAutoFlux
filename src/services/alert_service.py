@@ -5,15 +5,24 @@ from src.core.config import get_settings
 
 class AlertService:
     _instance = None
+    import threading
+    _lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> "AlertService":
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def __init__(self):
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=10.0)
+        return self._client
 
     async def send_alert(self, title: str, content: str, level: str = "error", **kwargs):
         """
@@ -52,7 +61,8 @@ class AlertService:
                 "text": f"### <font color='{color}'>{title}</font>\n\n{content}",
             },
         }
-        response = await self._client.post(url, json=payload)
+        client = self._get_client()
+        response = await client.post(url, json=payload)
         response.raise_for_status()
 
     async def _send_discord(self, url: str, title: str, content: str, level: str):
@@ -62,13 +72,16 @@ class AlertService:
                 {"title": title, "description": content, "color": color_map.get(level, 15158332)}
             ]
         }
-        response = await self._client.post(url, json=payload)
+        client = self._get_client()
+        response = await client.post(url, json=payload)
         response.raise_for_status()
 
     async def _send_generic(self, url: str, title: str, content: str, level: str):
         payload = {"title": title, "content": content, "level": level}
-        response = await self._client.post(url, json=payload)
+        client = self._get_client()
+        response = await client.post(url, json=payload)
         response.raise_for_status()
 
     async def close(self):
-        await self._client.aclose()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
