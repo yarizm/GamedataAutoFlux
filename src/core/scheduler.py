@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -82,6 +82,9 @@ class Scheduler:
         self._background_tasks: set[asyncio.Task] = set()
 
         import threading
+        # IMPORTANT: threading.Lock 仅用于保护同步 dict 操作（self._tasks,
+        # self._running_futures）。锁保护区域内**绝对不能包含 await**，
+        # 否则在多线程或 future asyncio.Lock 迁移时会导致死锁。
         self._lock = threading.Lock()
 
         self._cron_scheduler = AsyncIOScheduler()
@@ -886,39 +889,12 @@ def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(refresh, dict) or not refresh.get("rolling_window"):
         return template
 
+    from src.services._utils import roll_time_params
+
     for target in template.get("targets", []) or []:
         if not isinstance(target, dict):
             continue
         params = target.get("params")
         if isinstance(params, dict):
-            _roll_time_params(params)
+            roll_time_params(params)
     return template
-
-
-def _roll_time_params(params: dict[str, Any]) -> None:
-    today = date.today()
-    for start_key, end_key in (("start_time", "end_time"), ("start_date", "end_date")):
-        start_raw = params.get(start_key)
-        end_raw = params.get(end_key)
-        if not start_raw or not end_raw:
-            continue
-        start_date = _parse_date_prefix(start_raw)
-        end_date = _parse_date_prefix(end_raw)
-        if start_date is None or end_date is None:
-            continue
-        window = max((end_date - start_date).days, 0)
-        params[start_key] = _replace_date_prefix(str(start_raw), today - timedelta(days=window))
-        params[end_key] = _replace_date_prefix(str(end_raw), today)
-
-
-def _parse_date_prefix(value: Any) -> date | None:
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def _replace_date_prefix(original: str, value: date) -> str:
-    if len(original) > 10:
-        return value.isoformat() + original[10:]
-    return value.isoformat()

@@ -341,13 +341,18 @@ class Pipeline:
                 task.update_progress(progress)
 
             # === 完成 ===
-            result.success = True
+            # 仅在所有步骤均无错误时标记成功（存储阶段的错误不应被覆盖）
+            if not result.errors:
+                result.success = True
+            else:
+                result.success = False
             result.completed_at = datetime.now()
             await self._report_progress(task.id, 1.0, "Pipeline 执行完成")
             task.update_progress(1.0, "Pipeline 执行完成")
 
+            status_label = "成功" if result.success else "部分失败"
             logger.info(
-                f"Pipeline [{self.name}] 执行完成: "
+                f"Pipeline [{self.name}] 执行{status_label}: "
                 f"采集 {len(result.collect_results)} 条, "
                 f"存储 {result.storage_count} 条, "
                 f"耗时 {result.duration_seconds:.1f}s"
@@ -409,10 +414,10 @@ class Pipeline:
 
 def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(metadata or {})
+    target_name = enriched.get("target")  # 提前初始化，避免后续作用域问题
     target_params = enriched.get("target_params")
     if not isinstance(target_params, dict):
         target_params = {}
-        target_name = enriched.get("target")
         for target in task.targets:
             if not target_name or target.name == target_name:
                 target_params = dict(target.params)

@@ -1,12 +1,12 @@
-"""Tests for scheduler pure functions (_roll_refresh_template, _roll_time_params, etc.)."""
+"""Tests for scheduler pure functions (_roll_refresh_template, roll_time_params, etc.)."""
 
 from datetime import date
 
-from src.core.scheduler import (
-    _roll_refresh_template,
-    _roll_time_params,
-    _parse_date_prefix,
-    _replace_date_prefix,
+from src.core.scheduler import _roll_refresh_template
+from src.services._utils import (
+    roll_time_params as _roll_time_params,
+    parse_date_prefix as _parse_date_prefix,
+    replace_date_prefix as _replace_date_prefix,
 )
 
 

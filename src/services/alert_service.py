@@ -20,6 +20,8 @@ class AlertService:
         self._client = None
 
     def _get_client(self) -> httpx.AsyncClient:
+        # 安全说明：此方法无 await，在 asyncio 单线程事件循环中是原子的。
+        # 如果未来添加 await，需引入 asyncio.Lock 防止并发创建。
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(timeout=10.0)
         return self._client

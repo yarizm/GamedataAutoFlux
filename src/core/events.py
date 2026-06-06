@@ -84,12 +84,18 @@ class EventBus:
             (pri, h) for pri, h in self._handlers[event_type] if h is not handler
         ]
 
-    async def emit(self, event_type: str, event: Any) -> None:
+    async def emit(self, event_type: str, event: Any, timeout: float = 60.0) -> None:
         """
         异步发布事件。
 
         按 priority 分组，同组并发执行，组间顺序执行。
         单个处理器异常被捕获并记录，不会阻塞其他。
+
+        Args:
+            event_type: 事件类型
+            event: 事件数据
+            timeout: 单个 priority 组的超时秒数（默认 60s），
+                     超时后记录警告并继续下一组
         """
         handlers = self._handlers.get(event_type, [])
         if not handlers:
@@ -102,10 +108,22 @@ class EventBus:
 
         for pri in sorted(groups.keys()):
             group = groups[pri]
-            results = await asyncio.gather(
-                *[self._safe_call(handler, event) for handler in group],
-                return_exceptions=True,
-            )
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[self._safe_call(handler, event) for handler in group],
+                        return_exceptions=True,
+                    ),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                handler_names = [getattr(h, "__qualname__", str(h)) for h in group]
+                logger.warning(
+                    f"EventBus handler timeout ({timeout}s) in '{event_type}' "
+                    f"priority={pri}: {handler_names}"
+                )
+                continue
+
             for result in results:
                 if isinstance(result, Exception):
                     logger.opt(exception=result).error(

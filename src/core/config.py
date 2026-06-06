@@ -155,9 +155,10 @@ def get(key: str, default: Any = None) -> Any:
                 return default
         else:
             return default
-        # Allow explicit null values in yaml to be returned as None
-        if value is None:
-            return default
+
+    # 键存在但值为 YAML null → 返回 None（而非 default）
+    if value is None:
+        return None
     
     if value is not None and default is not None:
         if isinstance(default, bool) and not isinstance(value, bool):

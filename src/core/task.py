@@ -91,7 +91,8 @@ class Task(BaseModel):
 
     # 时间戳
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="创建时间")
-    started_at: datetime | None = Field(default=None, description="开始执行时间")
+    started_at: datetime | None = Field(default=None, description="开始执行时间（每次重试重置）")
+    first_started_at: datetime | None = Field(default=None, description="首次开始执行时间（跨重试保留）")
     completed_at: datetime | None = Field(default=None, description="完成时间")
 
     def start(self) -> None:
@@ -99,7 +100,10 @@ class Task(BaseModel):
         if self.is_terminal:
             raise RuntimeError(f"Cannot start task {self.id} from terminal state {self.status}")
         self.status = TaskStatus.RUNNING
-        self.started_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        self.started_at = now
+        if self.first_started_at is None:
+            self.first_started_at = now  # 仅在首次启动时设置，重试不覆盖
         self.progress = 0.0
 
     def complete(self, result: Any = None) -> None:
@@ -189,11 +193,19 @@ class Task(BaseModel):
 
     @property
     def duration_seconds(self) -> float | None:
-        """执行耗时（秒）"""
+        """执行耗时（秒）— 仅当前尝试"""
         if self.started_at is None:
             return None
         end = self.completed_at or datetime.now(timezone.utc)
         return (end - self.started_at).total_seconds()
+
+    @property
+    def total_duration_seconds(self) -> float | None:
+        """总执行耗时（秒）— 包含所有重试，从 first_started_at 算起"""
+        if self.first_started_at is None:
+            return None
+        end = self.completed_at or datetime.now(timezone.utc)
+        return (end - self.first_started_at).total_seconds()
 
     def to_summary(self) -> dict[str, Any]:
         """返回任务摘要（用于 API 响应）"""
