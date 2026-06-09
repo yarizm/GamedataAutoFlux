@@ -3,7 +3,11 @@ from fastapi.testclient import TestClient
 from src.core.config import get as get_config
 from src.core.config import load_settings
 from src.core.config_schema import validate_settings_payload
-from src.core.diagnostics import build_config_diagnostics, build_health_report
+from src.core.diagnostics import (
+    build_collector_session_diagnostics,
+    build_config_diagnostics,
+    build_health_report,
+)
 from src.web.app import app
 
 
@@ -24,6 +28,29 @@ def test_build_config_diagnostics_shape() -> None:
     assert diagnostics["paths"]["root_dir"]
     assert any(check["name"] == "llm.provider" for check in diagnostics["checks"])
     assert any(check["name"] == "settings_schema" for check in diagnostics["checks"])
+
+
+def test_build_collector_session_diagnostics_for_qimai_profile(monkeypatch, tmp_path) -> None:
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+
+    diagnostics = build_collector_session_diagnostics("qimai")
+
+    assert diagnostics["collector_id"] == "qimai"
+    assert diagnostics["requires_session"] is True
+    assert diagnostics["session_mode"] == "local_profile"
+    assert diagnostics["status"] == "ok"
+    assert any(check["name"] == "session:qimai_profile" for check in diagnostics["checks"])
 
 
 def test_settings_schema_accepts_minimal_payload() -> None:

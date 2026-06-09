@@ -190,6 +190,10 @@ def _collect_failure_message(result: CollectResult) -> str:
 
 # 进度回调类型：(task_id, progress, message)
 ProgressCallback = Callable[[str, float, str], Awaitable[None] | None]
+PipelineEventCallback = Callable[
+    [str, str, str, str, dict[str, Any] | None],
+    Awaitable[None] | None,
+]
 
 
 class Pipeline:
@@ -204,6 +208,7 @@ class Pipeline:
         self.name = name
         self.steps: list[PipelineStep] = []
         self._progress_callback: ProgressCallback | None = None
+        self._event_callback: PipelineEventCallback | None = None
 
     def add_collector(self, name: str, config: dict[str, Any] | None = None) -> Pipeline:
         """添加采集步骤"""
@@ -243,10 +248,30 @@ class Pipeline:
         self._progress_callback = callback
         return self
 
+    def on_event(self, callback: PipelineEventCallback) -> Pipeline:
+        """设置结构化事件回调"""
+        self._event_callback = callback
+        return self
+
     async def _report_progress(self, task_id: str, progress: float, message: str) -> None:
         """内部进度上报"""
         if self._progress_callback:
             result = self._progress_callback(task_id, progress, message)
+            if asyncio.iscoroutine(result):
+                await result
+
+    async def _emit_event(
+        self,
+        task_id: str,
+        event_type: str,
+        message: str,
+        *,
+        level: str = "info",
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """内部结构化事件上报"""
+        if self._event_callback:
+            result = self._event_callback(task_id, event_type, level, message, payload)
             if asyncio.iscoroutine(result):
                 await result
 
@@ -307,6 +332,16 @@ class Pipeline:
             for step in collector_steps:
                 collector: BaseCollector = step.instance
                 step_name = f"collect:{step.component_name}"
+                await self._emit_event(
+                    task.id,
+                    "collect",
+                    f"开始采集 ({len(targets)} 个目标)",
+                    payload={
+                        "status": "started",
+                        "component": step.component_name,
+                        "targets_count": len(targets),
+                    },
+                )
                 task.add_step_log(
                     step_name, TaskStatus.RUNNING, f"开始采集 ({len(targets)} 个目标)"
                 )
@@ -328,10 +363,38 @@ class Pipeline:
                         f"采集完成: {success_count}/{len(collect_results)} 成功",
                         error=failed_error or None,
                     )
+                    await self._emit_event(
+                        task.id,
+                        "collect",
+                        f"采集完成: {success_count}/{len(collect_results)} 成功",
+                        level="warning" if failed_results else "info",
+                        payload={
+                            "status": "failed" if failed_results else "succeeded",
+                            "component": step.component_name,
+                            "targets_count": len(collect_results),
+                            "success_count": success_count,
+                            "failed_count": len(failed_results),
+                            "error": failed_error or None,
+                        },
+                    )
                     result.errors.extend(
                         f"collect:{step.component_name}:{_collect_failure_message(r)}"
                         for r in failed_results
                     )
+                except Exception as exc:
+                    safe_error = redact_sensitive_text(str(exc))
+                    await self._emit_event(
+                        task.id,
+                        "collect",
+                        f"采集失败: {safe_error}",
+                        level="error",
+                        payload={
+                            "status": "failed",
+                            "component": step.component_name,
+                            "error": safe_error,
+                        },
+                    )
+                    raise
                 finally:
                     await collector.teardown()
 
@@ -349,6 +412,16 @@ class Pipeline:
                 if not result.errors:
                     result.errors.append("所有采集目标均失败")
                 result.completed_at = datetime.now()
+                await self._emit_event(
+                    task.id,
+                    "error",
+                    "Pipeline 执行失败: 采集阶段无有效结果",
+                    level="error",
+                    payload={
+                        "stage": "collect",
+                        "errors": list(result.errors),
+                    },
+                )
                 await self._report_progress(task.id, 1.0, "Pipeline 执行失败")
                 task.update_progress(1.0, "Pipeline 执行失败")
                 logger.warning(
@@ -375,6 +448,16 @@ class Pipeline:
             for step in processor_steps:
                 processor: BaseProcessor = step.instance
                 step_name = f"process:{step.component_name}"
+                await self._emit_event(
+                    task.id,
+                    "process",
+                    f"开始处理 {len(current_data)} 条数据",
+                    payload={
+                        "status": "started",
+                        "component": step.component_name,
+                        "input_count": len(current_data),
+                    },
+                )
                 task.add_step_log(step_name, TaskStatus.RUNNING, f"处理 {len(current_data)} 条数据")
                 logger.info(f"Pipeline [{self.name}] → 处理: {step.component_name}")
 
@@ -400,6 +483,34 @@ class Pipeline:
                         TaskStatus.SUCCESS,
                         f"处理完成: {success_count}/{len(process_results)} 成功",
                     )
+                    failed_count = len(process_results) - success_count
+                    await self._emit_event(
+                        task.id,
+                        "process",
+                        f"处理完成: {success_count}/{len(process_results)} 成功",
+                        level="warning" if failed_count else "info",
+                        payload={
+                            "status": "failed" if failed_count else "succeeded",
+                            "component": step.component_name,
+                            "input_count": len(process_results),
+                            "success_count": success_count,
+                            "failed_count": failed_count,
+                        },
+                    )
+                except Exception as exc:
+                    safe_error = redact_sensitive_text(str(exc))
+                    await self._emit_event(
+                        task.id,
+                        "process",
+                        f"处理失败: {safe_error}",
+                        level="error",
+                        payload={
+                            "status": "failed",
+                            "component": step.component_name,
+                            "error": safe_error,
+                        },
+                    )
+                    raise
                 finally:
                     await processor.teardown()
 
@@ -423,6 +534,16 @@ class Pipeline:
             for step in storage_steps:
                 storage: BaseStorage = step.instance
                 step_name = f"storage:{step.component_name}"
+                await self._emit_event(
+                    task.id,
+                    "storage",
+                    f"开始存储 {len(records)} 条记录",
+                    payload={
+                        "status": "started",
+                        "component": step.component_name,
+                        "record_count": len(records),
+                    },
+                )
                 task.add_step_log(step_name, TaskStatus.RUNNING, f"存储 {len(records)} 条记录")
                 logger.info(f"Pipeline [{self.name}] → 存储: {step.component_name}")
 
@@ -432,16 +553,45 @@ class Pipeline:
                     result.storage_count += len(records)
 
                     task.add_step_log(step_name, TaskStatus.SUCCESS, f"存储完成: {len(records)} 条记录")
+                    await self._emit_event(
+                        task.id,
+                        "storage",
+                        f"存储完成: {len(records)} 条记录",
+                        payload={
+                            "status": "succeeded",
+                            "component": step.component_name,
+                            "record_count": len(records),
+                        },
+                    )
                 except Exception as e:
-                    logger.error(f"Pipeline [{self.name}] 存储 {step.component_name} 失败: {e}")
-                    task.add_step_log(step_name, TaskStatus.FAILED, f"存储失败: {e}")
+                    safe_error = redact_sensitive_text(str(e))
+                    logger.error(
+                        f"Pipeline [{self.name}] 存储 {step.component_name} 失败: {safe_error}"
+                    )
+                    task.add_step_log(step_name, TaskStatus.FAILED, f"存储失败: {safe_error}")
+                    await self._emit_event(
+                        task.id,
+                        "storage",
+                        f"存储失败: {safe_error}",
+                        level="error",
+                        payload={
+                            "status": "failed",
+                            "component": step.component_name,
+                            "record_count": len(records),
+                            "error": safe_error,
+                        },
+                    )
                     result.success = False
-                    result.errors.append(f"storage:{step.component_name} 失败: {e}")
+                    result.errors.append(f"storage:{step.component_name} 失败: {safe_error}")
                 finally:
                     try:
                         await storage.close()
                     except Exception as e:
-                        logger.error(f"Pipeline [{self.name}] 存储 {step.component_name} close 失败: {e}")
+                        safe_error = redact_sensitive_text(str(e))
+                        logger.error(
+                            f"Pipeline [{self.name}] 存储 {step.component_name} close 失败: "
+                            f"{safe_error}"
+                        )
 
                 current_phase += 1
                 progress = current_phase / total_phases * 0.9
@@ -455,6 +605,18 @@ class Pipeline:
             else:
                 result.success = False
             result.completed_at = datetime.now()
+            await self._emit_event(
+                task.id,
+                "pipeline",
+                f"Pipeline 执行{'成功' if result.success else '部分失败'}",
+                level="info" if result.success else "warning",
+                payload={
+                    "status": "succeeded" if result.success else "failed",
+                    "collect_count": len(result.collect_results),
+                    "storage_count": result.storage_count,
+                    "duration_seconds": result.duration_seconds,
+                },
+            )
             await self._report_progress(task.id, 1.0, "Pipeline 执行完成")
             task.update_progress(1.0, "Pipeline 执行完成")
 
@@ -467,10 +629,21 @@ class Pipeline:
             )
 
         except Exception as e:
-            logger.error(f"Pipeline [{self.name}] 执行失败: {e}")
+            safe_error = redact_sensitive_text(str(e))
+            logger.error(f"Pipeline [{self.name}] 执行失败: {safe_error}")
             result.success = False
-            result.errors.append(str(e))
+            result.errors.append(safe_error)
             result.completed_at = datetime.now()
+            await self._emit_event(
+                task.id,
+                "error",
+                f"Pipeline 执行失败: {safe_error}",
+                level="error",
+                payload={
+                    "stage": "pipeline",
+                    "error": safe_error,
+                },
+            )
 
         return result
 

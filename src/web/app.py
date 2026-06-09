@@ -61,6 +61,8 @@ def get_agent_service():
 # Service layer singletons (lazy init)
 _task_service = None
 _task_service_lock = threading.Lock()
+_worker_registry = None
+_worker_registry_lock = threading.Lock()
 
 
 def get_task_service():
@@ -71,6 +73,23 @@ def get_task_service():
                 from src.services.task_service import TaskService
                 _task_service = TaskService(scheduler=scheduler)
     return _task_service
+
+
+def get_worker_registry():
+    global _worker_registry
+    if _worker_registry is None:
+        with _worker_registry_lock:
+            if _worker_registry is None:
+                task_store = getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                if task_store is not None:
+                    from src.services.worker_registry import StorageWorkerRegistry
+
+                    _worker_registry = StorageWorkerRegistry(task_store)
+                else:
+                    from src.services.worker_registry import InMemoryWorkerRegistry
+
+                    _worker_registry = InMemoryWorkerRegistry()
+    return _worker_registry
 
 
 # 模板引擎
@@ -120,7 +139,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
 
-    global scheduler, report_generator
+    global scheduler, report_generator, _worker_registry
     if scheduler is None:
         scheduler = Scheduler()
     if report_generator is None:
@@ -162,16 +181,23 @@ async def lifespan(app: FastAPI):
 
     # 注册事件 hooks
     from src.core.events import event_bus
-    from src.core.hooks import ReportGenerationHook, AlertHook, WebSocketBroadcastHook
+    from src.core.hooks import (
+        AlertHook,
+        ReportGenerationHook,
+        WebSocketBroadcastHook,
+        WebSocketTaskEventHook,
+    )
     from src.services.alert_service import AlertService
     from src.web.routes.ws import manager
 
     scheduler._event_bus = event_bus
-    event_bus.on("task_completed", ReportGenerationHook(report_generator).handle)
+    event_bus.on("task_completed", ReportGenerationHook(report_generator, scheduler=scheduler).handle)
     event_bus.on("task_completed", AlertHook(AlertService.get_instance()).handle)
     event_bus.on("task_updated", WebSocketBroadcastHook(manager).handle)
+    event_bus.on("task_event", WebSocketTaskEventHook(manager).handle)
 
     await scheduler.start()
+    _worker_registry = None
     logger.info("GamedataAutoFlux 启动完成 ✓")
 
     yield
@@ -192,6 +218,8 @@ async def lifespan(app: FastAPI):
 
     # 关闭全局存储并重置单例
     import src.storage.factory
+
+    _worker_registry = None
 
     if hasattr(app.state, "storage") and app.state.storage:
         await app.state.storage.close()
@@ -238,6 +266,7 @@ def create_app() -> FastAPI:
     from src.web.routes.ws import router as ws_router
     from src.web.routes.agent import router as agent_router
     from src.web.routes.health import router as health_router
+    from src.web.routes.workers import router as workers_router
     from src.web.safety import require_admin
 
     admin_dependencies = [Depends(require_admin)]
@@ -247,6 +276,7 @@ def create_app() -> FastAPI:
     app.include_router(data_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(ws_router, prefix="/api")
     app.include_router(agent_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(workers_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(health_router, prefix="/api")
 
     # 注册页面路由

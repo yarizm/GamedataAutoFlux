@@ -179,6 +179,43 @@ async def test_get_task_detail_guides_successful_task_to_report_precheck(monkeyp
     assert "precheck_report -> generate_report" in payload["suggestion"]
 
 
+@pytest.mark.asyncio
+async def test_get_task_detail_includes_recovery_guidance(monkeypatch) -> None:
+    task = Task(
+        id="task-recovery",
+        name="Recovery Task",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+    )
+    task.fail("failed")
+    fake_service = _FakeTaskDetailService(task)
+    fake_service.recovery = {
+        "collector_id": "gtrends",
+        "supports_checkpoint": True,
+        "recovery_level": "L1",
+        "latest_checkpoint": {"checkpoint_id": "checkpoint-1", "seq": 1},
+    }
+    fake_service.collector_metadata = {
+        "collector_id": "gtrends",
+        "session_mode": "api_only",
+        "supports_checkpoint": True,
+    }
+    fake_service.session_diagnostics = {
+        "collector_id": "gtrends",
+        "session_mode": "api_only",
+        "status": "ok",
+    }
+    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+
+    payload = json.loads(await GetTaskDetailTool()._arun(task.id))
+    data = payload["data"]
+
+    assert data["recovery"]["recovery_level"] == "L1"
+    assert data["collector_metadata"]["collector_id"] == "gtrends"
+    assert data["session_diagnostics"]["status"] == "ok"
+    assert "checkpoint is available" in data["agent_guidance"]
+
+
 class _FakeCreateTaskService:
     def __init__(self) -> None:
         self.created = {}
@@ -204,6 +241,18 @@ class _FakeCreateTaskService:
 class _FakeTaskDetailService:
     def __init__(self, task: Task) -> None:
         self.task = task
+        self.recovery = {}
+        self.collector_metadata = {}
+        self.session_diagnostics = {}
 
     def get_task(self, task_id: str) -> Task | None:
         return self.task if task_id == self.task.id else None
+
+    async def get_task_recovery_info(self, task_id: str):
+        return self.recovery if task_id == self.task.id else None
+
+    def get_task_collector_metadata(self, task_id: str):
+        return self.collector_metadata if task_id == self.task.id else None
+
+    def get_task_session_diagnostics(self, task_id: str):
+        return self.session_diagnostics if task_id == self.task.id else None

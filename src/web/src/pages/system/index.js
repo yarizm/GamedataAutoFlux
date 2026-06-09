@@ -1,4 +1,4 @@
-import { api, escapeHtml } from '../../core/api.js';
+import { api, escapeHtml, formatTime, toast } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 
 function setText(id, value) {
@@ -21,13 +21,15 @@ export default {
 
   async refresh(silent) {
     try {
-      const [health, diagnostics] = await Promise.all([
+      const [health, diagnostics, workers] = await Promise.all([
         api('/health'),
         api('/diagnostics/config'),
+        api('/workers?stale_after_seconds=120').catch(() => []),
       ]);
       this._renderStatus(health, diagnostics);
       this._renderChecks(diagnostics.checks || []);
       this._renderPaths(diagnostics.paths || {});
+      this._renderWorkers(workers || []);
     } catch (err) {
       if (!silent) {
         const list = this.container.querySelector('#system-checks-list');
@@ -103,6 +105,49 @@ export default {
       </div>`
     ).join('') + `</div>`;
   },
+
+  _renderWorkers(workers) {
+    const list = this.container.querySelector('#system-workers-list');
+    if (!list) return;
+    if (!workers.length) {
+      list.innerHTML = `<p class="text-zinc-600 text-sm px-2">No workers registered.</p>`;
+      return;
+    }
+    list.innerHTML = `<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">` + workers.map((worker) => {
+      const status = worker.status || 'unknown';
+      const tone = status === 'online' || status === 'idle'
+        ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+        : status === 'busy'
+          ? 'text-cyan-300 bg-cyan-500/10 border-cyan-500/20'
+          : status === 'offline'
+            ? 'text-rose-300 bg-rose-500/10 border-rose-500/20'
+            : 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+      const capabilities = (worker.capabilities || []).slice(0, 8);
+      const taskIds = worker.current_task_ids || [];
+      return `<div class="rounded-xl bg-zinc-950 border border-white/5 p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-sm font-bold text-zinc-100 truncate">${escapeHtml(worker.worker_id || '-')}</div>
+            <div class="text-xs text-zinc-500 truncate mt-1">${escapeHtml(worker.hostname || '-')}</div>
+          </div>
+          <span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(status)}</span>
+        </div>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Heartbeat</div>
+            <div class="text-zinc-300">${escapeHtml(formatTime(worker.last_heartbeat_at))}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Tasks</div>
+            <div class="text-zinc-300">${taskIds.length ? taskIds.map(id => `<code class="mr-1">${escapeHtml(id)}</code>`).join('') : '-'}</div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-1.5">
+          ${capabilities.length ? capabilities.map(capability => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('') : '<span class="text-xs text-zinc-600">No capabilities declared.</span>'}
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+  },
 };
 
 let _spaSteamdbLaunching = false;
@@ -123,4 +168,20 @@ window._launchSteamDBBrowser = async function() {
 
 window.loadSystemDiagnostics = function (options) {
   if (window._systemPage) window._systemPage.refresh(!(options && !options.silent));
+};
+
+let _reconcileWorkersRunning = false;
+window._reconcileStaleWorkerTasks = async function() {
+  if (_reconcileWorkersRunning) return;
+  _reconcileWorkersRunning = true;
+  try {
+    const result = await api('/workers/reconcile-stale-tasks', { method: 'POST' });
+    const interrupted = result.interrupted_tasks?.length || 0;
+    toast(`Interrupted ${interrupted} stale worker task(s).`, interrupted ? 'warning' : 'success');
+    window.loadSystemDiagnostics();
+  } catch (err) {
+    toast(`Worker reconcile failed: ${err.message}`, 'error');
+  } finally {
+    _reconcileWorkersRunning = false;
+  }
 };

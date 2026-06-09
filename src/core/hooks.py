@@ -16,15 +16,16 @@ from typing import Any
 
 from loguru import logger
 
-from src.core.events import TaskCompletedEvent, TaskUpdatedEvent
+from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent, TaskUpdatedEvent
 from src.core.sensitive import redact_sensitive_text
 
 
 class ReportGenerationHook:
     """订阅 task_completed → 生成报告"""
 
-    def __init__(self, report_generator: Any) -> None:
+    def __init__(self, report_generator: Any, scheduler: Any | None = None) -> None:
         self._report_generator = report_generator
+        self._scheduler = scheduler
 
     async def handle(self, event: TaskCompletedEvent) -> None:
         if not event.success:
@@ -70,6 +71,12 @@ class ReportGenerationHook:
                 },
             )
             task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
+            if self._scheduler is not None:
+                await self._scheduler.register_report_artifact(task, report)
+            if pipeline_result is not None:
+                pipeline_result.generated_report_id = report.id
+                pipeline_result.generated_report_title = report.title
+                pipeline_result.generated_report_matched_records = report.matched_records
             logger.info(f"报告自动生成完成: {report.title}")
         except Exception as exc:
             safe_error = redact_sensitive_text(str(exc))
@@ -119,3 +126,16 @@ class WebSocketBroadcastHook:
             await self._manager.broadcast({"type": "task_update", "task": event.payload})
         except Exception as exc:
             logger.debug(f"WebSocket broadcast failed: {redact_sensitive_text(str(exc))}")
+
+
+class WebSocketTaskEventHook:
+    """订阅 task_event → WebSocket 广播"""
+
+    def __init__(self, manager: Any) -> None:
+        self._manager = manager
+
+    async def handle(self, event: TaskEventCreatedEvent) -> None:
+        try:
+            await self._manager.broadcast({"type": "task_event", "event": event.event})
+        except Exception as exc:
+            logger.debug(f"WebSocket task event broadcast failed: {redact_sensitive_text(str(exc))}")

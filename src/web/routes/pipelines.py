@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
+from src.core.collector_metadata import fallback_collector_metadata, get_collector_metadata
 from src.core.pipeline import Pipeline
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
@@ -50,6 +51,19 @@ class CronJobRequest(BaseModel):
 @router.get("/components")
 async def list_components():
     return registry.list_components()
+
+
+@router.get("/components/metadata")
+async def list_component_metadata():
+    components = registry.list_components()
+    collector_metadata = {}
+    for collector_id in components.get("collector", []):
+        metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+        collector_metadata[collector_id] = metadata.model_dump(mode="json")
+    return {
+        "components": components,
+        "collectors": collector_metadata,
+    }
 
 
 @router.get("/pipeline-templates")

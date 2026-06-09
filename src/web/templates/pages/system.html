@@ -46,4 +46,14 @@
                     </div>
                 </div>
             </div>
+
+            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between gap-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Worker 状态</h2>
+                    <button class="btn btn-ghost btn-sm" onclick="window._reconcileStaleWorkerTasks()">清理失联任务</button>
+                </div>
+                <div class="card-body px-6 pb-6" id="system-workers-list">
+                    <p class="text-zinc-600 text-sm px-2">尚未加载 Worker 信息</p>
+                </div>
+            </div>
         </section>

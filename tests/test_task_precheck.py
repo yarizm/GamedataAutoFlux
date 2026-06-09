@@ -117,3 +117,19 @@ def test_task_precheck_rejects_unknown_pipeline() -> None:
     payload = response.json()
     assert payload["status"] == "error"
     assert any(issue["code"] == "unknown_pipeline" for issue in payload["issues"])
+
+
+def test_task_create_rejects_precheck_errors() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "Dynamic task",
+                "pipeline_name": "dynamic_playwright_basic",
+                "targets": [{"name": "Example Page", "target_type": "web", "params": {}}],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 400
+    assert "missing_collector_config" in response.json()["detail"]

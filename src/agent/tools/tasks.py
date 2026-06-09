@@ -60,12 +60,16 @@ def _task_detail_guidance(payload: dict[str, Any]) -> tuple[str, list[dict[str, 
     collection_status = str(collection_summary.get("status") or "")
     failed_targets = _safe_int(collection_summary.get("failed_targets_count"))
     stored_count = _safe_int(result_summary.get("storage_count"))
+    recovery_note = _recovery_note(payload)
 
     if collection_status == "partial" and failed_targets > 0:
-        return (
+        guidance = (
             "Task kept usable partial collection data but some targets failed. Review the "
             "collection failures, create targeted follow-up collection tasks, then rerun "
             "report precheck before generating a report.",
+        )
+        return (
+            guidance[0] + recovery_note,
             [
                 {
                     "type": "review_collection_results",
@@ -84,7 +88,7 @@ def _task_detail_guidance(payload: dict[str, Any]) -> tuple[str, list[dict[str, 
     if collection_status == "failed" or status == "failed":
         return (
             "Task failed before producing enough usable source data. Review collection results "
-            "and identifiers before creating a retry or replacement task.",
+            "and identifiers before creating a retry or replacement task." + recovery_note,
             [
                 {
                     "type": "review_collection_results",
@@ -102,7 +106,8 @@ def _task_detail_guidance(payload: dict[str, Any]) -> tuple[str, list[dict[str, 
 
     if status == "success" or stored_count > 0:
         return (
-            "Task produced source data. Run report precheck to verify coverage before generating.",
+            "Task produced source data. Run report precheck to verify coverage before generating."
+            + recovery_note,
             [
                 {
                     "type": "precheck_report",
@@ -117,7 +122,21 @@ def _task_detail_guidance(payload: dict[str, Any]) -> tuple[str, list[dict[str, 
             ],
         )
 
-    return "", []
+    return recovery_note.strip(), []
+
+
+def _recovery_note(payload: dict[str, Any]) -> str:
+    recovery = payload.get("recovery")
+    if not isinstance(recovery, dict) or not recovery:
+        return ""
+    level = str(recovery.get("recovery_level") or "L0")
+    supports_checkpoint = bool(recovery.get("supports_checkpoint"))
+    latest = recovery.get("latest_checkpoint")
+    if supports_checkpoint and isinstance(latest, dict):
+        return f" Recovery: {level} checkpoint is available for review before rerun."
+    if supports_checkpoint:
+        return f" Recovery: {level} checkpoint recording is supported, but no checkpoint is available yet."
+    return " Recovery: checkpoint resume is not supported for this collector; rerun after fixing inputs."
 
 
 def _task_detail_suggestion(
@@ -190,12 +209,26 @@ class GetTaskDetailTool(BaseTool):
     async def _arun(self, task_id: str) -> str:
         from src.web.app import get_task_service
 
-        task = get_task_service().get_task(task_id)
+        task_service = get_task_service()
+        task = task_service.get_task(task_id)
         if not task:
             return _format_result(
                 "error", f"任务不存在: {task_id}", suggestion="使用 list_tasks 查看所有任务"
             )
         payload = task.to_public_payload()
+        collector_metadata_getter = getattr(task_service, "get_task_collector_metadata", None)
+        if callable(collector_metadata_getter):
+            collector_metadata = collector_metadata_getter(task_id)
+            if collector_metadata:
+                payload["collector_metadata"] = collector_metadata
+        session_diagnostics_getter = getattr(task_service, "get_task_session_diagnostics", None)
+        if callable(session_diagnostics_getter):
+            session_diagnostics = session_diagnostics_getter(task_id)
+            if session_diagnostics:
+                payload["session_diagnostics"] = session_diagnostics
+        recovery = await task_service.get_task_recovery_info(task_id)
+        if recovery:
+            payload["recovery"] = recovery
         status = payload.get("status", "unknown")
         guidance, recommended_actions = _task_detail_guidance(payload)
         if guidance:

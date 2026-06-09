@@ -21,15 +21,22 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
+from src.core.collector_metadata import build_collector_recovery_info, get_collector_metadata
 from src.core.config import get as get_config
 from src.core.events import EventBus
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.registry import registry
-from src.core.sensitive import redact_sensitive_text
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
+from src.services.task_artifact_service import TaskArtifactService, StorageTaskArtifactService
+from src.services.task_checkpoint_service import (
+    StorageTaskCheckpointService,
+    TaskCheckpointService,
+)
 from src.services.task_repository import TaskRepository
 from src.services.cron_repository import CronRepository, CronJobConfig
 from src.services.pipeline_repository import PipelineRepository
+from src.services.task_event_service import TaskEventService, StorageTaskEventService
 from src.storage.base import BaseStorage, StorageRecord
 
 
@@ -49,6 +56,10 @@ class Scheduler:
         cron_repo: CronRepository | None = None,
         pipeline_repo: PipelineRepository | None = None,
         event_bus: EventBus | None = None,
+        task_event_service: TaskEventService | None = None,
+        task_artifact_service: TaskArtifactService | None = None,
+        task_checkpoint_service: TaskCheckpointService | None = None,
+        execution_backend: str | None = None,
     ):
         self._max_concurrent = (
             max_concurrent
@@ -73,6 +84,15 @@ class Scheduler:
         self._cron_repo = cron_repo
         self._pipeline_repo = pipeline_repo
         self._event_bus = event_bus
+        self._task_event_service = task_event_service
+        self._task_artifact_service = task_artifact_service
+        self._task_checkpoint_service = task_checkpoint_service
+        self._execution_backend = _normalize_execution_backend(
+            execution_backend if execution_backend is not None else get_config(
+                "scheduler.execution_backend",
+                "in_process",
+            )
+        )
 
         self._semaphore: asyncio.Semaphore | None = None
         self._tasks: dict[str, Task] = {}
@@ -114,6 +134,12 @@ class Scheduler:
         self._task_store = store_cls(self._task_store_config)
 
         await self._task_store.initialize()
+        if self._task_event_service is None:
+            self._task_event_service = StorageTaskEventService(self._task_store)
+        if self._task_artifact_service is None:
+            self._task_artifact_service = StorageTaskArtifactService(self._task_store)
+        if self._task_checkpoint_service is None:
+            self._task_checkpoint_service = StorageTaskCheckpointService(self._task_store)
         await self._restore_pipelines()
         await self._restore_tasks()
         self._cron_scheduler.start()
@@ -232,9 +258,26 @@ class Scheduler:
             self._tasks[task.id] = task
         await self._persist_task(task)
 
+        if self._execution_backend == "worker_claim":
+            await self._emit_task_event(
+                task,
+                "queued",
+                "任务已进入 Worker 领取队列",
+                payload={
+                    "status": task.status.value,
+                    "execution_backend": self._execution_backend,
+                    "pipeline_name": task.pipeline_name,
+                },
+            )
+            logger.info(
+                f"任务已提交到 Worker 队列: [{task.id}] {task.name} → Pipeline [{pipeline.name}]"
+            )
+            return task.id
+
         # 设置进度回调
         pipeline = Pipeline.from_config(pipeline.to_config())  # 克隆 pipeline
         pipeline.on_progress(self._on_task_progress)
+        pipeline.on_event(self._on_task_event)
 
         # 提交执行
         future = asyncio.create_task(self._execute_task(task, pipeline))
@@ -253,6 +296,16 @@ class Scheduler:
             async with self._semaphore:
                 task.start()
                 await self._persist_task(task)
+                await self._emit_task_event(
+                    task,
+                    "status",
+                    "任务开始执行",
+                    payload={
+                        "status": task.status.value,
+                        "retry_count": task.retry_count,
+                        "pipeline_name": task.pipeline_name,
+                    },
+                )
                 logger.info(f"任务开始执行: [{task.id}] {task.name}")
 
                 try:
@@ -291,6 +344,17 @@ class Scheduler:
                             task.result = result
                             task.fail(error_msg)
                             await self._persist_task(task)
+                            await self._emit_task_event(
+                                task,
+                                "error",
+                                "任务执行失败",
+                                level="error",
+                                payload={
+                                    "status": task.status.value,
+                                    "error": error_msg,
+                                    "errors": _safe_error_messages(result.errors),
+                                },
+                            )
                             logger.error(
                                 f"任务执行失败（报告生成）: [{task.id}] {task.name} - {error_msg}"
                             )
@@ -298,12 +362,34 @@ class Scheduler:
 
                         task.complete(result)
                         await self._persist_task(task)
+                        await self._emit_task_event(
+                            task,
+                            "complete",
+                            "任务执行成功",
+                            payload={
+                                "status": task.status.value,
+                                "storage_count": result.storage_count,
+                                "generated_report_id": result.generated_report_id,
+                            },
+                        )
                         logger.info(f"任务执行成功: [{task.id}] {task.name}")
                     else:
                         error_msg = _join_safe_error_messages(result.errors)
                         retry_suppression_reason = _pipeline_result_retry_suppression_reason(result)
                         if not retry_suppression_reason and task.retry():
                             await self._persist_task(task)
+                            await self._emit_task_event(
+                                task,
+                                "retry",
+                                f"任务失败，准备重试 ({task.retry_count}/{task.max_retries})",
+                                level="warning",
+                                payload={
+                                    "status": task.status.value,
+                                    "retry_count": task.retry_count,
+                                    "max_retries": task.max_retries,
+                                    "error": error_msg,
+                                },
+                            )
                             logger.warning(
                                 f"任务失败，重试 ({task.retry_count}/{task.max_retries}): "
                                 f"[{task.id}] {task.name} - {error_msg}"
@@ -321,6 +407,17 @@ class Scheduler:
                             task.result = result
                             task.fail(error_msg)
                             await self._persist_task(task)
+                            await self._emit_task_event(
+                                task,
+                                "error",
+                                "任务执行失败",
+                                level="error",
+                                payload={
+                                    "status": task.status.value,
+                                    "error": error_msg,
+                                    "errors": _safe_error_messages(result.errors),
+                                },
+                            )
                             logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
                             if self._event_bus is not None:
                                 from src.core.events import TaskCompletedEvent
@@ -353,6 +450,13 @@ class Scheduler:
                 except asyncio.CancelledError:
                     task.cancel()
                     await self._persist_task(task)
+                    await self._emit_task_event(
+                        task,
+                        "cancelled",
+                        "任务已取消",
+                        level="warning",
+                        payload={"status": task.status.value},
+                    )
                     logger.info(f"任务已取消: [{task.id}] {task.name}")
                     return None
 
@@ -361,6 +465,18 @@ class Scheduler:
                     task.fail(error_msg)  # 先标记为 FAILED，再判断是否可重试
                     if task.retry():
                         await self._persist_task(task)
+                        await self._emit_task_event(
+                            task,
+                            "retry",
+                            f"任务异常，准备重试 ({task.retry_count}/{task.max_retries})",
+                            level="warning",
+                            payload={
+                                "status": task.status.value,
+                                "retry_count": task.retry_count,
+                                "max_retries": task.max_retries,
+                                "error": error_msg,
+                            },
+                        )
                         logger.warning(
                             f"任务异常，重试 ({task.retry_count}/{task.max_retries}): "
                             f"[{task.id}] {task.name} - {error_msg}"
@@ -369,6 +485,16 @@ class Scheduler:
                         backoff = min(60, 2 ** task.retry_count)
                     else:
                         await self._persist_task(task)
+                        await self._emit_task_event(
+                            task,
+                            "error",
+                            "任务执行异常",
+                            level="error",
+                            payload={
+                                "status": task.status.value,
+                                "error": error_msg,
+                            },
+                        )
                         logger.error(f"任务最终异常: [{task.id}] {task.name} - {error_msg}")
                         if self._event_bus is not None:
                             from src.core.events import TaskCompletedEvent
@@ -426,6 +552,13 @@ class Scheduler:
         if task and not task.is_terminal:
             task.cancel()
             await self._persist_task(task)
+            await self._emit_task_event(
+                task,
+                "cancelled",
+                "任务已取消",
+                level="warning",
+                payload={"status": task.status.value},
+            )
             return True
 
         return False
@@ -447,6 +580,12 @@ class Scheduler:
             await self._task_repo.delete(task_id)
         elif self._task_store is not None:
             await self._task_store.delete(f"task:{task_id}")
+        if self._task_event_service is not None:
+            await self._task_event_service.delete_events(task_id)
+        if self._task_artifact_service is not None:
+            await self._task_artifact_service.delete_artifacts(task_id)
+        if self._task_checkpoint_service is not None:
+            await self._task_checkpoint_service.delete_checkpoints(task_id)
         logger.info(f"Task deleted: [{task_id}] {task.name}")
         return True
 
@@ -465,6 +604,491 @@ class Scheduler:
         with self._lock:
             return [t for t in self._tasks.values() if t.status == status]
 
+    async def claim_task_for_worker(
+        self,
+        worker_id: str,
+        *,
+        capabilities: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Claim the next pending task for a worker."""
+        safe_worker_id = redact_sensitive_text(str(worker_id or "")).strip()
+        if not safe_worker_id:
+            raise ValueError("worker_id is required")
+
+        with self._lock:
+            pending = [
+                task
+                for task in self._tasks.values()
+                if task.status in (TaskStatus.PENDING, TaskStatus.RETRYING)
+                and _task_matches_worker_capabilities(task, self._pipelines, capabilities)
+            ]
+            pending.sort(key=lambda item: (-int(item.priority), item.created_at))
+            task = pending[0] if pending else None
+            if task is None:
+                return None
+            pipeline = self._pipelines.get(task.pipeline_name)
+            if pipeline is None:
+                return None
+
+            task.start()
+            worker_claim = {
+                "worker_id": safe_worker_id,
+                "claimed_at": datetime.now().isoformat(),
+                "execution_backend": "worker_claim",
+            }
+            task.config = {**task.config, "worker_claim": worker_claim}
+
+        await self._persist_task(task)
+        await self._emit_task_event(
+            task,
+            "claimed",
+            f"任务已被 Worker 领取: {safe_worker_id}",
+            payload={
+                "status": task.status.value,
+                "worker_id": safe_worker_id,
+                "execution_backend": "worker_claim",
+            },
+        )
+        latest_checkpoint = await self.get_latest_task_checkpoint(task.id)
+        latest_checkpoint_payload = (
+            latest_checkpoint.to_public_payload() if latest_checkpoint is not None else None
+        )
+        collector_name = _task_collector_name(task, self._pipelines)
+        return {
+            "task_id": task.id,
+            "task": task.to_storage_payload(),
+            "pipeline": pipeline.to_config(),
+            "latest_checkpoint": latest_checkpoint_payload,
+            "recovery": build_collector_recovery_info(
+                collector_name,
+                latest_checkpoint=latest_checkpoint_payload,
+            )
+            if collector_name
+            else {},
+        }
+
+    async def complete_worker_task(
+        self,
+        worker_id: str,
+        task_id: str,
+        *,
+        result: dict[str, Any] | None = None,
+    ) -> Task | None:
+        """Mark a worker-claimed task as successful."""
+        task = self._get_claimed_task_for_worker(worker_id, task_id)
+        if task is None:
+            return None
+        safe_result = redact_sensitive(result or {})
+
+        task.complete(
+            safe_result
+            or {
+                "success": True,
+                "task_id": task.id,
+                "worker_id": redact_sensitive_text(str(worker_id)),
+            }
+        )
+        await self._persist_task(task)
+        await self._emit_task_event(
+            task,
+            "complete",
+            "Worker 上报任务执行成功",
+            payload={
+                "status": task.status.value,
+                "worker_id": redact_sensitive_text(str(worker_id)),
+                "result": safe_result,
+            },
+        )
+        return task
+
+    async def fail_worker_task(
+        self,
+        worker_id: str,
+        task_id: str,
+        *,
+        error: str,
+        result: dict[str, Any] | None = None,
+    ) -> Task | None:
+        """Mark a worker-claimed task as failed."""
+        task = self._get_claimed_task_for_worker(worker_id, task_id)
+        if task is None:
+            return None
+
+        safe_error = redact_sensitive_text(str(error or "Worker task failed"))
+        safe_result = redact_sensitive(result or {})
+        failure_result = safe_result or {
+            "success": False,
+            "task_id": task.id,
+            "worker_id": redact_sensitive_text(str(worker_id)),
+            "errors": [safe_error],
+        }
+        task.result = failure_result
+        task.fail(safe_error)
+        if task.retry():
+            task.result = None
+            with self._lock:
+                claim = task.config.get("worker_claim") if isinstance(task.config, dict) else {}
+                if not isinstance(claim, dict):
+                    claim = {}
+                task.config = {
+                    **task.config,
+                    "worker_claim": {
+                        **claim,
+                        "worker_id": redact_sensitive_text(str(worker_id)),
+                        "released_at": datetime.now().isoformat(),
+                        "last_error": safe_error,
+                    },
+                }
+            await self._persist_task(task)
+            await self._emit_task_event(
+                task,
+                "retry",
+                f"Worker task failed; queued for retry ({task.retry_count}/{task.max_retries})",
+                level="warning",
+                payload={
+                    "status": task.status.value,
+                    "worker_id": redact_sensitive_text(str(worker_id)),
+                    "retry_count": task.retry_count,
+                    "max_retries": task.max_retries,
+                    "error": safe_error,
+                    "result": safe_result,
+                },
+            )
+            return task
+
+        await self._persist_task(task)
+        await self._emit_task_event(
+            task,
+            "error",
+            "Worker 上报任务执行失败",
+            level="error",
+            payload={
+                "status": task.status.value,
+                "worker_id": redact_sensitive_text(str(worker_id)),
+                "error": safe_error,
+                "result": safe_result,
+            },
+        )
+        return task
+
+    async def interrupt_worker_tasks(
+        self,
+        worker_id: str,
+        *,
+        reason: str = "",
+    ) -> list[Task]:
+        """Cancel running tasks claimed by a worker that is no longer healthy."""
+        safe_worker_id = redact_sensitive_text(str(worker_id or "")).strip()
+        if not safe_worker_id:
+            return []
+        safe_reason = redact_sensitive_text(
+            str(reason or "Worker heartbeat is stale; task was interrupted.")
+        )
+
+        with self._lock:
+            claimed_tasks = [
+                task
+                for task in self._tasks.values()
+                if task.status == TaskStatus.RUNNING
+                and _claimed_worker_id(task) == safe_worker_id
+            ]
+            for task in claimed_tasks:
+                claim = task.config.get("worker_claim") if isinstance(task.config, dict) else {}
+                if not isinstance(claim, dict):
+                    claim = {}
+                task.config = {
+                    **task.config,
+                    "worker_claim": {
+                        **claim,
+                        "worker_id": safe_worker_id,
+                        "interrupted_at": datetime.now().isoformat(),
+                        "interruption_reason": safe_reason,
+                    },
+                }
+                task.result = {
+                    "success": False,
+                    "task_id": task.id,
+                    "worker_id": safe_worker_id,
+                    "interrupted": True,
+                    "error": safe_reason,
+                }
+                task.add_step_log(
+                    "worker:interrupted",
+                    TaskStatus.CANCELLED,
+                    "Worker task interrupted",
+                    error=safe_reason,
+                )
+                task.cancel()
+                task.error = safe_reason
+
+        for task in claimed_tasks:
+            await self._persist_task(task)
+            await self._emit_task_event(
+                task,
+                "interrupted",
+                "Worker 失联，任务已中断",
+                level="warning",
+                payload={
+                    "status": task.status.value,
+                    "worker_id": safe_worker_id,
+                    "error": safe_reason,
+                },
+            )
+        return claimed_tasks
+
+    async def append_worker_task_event(
+        self,
+        worker_id: str,
+        task_id: str,
+        event_type: str,
+        *,
+        level: str = "info",
+        message: str = "",
+        payload: dict[str, Any] | None = None,
+    ):
+        """Append an event for a worker-claimed task."""
+        task = self._get_claimed_task_for_worker(worker_id, task_id)
+        if task is None:
+            return None
+        next_payload = {
+            "worker_id": redact_sensitive_text(str(worker_id)),
+            **(payload or {}),
+        }
+        return await self._emit_task_event(
+            task,
+            event_type,
+            message,
+            level=level,
+            payload=next_payload,
+        )
+
+    async def register_worker_task_artifact(
+        self,
+        worker_id: str,
+        task_id: str,
+        artifact_type: str,
+        *,
+        name: str,
+        path: str = "",
+        mime_type: str = "",
+        size: int | None = None,
+        download_url: str = "",
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Register an artifact for a worker-claimed task."""
+        task = self._get_claimed_task_for_worker(worker_id, task_id)
+        if task is None:
+            return None
+        next_metadata = {
+            "worker_id": redact_sensitive_text(str(worker_id)),
+            **(metadata or {}),
+        }
+        return await self.register_task_artifact(
+            task,
+            artifact_type,
+            name=name,
+            path=path,
+            mime_type=mime_type,
+            size=size,
+            download_url=download_url,
+            metadata=next_metadata,
+        )
+
+    async def register_worker_task_checkpoint(
+        self,
+        worker_id: str,
+        task_id: str,
+        *,
+        recovery_level: str = "L0",
+        cursor: dict[str, Any] | None = None,
+        stats: dict[str, Any] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Register a checkpoint for a worker-claimed task."""
+        task = self._get_claimed_task_for_worker(worker_id, task_id)
+        if task is None:
+            return None
+        next_metadata = {
+            "worker_id": redact_sensitive_text(str(worker_id)),
+            **(metadata or {}),
+        }
+        return await self.register_task_checkpoint(
+            task,
+            worker_id=redact_sensitive_text(str(worker_id)),
+            recovery_level=recovery_level,
+            cursor=cursor,
+            stats=stats,
+            artifacts=artifacts,
+            metadata=next_metadata,
+        )
+
+    def _get_claimed_task_for_worker(self, worker_id: str, task_id: str) -> Task | None:
+        safe_worker_id = redact_sensitive_text(str(worker_id or "")).strip()
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None or task.status != TaskStatus.RUNNING:
+                return None
+            if _claimed_worker_id(task) != safe_worker_id:
+                return None
+            return task
+
+    async def get_task_events(
+        self,
+        task_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        order: str = "asc",
+    ):
+        """获取任务结构化事件。"""
+        if self._task_event_service is None:
+            return []
+        return await self._task_event_service.list_events(
+            task_id,
+            limit=limit,
+            offset=offset,
+            order=order,
+        )
+
+    async def get_task_artifacts(
+        self,
+        task_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ):
+        """获取任务产物列表。"""
+        if self._task_artifact_service is None:
+            return []
+        return await self._task_artifact_service.list_artifacts(
+            task_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_task_checkpoints(
+        self,
+        task_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ):
+        """获取任务 checkpoint 列表。"""
+        if self._task_checkpoint_service is None:
+            return []
+        return await self._task_checkpoint_service.list_checkpoints(
+            task_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_latest_task_checkpoint(self, task_id: str):
+        """获取任务最近一次 checkpoint。"""
+        if self._task_checkpoint_service is None:
+            return None
+        return await self._task_checkpoint_service.latest_checkpoint(task_id)
+
+    async def register_task_artifact(
+        self,
+        task: Task,
+        artifact_type: str,
+        *,
+        name: str,
+        path: str = "",
+        mime_type: str = "",
+        size: int | None = None,
+        download_url: str = "",
+        metadata: dict[str, Any] | None = None,
+    ):
+        """登记任务产物，并发出 artifact 事件。"""
+        if self._task_artifact_service is None:
+            return None
+
+        artifact = await self._task_artifact_service.append(
+            task.id,
+            artifact_type,
+            name=name,
+            path=path,
+            mime_type=mime_type,
+            size=size,
+            download_url=download_url,
+            metadata=metadata,
+        )
+        await self._emit_task_event(
+            task,
+            "artifact",
+            f"任务产物已生成: {artifact.name}",
+            payload={
+                "artifact": artifact.to_public_payload(),
+            },
+        )
+        return artifact
+
+    async def register_report_artifact(self, task: Task, report) -> None:
+        """登记自动生成的 Excel 报告产物。"""
+        excel_path = str(getattr(report, "excel_path", "") or "")
+        size = None
+        if excel_path:
+            try:
+                from pathlib import Path
+
+                path = Path(excel_path)
+                if path.exists() and path.is_file():
+                    size = path.stat().st_size
+            except Exception:
+                size = None
+
+        await self.register_task_artifact(
+            task,
+            "report_excel",
+            name=str(getattr(report, "title", "") or getattr(report, "id", "") or "Excel 报告"),
+            path=excel_path,
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size=size,
+            download_url=f"/api/reports/{getattr(report, 'id', '')}/download",
+            metadata={
+                "report_id": getattr(report, "id", ""),
+                "report_title": getattr(report, "title", ""),
+                "template": getattr(report, "template", ""),
+                "matched_records": getattr(report, "matched_records", 0),
+            },
+        )
+
+    async def register_task_checkpoint(
+        self,
+        task: Task,
+        *,
+        worker_id: str = "",
+        recovery_level: str = "L0",
+        cursor: dict[str, Any] | None = None,
+        stats: dict[str, Any] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        """登记任务 checkpoint，并发出 checkpoint 事件。"""
+        if self._task_checkpoint_service is None:
+            return None
+
+        checkpoint = await self._task_checkpoint_service.append(
+            task.id,
+            pipeline_name=task.pipeline_name,
+            collector_name=task.collector_name,
+            worker_id=worker_id,
+            recovery_level=recovery_level,
+            cursor=cursor,
+            stats=stats,
+            artifacts=artifacts,
+            metadata=metadata,
+        )
+        await self._emit_task_event(
+            task,
+            "checkpoint",
+            f"任务 checkpoint 已记录: {checkpoint.recovery_level}",
+            payload={"checkpoint": checkpoint.to_public_payload()},
+        )
+        return checkpoint
+
     async def _on_task_progress(self, task_id: str, progress: float, message: str) -> None:
         """内部进度回调"""
         with self._lock:
@@ -472,6 +1096,132 @@ class Scheduler:
         if task:
             task.update_progress(progress, message)
             await self._persist_task(task)
+            await self._emit_task_event(
+                task,
+                "progress",
+                message or "任务进度更新",
+                payload={
+                    "status": task.status.value,
+                    "progress": task.progress,
+                },
+            )
+
+    async def _on_task_event(
+        self,
+        task_id: str,
+        event_type: str,
+        level: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Pipeline 结构化事件回调。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+        await self._emit_task_event(
+            task or task_id,
+            event_type,
+            message,
+            level=level,
+            payload=payload,
+        )
+        if task is not None:
+            await self._maybe_record_pipeline_checkpoint(task, event_type, payload)
+
+    async def _maybe_record_pipeline_checkpoint(
+        self,
+        task: Task,
+        event_type: str,
+        payload: dict[str, Any] | None,
+    ) -> None:
+        """Record lightweight checkpoints from in-process Pipeline collector events."""
+        if self._task_checkpoint_service is None:
+            return
+        if event_type != "collect" or not isinstance(payload, dict):
+            return
+
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in {"succeeded", "failed"}:
+            return
+
+        collector_name = str(payload.get("component") or task.collector_name or "").strip()
+        metadata = get_collector_metadata(collector_name or task.collector_name)
+        if metadata is None or not metadata.supports_checkpoint:
+            return
+
+        recovery_level = str(metadata.recovery_level or "L0").upper()
+        if recovery_level == "L0":
+            return
+
+        await self.register_task_checkpoint(
+            task,
+            recovery_level=recovery_level,
+            cursor={
+                "stage": "collect",
+                "component": collector_name,
+                "status": status,
+            },
+            stats=_pipeline_checkpoint_stats(payload),
+            metadata={
+                "source": "pipeline_event",
+                "event_type": event_type,
+                "session_mode": metadata.session_mode,
+            },
+        )
+
+    async def _emit_task_event(
+        self,
+        task_or_id: Task | str,
+        event_type: str,
+        message: str,
+        *,
+        level: str = "info",
+        payload: dict[str, Any] | None = None,
+    ):
+        """写入任务结构化事件，并发布给实时通道。"""
+        if self._task_event_service is None:
+            return None
+
+        if isinstance(task_or_id, Task):
+            task_id = task_or_id.id
+            base_payload: dict[str, Any] = {
+                "task_status": task_or_id.status.value,
+                "pipeline_name": task_or_id.pipeline_name,
+                "collector_name": task_or_id.collector_name,
+            }
+        else:
+            task_id = task_or_id
+            base_payload = {}
+        if payload:
+            base_payload.update(payload)
+
+        event = await self._task_event_service.append(
+            task_id,
+            event_type,
+            level=level,
+            message=message,
+            payload=base_payload,
+        )
+        public_payload = event.to_public_payload()
+
+        if self._event_bus is not None:
+            from src.core.events import TaskEventCreatedEvent
+
+            self._create_background_task(
+                self._event_bus.emit(
+                    "task_event",
+                    TaskEventCreatedEvent(task_id=task_id, event=public_payload),
+                )
+            )
+        else:
+            try:
+                from src.web.routes.ws import manager
+
+                self._create_background_task(
+                    manager.broadcast({"type": "task_event", "event": public_payload})
+                )
+            except Exception as exc:
+                logger.debug(f"Failed to broadcast task event: {exc}")
+        return event
 
     # ==================== 定时调度 ====================
 
@@ -588,6 +1338,7 @@ class Scheduler:
         with self._lock:
             tasks_values = list(self._tasks.values())
             running_futures_len = len(self._running_futures)
+            running_status_count = sum(1 for task in tasks_values if task.status == TaskStatus.RUNNING)
             
         for task in tasks_values:
             status = task.status.value
@@ -595,7 +1346,7 @@ class Scheduler:
 
         return {
             "total_tasks": len(tasks_values),
-            "running_tasks": running_futures_len,
+            "running_tasks": max(running_futures_len, running_status_count),
             "max_concurrent": self._max_concurrent,
             "status_counts": status_counts,
             "cron_jobs": len(self._cron_scheduler.get_jobs()),
@@ -686,6 +1437,7 @@ class Scheduler:
         result.generated_report_id = report.id
         result.generated_report_title = report.title
         result.generated_report_matched_records = report.matched_records
+        await self.register_report_artifact(task, report)
         task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
         await self._persist_task(task)
 
@@ -931,12 +1683,66 @@ def _has_stored_partial_collection_result(result: PipelineResult) -> bool:
     return summary.get("status") == "partial" and _safe_int(summary.get("failed_targets_count")) > 0
 
 
+def _pipeline_checkpoint_stats(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "targets_count": _safe_int(payload.get("targets_count")),
+        "success_count": _safe_int(payload.get("success_count")),
+        "failed_count": _safe_int(payload.get("failed_count")),
+    }
+
+
 def _safe_int(value: Any, *, default: int = 0) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return default
     return parsed if parsed >= 0 else default
+
+
+def _normalize_execution_backend(value: str) -> str:
+    backend = str(value or "in_process").strip().lower()
+    return backend if backend in {"in_process", "worker_claim"} else "in_process"
+
+
+def _task_matches_worker_capabilities(
+    task: Task,
+    pipelines: dict[str, Pipeline],
+    capabilities: list[str] | None,
+) -> bool:
+    worker_capabilities = {str(capability).strip() for capability in capabilities or [] if capability}
+    if not worker_capabilities:
+        return True
+
+    collector_name = _task_collector_name(task, pipelines)
+    if not collector_name:
+        return True
+
+    accepted = {collector_name}
+    metadata = get_collector_metadata(collector_name)
+    if metadata is not None:
+        accepted.update(metadata.capabilities)
+    return bool(accepted & worker_capabilities)
+
+
+def _task_collector_name(task: Task, pipelines: dict[str, Pipeline]) -> str:
+    collector_name = str(task.collector_name or "").strip()
+    if collector_name:
+        return collector_name
+    pipeline = pipelines.get(task.pipeline_name)
+    if pipeline is None:
+        return ""
+    collector_step = next(
+        (step for step in pipeline.steps if step.step_type.value == "collector"),
+        None,
+    )
+    return collector_step.component_name if collector_step is not None else ""
+
+
+def _claimed_worker_id(task: Task) -> str:
+    claim = task.config.get("worker_claim") if isinstance(task.config, dict) else None
+    if not isinstance(claim, dict):
+        return ""
+    return redact_sensitive_text(str(claim.get("worker_id") or "")).strip()
 
 
 def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:

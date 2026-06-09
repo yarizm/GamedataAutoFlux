@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from pathlib import Path
 from typing import Any
 
 from src.core.config import get as get_config
@@ -60,6 +61,39 @@ def build_config_diagnostics() -> dict[str, Any]:
             "data_dir": str(get_data_dir()),
             "logs_dir": str(get_root_dir() / "logs"),
         },
+    }
+
+
+def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
+    """Build local session/runtime diagnostics for one collector."""
+    from src.core.collector_metadata import fallback_collector_metadata, get_collector_metadata
+
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    checks: list[dict[str, Any]] = []
+    profiles = set(metadata.credential_profiles)
+
+    if "playwright_runtime" in profiles:
+        checks.append(_dependency_check("playwright", required=True))
+    if "steamdb_optional_browser_session" in profiles:
+        checks.append(_steamdb_session_check(optional=True))
+    if "local_browser_profile" in profiles:
+        checks.extend(_local_profile_session_checks(metadata.collector_id))
+
+    if not checks:
+        checks.append(
+            _check(
+                "session",
+                "ok",
+                "Collector does not require a local browser session",
+            )
+        )
+
+    return {
+        "collector_id": metadata.collector_id,
+        "requires_session": metadata.requires_session,
+        "session_mode": metadata.session_mode,
+        "status": _overall_status(checks),
+        "checks": checks,
     }
 
 
@@ -189,23 +223,15 @@ def _steamdb_config_check() -> dict[str, Any]:
             cdp_enabled=False,
         )
 
-    # Check if CDP port is actually listening
-    import urllib.request
-
-    try:
-        url = f"http://127.0.0.1:{cdp_port}/json/version"
-        with urllib.request.urlopen(url, timeout=1) as response:
-            if response.status == 200:
-                return _check(
-                    "steam.steamdb",
-                    "ok",
-                    "SteamDB CDP 浏览器已连接并就绪",
-                    cdp_enabled=True,
-                    cdp_port=cdp_port,
-                    profile_dir=profile_dir,
-                )
-    except Exception:
-        pass
+    if _is_cdp_endpoint_reachable(cdp_port):
+        return _check(
+            "steam.steamdb",
+            "ok",
+            "SteamDB CDP 浏览器已连接并就绪",
+            cdp_enabled=True,
+            cdp_port=cdp_port,
+            profile_dir=profile_dir,
+        )
 
     return _check(
         "steam.steamdb",
@@ -216,6 +242,130 @@ def _steamdb_config_check() -> dict[str, Any]:
         profile_dir=profile_dir,
         action="open_steamdb_browser",
     )
+
+
+def _steamdb_session_check(*, optional: bool) -> dict[str, Any]:
+    enabled = bool(get_config("steam.steamdb.enabled", False))
+    cdp_enabled = bool(get_config("steam.steamdb.cdp_enabled", False))
+    cdp_port = get_config("steam.steamdb.cdp_port", 9222)
+    profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
+
+    if not enabled:
+        return _check(
+            "session:steamdb",
+            "ok",
+            "SteamDB collection is disabled",
+            optional=optional,
+        )
+    if not cdp_enabled:
+        return _check(
+            "session:steamdb",
+            "warning",
+            "SteamDB CDP session is disabled; SteamDB pages may hit captcha or rate limits",
+            optional=optional,
+            cdp_enabled=False,
+        )
+    if _is_cdp_endpoint_reachable(cdp_port):
+        return _check(
+            "session:steamdb",
+            "ok",
+            "SteamDB CDP browser is reachable",
+            optional=optional,
+            cdp_port=cdp_port,
+            profile_dir=profile_dir,
+        )
+    return _check(
+        "session:steamdb",
+        "warning" if optional else "error",
+        "SteamDB CDP browser is not reachable; launch and log in before SteamDB collection",
+        optional=optional,
+        cdp_port=cdp_port,
+        profile_dir=profile_dir,
+        action="open_steamdb_browser",
+    )
+
+
+def _local_profile_session_checks(collector_id: str) -> list[dict[str, Any]]:
+    if collector_id == "qimai":
+        profile_dir = _resolve_project_path(
+            str(get_config("qimai.user_data_dir", "") or "data/qimai_profile")
+        )
+        cdp_enabled = bool(get_config("qimai.cdp_enabled", True))
+        cdp_required = bool(get_config("qimai.cdp_required", False))
+        cdp_port = get_config("qimai.cdp_port", 9222)
+
+        checks = [_profile_dir_check("session:qimai_profile", profile_dir)]
+        if cdp_enabled:
+            checks.append(
+                _cdp_session_check(
+                    "session:qimai_cdp",
+                    cdp_port=cdp_port,
+                    required=cdp_required,
+                    message_prefix="Qimai",
+                )
+            )
+        return checks
+
+    profile_dir = _resolve_project_path(f"data/{collector_id}_profile")
+    return [_profile_dir_check(f"session:{collector_id}_profile", profile_dir)]
+
+
+def _profile_dir_check(name: str, profile_dir: Path) -> dict[str, Any]:
+    details = {
+        "profile_dir": str(profile_dir),
+        "exists": profile_dir.exists(),
+    }
+    if profile_dir.exists() and profile_dir.is_dir():
+        return _check(name, "ok", "Browser profile directory exists", **details)
+    return _check(
+        name,
+        "warning",
+        "Browser profile directory is missing; run the login helper before collection",
+        **details,
+    )
+
+
+def _cdp_session_check(
+    name: str,
+    *,
+    cdp_port: Any,
+    required: bool,
+    message_prefix: str,
+) -> dict[str, Any]:
+    if _is_cdp_endpoint_reachable(cdp_port):
+        return _check(
+            name,
+            "ok",
+            f"{message_prefix} CDP browser is reachable",
+            cdp_port=cdp_port,
+            required=required,
+        )
+    return _check(
+        name,
+        "error" if required else "warning",
+        f"{message_prefix} CDP browser is not reachable",
+        cdp_port=cdp_port,
+        required=required,
+    )
+
+
+def _resolve_project_path(value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return get_root_dir() / path
+
+
+def _is_cdp_endpoint_reachable(port: Any, *, timeout: float = 0.25) -> bool:
+    try:
+        import urllib.request
+
+        safe_port = int(port)
+        url = f"http://127.0.0.1:{safe_port}/json/version"
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
 
 
 def _scheduler_config_check() -> dict[str, Any]:

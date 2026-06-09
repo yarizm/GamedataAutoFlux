@@ -50,6 +50,14 @@ class TaskCompletedEvent:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass
+class TaskEventCreatedEvent:
+    """结构化任务执行事件"""
+
+    task_id: str
+    event: dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # EventBus
 # ---------------------------------------------------------------------------

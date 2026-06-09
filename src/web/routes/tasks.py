@@ -10,7 +10,15 @@ from pydantic import BaseModel, Field
 
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task
-from src.schemas.tasks import TaskPrecheckResponse
+from src.schemas.tasks import (
+    TaskArtifactResponse,
+    TaskArtifactsResponse,
+    TaskCheckpointResponse,
+    TaskCheckpointsResponse,
+    TaskEventResponse,
+    TaskEventsResponse,
+    TaskPrecheckResponse,
+)
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["tasks"])
@@ -64,6 +72,9 @@ class TaskDetailResponse(TaskResponse):
     max_retries: int
     step_logs: list[TaskLogResponse]
     result_summary: dict[str, Any] | None
+    collector_metadata: dict[str, Any] = Field(default_factory=dict)
+    session_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    recovery: dict[str, Any] = Field(default_factory=dict)
 
 
 # ==================== 路由 ====================
@@ -94,6 +105,7 @@ async def precheck_task(
         pipeline_name=req.pipeline_name,
         collector_name=req.collector_name,
         targets=req.targets,
+        config=req.config,
     )
 
 
@@ -125,11 +137,20 @@ async def get_task(task_id: Annotated[str, Path(description="任务 ID")]):
     """获取单个任务详情"""
     from src.web.app import get_task_service
 
-    task = get_task_service().get_task(task_id)
+    task_service = get_task_service()
+    task = task_service.get_task(task_id)
     if task is None:
         raise HTTPException(404, f"任务不存在: {task_id}")
 
-    return _task_to_detail_response(task)
+    recovery = await task_service.get_task_recovery_info(task_id)
+    collector_metadata = task_service.get_task_collector_metadata(task_id)
+    session_diagnostics = task_service.get_task_session_diagnostics(task_id)
+    return _task_to_detail_response(
+        task,
+        collector_metadata=collector_metadata or {},
+        session_diagnostics=session_diagnostics or {},
+        recovery=recovery or {},
+    )
 
 
 @router.get("/tasks/{task_id}/logs")
@@ -146,6 +167,79 @@ async def get_task_logs(task_id: Annotated[str, Path(description="任务 ID")]):
         "task_id": task_id,
         "logs": logs,
     }
+
+
+@router.get("/tasks/{task_id}/events", response_model=TaskEventsResponse)
+async def get_task_events(
+    task_id: Annotated[str, Path(description="任务 ID")],
+    limit: Annotated[int, Query(ge=1, le=1000, description="最大返回事件数")] = 200,
+    offset: Annotated[int, Query(ge=0, description="跳过事件数")] = 0,
+    order: Annotated[str, Query(pattern="^(asc|desc)$", description="事件排序")] = "asc",
+):
+    """获取任务结构化事件流"""
+    from src.web.app import get_task_service
+
+    events = await get_task_service().get_task_events(
+        task_id,
+        limit=limit,
+        offset=offset,
+        order=order,
+    )
+    if events is None:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+
+    return TaskEventsResponse(
+        task_id=task_id,
+        events=[_event_to_response(event) for event in events],
+    )
+
+
+@router.get("/tasks/{task_id}/artifacts", response_model=TaskArtifactsResponse)
+async def get_task_artifacts(
+    task_id: Annotated[str, Path(description="任务 ID")],
+    limit: Annotated[int, Query(ge=1, le=1000, description="最大返回产物数")] = 200,
+    offset: Annotated[int, Query(ge=0, description="跳过产物数")] = 0,
+):
+    """获取任务产物列表"""
+    from src.web.app import get_task_service
+
+    artifacts = await get_task_service().get_task_artifacts(
+        task_id,
+        limit=limit,
+        offset=offset,
+    )
+    if artifacts is None:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+
+    return TaskArtifactsResponse(
+        task_id=task_id,
+        artifacts=[_artifact_to_response(artifact) for artifact in artifacts],
+    )
+
+
+@router.get("/tasks/{task_id}/checkpoints", response_model=TaskCheckpointsResponse)
+async def get_task_checkpoints(
+    task_id: Annotated[str, Path(description="任务 ID")],
+    limit: Annotated[int, Query(ge=1, le=1000, description="最大返回 checkpoint 数")] = 200,
+    offset: Annotated[int, Query(ge=0, description="跳过 checkpoint 数")] = 0,
+):
+    """获取任务 checkpoint 列表"""
+    from src.web.app import get_task_service
+
+    result = await get_task_service().get_task_checkpoints(
+        task_id,
+        limit=limit,
+        offset=offset,
+    )
+    if result is None:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+    checkpoints, latest = result
+
+    return TaskCheckpointsResponse(
+        task_id=task_id,
+        checkpoints=[_checkpoint_to_response(checkpoint) for checkpoint in checkpoints],
+        latest=_checkpoint_to_response(latest) if latest is not None else None,
+    )
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -206,7 +300,13 @@ def _task_to_response(task: Task) -> TaskResponse:
     )
 
 
-def _task_to_detail_response(task: Task) -> TaskDetailResponse:
+def _task_to_detail_response(
+    task: Task,
+    *,
+    collector_metadata: dict[str, Any] | None = None,
+    session_diagnostics: dict[str, Any] | None = None,
+    recovery: dict[str, Any] | None = None,
+) -> TaskDetailResponse:
     base = _task_to_response(task)
     return TaskDetailResponse(
         **base.model_dump(),
@@ -217,6 +317,9 @@ def _task_to_detail_response(task: Task) -> TaskDetailResponse:
         max_retries=task.max_retries,
         step_logs=[_log_to_response(log) for log in task.step_logs],
         result_summary=task.result_summary,
+        collector_metadata=collector_metadata or {},
+        session_diagnostics=session_diagnostics or {},
+        recovery=recovery or {},
     )
 
 
@@ -228,4 +331,57 @@ def _log_to_response(log) -> TaskLogResponse:
         error=redact_sensitive_text(log.error) if log.error else None,
         started_at=log.started_at.isoformat() if log.started_at else None,
         completed_at=log.completed_at.isoformat() if log.completed_at else None,
+    )
+
+
+def _event_to_response(event) -> TaskEventResponse:
+    payload = event.to_public_payload() if hasattr(event, "to_public_payload") else event
+    return TaskEventResponse(
+        event_id=payload["event_id"],
+        task_id=payload["task_id"],
+        seq=payload["seq"],
+        type=payload["type"],
+        level=payload["level"],
+        message=payload["message"],
+        payload=payload.get("payload", {}),
+        created_at=payload["created_at"],
+    )
+
+
+def _artifact_to_response(artifact) -> TaskArtifactResponse:
+    payload = artifact.to_public_payload() if hasattr(artifact, "to_public_payload") else artifact
+    return TaskArtifactResponse(
+        artifact_id=payload["artifact_id"],
+        task_id=payload["task_id"],
+        seq=payload["seq"],
+        type=payload["type"],
+        name=payload["name"],
+        path=payload.get("path", ""),
+        mime_type=payload.get("mime_type", ""),
+        size=payload.get("size"),
+        download_url=payload.get("download_url", ""),
+        metadata=payload.get("metadata", {}),
+        created_at=payload["created_at"],
+    )
+
+
+def _checkpoint_to_response(checkpoint) -> TaskCheckpointResponse:
+    payload = (
+        checkpoint.to_public_payload()
+        if hasattr(checkpoint, "to_public_payload")
+        else checkpoint
+    )
+    return TaskCheckpointResponse(
+        checkpoint_id=payload["checkpoint_id"],
+        task_id=payload["task_id"],
+        seq=payload["seq"],
+        pipeline_name=payload.get("pipeline_name", ""),
+        collector_name=payload.get("collector_name", ""),
+        worker_id=payload.get("worker_id", ""),
+        recovery_level=payload.get("recovery_level", "L0"),
+        cursor=payload.get("cursor", {}),
+        stats=payload.get("stats", {}),
+        artifacts=payload.get("artifacts", []),
+        metadata=payload.get("metadata", {}),
+        created_at=payload["created_at"],
     )

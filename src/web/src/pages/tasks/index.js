@@ -9,6 +9,21 @@ import {
   populatePipelineSelect,
 } from '../../core/pipelines.js';
 
+function safeArtifactDownloadUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (url.startsWith('/api/')) return url;
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 let currentWizardStep = 1;
 
 export default {
@@ -379,10 +394,22 @@ export default {
     if (!container) return;
     container.innerHTML = `<p class="text-muted">${t('common.loading')}</p>`;
     try {
-      const task = await api(`/tasks/${id}`);
+      const [task, eventsPayload, artifactsPayload, checkpointsPayload] = await Promise.all([
+        api(`/tasks/${id}`),
+        api(`/tasks/${id}/events?limit=8&order=desc`).catch(() => ({ events: [] })),
+        api(`/tasks/${id}/artifacts?limit=8`).catch(() => ({ artifacts: [] })),
+        api(`/tasks/${id}/checkpoints?limit=8`).catch(() => ({ checkpoints: [], latest: null })),
+      ]);
       const targets = task.targets?.length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.targets, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.targets')}</p>`;
       const config = Object.keys(task.config || {}).length ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.config, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.config')}</p>`;
       const resultSummary = task.result_summary ? `<pre class="report-output">${escapeHtml(JSON.stringify(task.result_summary, null, 2))}</pre>` : `<p class="text-muted">${t('common.empty.summary')}</p>`;
+      const observability = this._renderTaskObservability({
+        task,
+        events: eventsPayload.events || [],
+        artifacts: artifactsPayload.artifacts || [],
+        checkpoints: checkpointsPayload.checkpoints || [],
+        latestCheckpoint: checkpointsPayload.latest || null,
+      });
       const autoReportLink = task.result_summary?.generated_report_id
         ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">${t('tasks.generatedReport')}</button></div>` : '';
       const latestLogs = task.step_logs?.length
@@ -414,11 +441,107 @@ export default {
           </div>
         </div>
         <div class="mt-6 flex flex-col gap-4">
+          ${observability}
           <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.targets')}</h3>${targets}</div>
           <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.runtimeConfig')}</h3>${config}</div>
           <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}</div>
         </div>`;
     } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
+  },
+
+  _renderTaskObservability({ task, events, artifacts, checkpoints, latestCheckpoint }) {
+    const metadata = task.collector_metadata || {};
+    const recovery = task.recovery || {};
+    const session = task.session_diagnostics || {};
+    const latestEvents = (events || []).slice(0, 8);
+    const latestCheckpoints = (checkpoints || []).slice(0, 4);
+    return `
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
+          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Collector & Recovery</h3>
+          <div class="task-observe-grid">
+            ${this._renderObserveKv('Collector', metadata.collector_id || task.collector_name || '-')}
+            ${this._renderObserveKv('Session', `${metadata.session_mode || session.session_mode || '-'}${metadata.requires_session ? ' / required' : ''}`)}
+            ${this._renderObserveKv('Checkpoint', `${recovery.recovery_level || metadata.recovery_level || 'L0'} / ${recovery.supports_checkpoint || metadata.supports_checkpoint ? 'supported' : 'not supported'}`)}
+            ${this._renderObserveKv('Action', recovery.recommended_action || '-')}
+          </div>
+          ${recovery.guidance ? `<p class="mt-3 text-xs text-zinc-500 leading-relaxed">${escapeHtml(recovery.guidance)}</p>` : ''}
+          ${session.checks?.length ? `<div class="mt-3 space-y-2">${session.checks.map(check => this._renderSessionCheck(check)).join('')}</div>` : ''}
+        </div>
+        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
+          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Task Events</h3>
+          ${latestEvents.length ? `<div class="space-y-2 max-h-64 overflow-y-auto pr-1">${latestEvents.map(event => this._renderTaskEvent(event)).join('')}</div>` : `<p class="text-muted">${t('common.empty.logs')}</p>`}
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
+          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Artifacts</h3>
+          ${artifacts.length ? `<div class="space-y-2">${artifacts.map(artifact => this._renderArtifact(artifact)).join('')}</div>` : `<p class="text-muted">No artifacts yet.</p>`}
+        </div>
+        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
+          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Checkpoints</h3>
+          ${latestCheckpoint ? `<div class="mb-3 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs text-emerald-300">Latest: #${escapeHtml(String(latestCheckpoint.seq))} ${escapeHtml(latestCheckpoint.recovery_level || 'L0')} at ${escapeHtml(formatTime(latestCheckpoint.created_at))}</div>` : ''}
+          ${latestCheckpoints.length ? `<div class="space-y-2">${latestCheckpoints.map(checkpoint => this._renderCheckpoint(checkpoint)).join('')}</div>` : `<p class="text-muted">No checkpoints yet.</p>`}
+        </div>
+      </div>`;
+  },
+
+  _renderObserveKv(label, value) {
+    return `<div class="flex items-center justify-between gap-4 text-sm py-1.5 border-b border-white/5 last:border-b-0">
+      <span class="text-zinc-500">${escapeHtml(label)}</span>
+      <span class="text-zinc-200 text-right">${escapeHtml(String(value || '-'))}</span>
+    </div>`;
+  },
+
+  _renderSessionCheck(check) {
+    const status = check.status || 'unknown';
+    const tone = status === 'ok' ? 'text-emerald-300 bg-emerald-500/10' : status === 'error' ? 'text-rose-300 bg-rose-500/10' : 'text-amber-300 bg-amber-500/10';
+    return `<div class="rounded-lg bg-zinc-950 border border-white/5 p-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-xs font-semibold text-zinc-200 truncate">${escapeHtml(check.name || 'session')}</div>
+          <div class="text-xs text-zinc-500 mt-1">${escapeHtml(check.message || '')}</div>
+        </div>
+        <span class="shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase ${tone}">${escapeHtml(status)}</span>
+      </div>
+    </div>`;
+  },
+
+  _renderTaskEvent(event) {
+    const tone = event.level === 'error' ? 'text-rose-300 border-rose-500/20 bg-rose-500/5' : event.level === 'warning' ? 'text-amber-300 border-amber-500/20 bg-amber-500/5' : 'text-zinc-300 border-white/5 bg-zinc-950';
+    const status = event.payload?.status || event.payload?.task_status || '';
+    return `<div class="rounded-lg border p-3 ${tone}">
+      <div class="flex items-center justify-between gap-3 text-xs">
+        <span class="font-bold">${escapeHtml(event.type || 'event')}${status ? ` · ${escapeHtml(status)}` : ''}</span>
+        <span class="text-zinc-600">${escapeHtml(formatTime(event.created_at))}</span>
+      </div>
+      <div class="mt-1 text-xs text-zinc-400">${escapeHtml(event.message || '')}</div>
+    </div>`;
+  },
+
+  _renderArtifact(artifact) {
+    const label = `${artifact.type || 'file'} #${artifact.seq || '-'}`;
+    const size = typeof artifact.size === 'number' ? ` · ${Math.round(artifact.size / 1024)} KB` : '';
+    const downloadUrl = safeArtifactDownloadUrl(artifact.download_url);
+    const link = downloadUrl ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(downloadUrl)}" target="_blank" rel="noopener">Open</a>` : '';
+    return `<div class="flex items-center justify-between gap-3 rounded-lg bg-zinc-950 border border-white/5 p-3">
+      <div class="min-w-0">
+        <div class="text-sm text-zinc-200 truncate">${escapeHtml(artifact.name || label)}</div>
+        <div class="text-xs text-zinc-600">${escapeHtml(label + size)}</div>
+      </div>
+      ${link}
+    </div>`;
+  },
+
+  _renderCheckpoint(checkpoint) {
+    const cursor = checkpoint.cursor && Object.keys(checkpoint.cursor).length ? ` · ${JSON.stringify(checkpoint.cursor)}` : '';
+    return `<div class="rounded-lg bg-zinc-950 border border-white/5 p-3">
+      <div class="flex items-center justify-between gap-3 text-xs">
+        <span class="font-bold text-zinc-200">#${escapeHtml(String(checkpoint.seq || '-'))} ${escapeHtml(checkpoint.recovery_level || 'L0')}</span>
+        <span class="text-zinc-600">${escapeHtml(formatTime(checkpoint.created_at))}</span>
+      </div>
+      <div class="mt-1 text-xs text-zinc-500 truncate">${escapeHtml(`${checkpoint.collector_name || '-'}${cursor}`)}</div>
+    </div>`;
   },
 };
 
