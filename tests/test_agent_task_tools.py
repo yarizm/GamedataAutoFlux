@@ -75,10 +75,14 @@ async def test_create_task_tool_returns_final_targets_and_auto_fill_summary(
 
 @pytest.mark.asyncio
 async def test_create_task_tool_redacts_create_exception_detail(monkeypatch) -> None:
+    async def passthrough_auto_fill(targets, pipeline_name):
+        return targets
+
     fake_service = _FakeCreateTaskService()
     fake_service.create_error = RuntimeError(
         "create failed with api_key=secret-key; token: secret-token"
     )
+    monkeypatch.setattr("src.agent.tools.tasks._auto_fill_identifiers", passthrough_auto_fill)
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
     payload = json.loads(
