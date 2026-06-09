@@ -13,13 +13,19 @@ from fastapi import APIRouter, HTTPException, Path, Query, Body
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskTarget
 from src.services._utils import (
     build_record_summary,
     compute_record_completeness,
     extract_record_identity,
+    filter_records_by_data_source,
+    filter_source_data_records,
     max_iso,
+    normalize_key,
+    normalize_source_token,
     record_group,
+    record_source_values,
     roll_time_params,
 )
 from src.storage.base import StorageRecord
@@ -29,13 +35,18 @@ from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["data"])
 
+_SOURCE_FILTER_SCAN_PAGE_SIZE = 1000
+
 
 @contextlib.asynccontextmanager
 async def _local_store() -> AsyncIterator[BaseStorage]:
     """Shared async context manager for LocalStorage connections."""
     store = get_storage()
     await store.initialize()
-    yield store
+    try:
+        yield store
+    finally:
+        await store.close()
 
 
 class DataSourceSummary(BaseModel):
@@ -145,19 +156,22 @@ async def list_data_games(
         if not identity:
             continue
         group = record_group(record)
-        grouped_key = (
-            f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
-        )
+        safe_game_name = redact_sensitive_text(identity["game_name"])
+        safe_app_id = redact_sensitive_text(identity.get("app_id") or "") or None
+        safe_game_key = f"name:{normalize_key(safe_game_name)}" if safe_game_name else f"app:{safe_app_id}"
+        safe_group_id = redact_sensitive_text(group.get("group_id", ""))
+        safe_group_name = redact_sensitive_text(group.get("group_name", ""))
+        grouped_key = f"group:{safe_group_id}" if safe_group_id else safe_game_key
         game = grouped.setdefault(
             grouped_key,
             {
                 "game_key": grouped_key,
-                "game_name": group.get("group_name") or identity["game_name"],
-                "app_id": identity.get("app_id"),
+                "game_name": safe_group_name or safe_game_name,
+                "app_id": safe_app_id,
                 "total_records": 0,
                 "latest_stored_at": None,
-                "group_id": group.get("group_id", ""),
-                "group_name": group.get("group_name", ""),
+                "group_id": safe_group_id,
+                "group_name": safe_group_name,
                 "sources": defaultdict(
                     lambda: {"name": "", "collector": "", "count": 0, "latest_stored_at": None}
                 ),
@@ -166,13 +180,13 @@ async def list_data_games(
         game["total_records"] += 1
         game["latest_stored_at"] = max_iso(game["latest_stored_at"], record.stored_at.isoformat())
         if group.get("group_id"):
-            game["app_id"] = _merge_app_id(game.get("app_id"), identity.get("app_id"))
-        elif identity.get("app_id") and not game.get("app_id"):
-            game["app_id"] = identity["app_id"]
+            game["app_id"] = _merge_app_id(game.get("app_id"), safe_app_id)
+        elif safe_app_id and not game.get("app_id"):
+            game["app_id"] = safe_app_id
 
         source_bucket = game["sources"][identity["data_source"]]
-        source_bucket["name"] = identity["data_source"]
-        source_bucket["collector"] = identity["collector"]
+        source_bucket["name"] = redact_sensitive_text(identity["data_source"])
+        source_bucket["collector"] = redact_sensitive_text(identity["collector"])
         source_bucket["count"] += 1
         source_bucket["latest_stored_at"] = max_iso(
             source_bucket["latest_stored_at"], record.stored_at.isoformat()
@@ -203,11 +217,13 @@ async def list_data_groups(
         group = record_group(record)
         if not group.get("group_id"):
             continue
+        safe_group_id = redact_sensitive_text(group["group_id"])
+        safe_group_name = redact_sensitive_text(group.get("group_name") or group["group_id"])
         bucket = groups.setdefault(
-            group["group_id"],
+            safe_group_id,
             {
-                "group_id": group["group_id"],
-                "group_name": group.get("group_name") or group["group_id"],
+                "group_id": safe_group_id,
+                "group_name": safe_group_name,
                 "count": 0,
                 "latest_stored_at": None,
             },
@@ -227,7 +243,7 @@ async def list_data_groups(
 @router.get("/data/records", response_model=DataRecordPage)
 async def list_data_records(
     q: Annotated[str, Query(description="Optional key/source search text")] = "",
-    source: Annotated[str, Query(description="Optional exact storage source filter")] = "",
+    source: Annotated[str, Query(description="Optional data source filter")] = "",
     collector: Annotated[str, Query(description="Optional collector filter")] = "",
     game_name: Annotated[str, Query(description="Optional game name filter")] = "",
     app_id: Annotated[str, Query(description="Optional app_id filter")] = "",
@@ -239,30 +255,135 @@ async def list_data_records(
         str, Query(pattern="^(asc|desc)$", description="stored_at order")
     ] = "desc",
 ):
-    query_text = f"source:{source.strip()}" if source.strip() else (q.strip() or "key:")
+    source_filter = source.strip()
+    query_text = q.strip() or "key:"
     offset = (page - 1) * page_size
     store = get_storage()
     await store.initialize()
-    result = await store.query(
-        query_text,
-        limit=page_size,
-        offset=offset,
-        order=sort_order,
-        collector=collector.strip(),
-        game_name=game_name.strip(),
-        app_id=app_id.strip(),
-        group_id=group_id.strip(),
-        task_id=task_id.strip(),
-    )
+    try:
+        filter_kwargs = {
+            "collector": collector.strip(),
+            "game_name": game_name.strip(),
+            "app_id": app_id.strip(),
+            "group_id": group_id.strip(),
+            "task_id": task_id.strip(),
+        }
+        if source_filter:
+            return await _load_source_filtered_record_page(
+                store,
+                query_text=query_text,
+                source_filter=source_filter,
+                page=page,
+                page_size=page_size,
+                sort_order=sort_order,
+                filter_kwargs=filter_kwargs,
+            )
 
-    summaries = [summary for record in result.records if (summary := _record_summary(record))]
+        result = await store.query(
+            query_text,
+            limit=page_size,
+            offset=offset,
+            order=sort_order,
+            **filter_kwargs,
+        )
+
+        summaries = [summary for record in result.records if (summary := _record_summary(record))]
+        return DataRecordPage(
+            items=summaries,
+            total=result.total,
+            page=page,
+            page_size=page_size,
+            has_more=offset + len(result.records) < result.total,
+        )
+    finally:
+        await store.close()
+
+
+async def _load_source_filtered_record_page(
+    store: BaseStorage,
+    *,
+    query_text: str,
+    source_filter: str,
+    page: int,
+    page_size: int,
+    sort_order: str,
+    filter_kwargs: dict[str, str],
+) -> DataRecordPage:
+    """Scan storage pages so source filtering reports exact totals beyond one query page."""
+    offset = (page - 1) * page_size
+    exact_items: list[DataRecordSummary] = []
+    relaxed_items: list[DataRecordSummary] = []
+    exact_total = 0
+    relaxed_total = 0
+    scan_offset = 0
+    scan_limit = _SOURCE_FILTER_SCAN_PAGE_SIZE
+
+    while True:
+        result = await store.query(
+            query_text,
+            limit=scan_limit,
+            offset=scan_offset,
+            order=sort_order,
+            **filter_kwargs,
+        )
+        records = result.records
+        if not records:
+            break
+
+        for record in records:
+            match_kind = _record_source_match_kind(record, source_filter)
+            if not match_kind:
+                continue
+            summary = _record_summary(record)
+            if summary is None:
+                continue
+            if match_kind == "exact":
+                if exact_total >= offset and len(exact_items) < page_size:
+                    exact_items.append(summary)
+                exact_total += 1
+            else:
+                if relaxed_total >= offset and len(relaxed_items) < page_size:
+                    relaxed_items.append(summary)
+                relaxed_total += 1
+
+        scan_offset += len(records)
+        if scan_offset >= result.total:
+            break
+
+    if exact_total:
+        items = exact_items
+        total = exact_total
+    else:
+        items = relaxed_items
+        total = relaxed_total
+
     return DataRecordPage(
-        items=summaries,
-        total=result.total,
+        items=items,
+        total=total,
         page=page,
         page_size=page_size,
-        has_more=offset + len(result.records) < result.total,
+        has_more=offset + page_size < total,
     )
+
+
+def _record_source_match_kind(record: StorageRecord, source_filter: str) -> str:
+    needle = normalize_source_token(source_filter)
+    if not needle:
+        return "exact" if filter_source_data_records([record]) else ""
+
+    if not filter_source_data_records([record]):
+        return ""
+
+    candidate_tokens = {
+        normalize_source_token(value)
+        for value in record_source_values(record)
+        if str(value or "").strip()
+    }
+    if needle in candidate_tokens:
+        return "exact"
+    if len(needle) >= 6 and any(needle in token or token in needle for token in candidate_tokens):
+        return "relaxed"
+    return ""
 
 
 @router.delete("/data/groups/{group_id}", response_model=DeleteDataCategoryResponse)
@@ -294,6 +415,7 @@ async def search_data_records(
                 summary.game_name,
                 summary.app_id,
                 summary.data_source,
+                summary.collector,
                 summary.group_id,
                 summary.group_name,
                 summary.task_id,
@@ -324,7 +446,7 @@ async def list_game_records(
         summary = _record_summary(record)
         if not summary or summary.game_key != game_key:
             continue
-        if source and summary.data_source != source:
+        if source and not filter_records_by_data_source([record], source):
             continue
         summaries.append(summary)
 
@@ -356,8 +478,10 @@ async def get_data_record(record_key: Annotated[str, Path(description="Storage r
     record = await _load_record(record_key)
     summary = _record_summary(record)
     if not summary:
-        raise HTTPException(404, f"Data record is not browsable: {record_key}")
-    return DataRecordDetail(**summary.model_dump(), metadata=record.metadata, data=record.data)
+        raise HTTPException(
+            404, f"Data record is not browsable: {redact_sensitive_text(record_key)}"
+        )
+    return _record_detail_response(record, summary)
 
 
 @router.patch("/data/records/{record_key}", response_model=DataRecordDetail)
@@ -422,7 +546,7 @@ async def batch_delete_records(req: BatchRecordRequest):
                 await store.delete(key)
                 deleted_keys.append(key)
             except Exception as e:
-                failed_keys.append({"key": key, "error": str(e)})
+                failed_keys.append({"key": key, "error": redact_sensitive_text(str(e))})
     return {
         "message": f"Deleted {len(deleted_keys)} records, {len(failed_keys)} failed",
         "deleted_keys": deleted_keys,
@@ -443,9 +567,9 @@ async def batch_export_records(req: BatchRecordRequest):
                     "stored_at": record.stored_at.isoformat() if record.stored_at else None,
                 }
                 if isinstance(record.data, dict):
-                    item["data"] = record.data
+                    item["data"] = redact_sensitive(record.data)
                 else:
-                    item["data"] = str(record.data)
+                    item["data"] = redact_sensitive_text(str(record.data))
                 records.append(item)
     return {"count": len(records), "records": records}
 
@@ -510,11 +634,14 @@ async def _delete_data_category(
 async def _delete_local_records(record_keys: set[str]) -> int:
     store = get_storage()
     await store.initialize()
-    deleted = 0
-    for key in record_keys:
-        if await store.delete(key):
-            deleted += 1
-    return deleted
+    try:
+        deleted = 0
+        for key in record_keys:
+            if await store.delete(key):
+                deleted += 1
+        return deleted
+    finally:
+        await store.close()
 
 
 async def _ensure_related_tasks_are_not_running(
@@ -667,7 +794,7 @@ async def refresh_data_record(
     try:
         await scheduler.submit(task, pipeline_name=task.pipeline_name)
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, redact_sensitive_text(str(exc)))
     return {"message": "Refresh task submitted", "task_id": task.id}
 
 
@@ -700,7 +827,7 @@ async def create_record_refresh_schedule(
             task_template=task_template,
         )
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, redact_sensitive_text(str(exc)))
     return {"message": "Refresh schedule created", "job_id": job_id}
 
 
@@ -710,9 +837,9 @@ async def download_data_record(record_key: Annotated[str, Path(description="Stor
     payload = {
         "key": record.key,
         "source": record.source,
-        "metadata": record.metadata,
+        "metadata": redact_sensitive(record.metadata),
         "stored_at": record.stored_at.isoformat(),
-        "data": record.data,
+        "data": redact_sensitive(record.data),
     }
     filename = f"{_safe_filename(record.key)}.json"
     return Response(
@@ -725,17 +852,23 @@ async def download_data_record(record_key: Annotated[str, Path(description="Stor
 async def _load_source_records(limit: int = 1000) -> list[StorageRecord]:
     store = get_storage()
     await store.initialize()
-    result = await store.query("key:", limit=limit)
-    return result.records
+    try:
+        result = await store.query("key:", limit=limit)
+        return result.records
+    finally:
+        await store.close()
 
 
 async def _load_record(key: str) -> StorageRecord:
     store = get_storage()
     await store.initialize()
-    record = await store.load(key)
-    if record is None:
-        raise HTTPException(404, f"Data record not found: {key}")
-    return record
+    try:
+        record = await store.load(key)
+        if record is None:
+            raise HTTPException(404, f"Data record not found: {key}")
+        return record
+    finally:
+        await store.close()
 
 
 def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
@@ -749,25 +882,48 @@ def _record_summary(record: StorageRecord) -> DataRecordSummary | None:
     if not isinstance(source_task, dict):
         source_task = {}
     grouped_key = f"group:{group['group_id']}" if group.get("group_id") else identity["game_key"]
+    safe_game_name = redact_sensitive_text(identity["game_name"])
+    safe_app_id = redact_sensitive_text(identity.get("app_id") or "")
+    safe_group_id = redact_sensitive_text(group.get("group_id", ""))
+    if safe_group_id:
+        grouped_key = f"group:{safe_group_id}"
+    elif safe_game_name:
+        grouped_key = f"name:{normalize_key(safe_game_name)}"
+    else:
+        grouped_key = f"app:{safe_app_id}"
+    task_id = str(source_task.get("task_id") or record.metadata.get("task_id") or "")
+    task_name = str(source_task.get("task_name") or record.metadata.get("task_name") or "")
     return DataRecordSummary(
         key=record.key,
         game_key=grouped_key,
-        game_name=identity["game_name"],
-        app_id=identity.get("app_id"),
-        data_source=identity["data_source"],
-        collector=identity["collector"],
-        source=record.source,
+        game_name=safe_game_name,
+        app_id=safe_app_id or None,
+        data_source=redact_sensitive_text(identity["data_source"]),
+        collector=redact_sensitive_text(identity["collector"]),
+        source=redact_sensitive_text(record.source),
         stored_at=record.stored_at.isoformat(),
-        group_id=group.get("group_id", ""),
-        group_name=group.get("group_name", ""),
-        display_name=str(record.metadata.get("display_name", "") or ""),
-        task_id=str(source_task.get("task_id", "") or ""),
-        task_name=str(source_task.get("task_name", "") or ""),
-        refresh_parent_key=str(record.metadata.get("refresh_parent_key", "") or ""),
-        refresh_series_id=str(record.metadata.get("refresh_series_id", "") or ""),
-        refresh_kind=str(record.metadata.get("refresh_kind", "") or ""),
-        summary=build_record_summary(record.data),
+        group_id=redact_sensitive_text(group.get("group_id", "")),
+        group_name=redact_sensitive_text(group.get("group_name", "")),
+        display_name=redact_sensitive_text(str(record.metadata.get("display_name", "") or "")),
+        task_id=redact_sensitive_text(task_id),
+        task_name=redact_sensitive_text(task_name),
+        refresh_parent_key=redact_sensitive_text(
+            str(record.metadata.get("refresh_parent_key", "") or "")
+        ),
+        refresh_series_id=redact_sensitive_text(
+            str(record.metadata.get("refresh_series_id", "") or "")
+        ),
+        refresh_kind=redact_sensitive_text(str(record.metadata.get("refresh_kind", "") or "")),
+        summary=redact_sensitive(build_record_summary(record.data)),
         completeness=compute_record_completeness(record),
+    )
+
+
+def _record_detail_response(record: StorageRecord, summary: DataRecordSummary) -> DataRecordDetail:
+    return DataRecordDetail(
+        **summary.model_dump(),
+        metadata=redact_sensitive(record.metadata),
+        data=redact_sensitive(record.data),
     )
 
 

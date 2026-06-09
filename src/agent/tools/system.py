@@ -4,7 +4,7 @@
 
 from langchain_core.tools import BaseTool
 
-from src.agent.tools.utils import _format_result
+from src.agent.tools.utils import _format_result, _safe_error_text
 
 
 class GetSystemStatsTool(BaseTool):
@@ -23,6 +23,32 @@ class GetSystemStatsTool(BaseTool):
             stats,
             record_count=total,
             suggestion="使用 list_tasks 查看任务列表，使用 list_data_games 浏览数据",
+        )
+
+    def _run(self) -> str:
+        raise NotImplementedError("Use _arun")
+
+
+class GetAgentStatusTool(BaseTool):
+    name: str = "get_agent_status"
+    description: str = "查看 AI Agent 当前运行状态，包括模型、工具数量、MCP 浏览器工具和会话数量。"
+
+    async def _arun(self) -> str:
+        from src.web.app import get_agent_service
+
+        agent_service = get_agent_service()
+        if not agent_service:
+            return _format_result("error", "Agent 服务未启用")
+        status = agent_service.get_status_summary()
+        tool_count = status.get("active_tool_count", 0)
+        mcp_state = "运行中" if status.get("mcp_running") else "未运行"
+        return _format_result(
+            "ok",
+            f"Agent 当前使用 {status.get('provider')} / {status.get('model')}，可用工具 {tool_count} 个，MCP {mcp_state}",
+            status,
+            record_count=tool_count,
+            suggestion="如需切换模型，请在 Agent 设置中选择 provider；如需网页探索，请先确保 MCP 工具运行。",
+            max_data_length=8000,
         )
 
     def _run(self) -> str:
@@ -63,7 +89,7 @@ class LaunchSteamDBBrowserTool(BaseTool):
         except Exception as e:
             return _format_result(
                 "error",
-                f"启动 SteamDB 浏览器失败: {e}",
+                f"启动 SteamDB 浏览器失败: {_safe_error_text(e)}",
                 {},
             )
 

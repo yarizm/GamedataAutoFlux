@@ -14,8 +14,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "src/web/package-lock.json"
       - run: pip install -e ".[dev]"
       - run: python -m compileall src/
       - run: pytest tests -q
       - run: ruff check src/
       - run: node --check src/web/static/app.js
+      - run: npm ci
+        working-directory: src/web
+      - run: npm run build
+        working-directory: src/web

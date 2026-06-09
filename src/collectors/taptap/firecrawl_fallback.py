@@ -6,6 +6,7 @@ from typing import Any
 from loguru import logger
 
 from src.collectors.taptap.parser import merge_taptap_payloads, parse_taptap_page
+from src.core.sensitive import redact_sensitive_text
 
 
 class TapTapFirecrawlFallback:
@@ -75,7 +76,7 @@ class TapTapFirecrawlFallback:
         return merged
 
     async def _scrape_url(self, url: str) -> str | None:
-        logger.info(f"[TapTap Firecrawl] Scrape: {url}")
+        logger.info(f"[TapTap Firecrawl] Scrape: {_safe_log_text(url)}")
         try:
             scrape_fn = getattr(self._app, "scrape", None)
             if callable(scrape_fn):
@@ -92,9 +93,13 @@ class TapTapFirecrawlFallback:
                     params={"formats": ["markdown"]},
                 )
         except Exception as exc:
-            logger.error(f"[TapTap Firecrawl] Scrape failed: {exc}")
+            logger.error(f"[TapTap Firecrawl] Scrape failed: {_safe_log_text(exc)}")
             return None
         return _extract_markdown(result)
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _extract_markdown(result: Any) -> str | None:

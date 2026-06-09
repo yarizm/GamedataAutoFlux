@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -41,6 +42,7 @@ from src.agent.stream_parser import (
 )
 from src.agent.tools import ALL_TOOLS
 from src.core.config import get as get_config
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 
 
 class AgentService:
@@ -150,14 +152,22 @@ Additional Rules:
             self._parsing_error_count = 0
             
         self._parsing_error_count += 1
-        logger.warning(f"Agent JSON 解析错误 (次数: {self._parsing_error_count}): {error}")
+        logger.warning(
+            "Agent JSON 解析错误 (次数: {}): {}",
+            self._parsing_error_count,
+            redact_sensitive_text(str(error)),
+        )
         
         if self._parsing_error_count >= 3:
             # 超过 3 次错误，熔断
             self._parsing_error_count = 0
             return "Action failed because the action format was incorrect 3 times in a row. Stop using tools and ask the user for clarification."
             
-        return f"Check your json formatting. It must be valid json with 'action' and 'action_input' keys. Error: {error}"
+        safe_error = _redact_stream_text(str(error))
+        return (
+            "Check your json formatting. It must be valid json with 'action' and "
+            f"'action_input' keys. Error: {safe_error}"
+        )
 
     def _ensure_initialized(self) -> None:
         """延迟初始化 LLM 和 AgentExecutor"""
@@ -283,10 +293,10 @@ Additional Rules:
           {"type": "final", "content": "..."}            — 最终文本回复
           {"type": "error", "content": "..."}            — 错误信息
         """
-        history = await self._get_history(session_id)
-
         # 清理超时会话
         await self._cleanup_stale_sessions()
+        history = await self._get_history(session_id)
+        self._parsing_error_count = 0
 
         final_output: str = ""
         saved = False
@@ -299,11 +309,15 @@ Additional Rules:
             async with self._lock:
                 if session_id not in self._histories:
                     self._histories[session_id] = []
-                self._histories[session_id].append(HumanMessage(content=user_input))
-                self._histories[session_id].append(AIMessage(content=final_output or "已停止"))
+                self._histories[session_id].append(
+                    HumanMessage(content=_redact_message_content(user_input))
+                )
+                self._histories[session_id].append(
+                    AIMessage(content=_redact_message_content(final_output or "已停止"))
+                )
                 if len(self._histories[session_id]) > 40:
                     self._histories[session_id] = self._histories[session_id][-20:]
-                await self._save_histories()
+            await self._save_histories()
 
         try:
             await self._async_ensure_initialized()
@@ -349,9 +363,11 @@ Additional Rules:
                                     ak.get("reasoning_content")
                                     or ak.get("thinking")
                                     or ak.get("thoughts")
-                                )
+                        )
                         if reasoning:
-                            yield {"type": "thinking", "content": str(reasoning)}
+                            yield _redact_stream_event(
+                                {"type": "thinking", "content": str(reasoning)}
+                            )
 
                         # 提取正文内容
                         if hasattr(chunk, "content") and chunk.content:
@@ -359,13 +375,13 @@ Additional Rules:
                                 if suppress_final_stream:
                                     events, state = process_react_chunk(chunk.content, state)
                                     for e in events:
-                                        yield e
+                                        yield _redact_stream_event(e)
                                 else:
                                     events, state = process_text_chunk(
                                         chunk.content, state, suppress_final_stream
                                     )
                                     for e in events:
-                                        yield e
+                                        yield _redact_stream_event(e)
                             elif isinstance(chunk.content, list):
                                 for item in chunk.content:
                                     if isinstance(item, dict):
@@ -379,33 +395,41 @@ Additional Rules:
                                                     item["text"], state, suppress_final_stream
                                                 )
                                             for e in events:
-                                                yield e
+                                                yield _redact_stream_event(e)
                                         elif (
                                             item.get("type") == "reasoning"
                                             or item.get("type") == "thinking"
                                         ):
-                                            yield {
-                                                "type": "thinking",
-                                                "content": item.get("text", ""),
-                                            }
+                                            yield _redact_stream_event(
+                                                {
+                                                    "type": "thinking",
+                                                    "content": item.get("text", ""),
+                                                }
+                                            )
 
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         tool_input = event.get("data", {}).get("input", {})
                         args = tool_input if isinstance(tool_input, dict) else {}
-                        thinking_desc = _describe_tool_action(tool_name, args)
+                        safe_args = _redact_stream_value(args)
+                        thinking_desc = _describe_tool_action(tool_name, safe_args)
                         if thinking_desc:
                             yield {"type": "thinking", "content": thinking_desc}
                         yield {
                             "type": "tool_call",
                             "name": tool_name,
-                            "args": args,
+                            "args": safe_args,
                         }
 
                     elif kind == "on_tool_end":
                         tool_name = event.get("name", "unknown")
                         tool_output = event.get("data", {}).get("output", "")
-                        output_str = str(tool_output)
+                        safe_output = _redact_stream_value(tool_output)
+                        output_str = (
+                            safe_output
+                            if isinstance(safe_output, str)
+                            else json.dumps(safe_output, ensure_ascii=False, default=str)
+                        )
                         if len(output_str) > 4000:
                             output_str = output_str[:4000] + "...(已截断)"
                         yield {"type": "tool_result", "name": tool_name, "content": output_str}
@@ -420,15 +444,16 @@ Additional Rules:
                                         final_ans = out["output"]
                                     if not final_ans:
                                         final_ans = "(无文本输出)"
-                                    yield {"type": "final", "content": final_ans}
-                                    final_output += final_ans
+                                    safe_final_ans = _redact_stream_text(final_ans)
+                                    yield {"type": "final", "content": safe_final_ans}
+                                    final_output += safe_final_ans
                             break
 
                 # 流结束，刷新剩余缓冲区
                 events, state = flush_buffer(state, suppress_final_stream)
                 for e in events:
-                    yield e
-                final_output += state.final_output
+                    yield _redact_stream_event(e)
+                final_output += _redact_stream_text(state.final_output)
 
                 # 正常结束，保存历史
                 await _save_history_helper()
@@ -442,8 +467,8 @@ Additional Rules:
                 raise
 
         except Exception as e:
-            logger.opt(exception=True).error(f"Agent 执行出错: {e}")
-            content = f"执行出错: {e}"
+            logger.opt(exception=True).error(f"Agent 执行出错: {redact_sensitive_text(str(e))}")
+            content = _redact_stream_text(f"执行出错: {e}")
             if get_config("debug", False):
                 content += f"\n\n(异常类型: {type(e).__name__})"
             yield {"type": "error", "content": content}
@@ -453,35 +478,93 @@ Additional Rules:
         async with self._lock:
             self._histories.pop(session_id, None)
             self._sessions_timestamps.pop(session_id, None)
-            await self._save_histories(force=True)
+        await self._save_histories(force=True)
+        await self._delete_persisted_sessions([session_id])
 
     async def _save_histories(self, force: bool = False) -> None:
-        """持久化会话历史到数据库。调用者必须持有 self._lock。"""
-        self._last_save_time = await self._session_service.save_histories(
-            self._histories,
-            self._sessions_timestamps,
-            last_save_time=self._last_save_time,
+        """Persist a snapshot of session state without holding the Agent lock."""
+        async with self._lock:
+            capped_sessions = self._cap_sessions_locked()
+            histories = {
+                sid: list(messages)
+                for sid, messages in self._histories.items()
+            }
+            timestamps = dict(self._sessions_timestamps)
+            last_save_time = self._last_save_time
+
+        next_save_time = await self._session_service.save_histories(
+            histories,
+            timestamps,
+            last_save_time=last_save_time,
             force=force,
         )
+        async with self._lock:
+            self._last_save_time = max(self._last_save_time, next_save_time)
+        await self._delete_persisted_sessions(capped_sessions)
 
     async def _load_histories(self) -> None:
         """从数据库恢复 Agent 会话历史"""
         try:
             histories, timestamps = await self._session_service.load_histories()
-            self._histories = histories
+            self._histories = {
+                sid: [_redact_history_message(message) for message in messages]
+                for sid, messages in histories.items()
+            }
             self._sessions_timestamps = timestamps
             if self._histories:
                 logger.info(f"已恢复 {len(self._histories)} 个 Agent 会话历史")
         except Exception as e:
-            logger.warning(f"加载 Agent 会话历史失败: {e}")
+            logger.warning(f"加载 Agent 会话历史失败: {redact_sensitive_text(str(e))}")
 
     async def _cleanup_stale_sessions(self) -> None:
         """清理超时的会话记忆"""
         if not self._session_timeout:
             return
 
+        now = time.time()
         async with self._lock:
-            await self._session_service.cleanup_stale(self._histories, self._sessions_timestamps)
+            stale = [
+                sid
+                for sid, ts in list(self._sessions_timestamps.items())
+                if now - ts > self._session_timeout
+            ]
+            for sid in stale:
+                self._histories.pop(sid, None)
+                self._sessions_timestamps.pop(sid, None)
+
+        if stale:
+            await self._delete_persisted_sessions(stale)
+
+    def _cap_sessions_locked(self) -> list[str]:
+        max_sessions = int(getattr(self._session_service, "_max_sessions", 0) or 0)
+        if max_sessions <= 0 or len(self._histories) <= max_sessions:
+            return []
+        sorted_sids = sorted(
+            self._histories.keys(),
+            key=lambda sid: self._sessions_timestamps.get(sid, 0),
+            reverse=True,
+        )
+        keep_sids = set(sorted_sids[:max_sessions])
+        removed_sids = []
+        for sid in list(self._histories.keys()):
+            if sid not in keep_sids:
+                self._histories.pop(sid, None)
+                self._sessions_timestamps.pop(sid, None)
+                removed_sids.append(sid)
+        return removed_sids
+
+    async def _delete_persisted_sessions(self, session_ids: list[str]) -> None:
+        session_ids = [sid for sid in session_ids if sid]
+        if not session_ids:
+            return
+        delete_sessions = getattr(self._session_service, "delete_sessions", None)
+        if delete_sessions is not None:
+            await delete_sessions(session_ids)
+            return
+        await self._session_service.cleanup_stale(
+            {sid: [] for sid in session_ids},
+            {sid: 0 for sid in session_ids},
+        )
 
     def list_sessions(self) -> list[str]:
         """返回当前有聊天历史的 session ID 列表"""
@@ -493,8 +576,57 @@ Additional Rules:
         result = []
         for msg in messages:
             role = "user" if isinstance(msg, HumanMessage) else "assistant"
-            result.append({"role": role, "content": msg.content})
+            result.append({"role": role, "content": _redact_message_content(msg.content)})
         return result
+
+    def get_status_summary(self) -> dict[str, Any]:
+        """Return a lightweight runtime summary for diagnostics and Agent self-checks."""
+        provider = self.get_active_provider()
+        model = get_config(f"llm.{provider}.model", "")
+        executor_tools = list(getattr(self._agent_executor, "tools", []) or [])
+        base_tool_names = [tool.name for tool in ALL_TOOLS]
+        active_tool_names = [tool.name for tool in executor_tools] or base_tool_names
+        mcp_tools = (
+            self._mcp_manager.get_langchain_tools()
+            if self._mcp_manager and getattr(self._mcp_manager, "_is_running", False)
+            else []
+        )
+        mcp_tool_names = [tool.name for tool in mcp_tools]
+        base_tool_set = set(base_tool_names)
+        active_tool_set = set(active_tool_names)
+        available_providers = self.get_available_providers()
+        session_metrics = _summarize_session_metrics(
+            self._histories,
+            self._sessions_timestamps,
+            timeout_seconds=self._session_timeout,
+        )
+        return {
+            "provider": provider,
+            "model": model,
+            "provider_available": provider in {item["key"] for item in available_providers},
+            "available_provider_count": len(available_providers),
+            "available_providers": available_providers,
+            "agent_type": get_config("agent.agent_type", "openai_tools"),
+            "initialized": self._initialized,
+            "max_iterations": self._max_iterations,
+            "session_timeout_seconds": self._session_timeout,
+            "histories_loaded": self._histories_loaded,
+            "session_count": len(self._histories),
+            **session_metrics,
+            "base_tool_count": len(base_tool_names),
+            "active_tool_count": len(active_tool_names),
+            "base_tools": base_tool_names,
+            "active_tools": active_tool_names,
+            "tool_groups": _summarize_tool_groups(active_tool_names),
+            "missing_base_tools": sorted(base_tool_set - active_tool_set),
+            "extra_active_tools": sorted(active_tool_set - base_tool_set),
+            "mcp_enabled": bool(get_config("agent.playwright_mcp.enabled", False)),
+            "mcp_running": bool(
+                self._mcp_manager and getattr(self._mcp_manager, "_is_running", False)
+            ),
+            "mcp_tool_count": len(mcp_tools),
+            "mcp_tools": mcp_tool_names,
+        }
 
     def get_active_provider(self) -> str:
         """返回当前生效的 LLM provider 名称"""
@@ -554,6 +686,8 @@ Additional Rules:
 def _describe_tool_action(tool_name: str, args: dict) -> str:
     """根据工具名和参数生成描述性的思考内容"""
     descriptions = {
+        "precheck_report": f"预检报告数据覆盖情况，模板: {args.get('template', 'general_game')}",
+        "list_reports": f"查看最近生成的报告列表，数量上限: {args.get('limit', 20)}",
         "generate_report": f"决定生成报告，分析: {args.get('prompt', '')[:80]}",
         "get_report_content": f"获取报告 {args.get('report_id', '')} 的详细内容",
         "list_tasks": "查看当前任务列表",
@@ -570,6 +704,7 @@ def _describe_tool_action(tool_name: str, args: dict) -> str:
         "list_data_games": "浏览已采集的游戏数据",
         "search_data": f"搜索数据: {args.get('query', '')}",
         "get_system_stats": "查看系统运行状态",
+        "get_agent_status": "查看 AI Agent 当前模型、工具和会话状态",
         "resolve_steam_app_id": f"搜索 Steam App ID: {args.get('game_name', '')}",
         "verify_steam_app_id": f"验证 Steam App ID: {args.get('app_id', '')}",
         "search_game_identifiers": f"自动搜索游戏平台标识符: {args.get('game_name', '')}",
@@ -580,6 +715,122 @@ def _describe_tool_action(tool_name: str, args: dict) -> str:
         "browser_evaluate": "正在页面中执行提取脚本",
     }
     return descriptions.get(tool_name, f"调用工具 {tool_name}")
+
+
+def _summarize_tool_groups(tool_names: list[str]) -> dict[str, dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for tool_name in tool_names:
+        group = _tool_group_name(tool_name)
+        bucket = groups.setdefault(group, {"count": 0, "tools": []})
+        bucket["count"] += 1
+        bucket["tools"].append(tool_name)
+    return dict(sorted(groups.items()))
+
+
+def _summarize_session_metrics(
+    histories: dict[str, list[BaseMessage]],
+    timestamps: dict[str, float],
+    *,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    message_count = sum(len(messages) for messages in histories.values())
+    now = time.time()
+    ages = [
+        max(0, int(now - ts))
+        for sid, ts in timestamps.items()
+        if sid in histories and isinstance(ts, (int, float))
+    ]
+    stale_count = (
+        sum(1 for age in ages if age > timeout_seconds)
+        if timeout_seconds > 0
+        else 0
+    )
+    return {
+        "history_message_count": message_count,
+        "average_messages_per_session": round(message_count / len(histories), 2)
+        if histories
+        else 0,
+        "stale_session_count": stale_count,
+        "newest_session_age_seconds": min(ages) if ages else None,
+        "oldest_session_age_seconds": max(ages) if ages else None,
+    }
+
+
+def _tool_group_name(tool_name: str) -> str:
+    name = str(tool_name or "").lower()
+    if "report" in name:
+        return "reports"
+    if "task" in name or name == "review_collection_results":
+        return "tasks"
+    if "pipeline" in name:
+        return "pipelines"
+    if "cron" in name:
+        return "cron"
+    if name in {"list_data_games", "search_data", "get_data_record_content"}:
+        return "data"
+    if "identifier" in name or "steam_app_id" in name:
+        return "identifiers"
+    if name.startswith("browser_"):
+        return "browser"
+    if name in {"get_system_stats", "get_agent_status", "launch_steamdb_browser"}:
+        return "system"
+    if "semantic" in name:
+        return "semantic_search"
+    return "other"
+
+
+def _redact_stream_value(value: Any) -> Any:
+    safe_value = redact_sensitive(value)
+    return _redact_stream_text_values(safe_value)
+
+
+def _redact_stream_event(event: dict[str, Any]) -> dict[str, Any]:
+    redacted = _redact_stream_value(event)
+    if isinstance(redacted, dict):
+        return redacted
+    return {"type": "message", "content": redacted}
+
+
+def _redact_stream_text_values(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redact_stream_text(value)
+    if isinstance(value, list):
+        return [_redact_stream_text_values(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_stream_text_values(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_stream_text_values(child) for key, child in value.items()}
+    return value
+
+
+def _redact_stream_text(text: str) -> str:
+    raw = str(text or "")
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        parsed = None
+    if isinstance(parsed, (dict, list)):
+        return json.dumps(_redact_stream_value(parsed), ensure_ascii=False, default=str)
+
+    return redact_sensitive_text(raw)
+
+
+def _redact_message_content(content: Any) -> Any:
+    redacted = _redact_stream_value(content)
+    if isinstance(redacted, (str, list)):
+        return redacted
+    return json.dumps(redacted, ensure_ascii=False, default=str)
+
+
+def _redact_history_message(message: BaseMessage) -> BaseMessage:
+    safe_content = _redact_message_content(getattr(message, "content", ""))
+    if hasattr(message, "model_copy"):
+        return message.model_copy(update={"content": safe_content})
+    try:
+        message.content = safe_content
+    except Exception:
+        return AIMessage(content=str(safe_content))
+    return message
 
 
 def _default_system_prompt() -> str:

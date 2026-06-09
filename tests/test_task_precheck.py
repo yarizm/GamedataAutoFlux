@@ -72,6 +72,35 @@ def test_task_precheck_warns_for_steam_without_app_id() -> None:
     assert any(issue["code"] == "missing_steam_app_id" for issue in payload["issues"])
 
 
+def test_task_precheck_accepts_monitor_siteurl_without_app_id() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Monitor task",
+                "pipeline_name": "monitor_basic",
+                "targets": [
+                    {
+                        "name": "Counter-Strike 2",
+                        "target_type": "game",
+                        "params": {"siteurl": "counter-strike_2"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["collector_name"] == "monitor"
+    assert payload["can_submit"] is True
+    assert payload["status"] == "ok"
+    assert payload["required_fields"] == [
+        "target.params.app_id or target.params.siteurl",
+        "target.params.twitch_name (optional)",
+    ]
+
+
 def test_task_precheck_rejects_unknown_pipeline() -> None:
     with TestClient(app) as client:
         response = client.post(

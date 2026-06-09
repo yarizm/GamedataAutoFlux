@@ -186,8 +186,9 @@ async def lifespan(app: FastAPI):
     event_bus.clear()
 
     agent_svc = get_agent_service()
-    if agent_svc and agent_svc._mcp_manager:
-        await agent_svc._mcp_manager.stop()
+    mcp_manager = getattr(agent_svc, "_mcp_manager", None)
+    if mcp_manager:
+        await mcp_manager.stop()
 
     # 关闭全局存储并重置单例
     import src.storage.factory

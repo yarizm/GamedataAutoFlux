@@ -29,7 +29,7 @@ from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.core.registry import registry
-from src.core.sensitive import redact_sensitive
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.services._utils import normalize_key
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
@@ -77,6 +77,115 @@ class PipelineResult:
         if self.completed_at is None:
             return None
         return (self.completed_at - self.started_at).total_seconds()
+
+    @property
+    def collection_summary(self) -> dict[str, Any]:
+        """Lightweight, redacted summary of collector outcomes for task/API surfaces."""
+        return _build_collection_summary(self.collect_results)
+
+
+_COLLECTION_DETAIL_LIMIT = 50
+
+
+def _build_collection_summary(
+    collect_results: list[CollectResult],
+    *,
+    detail_limit: int = _COLLECTION_DETAIL_LIMIT,
+) -> dict[str, Any]:
+    total = len(collect_results)
+    success_count = sum(1 for result in collect_results if result.success)
+    failed_count = total - success_count
+    status = (
+        "empty"
+        if total == 0
+        else "success"
+        if failed_count == 0
+        else "failed"
+        if success_count == 0
+        else "partial"
+    )
+
+    failed_targets: list[dict[str, Any]] = []
+    retried_targets: list[dict[str, Any]] = []
+    error_codes: dict[str, int] = {}
+    retry_attempts_total = 0
+    retried_targets_count = 0
+
+    for result in collect_results:
+        result_summary = result.to_summary()
+        retry = result_summary.get("retry") if isinstance(result_summary, dict) else None
+        retry_attempts = 0
+        if isinstance(retry, dict):
+            retry_attempts = _summary_int(retry.get("retry_attempts"), default=0)
+        if retry_attempts > 0:
+            retry_attempts_total += retry_attempts
+            retried_targets_count += 1
+            if len(retried_targets) < detail_limit:
+                retried_targets.append(result_summary)
+
+        if result.success:
+            continue
+
+        error_code = str(result_summary.get("error_code") or result.error_code or "unknown")
+        error_codes[error_code] = error_codes.get(error_code, 0) + 1
+        if len(failed_targets) < detail_limit:
+            failed_targets.append(result_summary)
+
+    summary: dict[str, Any] = {
+        "status": status,
+        "total_targets": total,
+        "successful_targets": success_count,
+        "failed_targets_count": failed_count,
+        "retried_targets_count": retried_targets_count,
+        "retry_attempts_total": retry_attempts_total,
+    }
+    if error_codes:
+        summary["error_codes"] = error_codes
+    if failed_targets:
+        summary["failed_targets"] = failed_targets
+        if failed_count > len(failed_targets):
+            summary["failed_targets_omitted"] = failed_count - len(failed_targets)
+    if retried_targets:
+        summary["retried_targets"] = retried_targets
+        if retried_targets_count > len(retried_targets):
+            summary["retried_targets_omitted"] = retried_targets_count - len(retried_targets)
+    return redact_sensitive(summary)
+
+
+def _summary_int(value: Any, *, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
+
+
+def _collect_failure_message(result: CollectResult) -> str:
+    summary = result.to_summary()
+    target = str(summary.get("target") or result.target.name or "")
+    error_code = str(summary.get("error_code") or result.error_code or "unknown")
+    error = str(summary.get("error") or result.error or "")
+    message = f"{target}: [{error_code}] {error or 'unknown error'}"
+
+    retry = summary.get("retry")
+    if isinstance(retry, dict):
+        attempts = _summary_int(retry.get("attempts"), default=0)
+        max_attempts = _summary_int(retry.get("max_attempts"), default=0)
+        retry_attempts = _summary_int(retry.get("retry_attempts"), default=0)
+        if retry_attempts > 0:
+            message += (
+                f" (attempts {attempts or 1}/{max_attempts or attempts or 1}, "
+                f"retries {retry_attempts})"
+            )
+        last_retry_error = str(retry.get("last_retry_error") or "").strip()
+        last_retry_error_code = str(retry.get("last_retry_error_code") or "").strip()
+        if last_retry_error and last_retry_error_code:
+            message += f" last retry [{last_retry_error_code}] {last_retry_error}"
+        elif last_retry_error:
+            message += f" last retry {last_retry_error}"
+        elif last_retry_error_code:
+            message += f" last retry code {last_retry_error_code}"
+    return redact_sensitive_text(message)
 
 
 # 进度回调类型：(task_id, progress, message)
@@ -211,8 +320,7 @@ class Pipeline:
                     success_count = sum(1 for r in collect_results if r.success)
                     failed_results = [r for r in collect_results if not r.success]
                     failed_error = "; ".join(
-                        f"{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
-                        for r in failed_results
+                        _collect_failure_message(r) for r in failed_results
                     )
                     task.add_step_log(
                         step_name,
@@ -221,7 +329,7 @@ class Pipeline:
                         error=failed_error or None,
                     )
                     result.errors.extend(
-                        f"collect:{step.component_name}:{r.target.name}: [{r.error_code or 'unknown'}] {r.error or '未知错误'}"
+                        f"collect:{step.component_name}:{_collect_failure_message(r)}"
                         for r in failed_results
                     )
                 finally:
@@ -413,7 +521,7 @@ class Pipeline:
 
 
 def _build_storage_metadata(task: Task, metadata: dict[str, Any]) -> dict[str, Any]:
-    enriched = dict(metadata or {})
+    enriched = redact_sensitive(dict(metadata or {}))
     target_name = enriched.get("target")  # 提前初始化，避免后续作用域问题
     target_params = enriched.get("target_params")
     if not isinstance(target_params, dict):

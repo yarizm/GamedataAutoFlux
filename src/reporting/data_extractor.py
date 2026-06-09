@@ -16,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.reporting.report_templates import normalize_collector
 
 
@@ -65,17 +66,19 @@ def extract_from_records(
         )
         collector = normalize_collector(_detect_collector(record_data))
         result.source_coverage[collector] = result.source_coverage.get(collector, 0) + 1
+        record_key = (
+            record_keys[index] if record_keys and index < len(record_keys) else f"record_{index + 1}"
+        )
+        record_metadata = (
+            metadata_list[index] if metadata_list and index < len(metadata_list) else {}
+        )
         result.raw_sources.append(
             {
-                "key": record_keys[index]
-                if record_keys and index < len(record_keys)
-                else f"record_{index + 1}",
-                "collector": collector,
-                "game_name": _extract_game_name(record_data),
-                "metadata": metadata_list[index]
-                if metadata_list and index < len(metadata_list)
-                else {},
-                "data": record_data,
+                "key": redact_sensitive_text(record_key),
+                "collector": redact_sensitive_text(collector),
+                "game_name": redact_sensitive_text(_extract_game_name(record_data)),
+                "metadata": redact_sensitive(record_metadata),
+                "data": redact_sensitive(record_data),
             }
         )
         event_count_before = len(result.events)
@@ -99,7 +102,10 @@ def extract_from_records(
             else:
                 _extract_generic(record_data, result)
         except Exception as exc:
-            logger.warning(f"[DataExtractor] 提取失败 (collector={collector}): {exc}")
+            logger.warning(
+                f"[DataExtractor] 提取失败 (collector={collector}): "
+                f"{redact_sensitive_text(str(exc))}"
+            )
         if len(result.events) > event_count_before:
             result.source_coverage["events"] = result.source_coverage.get("events", 0) + 1
 

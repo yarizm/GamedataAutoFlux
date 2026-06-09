@@ -27,11 +27,33 @@ if not hasattr(urllib3.util.retry.Retry, "DEFAULT_METHOD_WHITELIST"):
 
 from pytrends.request import TrendReq
 
-from src.collectors.base import BaseCollector, CollectTarget, CollectResult
+from src.collectors.base import (
+    BaseCollector,
+    CollectResult,
+    CollectTarget,
+    _build_failure_metadata,
+    _collection_error_message,
+    _finalize_collect_result,
+    _is_retryable_collect_error,
+    _resolve_collect_retries,
+    _resolve_collect_retry_delay,
+    _resolve_collect_timeout,
+    _sleep_before_retry,
+)
 from src.collectors.gtrends.firecrawl_fallback import GtrendsFirecrawlFallback
 from src.core.config import get_settings
 from src.core.errors import ErrorCode, classify_exception
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
+
+
+def _is_rate_limited_failure(result: CollectResult) -> bool:
+    if result.success:
+        return False
+    if result.error_code == ErrorCode.rate_limited.value:
+        return True
+    error = result.error or ""
+    return "429" in error or "Too Many Requests" in error
 
 
 @registry.register("collector", "gtrends")
@@ -111,6 +133,10 @@ class GoogleTrendsCollector(BaseCollector):
         """批量采集，遇到 429 时进行指数退避等待，避免整个 batch 全军覆没"""
         results = []
         consecutive_429 = 0
+        collect_timeout = _resolve_collect_timeout(self)
+        collect_retries = _resolve_collect_retries(self)
+        collect_retry_delay = _resolve_collect_retry_delay(self)
+        max_attempts = collect_retries + 1
         
         for target in targets:
             if consecutive_429 > 0:
@@ -118,28 +144,103 @@ class GoogleTrendsCollector(BaseCollector):
                 sleep_time = min(300, (2 ** consecutive_429) * 10)
                 logger.warning(f"[GTrends] 主动退避 {sleep_time} 秒以应对 429 限流...")
                 await asyncio.sleep(sleep_time)
-                
-            try:
-                result = await self.collect(target)
-                if not result.success and result.error and ("429" in result.error or "Too Many Requests" in result.error):
-                    consecutive_429 += 1
-                else:
-                    consecutive_429 = 0
-                results.append(result)
-            except Exception as e:
-                code = classify_exception(e)
-                error_msg = str(e)
-                if "429" in error_msg or "Too Many Requests" in error_msg:
-                    consecutive_429 += 1
-                results.append(
-                    CollectResult(
-                        target=target,
-                        success=False,
-                        error=error_msg,
-                        error_code=code.value,
+
+            last_retry_error = ""
+            last_retry_error_code = ""
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if collect_timeout > 0:
+                        result = await asyncio.wait_for(
+                            self.collect(target),
+                            timeout=collect_timeout,
+                        )
+                    else:
+                        result = await self.collect(target)
+                    result = _finalize_collect_result(
+                        self,
+                        result,
+                        collect_timeout=collect_timeout,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        last_retry_error=last_retry_error,
+                        last_retry_error_code=last_retry_error_code,
                     )
-                )
+                    if _is_rate_limited_failure(result):
+                        consecutive_429 += 1
+                    else:
+                        consecutive_429 = 0
+                    if (
+                        result.success
+                        or attempt >= max_attempts
+                        or not _is_retryable_collect_error(result.error_code or "")
+                    ):
+                        results.append(result)
+                        break
+                    last_retry_error = result.error or result.error_code or ""
+                    last_retry_error_code = result.error_code or ""
+                    await _sleep_before_retry(
+                        self,
+                        target,
+                        attempt=attempt,
+                        retry_delay=collect_retry_delay,
+                        error=result.error or result.error_code or "",
+                    )
+                    continue
+                except Exception as e:
+                    error_msg = _collection_error_message(e, collect_timeout=collect_timeout)
+                    code = classify_exception(Exception(error_msg))
+                    if "429" in error_msg or "Too Many Requests" in error_msg:
+                        consecutive_429 += 1
+                    if attempt < max_attempts and _is_retryable_collect_error(code.value):
+                        last_retry_error = error_msg
+                        last_retry_error_code = code.value
+                        await _sleep_before_retry(
+                            self,
+                            target,
+                            attempt=attempt,
+                            retry_delay=collect_retry_delay,
+                            error=error_msg,
+                        )
+                        continue
+                    results.append(
+                        CollectResult(
+                            target=target,
+                            success=False,
+                            error=error_msg,
+                            error_code=code.value,
+                            metadata=_build_failure_metadata(
+                                self,
+                                target,
+                                code.value,
+                                collect_timeout=collect_timeout,
+                                attempt=attempt,
+                                max_attempts=max_attempts,
+                                last_retry_error=last_retry_error,
+                                last_retry_error_code=last_retry_error_code,
+                            ),
+                        )
+                    )
+                    break
         return results
+
+    def _with_failure_metadata(
+        self,
+        result: CollectResult,
+        *,
+        collect_timeout: float = 0,
+    ) -> CollectResult:
+        result.metadata = redact_sensitive(result.metadata or {})
+        if result.success:
+            return result
+        code = result.error_code or classify_exception(Exception(result.error or "")).value
+        result.error_code = code
+        if result.error:
+            result.error = redact_sensitive_text(result.error)
+        result.metadata = {
+            **(result.metadata or {}),
+            **_build_failure_metadata(self, result.target, code, collect_timeout=collect_timeout),
+        }
+        return result
 
     async def collect(self, target: CollectTarget) -> CollectResult:
         keyword = target.params.get("keyword") or target.name

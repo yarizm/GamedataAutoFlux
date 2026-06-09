@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from src.agent.schemas import ChatRequest, SetProviderRequest, UpdateProviderConfigRequest
+from src.core.sensitive import redact_sensitive_text
 
 router = APIRouter(tags=["agent"])
 
@@ -42,7 +43,7 @@ async def agent_chat(req: ChatRequest):
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'type': 'error', 'content': '响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
         except Exception as e:
-            logger.error(f"Agent SSE 流出错: {e}")
+            logger.error(f"Agent SSE 流出错: {redact_sensitive_text(str(e))}")
             yield f"data: {json.dumps({'type': 'error', 'content': '内部服务错误，请查看日志'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -92,6 +93,17 @@ async def list_agent_sessions():
     return {"sessions": agent_service.list_sessions()}
 
 
+@router.get("/agent/status")
+async def get_agent_status():
+    """获取 Agent 当前模型、工具、MCP 和会话状态。"""
+    from src.web.app import get_agent_service
+
+    agent_service = get_agent_service()
+    if not agent_service:
+        raise HTTPException(503, "Agent 服务未启用")
+    return agent_service.get_status_summary()
+
+
 @router.get("/agent/providers")
 async def list_llm_providers():
     """列出可用的 LLM provider 及当前激活的 provider"""
@@ -121,7 +133,7 @@ async def set_llm_provider(req: SetProviderRequest):
         agent_service.set_provider(req.provider)
         return {"message": f"Provider switched to {req.provider}", "active": req.provider}
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, redact_sensitive_text(str(e)))
 
 
 @router.get("/agent/providers/config")
@@ -143,8 +155,8 @@ async def get_llm_providers_config():
                 base_url=str(cfg.get("base_url", "")),
                 api_key=safe_api_key,
                 has_api_key=has_api_key,
-                temperature=float(cfg.get("temperature", 0.3)),
-                max_tokens=int(cfg.get("max_tokens", 2000)),
+                temperature=_coerce_float(cfg.get("temperature"), default=0.3),
+                max_tokens=_coerce_int(cfg.get("max_tokens"), default=2000),
             ).model_dump()
         )
 
@@ -196,5 +208,19 @@ async def update_llm_providers_config(req: UpdateProviderConfigRequest):
         try:
             agent_service.reload_config(req.provider)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, redact_sensitive_text(str(e)))
     return {"message": "配置已保存", "providers_count": len(req.items)}
+
+
+def _coerce_float(value, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

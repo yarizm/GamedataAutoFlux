@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
+
 
 class TaskStatus(str, Enum):
     """任务状态"""
@@ -81,6 +83,11 @@ class Task(BaseModel):
 
     # 结果
     result: Any = Field(default=None, description="执行结果")
+    stored_result_summary: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        description="Persisted lightweight result summary restored without the full result object",
+    )
     error: str | None = Field(default=None, description="错误信息")
     step_logs: list[TaskStepLog] = Field(default_factory=list, description="步骤日志")
 
@@ -211,42 +218,55 @@ class Task(BaseModel):
         """返回任务摘要（用于 API 响应）"""
         return {
             "id": self.id,
-            "name": self.name,
+            "name": redact_sensitive_text(self.name),
             "status": self.status.value,
             "progress": self.progress,
-            "collector": self.collector_name,
+            "collector": redact_sensitive_text(self.collector_name),
             "targets_count": len(self.targets),
             "created_at": self.created_at.isoformat(),
             "duration": self.duration_seconds,
-            "error": self.error,
+            "error": redact_sensitive_text(self.error) if self.error else None,
         }
 
     @property
     def result_summary(self) -> dict[str, Any] | None:
         """公开轻量结果摘要。"""
-        return self._build_result_summary()
+        return self._build_result_summary(redact=True)
 
     def to_storage_payload(self) -> dict[str, Any]:
         """导出可持久化的任务快照。"""
         payload = self.model_dump(mode="json", exclude={"result"})
-        payload["result_summary"] = self._build_result_summary()
+        payload["result_summary"] = self._build_result_summary(redact=False)
         return payload
+
+    def to_public_payload(self) -> dict[str, Any]:
+        """导出可公开返回/广播的脱敏任务快照。"""
+        return redact_sensitive(self.to_storage_payload())
 
     @classmethod
     def from_storage_payload(cls, payload: dict[str, Any]) -> "Task":
         """从持久化快照恢复任务对象。"""
         restored = dict(payload)
-        restored.pop("result_summary", None)
+        stored_result_summary = restored.pop("result_summary", None)
         restored["result"] = None
-        return cls.model_validate(restored)
+        task = cls.model_validate(restored)
+        if isinstance(stored_result_summary, dict):
+            task.stored_result_summary = stored_result_summary
+        return task
 
-    def _build_result_summary(self) -> dict[str, Any] | None:
+    def _build_result_summary(self, *, redact: bool) -> dict[str, Any] | None:
         """提取轻量结果摘要，避免将大对象直接持久化。"""
         if self.result is None:
-            return None
+            if not self.stored_result_summary:
+                return None
+            return (
+                redact_sensitive(self.stored_result_summary)
+                if redact
+                else self.stored_result_summary
+            )
         result = self.result
         if isinstance(result, dict):
-            return result
+            return redact_sensitive(result) if redact else result
 
         summary: dict[str, Any] = {}
         for field in (
@@ -255,6 +275,7 @@ class Task(BaseModel):
             "task_id",
             "pipeline_name",
             "errors",
+            "collection_summary",
             "duration_seconds",
             "generated_report_id",
             "generated_report_title",
@@ -262,4 +283,5 @@ class Task(BaseModel):
         ):
             if hasattr(result, field):
                 summary[field] = getattr(result, field)
-        return summary or {"type": result.__class__.__name__}
+        summary = summary or {"type": result.__class__.__name__}
+        return redact_sensitive(summary) if redact else summary

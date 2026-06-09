@@ -17,6 +17,9 @@ database:
   provider: "sqlalchemy"
   sqlalchemy_url: "${DATABASE_URL}"
 
+storage:
+  reports_dir: "data/excel_reports"
+
 llm:
   provider: sensenova_deepseek
   qwen:
@@ -394,6 +397,10 @@ scheduler:
 collector:
   request_timeout: 30
   request_delay: 2
+  batch_concurrency: 1
+  collect_timeout: 0
+  collect_retries: 0
+  collect_retry_delay: 1.0
   proxy: null
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 

@@ -15,6 +15,7 @@ from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
 from src.core.errors import ErrorCode
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 
 STEAM_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -102,7 +103,11 @@ class MonitorCollector(BaseCollector):
         warnings: list[str] = []
 
         logger.info(
-            f"[Monitor] Start collect: {target.name} (app_id={app_id}, siteurl={siteurl}) metrics={metrics}"
+            "[Monitor] Start collect: {} (app_id={}, siteurl={}) metrics={}",
+            _safe_log_text(target.name),
+            app_id,
+            _safe_log_text(siteurl),
+            metrics,
         )
         metric_payloads = await self._collect_metrics_concurrently(
             metrics=metrics,
@@ -188,11 +193,17 @@ class MonitorCollector(BaseCollector):
                         raise ValueError(f"unknown monitor metric: {metric_name}")
                     return metric_name, payload
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"[Monitor] {metric_name} failed for {target_name}: {exc}")
-                    warnings.append(f"{metric_name}: {exc}")
+                    safe_error = _safe_log_text(exc)
+                    logger.warning(
+                        "[Monitor] {} failed for {}: {}",
+                        metric_name,
+                        _safe_log_text(target_name),
+                        safe_error,
+                    )
+                    warnings.append(f"{metric_name}: {safe_error}")
                     return metric_name, {
                         "source": _metric_source(metric_name),
-                        "error": str(exc),
+                        "error": safe_error,
                         "days": days,
                     }
 
@@ -330,9 +341,15 @@ class MonitorCollector(BaseCollector):
                 last_error = exc
                 if attempt >= retries:
                     break
-                logger.warning(f"[Monitor] HTTP fetch text retry {attempt}/{retries} for {url}: {exc!r}")
+                logger.warning(
+                    "[Monitor] HTTP fetch text retry {}/{} for {}: {}",
+                    attempt,
+                    retries,
+                    _safe_log_text(url),
+                    _safe_log_text(repr(exc)),
+                )
                 await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
-        raise last_error or RuntimeError(f"Monitor fetch failed: {url}")
+        raise last_error or RuntimeError(f"Monitor fetch failed: {_safe_log_text(url)}")
 
     async def _fetch_json(
         self,
@@ -352,9 +369,15 @@ class MonitorCollector(BaseCollector):
                 last_error = exc
                 if attempt >= retries:
                     break
-                logger.warning(f"[Monitor] HTTP fetch json retry {attempt}/{retries} for {url}: {exc!r}")
+                logger.warning(
+                    "[Monitor] HTTP fetch json retry {}/{} for {}: {}",
+                    attempt,
+                    retries,
+                    _safe_log_text(url),
+                    _safe_log_text(repr(exc)),
+                )
                 await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
-        raise last_error or RuntimeError(f"Monitor fetch failed: {url}")
+        raise last_error or RuntimeError(f"Monitor fetch failed: {_safe_log_text(url)}")
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True
@@ -366,6 +389,10 @@ def _resolve_mode(config: dict[str, Any]) -> str:
     if mode not in {"fast", "smart", "auto"}:
         return "fast"
     return mode
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _normalize_metrics(raw_metrics: Any) -> list[str]:

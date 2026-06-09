@@ -14,6 +14,7 @@ from loguru import logger
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 
 STEAM_COMMUNITY_BASE = "https://steamcommunity.com"
@@ -128,7 +129,7 @@ class SteamDiscussionsCollector(BaseCollector):
         )
 
         logger.info(
-            f"[SteamDiscussions] Start collect: {target.name} app_id={app_id} "
+            f"[SteamDiscussions] Start collect: {_safe_log_text(target.name)} app_id={app_id} "
             f"range={start_at}..{end_at} max_pages={max_pages}"
         )
 
@@ -158,8 +159,14 @@ class SteamDiscussionsCollector(BaseCollector):
                         max_reply_pages=max_reply_pages,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    warnings.append(f"{topic_url}: {exc}")
-                    logger.warning(f"[SteamDiscussions] Topic fetch failed: {topic_url} - {exc}")
+                    safe_url = _safe_log_text(topic_url)
+                    safe_error = _safe_log_text(str(exc))
+                    warnings.append(f"{safe_url}: {safe_error}")
+                    logger.warning(
+                        "[SteamDiscussions] Topic fetch failed: {} - {}",
+                        safe_url,
+                        safe_error,
+                    )
                     continue
 
                 topic_time = _topic_filter_time(detail)
@@ -270,12 +277,24 @@ class SteamDiscussionsCollector(BaseCollector):
                 last_error = exc
                 if attempt >= retries:
                     break
-                logger.warning(f"[SteamDiscussions] HTTP fetch retry {attempt}/{retries} for {url}: {exc!r}")
+                logger.warning(
+                    "[SteamDiscussions] HTTP fetch retry {}/{} for {}: {}",
+                    attempt,
+                    retries,
+                    _safe_log_text(url),
+                    _safe_log_text(repr(exc)),
+                )
                 await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
-        raise last_error or RuntimeError(f"SteamDiscussions fetch failed: {url}")
+        raise last_error or RuntimeError(
+            f"SteamDiscussions fetch failed: {_safe_log_text(url)}"
+        )
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 class _DiscussionCaptureParser(HTMLParser):

@@ -7,6 +7,8 @@ from typing import Any
 
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive_text
+
 
 class TapTapPlaywrightFailed(Exception):
     """Raised when TapTap Playwright supplementation fails."""
@@ -164,24 +166,26 @@ class TapTapPlaywrightScraper:
                     "review_items": review_items,
                 }
             except Exception as exc:
-                raise TapTapPlaywrightFailed(f"Playwright scrape failed: {exc}") from exc
+                raise TapTapPlaywrightFailed(
+                    f"Playwright scrape failed: {_safe_log_text(exc)}"
+                ) from exc
             finally:
                 context.close()
                 browser.close()
 
     async def _load_page_html(self, page: Any, url: str, *, kind: str) -> str:
-        logger.info(f"[TapTap Playwright] Visit: {url}")
+        logger.info(f"[TapTap Playwright] Visit: {_safe_log_text(url)}")
         try:
             response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
         except Exception as exc:
-            raise TapTapPlaywrightFailed(f"Page load failed: {exc}") from exc
+            raise TapTapPlaywrightFailed(f"Page load failed: {_safe_log_text(exc)}") from exc
         if response and response.status and response.status >= 400:
             raise TapTapPlaywrightFailed(f"HTTP {response.status}")
         await self._post_load_stabilize(page, kind=kind)
         return await page.content()
 
     def _load_page_html_sync(self, page: Any, url: str, *, kind: str) -> str:
-        logger.info(f"[TapTap Playwright] Visit: {url}")
+        logger.info(f"[TapTap Playwright] Visit: {_safe_log_text(url)}")
         response = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
         if response and response.status and response.status >= 400:
             raise TapTapPlaywrightFailed(f"HTTP {response.status}")
@@ -421,3 +425,7 @@ def _random_user_agent() -> str:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
     ]
     return random.choice(agents)
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))

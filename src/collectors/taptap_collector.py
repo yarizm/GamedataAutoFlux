@@ -16,6 +16,7 @@ from src.collectors.taptap.playwright_scraper import (
 )
 from src.core.errors import ErrorCode
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 
 @registry.register("collector", "taptap")
@@ -109,7 +110,9 @@ class TapTapCollector(BaseCollector):
         )
         save_raw_snapshots = bool(self.config.get("save_raw_snapshots", True))
 
-        logger.info(f"[TapTap] Start collect: {target.name} -> {page_url}")
+        logger.info(
+            f"[TapTap] Start collect: {_safe_log_text(target.name)} -> {_safe_log_text(page_url)}"
+        )
         warnings: list[str] = []
         layer_used = "html"
         layers = {"details": "html", "reviews": "html", "updates": "html"}
@@ -158,8 +161,9 @@ class TapTapCollector(BaseCollector):
             merged = merge_taptap_payloads(detail_payload, review_payload)
         except Exception as exc:
             merged = {}
-            warnings.append(f"HTTP HTML collection failed: {exc!r}")
-            logger.warning(f"[TapTap] HTTP collection failed: {exc!r}")
+            safe_error = _safe_log_text(repr(exc))
+            warnings.append(f"HTTP HTML collection failed: {safe_error}")
+            logger.warning(f"[TapTap] HTTP collection failed: {safe_error}")
 
         needs_playwright = use_playwright == "always"
         if use_playwright == "auto":
@@ -256,8 +260,9 @@ class TapTapCollector(BaseCollector):
                 if detail_payload.get("updates", {}).get("items"):
                     layers["updates"] = "playwright"
             except TapTapPlaywrightFailed as exc:
-                warnings.append(f"Playwright supplement failed: {exc}")
-                logger.warning(f"[TapTap] Playwright failed: {exc}")
+                safe_error = _safe_log_text(str(exc))
+                warnings.append(f"Playwright supplement failed: {safe_error}")
+                logger.warning(f"[TapTap] Playwright failed: {safe_error}")
 
         if use_firecrawl and _needs_firecrawl(merged, metrics=metrics) and self._firecrawl:
             logger.info("[TapTap] Fallback to Firecrawl")
@@ -277,7 +282,7 @@ class TapTapCollector(BaseCollector):
                     if fallback.get("updates", {}).get("items") and metric_name == "updates":
                         layers["updates"] = "firecrawl"
             elif fallback and fallback.get("error"):
-                warnings.append(f"Firecrawl failed: {fallback['error']}")
+                warnings.append(f"Firecrawl failed: {_safe_log_text(fallback['error'])}")
         elif not use_firecrawl and _needs_firecrawl(merged, metrics=metrics):
             warnings.append("Firecrawl fallback disabled; preserving direct collection result")
 
@@ -355,9 +360,15 @@ class TapTapCollector(BaseCollector):
                 last_error = exc
                 if attempt >= retries:
                     break
-                logger.warning(f"[TapTap] HTTP fetch retry {attempt}/{retries} for {url}: {exc!r}")
+                logger.warning(
+                    "[TapTap] HTTP fetch retry {}/{} for {}: {}",
+                    attempt,
+                    retries,
+                    _safe_log_text(url),
+                    _safe_log_text(repr(exc)),
+                )
                 await asyncio.sleep(float(self.config.get("request_delay", 1.5)))
-        raise last_error or RuntimeError(f"TapTap fetch failed: {url}")
+        raise last_error or RuntimeError(f"TapTap fetch failed: {_safe_log_text(url)}")
 
     def _resolve_urls(self, target: CollectTarget) -> tuple[str, str, str]:
         region = str(target.params.get("region", "cn")).lower()
@@ -397,6 +408,10 @@ def _needs_playwright(merged: dict[str, Any], *, metrics: list[str], reviews_pag
         if reviews_pages > 1:
             return True
     return False
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _needs_firecrawl(merged: dict[str, Any], *, metrics: list[str]) -> bool:

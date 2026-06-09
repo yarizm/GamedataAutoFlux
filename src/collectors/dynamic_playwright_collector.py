@@ -6,7 +6,12 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
+from src.core.sensitive import redact_sensitive_text
 from src.core.registry import registry
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 @registry.register("collector", "dynamic_playwright")
@@ -66,7 +71,7 @@ class DynamicPlaywrightCollector(BaseCollector):
             return False
         mode = config.get("extraction_mode", "css_selectors")
         if mode not in ["css_selectors", "js_evaluate"]:
-            logger.error(f"Invalid extraction_mode: {mode}")
+            logger.error(f"Invalid extraction_mode: {_safe_log_text(mode)}")
             return False
         if mode == "css_selectors" and "fields" not in config:
             logger.error("extraction_mode is css_selectors but 'fields' is missing.")
@@ -129,7 +134,7 @@ class DynamicPlaywrightCollector(BaseCollector):
             try:
                 self._worker_loop.run_until_complete(_do_teardown())
             except Exception as e:
-                logger.error(f"[dynamic_playwright] Error during teardown: {e}")
+                logger.error(f"[dynamic_playwright] Error during teardown: {_safe_log_text(e)}")
             finally:
                 try:
                     self._worker_loop.close()
@@ -148,7 +153,9 @@ class DynamicPlaywrightCollector(BaseCollector):
             try:
                 cls._SINGLE_EXECUTOR.shutdown(wait=False)
             except Exception as e:
-                logger.error(f"[dynamic_playwright] Error shutting down executor: {e}")
+                logger.error(
+                    f"[dynamic_playwright] Error shutting down executor: {_safe_log_text(e)}"
+                )
             finally:
                 cls._SINGLE_EXECUTOR = None
 
@@ -174,7 +181,7 @@ class DynamicPlaywrightCollector(BaseCollector):
                 try:
                     from src.web.safety import validate_url_runtime
                     validate_url_runtime(url)
-                    logger.info(f"[dynamic_playwright] Navigating to: {url}")
+                    logger.info(f"[dynamic_playwright] Navigating to: {_safe_log_text(url)}")
                     await page.goto(
                         url, wait_until="domcontentloaded", timeout=config.get("timeout_ms", 30000)
                     )
@@ -207,7 +214,10 @@ class DynamicPlaywrightCollector(BaseCollector):
                         },
                     )
                 except Exception as e:
-                    logger.error(f"[dynamic_playwright] Error collecting {url}: {e}")
+                    logger.error(
+                        "[dynamic_playwright] Error collecting "
+                        f"{_safe_log_text(url)}: {_safe_log_text(e)}"
+                    )
                     # Ensure str(e) is never empty, as empty strings cause logging issues upstream
                     err_msg = str(e) if str(e).strip() else repr(e)
                     return CollectResult(target=target, success=False, error=err_msg)

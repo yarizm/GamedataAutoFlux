@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive_text
+
 router = APIRouter(tags=["websocket"])
 
 
@@ -84,5 +86,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
     except Exception as exc:
-        logger.warning(f"WebSocket connection error: {exc}")
+        logger.warning(f"WebSocket connection error: {_safe_log_text(exc)}")
         await manager.disconnect(websocket)
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))

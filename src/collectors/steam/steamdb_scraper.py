@@ -20,6 +20,7 @@ from loguru import logger
 
 from src.collectors.steam.human_behavior import HumanBehaviorSimulator
 from src.collectors.steam.rate_limiter import AdaptiveRateLimiter
+from src.core.sensitive import redact_sensitive_text
 
 
 class SteamDBScrapeFailed(Exception):
@@ -140,11 +141,11 @@ class SteamDBScraper:
                 return
             except Exception as exc:
                 logger.warning(
-                    f"[SteamDB] CDP connection failed, falling back to new browser: {exc}"
+                    f"[SteamDB] CDP connection failed, falling back to new browser: {_safe_log_text(exc)}"
                 )
                 if self._cdp_required:
                     raise SteamDBScrapeFailed(
-                        f"CDP connection failed on port {self._cdp_port}: {exc}"
+                        f"CDP connection failed on port {self._cdp_port}: {_safe_log_text(exc)}"
                     ) from exc
         self._browser = await self._playwright.chromium.launch(
             headless=self._headless,
@@ -250,8 +251,9 @@ class SteamDBScraper:
         except SteamDBScrapeFailed:
             raise
         except Exception as e:
-            logger.error(f"[SteamDB] 閲囬泦寮傚父: {e}")
-            raise SteamDBScrapeFailed(f"Playwright 閲囬泦澶辫触: {e}") from e
+            safe_error = _safe_log_text(e)
+            logger.error(f"[SteamDB] 閲囬泦寮傚父: {safe_error}")
+            raise SteamDBScrapeFailed(f"Playwright 閲囬泦澶辫触: {safe_error}") from e
         finally:
             if page is not None:
                 try:
@@ -298,11 +300,11 @@ class SteamDBScraper:
                         )
                     except Exception as exc:
                         logger.warning(
-                            f"[SteamDB] CDP connection failed, falling back to new browser: {exc}"
+                            f"[SteamDB] CDP connection failed, falling back to new browser: {_safe_log_text(exc)}"
                         )
                         if self._cdp_required:
                             raise SteamDBScrapeFailed(
-                                f"CDP connection failed on port {self._cdp_port}: {exc}"
+                                f"CDP connection failed on port {self._cdp_port}: {_safe_log_text(exc)}"
                             ) from exc
                         browser = None
                 else:
@@ -354,8 +356,9 @@ class SteamDBScraper:
         except SteamDBScrapeFailed:
             raise
         except Exception as e:
-            logger.error(f"[SteamDB] 鍚屾绾跨▼閲囬泦寮傚父: {e}")
-            raise SteamDBScrapeFailed(f"Playwright 绾跨▼閲囬泦澶辫触: {e}") from e
+            safe_error = _safe_log_text(e)
+            logger.error(f"[SteamDB] 鍚屾绾跨▼閲囬泦寮傚父: {safe_error}")
+            raise SteamDBScrapeFailed(f"Playwright 绾跨▼閲囬泦澶辫触: {safe_error}") from e
 
         return result
 
@@ -424,24 +427,24 @@ class SteamDBScraper:
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
             await page.wait_for_timeout(3000)
-            logger.info(f"[SteamDB] Re-navigated to {url}")
+            logger.info(f"[SteamDB] Re-navigated to {_safe_log_text(url)}")
         except Exception as e:
-            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {e}")
+            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {_safe_log_text(e)}")
 
     def _reload_target_sync(self, page: Any, url: str) -> None:
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=self._timeout)
             page.wait_for_timeout(3000)
-            logger.info(f"[SteamDB] Re-navigated to {url}")
+            logger.info(f"[SteamDB] Re-navigated to {_safe_log_text(url)}")
         except Exception as e:
-            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {e}")
+            logger.warning(f"[SteamDB] Re-navigate failed, continuing: {_safe_log_text(e)}")
 
     async def _scrape_charts(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
     ) -> dict[str, Any]:
         """閲囬泦 charts 椤甸潰: 鍦ㄧ嚎瓒嬪娍銆佸嘲鍊间汉鏁"""
         url = _build_charts_url(self.BASE_URL, app_id, time_slice)
-        logger.info(f"[SteamDB] 璁块棶 charts: {url}")
+        logger.info(f"[SteamDB] 璁块棶 charts: {_safe_log_text(url)}")
 
         try:
             resp = await _navigate_by_click_async(
@@ -457,7 +460,7 @@ class SteamDBScraper:
                 label="charts",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
+            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
 
         if (
             resp
@@ -498,7 +501,7 @@ class SteamDBScraper:
                     value_text = (await value.inner_text()).strip()
                     charts[_normalize_key(label_text)] = value_text
         except Exception as e:
-            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {e}")
+            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {_safe_log_text(e)}")
 
         # 灏濊瘯浠庨〉闈㈡枃鏈腑鎻愬彇鍏抽敭鏁板瓧
         try:
@@ -512,7 +515,7 @@ class SteamDBScraper:
             highcharts_payload = await page.evaluate(_HIGHCHARTS_EXTRACT_SCRIPT)
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
-            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {e}")
+            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         await self._behavior.after_navigation(page)
 
@@ -533,13 +536,13 @@ class SteamDBScraper:
                     if table_data:
                         charts[f"table_{i}"] = table_data
             except Exception as e:
-                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {e}")
+                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         return charts
 
     async def _scrape_patchnotes(self, page: Any, app_id: str | int) -> dict[str, Any]:
         url = f"{self.BASE_URL}/app/{app_id}/patchnotes/"
-        logger.info(f"[SteamDB] visit patchnotes: {url}")
+        logger.info(f"[SteamDB] visit patchnotes: {_safe_log_text(url)}")
         try:
             resp = await _navigate_by_click_async(
                 page,
@@ -555,7 +558,12 @@ class SteamDBScraper:
                 label="patchnotes",
             )
         except Exception as e:
-            return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
+            return {
+                "source": "steamdb_patchnotes",
+                "url": url,
+                "error": _safe_log_text(e),
+                "items": [],
+            }
         if (
             resp
             and resp.status == 403
@@ -580,7 +588,7 @@ class SteamDBScraper:
 
     async def _scrape_sales(self, page: Any, app_id: str | int) -> dict[str, Any]:
         url = f"{self.BASE_URL}/app/{app_id}/sales/"
-        logger.info(f"[SteamDB] visit sales: {url}")
+        logger.info(f"[SteamDB] visit sales: {_safe_log_text(url)}")
         try:
             resp = await _navigate_by_click_async(
                 page,
@@ -596,7 +604,7 @@ class SteamDBScraper:
                 label="sales",
             )
         except Exception as e:
-            return {"source": "steamdb_sales", "url": url, "error": str(e)}
+            return {"source": "steamdb_sales", "url": url, "error": _safe_log_text(e)}
         if (
             resp
             and resp.status == 403
@@ -622,7 +630,7 @@ class SteamDBScraper:
     async def _scrape_info(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """閲囬泦 info 椤甸潰: 鐗堟湰鏇存柊銆佸彂甯冨晢淇℃伅"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
-        logger.info(f"[SteamDB] 璁块棶 info: {url}")
+        logger.info(f"[SteamDB] 璁块棶 info: {_safe_log_text(url)}")
 
         try:
             resp = await _navigate_by_click_async(
@@ -639,7 +647,7 @@ class SteamDBScraper:
                 label="info",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
+            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if await self._wait_out_cloudflare_async(page, "info", reload_url=url):
@@ -670,7 +678,7 @@ class SteamDBScraper:
                     if key and val:
                         info[_normalize_key(key)] = val
         except Exception as e:
-            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {e}")
+            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         # 灏濊瘯鎻愬彇鏇存柊鍘嗗彶
         try:
@@ -686,7 +694,7 @@ class SteamDBScraper:
     async def _scrape_top_sellers(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """閲囬泦 SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶃€"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
-        logger.info(f"[SteamDB] 璁块棶 global top sellers: {url}")
+        logger.info(f"[SteamDB] 璁块棶 global top sellers: {_safe_log_text(url)}")
         resp = None
         navigation_error = ""
         for timeout in (self._timeout, max(self._timeout * 2, 60000)):
@@ -707,8 +715,10 @@ class SteamDBScraper:
                 navigation_error = ""
                 break
             except Exception as e:
-                navigation_error = str(e)
-                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
+                navigation_error = _safe_log_text(e)
+                logger.debug(
+                    f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}"
+                )
                 await page.wait_for_timeout(3000)
         if navigation_error:
             rows = await page.query_selector_all("table tbody tr")
@@ -744,7 +754,7 @@ class SteamDBScraper:
     ) -> dict[str, Any]:
         """鍚屾鐗堟湰鐨?charts 閲囬泦銆"""
         url = _build_charts_url(self.BASE_URL, app_id, time_slice)
-        logger.info(f"[SteamDB] 璁块棶 charts: {url}")
+        logger.info(f"[SteamDB] 璁块棶 charts: {_safe_log_text(url)}")
 
         try:
             resp = _navigate_by_click_sync(
@@ -760,7 +770,7 @@ class SteamDBScraper:
                 label="charts",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {e}")
+            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "charts", reload_url=url):
@@ -794,7 +804,7 @@ class SteamDBScraper:
                     value_text = value.inner_text().strip()
                     charts[_normalize_key(label_text)] = value_text
         except Exception as e:
-            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {e}")
+            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {_safe_log_text(e)}")
 
         try:
             page_text = page.inner_text("body")
@@ -807,7 +817,7 @@ class SteamDBScraper:
             highcharts_payload = page.evaluate(_HIGHCHARTS_EXTRACT_SCRIPT)
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
-            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {e}")
+            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         self._behavior.after_navigation_sync(page)
 
@@ -825,13 +835,13 @@ class SteamDBScraper:
                     if table_data:
                         charts[f"table_{i}"] = table_data
             except Exception as e:
-                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {e}")
+                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         return charts
 
     def _scrape_patchnotes_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
         url = f"{self.BASE_URL}/app/{app_id}/patchnotes/"
-        logger.info(f"[SteamDB] visit patchnotes: {url}")
+        logger.info(f"[SteamDB] visit patchnotes: {_safe_log_text(url)}")
         try:
             resp = _navigate_by_click_sync(
                 page,
@@ -847,7 +857,12 @@ class SteamDBScraper:
                 label="patchnotes",
             )
         except Exception as e:
-            return {"source": "steamdb_patchnotes", "url": url, "error": str(e), "items": []}
+            return {
+                "source": "steamdb_patchnotes",
+                "url": url,
+                "error": _safe_log_text(e),
+                "items": [],
+            }
         if (
             resp
             and resp.status == 403
@@ -869,7 +884,7 @@ class SteamDBScraper:
 
     def _scrape_sales_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
         url = f"{self.BASE_URL}/app/{app_id}/sales/"
-        logger.info(f"[SteamDB] visit sales: {url}")
+        logger.info(f"[SteamDB] visit sales: {_safe_log_text(url)}")
         try:
             resp = _navigate_by_click_sync(
                 page,
@@ -885,7 +900,7 @@ class SteamDBScraper:
                 label="sales",
             )
         except Exception as e:
-            return {"source": "steamdb_sales", "url": url, "error": str(e)}
+            return {"source": "steamdb_sales", "url": url, "error": _safe_log_text(e)}
         if (
             resp
             and resp.status == 403
@@ -908,7 +923,7 @@ class SteamDBScraper:
     def _scrape_info_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """鍚屾鐗堟湰鐨?info 閲囬泦銆"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
-        logger.info(f"[SteamDB] 璁块棶 info: {url}")
+        logger.info(f"[SteamDB] 璁块棶 info: {_safe_log_text(url)}")
 
         try:
             resp = _navigate_by_click_sync(
@@ -925,7 +940,7 @@ class SteamDBScraper:
                 label="info",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {e}")
+            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "info", reload_url=url):
@@ -955,7 +970,7 @@ class SteamDBScraper:
                     if key and val:
                         info[_normalize_key(key)] = val
         except Exception as e:
-            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {e}")
+            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {_safe_log_text(e)}")
 
         try:
             page_text = page.inner_text("body")
@@ -970,7 +985,7 @@ class SteamDBScraper:
     def _scrape_top_sellers_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
         """鍚屾鐗堟湰鐨?SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶉噰闆嗐€"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
-        logger.info(f"[SteamDB] 璁块棶 global top sellers: {url}")
+        logger.info(f"[SteamDB] 璁块棶 global top sellers: {_safe_log_text(url)}")
         resp = None
         navigation_error = ""
         for timeout in (self._timeout, max(self._timeout * 2, 60000)):
@@ -991,8 +1006,10 @@ class SteamDBScraper:
                 navigation_error = ""
                 break
             except Exception as e:
-                navigation_error = str(e)
-                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {e}")
+                navigation_error = _safe_log_text(e)
+                logger.debug(
+                    f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}"
+                )
                 page.wait_for_timeout(3000)
         if navigation_error:
             rows = page.query_selector_all("table tbody tr")
@@ -1042,7 +1059,7 @@ async def _navigate_by_click_async(
     if not _is_steamdb_page(page.url) or (
         target_path.startswith("/stats/") and not _path_matches(page.url, target_url)
     ):
-        logger.debug(f"[SteamDB] open entry before {label}: {entry_url}")
+        logger.debug(f"[SteamDB] open entry before {label}: {_safe_log_text(entry_url)}")
         response = await page.goto(entry_url, wait_until="domcontentloaded", timeout=timeout)
         await page.wait_for_timeout(1200)
 
@@ -1066,14 +1083,18 @@ async def _navigate_by_click_async(
             await page.wait_for_timeout(1200)
             if _path_matches(page.url, target_url):
                 await _apply_target_hash_async(page, target_url)
-                logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
+                logger.debug(
+                    f"[SteamDB] clicked {label}: "
+                    f"{_safe_log_text(before_url)} -> {_safe_log_text(page.url)}"
+                )
                 return None
         except Exception as exc:
             logger.debug(
-                f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}"
+                f"[SteamDB] click navigation failed for {label} "
+                f"selector={selector}: {_safe_log_text(exc)}"
             )
 
-    logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
+    logger.debug(f"[SteamDB] click navigation fallback for {label}: {_safe_log_text(target_url)}")
     response = await page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
     await page.wait_for_timeout(1200)
     return response
@@ -1094,7 +1115,7 @@ def _navigate_by_click_sync(
     if not _is_steamdb_page(page.url) or (
         target_path.startswith("/stats/") and not _path_matches(page.url, target_url)
     ):
-        logger.debug(f"[SteamDB] open entry before {label}: {entry_url}")
+        logger.debug(f"[SteamDB] open entry before {label}: {_safe_log_text(entry_url)}")
         response = page.goto(entry_url, wait_until="domcontentloaded", timeout=timeout)
         page.wait_for_timeout(1200)
 
@@ -1118,14 +1139,18 @@ def _navigate_by_click_sync(
             page.wait_for_timeout(1200)
             if _path_matches(page.url, target_url):
                 _apply_target_hash_sync(page, target_url)
-                logger.debug(f"[SteamDB] clicked {label}: {before_url} -> {page.url}")
+                logger.debug(
+                    f"[SteamDB] clicked {label}: "
+                    f"{_safe_log_text(before_url)} -> {_safe_log_text(page.url)}"
+                )
                 return None
         except Exception as exc:
             logger.debug(
-                f"[SteamDB] click navigation failed for {label} selector={selector}: {exc}"
+                f"[SteamDB] click navigation failed for {label} "
+                f"selector={selector}: {_safe_log_text(exc)}"
             )
 
-    logger.debug(f"[SteamDB] click navigation fallback for {label}: {target_url}")
+    logger.debug(f"[SteamDB] click navigation fallback for {label}: {_safe_log_text(target_url)}")
     response = page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
     page.wait_for_timeout(1200)
     return response
@@ -1619,6 +1644,10 @@ def _safe_int(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _has_meaningful_chart_data(charts: dict[str, Any]) -> bool:

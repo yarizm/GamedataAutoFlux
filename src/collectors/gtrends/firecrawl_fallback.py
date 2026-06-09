@@ -15,6 +15,8 @@ from urllib.parse import quote
 
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive_text
+
 
 class GtrendsFirecrawlFallback:
     """Fallback Google Trends scraper backed by Firecrawl."""
@@ -63,7 +65,7 @@ class GtrendsFirecrawlFallback:
                 return {"source": "firecrawl", "error": "Firecrawl unavailable"}
 
         url = self._build_trends_url(keyword, hl=hl, geo=geo, timeframe=timeframe)
-        logger.info(f"[Gtrends:Firecrawl] Scrape: {url}")
+        logger.info(f"[Gtrends:Firecrawl] Scrape: {_safe_log_text(url)}")
 
         result: dict[str, Any] = {
             "source": "firecrawl",
@@ -89,8 +91,9 @@ class GtrendsFirecrawlFallback:
                 f"{len(result.get('related_topics', {}).get('rising', []))} rising"
             )
         except Exception as exc:
-            logger.error(f"[Gtrends:Firecrawl] Scrape failed: {exc}")
-            result["error"] = str(exc)
+            error = _safe_log_text(exc)
+            logger.error(f"[Gtrends:Firecrawl] Scrape failed: {error}")
+            result["error"] = error
 
         return result
 
@@ -133,11 +136,15 @@ class GtrendsFirecrawlFallback:
                 logger.debug(f"[Gtrends:Firecrawl] Retrieved {len(markdown)} chars")
                 return markdown
 
-            logger.warning(f"[Gtrends:Firecrawl] Empty response: {url}")
+            logger.warning(f"[Gtrends:Firecrawl] Empty response: {_safe_log_text(url)}")
             return None
         except Exception as exc:
-            logger.error(f"[Gtrends:Firecrawl] Request failed: {exc}")
+            logger.error(f"[Gtrends:Firecrawl] Request failed: {_safe_log_text(exc)}")
             return None
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 # ---------------------------------------------------------------------------

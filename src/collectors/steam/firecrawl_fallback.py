@@ -20,6 +20,8 @@ from typing import Any
 
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive_text
+
 
 class FirecrawlFallback:
     """Fallback SteamDB scraper backed by Firecrawl."""
@@ -159,7 +161,7 @@ class FirecrawlFallback:
         headers: dict[str, str] | None = None,
     ) -> tuple[str | None, Any]:
         """Call Firecrawl and return Markdown plus optional action output."""
-        logger.info(f"[Firecrawl] Scrape: {url}")
+        logger.info(f"[Firecrawl] Scrape: {_safe_log_text(url)}")
         try:
             import asyncio
 
@@ -198,10 +200,10 @@ class FirecrawlFallback:
                 logger.debug(f"[Firecrawl] Retrieved {len(markdown)} chars")
                 return markdown, action_payload
 
-            logger.warning(f"[Firecrawl] Empty response: {url}")
+            logger.warning(f"[Firecrawl] Empty response: {_safe_log_text(url)}")
             return None, action_payload
         except Exception as exc:
-            logger.error(f"[Firecrawl] Scrape failed: {exc}")
+            logger.error(f"[Firecrawl] Scrape failed: {_safe_log_text(exc)}")
             return None, None
 
     def _request_headers(
@@ -222,6 +224,10 @@ class FirecrawlFallback:
         if cookie:
             merged["Cookie"] = cookie
         return merged
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _parse_steamdb_markdown(

@@ -20,6 +20,7 @@ from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
 from src.core.errors import ErrorCode
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 
 DEFAULT_INCLUDE_PATTERNS = (
@@ -129,7 +130,7 @@ class OfficialSiteCollector(BaseCollector):
             except ImportError:
                 self.playwright_enabled = False
             except Exception as e:
-                logger.error(f"Playwright setup failed: {e}")
+                logger.error(f"Playwright setup failed: {_safe_log_text(e)}")
                 self.playwright_enabled = False
 
     async def teardown(self) -> None:
@@ -200,8 +201,10 @@ class OfficialSiteCollector(BaseCollector):
             return CollectResult(
                 target=target,
                 success=False,
-                error=home.error
-                or f"Failed to fetch official site homepage: HTTP {home.status_code}",
+                error=(
+                    _safe_log_text(home.error)
+                    or f"Failed to fetch official site homepage: HTTP {home.status_code}"
+                ),
                 error_code=err_code.value,
                 metadata={"collector": "official_site"},
             )
@@ -238,7 +241,7 @@ class OfficialSiteCollector(BaseCollector):
                 candidate.url, use_playwright=use_playwright, wait_for_networkidle=wait_networkidle
             )
             if fetched.status_code < 200 or fetched.status_code >= 300 or not fetched.html:
-                warnings.append(f"Failed to fetch candidate page: {candidate.url}")
+                warnings.append(f"Failed to fetch candidate page: {_safe_log_text(candidate.url)}")
                 continue
             embedded_items.extend(_extract_embedded_news_items(fetched.html, fetched.url))
             parsed_page = _parse_html(fetched.url, fetched.html)
@@ -259,7 +262,10 @@ class OfficialSiteCollector(BaseCollector):
 
         # auto 模式降级：正则无结果时用 LLM
         if mode == "auto" and _should_fallback_to_smart(items):
-            logger.info(f"[OfficialSite] fast mode yielded 0 items for {target.name}, trying smart")
+            logger.info(
+                "[OfficialSite] fast mode yielded 0 items for {}, trying smart",
+                _safe_log_text(target.name),
+            )
             mode = "smart"
 
         # smart 模式：LLM 提取
@@ -293,18 +299,18 @@ class OfficialSiteCollector(BaseCollector):
         data = {
             "collector": "official_site",
             "game_name": game_name,
-            "official_url": entry_url,
+            "official_url": _safe_log_text(entry_url),
             "source_meta": {
                 "collector": "official_site",
                 "collected_at": now,
-                "entry_url": entry_url,
+                "entry_url": _safe_log_text(entry_url),
                 "recipe": recipe_name,
-                "validation_status": params.get("validation_status", ""),
-                "validation_notes": params.get("validation_notes", ""),
+                "validation_status": _safe_log_text(params.get("validation_status", "")),
+                "validation_notes": _safe_log_text(params.get("validation_notes", "")),
                 "pages_discovered": len(candidates),
                 "pages_crawled": len(pages),
                 "fetch_strategy": home.strategy,
-                "warnings": list(dict.fromkeys(warnings)),
+                "warnings": list(dict.fromkeys(_safe_log_text(warning) for warning in warnings)),
             },
             "news": {"items": news_items},
             "patch_notes": {"items": patch_items},
@@ -469,7 +475,11 @@ class OfficialSiteCollector(BaseCollector):
             finally:
                 await page.close()
         except Exception as exc:
-            logger.debug("[OfficialSite] dynamic listing discovery failed {}: {}", url, exc)
+            logger.debug(
+                "[OfficialSite] dynamic listing discovery failed {}: {}",
+                _safe_log_text(url),
+                _safe_log_text(exc),
+            )
             return links
 
         return links
@@ -523,8 +533,12 @@ class OfficialSiteCollector(BaseCollector):
                     str(response.url), response.status_code, response.text or "", "httpx"
                 )
         except Exception as exc:
-            logger.debug("[OfficialSite] httpx fetch failed {}: {}", url, exc)
-            return FetchResult(url, 0, "", "httpx", str(exc))
+            logger.debug(
+                "[OfficialSite] httpx fetch failed {}: {}",
+                _safe_log_text(url),
+                _safe_log_text(exc),
+            )
+            return FetchResult(url, 0, "", "httpx", _safe_log_text(exc))
 
     async def _fetch_with_playwright(
         self, url: str, *, wait_for_networkidle: bool = False
@@ -554,8 +568,12 @@ class OfficialSiteCollector(BaseCollector):
             finally:
                 await page.close()
         except Exception as exc:
-            logger.debug("[OfficialSite] playwright fetch failed {}: {}", url, exc)
-            return FetchResult(url, 0, "", "playwright", str(exc))
+            logger.debug(
+                "[OfficialSite] playwright fetch failed {}: {}",
+                _safe_log_text(url),
+                _safe_log_text(exc),
+            )
+            return FetchResult(url, 0, "", "playwright", _safe_log_text(exc))
 
     async def _extract_with_llm(
         self,
@@ -576,7 +594,11 @@ class OfficialSiteCollector(BaseCollector):
                 items = await extract_items_from_html(html, url)
                 all_items.extend(items)
             except Exception as e:
-                logger.debug(f"[OfficialSite] LLM extraction failed for {url}: {e}")
+                logger.debug(
+                    "[OfficialSite] LLM extraction failed for {}: {}",
+                    _safe_log_text(url),
+                    _safe_log_text(e),
+                )
 
         # 如果 pages 没有结果，尝试用首页
         if not all_items and home_html:
@@ -584,7 +606,10 @@ class OfficialSiteCollector(BaseCollector):
                 items = await extract_items_from_html(home_html, home_url)
                 all_items.extend(items)
             except Exception as e:
-                logger.debug(f"[OfficialSite] LLM extraction failed for home: {e}")
+                logger.debug(
+                    "[OfficialSite] LLM extraction failed for home: {}",
+                    _safe_log_text(e),
+                )
 
         return all_items
 
@@ -1131,6 +1156,10 @@ def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
             continue
         compacted[key] = value
     return compacted
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _resolve_recipe(target_name: str, params: dict[str, Any]) -> tuple[str, dict[str, Any]]:

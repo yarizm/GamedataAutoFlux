@@ -5,16 +5,30 @@ Agent 工具公共方法
 import json
 from typing import Any
 
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
+
+
+def _normalize_for_json(obj: Any) -> Any:
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, list):
+        return [_normalize_for_json(item) for item in obj]
+    if isinstance(obj, tuple):
+        return [_normalize_for_json(item) for item in obj]
+    if isinstance(obj, dict):
+        return {key: _normalize_for_json(value) for key, value in obj.items()}
+    return obj
+
 
 def _safe_json(obj: Any) -> str:
     """序列化为 JSON 字符串，处理 Pydantic 模型与 datetime"""
-    if hasattr(obj, "model_dump"):
-        obj = obj.model_dump(mode="json")
-    elif isinstance(obj, list):
-        obj = [
-            item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in obj
-        ]
+    obj = redact_sensitive(_normalize_for_json(obj))
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _safe_error_text(error: Any) -> str:
+    """Return a redacted one-line error string for tool responses and logs."""
+    return redact_sensitive_text(str(error or ""))
 
 
 def _format_result(
@@ -40,12 +54,13 @@ def _format_result(
         result["suggestion"] = suggestion
 
     if data is not None:
-        serialized = _safe_json(data)
+        safe_data = redact_sensitive(_normalize_for_json(data))
+        serialized = _safe_json(safe_data)
         if len(serialized) > max_data_length:
             result["data_truncated"] = True
             result["summary"] = summary + "（数据量过大，已截断，请进一步查询）"
             result["data"] = serialized[:max_data_length] + " ...[Data Truncated]"
         else:
-            result["data"] = data
+            result["data"] = safe_data
 
-    return json.dumps(result, ensure_ascii=False, default=str)
+    return json.dumps(redact_sensitive(result), ensure_ascii=False, default=str)

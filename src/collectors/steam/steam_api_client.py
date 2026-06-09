@@ -25,6 +25,8 @@ from typing import Any
 import httpx
 from loguru import logger
 
+from src.core.sensitive import redact_sensitive_text
+
 
 class SteamAPIClient:
     """Steam 官方 API 异步客户端"""
@@ -171,7 +173,7 @@ class SteamAPIClient:
                 app_id, filter_name="all", language=language
             )
         except Exception as exc:
-            logger.warning(f"[SteamAPI] overall review summary failed: {exc}")
+            logger.warning(f"[SteamAPI] overall review summary failed: {_safe_log_text(exc)}")
             overall_summary = {}
         try:
             recent_30d_summary = await self.get_review_summary(
@@ -181,7 +183,7 @@ class SteamAPIClient:
                 day_range=30,
             )
         except Exception as exc:
-            logger.warning(f"[SteamAPI] recent 30d review summary failed: {exc}")
+            logger.warning(f"[SteamAPI] recent 30d review summary failed: {_safe_log_text(exc)}")
             recent_30d_summary = {}
         review_trend_mode = str(review_trend_mode or "summary").lower()
         if review_trend_mode == "summary":
@@ -192,7 +194,7 @@ class SteamAPIClient:
                     language=language,
                 )
             except Exception as exc:
-                logger.warning(f"[SteamAPI] review histogram trend failed: {exc}")
+                logger.warning(f"[SteamAPI] review histogram trend failed: {_safe_log_text(exc)}")
                 trend_rows, trend_summary = await self.get_review_trend_from_summaries(
                     app_id,
                     days=review_trend_days,
@@ -219,7 +221,9 @@ class SteamAPIClient:
                     day_range=review_trend_days,
                 )
             except Exception as exc:
-                logger.warning(f"[SteamAPI] {review_trend_days}d review summary failed: {exc}")
+                logger.warning(
+                    f"[SteamAPI] {review_trend_days}d review summary failed: {_safe_log_text(exc)}"
+                )
                 trend_summary = {}
 
             trend_total = int(trend_summary.get("total_reviews") or 0)
@@ -607,7 +611,7 @@ class SteamAPIClient:
                 result[key] = await coro
                 logger.debug(f"[SteamAPI] ✓ {key} (app_id={app_id})")
             except Exception as e:
-                logger.warning(f"[SteamAPI] ✗ {key} 失败: {e}")
+                logger.warning(f"[SteamAPI] ✗ {key} 失败: {_safe_log_text(e)}")
                 result[key] = None
             # 请求间延迟
             await asyncio.sleep(self._delay)
@@ -636,7 +640,7 @@ class SteamAPIClient:
 
             except httpx.HTTPStatusError as e:
                 logger.warning(
-                    f"[SteamAPI] HTTP {e.response.status_code} @ {url} "
+                    f"[SteamAPI] HTTP {e.response.status_code} @ {_safe_log_text(url)} "
                     f"(attempt {attempt}/{self._max_retries})"
                 )
                 if attempt == self._max_retries:
@@ -644,7 +648,10 @@ class SteamAPIClient:
                 await asyncio.sleep(2**attempt)
 
             except (httpx.ConnectError, httpx.ReadTimeout) as e:
-                logger.warning(f"[SteamAPI] 网络错误: {e} (attempt {attempt}/{self._max_retries})")
+                logger.warning(
+                    f"[SteamAPI] 网络错误: {_safe_log_text(e)} "
+                    f"(attempt {attempt}/{self._max_retries})"
+                )
                 if attempt == self._max_retries:
                     raise
                 await asyncio.sleep(2**attempt)
@@ -655,6 +662,10 @@ class SteamAPIClient:
 def _strip_html(text: str) -> str:
     """去除 HTML 标签"""
     return re.sub(r"<[^>]+>", "", text).strip() if text else ""
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _build_review_trend(

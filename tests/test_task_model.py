@@ -2,6 +2,9 @@
 
 from datetime import datetime
 
+from src.collectors.base import CollectResult, CollectTarget
+from src.core.pipeline import PipelineResult
+from src.core.sensitive import redact_sensitive
 from src.core.task import Task, TaskTarget, TaskStatus, TaskPriority, TaskStepLog
 
 
@@ -197,6 +200,55 @@ class TestTaskSummary:
         assert s["status"] == "success"
         assert s["progress"] == 1.0
 
+    def test_summary_and_public_payload_redact_sensitive_error_text(self):
+        t = Task(
+            name="api_key=task-secret",
+            collector_name="steam",
+            config={"token": "config-secret"},
+            targets=[TaskTarget(name="CS2", params={"api_key": "target-secret"})],
+        )
+        t.result = {
+            "errors": ["upstream api_key=result-secret"],
+            "nested": {"token": "result-token"},
+        }
+        t.add_step_log(
+            "collect:api_key=step-secret",
+            TaskStatus.FAILED,
+            "message token=message-secret",
+            error="error api_key=log-secret",
+        )
+        t.fail("failed api_key=error-secret")
+
+        summary = t.to_summary()
+        result_summary = t.result_summary
+        payload = t.to_storage_payload()
+        public_payload = t.to_public_payload()
+        rendered = str(
+            {"summary": summary, "result_summary": result_summary, "payload": public_payload}
+        )
+
+        assert summary["name"] == "api_key=[REDACTED]"
+        assert summary["error"] == "failed api_key=[REDACTED]"
+        assert result_summary == {
+            "errors": ["upstream api_key=[REDACTED]"],
+            "nested": {"token": "[REDACTED]"},
+        }
+        assert payload["config"]["token"] == "config-secret"
+        assert payload["targets"][0]["params"]["api_key"] == "target-secret"
+        assert payload["step_logs"][0]["step_name"] == "collect:api_key=step-secret"
+        assert payload["step_logs"][0]["message"] == "message token=message-secret"
+        assert payload["step_logs"][0]["error"] == "error api_key=log-secret"
+        assert public_payload["config"]["token"] == "[REDACTED]"
+        assert public_payload["targets"][0]["params"]["api_key"] == "[REDACTED]"
+        assert public_payload["step_logs"][0]["step_name"] == "collect:api_key=[REDACTED]"
+        assert public_payload["step_logs"][0]["message"] == "message token=[REDACTED]"
+        assert public_payload["step_logs"][0]["error"] == "error api_key=[REDACTED]"
+        assert "task-secret" not in rendered
+        assert "target-secret" not in rendered
+        assert "result-secret" not in rendered
+        assert "message-secret" not in rendered
+        assert "error-secret" not in rendered
+
 
 class TestTaskStorageRoundtrip:
     def test_roundtrip(self, task_completed):
@@ -216,6 +268,57 @@ class TestTaskStorageRoundtrip:
     def test_result_summary_none_when_no_result(self):
         t = Task(name="T")
         assert t.result_summary is None
+
+    def test_roundtrip_preserves_lightweight_result_summary_without_full_result(self):
+        task = Task(id="task-summary", name="T")
+        result = PipelineResult(pipeline_name="p", task_id=task.id, success=False)
+        result.errors = ["collect failed api_key=result-secret"]
+        result.collect_results = [
+            CollectResult(
+                target=CollectTarget(name="CS2 api_key=target-secret"),
+                success=False,
+                error="network token=collector-secret",
+                error_code="network_unreachable",
+                metadata={"attempts": 2, "max_attempts": 2, "retry_attempts": 1},
+            )
+        ]
+        task.result = result
+
+        payload = task.to_storage_payload()
+        restored = Task.from_storage_payload(payload)
+        rendered = str(restored.to_public_payload())
+
+        assert restored.result is None
+        assert restored.result_summary == redact_sensitive(payload["result_summary"])
+        assert restored.to_storage_payload()["result_summary"] == payload["result_summary"]
+        assert restored.result_summary["collection_summary"]["status"] == "failed"
+        assert "stored_result_summary" not in restored.to_storage_payload()
+        assert "target-secret" not in rendered
+        assert "collector-secret" not in rendered
+        assert "result-secret" not in rendered
+
+    def test_storage_roundtrip_preserves_sensitive_executable_params(self):
+        task = Task(
+            id="task-raw-storage",
+            name="api_key=task-secret",
+            collector_name="steam",
+            config={"token": "config-secret"},
+            targets=[TaskTarget(name="CS2", params={"api_key": "target-secret"})],
+        )
+
+        payload = task.to_storage_payload()
+        restored = Task.from_storage_payload(payload)
+        public_payload = restored.to_public_payload()
+
+        assert payload["name"] == "api_key=task-secret"
+        assert payload["config"]["token"] == "config-secret"
+        assert payload["targets"][0]["params"]["api_key"] == "target-secret"
+        assert restored.name == "api_key=task-secret"
+        assert restored.config["token"] == "config-secret"
+        assert restored.targets[0].params["api_key"] == "target-secret"
+        assert public_payload["name"] == "api_key=[REDACTED]"
+        assert public_payload["config"]["token"] == "[REDACTED]"
+        assert public_payload["targets"][0]["params"]["api_key"] == "[REDACTED]"
 
 
 class TestTaskFromStorage:

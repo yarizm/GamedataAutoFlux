@@ -26,6 +26,7 @@ from loguru import logger
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.core.sensitive import redact_sensitive_text
 from src.storage.models import AgentSessionModel
 
 _MSG_CLASSES: dict[str, type[BaseMessage]] = {
@@ -47,6 +48,10 @@ def _utc_timestamp(dt: datetime) -> float:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.timestamp()
+
+
+def _safe_log_text(value: object) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 class AgentSessionService:
@@ -117,7 +122,10 @@ class AgentSessionService:
                         if cls is not None:
                             msgs.append(cls.model_validate(raw))
                         else:
-                            logger.warning(f"恢复会话时跳过未知消息类型: {msg_type!r}")
+                            logger.warning(
+                                "恢复会话时跳过未知消息类型: {}",
+                                _safe_log_text(repr(msg_type)),
+                            )
 
                     if msgs:
                         histories[sid] = msgs
@@ -126,7 +134,7 @@ class AgentSessionService:
                 if histories:
                     logger.info(f"已恢复 {len(histories)} 个 Agent 会话历史")
         except Exception as e:
-            logger.warning(f"加载 Agent 会话历史失败: {e}")
+            logger.warning(f"加载 Agent 会话历史失败: {_safe_log_text(e)}")
 
         return histories, timestamps
 
@@ -162,6 +170,7 @@ class AgentSessionService:
         if not force and now - last_save_time < 5:
             return last_save_time
 
+        removed_sids: list[str] = []
         session_ids = list(histories.keys())
         if len(session_ids) > self._max_sessions:
             sorted_sids = sorted(
@@ -174,11 +183,19 @@ class AgentSessionService:
                 if sid not in keep_sids:
                     histories.pop(sid, None)
                     timestamps.pop(sid, None)
+                    removed_sids.append(sid)
 
         try:
             async with self._session_factory() as session:
                 session_ids = list(histories.keys())
+                if removed_sids:
+                    await session.execute(
+                        delete(AgentSessionModel).where(
+                            AgentSessionModel.session_id.in_(removed_sids)
+                        )
+                    )
                 if not session_ids:
+                    await session.commit()
                     return now
 
                 result = await session.execute(
@@ -216,7 +233,7 @@ class AgentSessionService:
                 await session.commit()
             return now
         except Exception as exc:
-            logger.warning(f"保存 Agent 会话历史失败: {exc}")
+            logger.warning(f"保存 Agent 会话历史失败: {_safe_log_text(exc)}")
             return last_save_time
 
     async def cleanup_stale(
@@ -248,9 +265,24 @@ class AgentSessionService:
                 )
                 await session.commit()
         except Exception as e:
-            logger.warning(f"清理过期数据库会话失败: {e}")
+            logger.warning(f"清理过期数据库会话失败: {_safe_log_text(e)}")
 
         logger.debug(f"清理了 {len(stale)} 个超时会话")
+
+    async def delete_sessions(self, session_ids: list[str]) -> None:
+        """Delete persisted Agent sessions by id."""
+        session_ids = [sid for sid in session_ids if sid]
+        if not session_ids:
+            return
+
+        try:
+            async with self._session_factory() as session:
+                await session.execute(
+                    delete(AgentSessionModel).where(AgentSessionModel.session_id.in_(session_ids))
+                )
+                await session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to delete Agent sessions: {_safe_log_text(e)}")
 
     async def _migrate_old_json(self) -> None:
         """从旧版 JSON 文件迁移会话数据到数据库（仅执行一次）"""
@@ -292,4 +324,4 @@ class AgentSessionService:
             )
             logger.info("JSON 数据迁移完成，已重命名为 .bak")
         except Exception as e:
-            logger.warning(f"迁移 JSON 会话历史失败: {e}")
+            logger.warning(f"迁移 JSON 会话历史失败: {_safe_log_text(e)}")

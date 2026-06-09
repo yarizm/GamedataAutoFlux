@@ -9,31 +9,16 @@ from src.collectors.base import CollectTarget
 from src.collectors.official_site_collector import OfficialSiteCollector
 
 
-def _has_valid_llm() -> bool:
-    """检查是否有可用的 LLM 配置（至少一个能成功调用）。"""
-    import asyncio
-    from src.collectors.llm_extractor import _get_extraction_llms
+def _integration_enabled() -> bool:
+    """Integration tests require explicit opt-in to avoid network/LLM probes in normal runs."""
+    import os
 
-    llms = _get_extraction_llms()
-    if not llms:
-        return False
-
-    async def _probe():
-        try:
-            await llms[0].ainvoke("ping")
-            return True
-        except Exception:
-            return False
-
-    try:
-        return asyncio.run(_probe())
-    except Exception:
-        return False
+    return os.environ.get("RUN_INTEGRATION_TESTS", "").lower() in {"1", "true", "yes", "on"}
 
 
 pytestmark = pytest.mark.skipif(
-    not _has_valid_llm(),
-    reason="No valid LLM API key configured (integration test requires real credentials)",
+    not _integration_enabled(),
+    reason="Set RUN_INTEGRATION_TESTS=1 to run network/LLM integration tests",
 )
 
 

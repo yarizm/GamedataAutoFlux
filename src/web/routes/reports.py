@@ -13,8 +13,10 @@ from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from src.reporting.generator import GeneratedReport, ReportSummary
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
+from src.reporting.generator import GeneratedReport, ReportSummary, get_reports_dir
 from src.reporting.data_extractor import extract_from_records
+from src.reporting.quality import build_report_quality_summary
 from src.reporting.report_templates import list_report_templates, normalize_collector
 from src.reporting.report_templates import (
     validate_template_sources,
@@ -23,7 +25,13 @@ from src.reporting.report_templates import (
 )
 from src.storage.base import StorageRecord
 from src.storage.factory import get_storage
-from src.services._utils import source_label
+from src.services._utils import (
+    coerce_record_limit,
+    filter_records_by_data_source,
+    filter_source_data_records,
+    is_report_history_record,
+    source_label,
+)
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["reports"])
@@ -68,6 +76,7 @@ class ReportResponse(BaseModel):
     template: str
     matched_records: int
     metadata: dict[str, Any] = Field(default_factory=dict)
+    quality: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReportSummaryResponse(BaseModel):
@@ -78,6 +87,7 @@ class ReportSummaryResponse(BaseModel):
     data_source: str
     template: str
     matched_records: int
+    quality: dict[str, Any] = Field(default_factory=dict)
 
 
 class UploadedJsonResponse(BaseModel):
@@ -113,7 +123,7 @@ async def list_report_providers():
     try:
         providers = ReportGenerator.get_providers()
     except Exception as exc:
-        logger.warning("读取 LLM provider 列表失败: {}", exc)
+        logger.warning("读取 LLM provider 列表失败: {}", redact_sensitive_text(str(exc)))
         providers = []
 
     from src.core.config import get as get_config
@@ -136,7 +146,7 @@ async def generate_report(req: Annotated[GenerateReportRequest, Body(description
         provider=req.provider,
         params=req.params,
         records=records,
-        metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,
+        metadata=_selected_record_metadata(req.record_keys, records),
         custom_prompt=req.custom_prompt,
     )
     return _to_report_response(report)
@@ -161,7 +171,7 @@ async def save_template(template_id: str, req: TemplateSaveRequest):
     try:
         tmpl_save(template_id, req.model_dump())
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_sensitive_text(str(e)))
     return {"status": "success", "id": template_id}
 
 
@@ -174,7 +184,7 @@ async def delete_template(
     try:
         success = tmpl_delete(template_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_sensitive_text(str(e)))
     if not success:
         raise HTTPException(status_code=400, detail="Cannot delete built-in or missing template")
     return {"status": "deleted"}
@@ -204,13 +214,19 @@ async def upload_template(file: UploadFile = File(...)):
         tmpl_save(template_id, data)
         return {"status": "success", "id": template_id, "name": data.get("name")}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_sensitive_text(str(e)))
     except yaml.YAMLError as e:
-        raise HTTPException(status_code=400, detail=f"YAML parsing error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"YAML parsing error: {redact_sensitive_text(str(e))}",
+        )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload template: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload template: {redact_sensitive_text(str(e))}",
+        )
 
 
 @router.post("/reports/upload-json", response_model=list[UploadedJsonResponse])
@@ -224,51 +240,54 @@ async def upload_report_json(
     store = get_storage()
     await store.initialize()
     responses: list[UploadedJsonResponse] = []
-    for index, file in enumerate(files, start=1):
-        raw = await file.read(size=20_971_520 + 1)
-        if len(raw) > 20_971_520:
-            raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
-        try:
-            payload = json.loads(raw.decode("utf-8-sig"))
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid JSON file {file.filename}: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise HTTPException(400, f"JSON file {file.filename} must contain an object")
+    try:
+        for index, file in enumerate(files, start=1):
+            raw = await file.read(size=20_971_520 + 1)
+            if len(raw) > 20_971_520:
+                raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
+            try:
+                payload = json.loads(raw.decode("utf-8-sig"))
+            except Exception as exc:
+                raise HTTPException(400, f"Invalid JSON file {file.filename}: {exc}") from exc
+            if not isinstance(payload, dict):
+                raise HTTPException(400, f"JSON file {file.filename} must contain an object")
 
-        data = payload.get("data") if _looks_like_download_wrapper(payload) else payload
-        if not isinstance(data, dict):
-            raise HTTPException(400, f"JSON file {file.filename} does not contain object data")
+            data = payload.get("data") if _looks_like_download_wrapper(payload) else payload
+            if not isinstance(data, dict):
+                raise HTTPException(400, f"JSON file {file.filename} does not contain object data")
 
-        collector = normalize_collector(_infer_collector(data, payload))
-        game_name = _infer_game_name(data, payload) or "Uploaded JSON"
-        app_id = _infer_app_id(data)
-        key = f"upload:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
-        await store.save(
-            StorageRecord(
-                key=key,
-                data=data,
-                metadata={
-                    "kind": "uploaded_json_source",
-                    "collector": collector,
-                    "target": game_name,
-                    "app_id": app_id or "",
-                    "uploaded_filename": file.filename or "",
-                },
-                source="upload",
-                tags=["uploaded_json", collector, game_name],
+            collector = normalize_collector(_infer_collector(data, payload))
+            game_name = _infer_game_name(data, payload) or "Uploaded JSON"
+            app_id = _infer_app_id(data)
+            key = f"upload:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
+            await store.save(
+                StorageRecord(
+                    key=key,
+                    data=data,
+                    metadata={
+                        "kind": "uploaded_json_source",
+                        "collector": collector,
+                        "target": game_name,
+                        "app_id": app_id or "",
+                        "uploaded_filename": file.filename or "",
+                    },
+                    source="upload",
+                    tags=["uploaded_json", collector, game_name],
+                )
             )
-        )
-        responses.append(
-            UploadedJsonResponse(
-                key=key,
-                filename=file.filename or key,
-                collector=collector,
-                game_name=game_name,
-                app_id=app_id,
+            responses.append(
+                UploadedJsonResponse(
+                    key=key,
+                    filename=file.filename or key,
+                    collector=collector,
+                    game_name=game_name,
+                    app_id=app_id,
+                )
             )
-        )
 
-    return responses
+        return responses
+    finally:
+        await store.close()
 
 
 @router.get("/reports", response_model=list[ReportSummaryResponse])
@@ -293,7 +312,7 @@ async def list_group_records_for_report(
         summary = _record_summary(record)
         if not summary or summary.group_id != group_id:
             continue
-        if source and summary.data_source != source:
+        if source and not filter_records_by_data_source([record], source):
             continue
         records.append(summary.model_dump())
     records.sort(key=lambda item: item.get("stored_at") or "", reverse=True)
@@ -369,7 +388,7 @@ async def generate_excel_report(
         provider=req.provider,
         params=req.params,
         records=records,
-        metadata={"selected_record_keys": req.record_keys} if req.record_keys else None,
+        metadata=_selected_record_metadata(req.record_keys, records),
         custom_prompt=req.custom_prompt,
     )
     return _to_report_response(report)
@@ -392,9 +411,8 @@ async def download_report(report_id: Annotated[str, Path(description="报告 ID"
         )
 
     if excel_path:
-        from src.core.config import get as get_config
         resolved = FilePath(excel_path).resolve()
-        allowed_dir = FilePath(get_config("storage.reports_dir", "data/reports")).resolve()
+        allowed_dir = get_reports_dir()
         # 用 is_relative_to 防止 /data/reports_evil 绕过 /data/reports 前缀检查
         if not resolved.is_relative_to(allowed_dir):
             raise HTTPException(403, "Access denied")
@@ -415,53 +433,108 @@ async def download_report(report_id: Annotated[str, Path(description="报告 ID"
 def _to_report_response(report: GeneratedReport) -> ReportResponse:
     return ReportResponse(
         id=report.id,
-        title=report.title,
-        content=report.content,
+        title=redact_sensitive_text(report.title),
+        content=redact_sensitive_text(report.content),
         generated_at=report.generated_at.isoformat(),
-        prompt=report.prompt,
-        data_source=report.data_source,
-        template=report.template,
+        prompt=redact_sensitive_text(report.prompt),
+        data_source=redact_sensitive_text(report.data_source),
+        template=redact_sensitive_text(report.template),
         matched_records=report.matched_records,
-        metadata=report.metadata,
+        metadata=redact_sensitive(report.metadata),
+        quality=redact_sensitive(
+            build_report_quality_summary(
+                report.metadata,
+                matched_records=report.matched_records,
+            )
+        ),
     )
 
 
 def _to_summary_response(report: ReportSummary) -> ReportSummaryResponse:
     return ReportSummaryResponse(
         id=report.id,
-        title=report.title,
+        title=redact_sensitive_text(report.title),
         generated_at=report.generated_at.isoformat(),
-        prompt=report.prompt,
-        data_source=report.data_source,
-        template=report.template,
+        prompt=redact_sensitive_text(report.prompt),
+        data_source=redact_sensitive_text(report.data_source),
+        template=redact_sensitive_text(report.template),
         matched_records=report.matched_records,
+        quality=redact_sensitive(
+            build_report_quality_summary(
+                report.metadata,
+                matched_records=report.matched_records,
+            )
+        ),
     )
 
 
 async def _load_selected_records(record_keys: list[str]):
     store = get_storage()
     await store.initialize()
-    records = []
-    for key in record_keys:
-        record = await store.load(key)
-        if record is None:
-            raise HTTPException(404, f"原始数据记录不存在: {key}")
-        records.append(record)
-    return records
+    try:
+        records = []
+        for key in record_keys:
+            record = await store.load(key)
+            if record is not None and is_report_history_record(record):
+                continue
+            if record is None:
+                raise HTTPException(404, f"原始数据记录不存在: {key}")
+            records.append(record)
+        if record_keys and not records:
+            raise HTTPException(
+                400,
+                "Selected keys only contain generated report history. Select source data records instead.",
+            )
+        return records
+    finally:
+        await store.close()
+
+
+def _selected_record_metadata(
+    requested_keys: list[str],
+    records: list[StorageRecord] | None,
+) -> dict[str, Any] | None:
+    if not requested_keys:
+        return None
+    selected_keys = [record.key for record in records or []]
+    selected_set = set(selected_keys)
+    metadata: dict[str, Any] = {"selected_record_keys": selected_keys}
+    excluded_keys = [key for key in requested_keys if key not in selected_set]
+    if excluded_keys:
+        metadata["excluded_report_record_keys"] = excluded_keys
+    return metadata
 
 
 async def _load_report_precheck_records(req: GenerateReportRequest) -> list[StorageRecord]:
     if req.record_keys:
         return await _load_selected_records(req.record_keys)
 
-    limit = max(1, min(int(req.params.get("limit", 100) or 100), 1000))
+    limit = coerce_record_limit(req.params.get("limit"), default=100)
     store = get_storage()
     await store.initialize()
-    if req.data_source:
-        result = await store.query(f"source:{req.data_source}", limit=limit)
-    else:
-        result = await store.query("key:", limit=limit)
-    return result.records
+    try:
+        if req.data_source:
+            result = await store.query(f"source:{req.data_source}", limit=limit)
+            source_records = filter_source_data_records(result.records)
+            if source_records:
+                return source_records
+
+            scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
+            candidates_by_key: dict[str, StorageRecord] = {}
+            for query in (req.data_source, "key:"):
+                result = await store.query(query, limit=scan_limit)
+                for record in result.records:
+                    candidates_by_key[record.key] = record
+            return filter_records_by_data_source(
+                list(candidates_by_key.values()),
+                req.data_source,
+            )[:limit]
+
+        scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
+        result = await store.query("key:", limit=scan_limit)
+        return filter_source_data_records(result.records)[:limit]
+    finally:
+        await store.close()
 
 
 def _build_report_precheck(template: str, records: list[StorageRecord]) -> ReportPrecheckResponse:

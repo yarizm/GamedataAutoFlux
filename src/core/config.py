@@ -61,6 +61,34 @@ def _resolve_env_vars(value: Any) -> Any:
     return value
 
 
+def _apply_env_overrides(settings: dict[str, Any]) -> dict[str, Any]:
+    """Apply explicit environment overrides that are not placeholder based."""
+    overrides: tuple[tuple[str, tuple[str, ...], type], ...] = (
+        ("SERVER_HOST", ("server", "host"), str),
+        ("SERVER_PORT", ("server", "port"), int),
+    )
+    for env_name, path, value_type in overrides:
+        raw_value = os.environ.get(env_name)
+        if raw_value is None or raw_value == "":
+            continue
+
+        try:
+            value = value_type(raw_value)
+        except (TypeError, ValueError):
+            logger.warning(f"忽略无效环境变量 {env_name}={raw_value!r}")
+            continue
+
+        node = settings
+        for key in path[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                child = {}
+                node[key] = child
+            node = child
+        node[path[-1]] = value
+    return settings
+
+
 def load_settings(config_path: str | Path | None = None) -> dict[str, Any]:
     """
     加载配置文件。
@@ -89,7 +117,7 @@ def load_settings(config_path: str | Path | None = None) -> dict[str, Any]:
             logger.error(f"配置文件解析失败: {exc}")
             raw = {}
 
-        _settings = _resolve_env_vars(raw)
+        _settings = _apply_env_overrides(_resolve_env_vars(raw))
         _settings_validation = _validate_settings(_settings)
         if not _settings_validation["valid"]:
             issue_text = "; ".join(

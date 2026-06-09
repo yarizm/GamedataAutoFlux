@@ -63,6 +63,57 @@ async def test_save_and_load(svc, session_factory):
 
 
 @pytest.mark.asyncio
+async def test_load_redacts_unknown_message_type_log(session_factory, monkeypatch):
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "src.services.agent_session_service.logger.warning",
+        lambda message, *args: captured.append(str(message).format(*args)),
+    )
+    async with session_factory() as session:
+        session.add(
+            AgentSessionModel(
+                session_id="sensitive-type",
+                messages=json.dumps(
+                    [{"type": "tool_token=message-secret", "content": "x"}],
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        await session.commit()
+
+    await AgentSessionService(session_factory).load_histories()
+
+    rendered = " ".join(captured)
+    assert "message-secret" not in rendered
+    assert "tool_token=[REDACTED]" in rendered
+
+
+@pytest.mark.asyncio
+async def test_load_failure_log_redacts_exception_text(monkeypatch):
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "src.services.agent_session_service.logger.warning",
+        lambda message, *args: captured.append(str(message).format(*args)),
+    )
+
+    class FailingSession:
+        async def __aenter__(self):
+            raise RuntimeError("db failed api_key=session-secret")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def failing_session_factory():
+        return FailingSession()
+
+    await AgentSessionService(failing_session_factory).load_histories()
+
+    rendered = " ".join(captured)
+    assert "session-secret" not in rendered
+    assert "api_key=[REDACTED]" in rendered
+
+
+@pytest.mark.asyncio
 async def test_save_throttle(svc):
     """保存节流：5秒内非 force 不写入"""
     histories = {"s1": [HumanMessage(content="test")]}
@@ -117,12 +168,32 @@ async def test_cleanup_stale(svc, session_factory):
         result = await session.execute(select(AgentSessionModel))
         rows = result.scalars().all()
         sids = {r.session_id for r in rows}
-        assert "active" in sids
-        assert "stale" not in sids
+    assert "active" in sids
+    assert "stale" not in sids
 
 
 @pytest.mark.asyncio
-async def test_cap_max_sessions(svc):
+async def test_delete_sessions_removes_persisted_rows(svc, session_factory):
+    histories = {
+        "keep": [HumanMessage(content="keep")],
+        "delete": [HumanMessage(content="delete")],
+    }
+    timestamps = {"keep": time.time(), "delete": time.time()}
+    await svc.save_histories(histories, timestamps, last_save_time=0, force=True)
+
+    await svc.delete_sessions(["delete"])
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(AgentSessionModel))
+        sids = {r.session_id for r in result.scalars().all()}
+        assert "keep" in sids
+        assert "delete" not in sids
+
+
+@pytest.mark.asyncio
+async def test_cap_max_sessions(svc, session_factory):
     """超过 max_sessions 时裁剪最旧的"""
     now = time.time()
     svc._max_sessions = 2
@@ -138,6 +209,13 @@ async def test_cap_max_sessions(svc):
     assert len(histories) == 2
     assert "s3" in histories
     assert "s4" in histories
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(AgentSessionModel))
+        sids = {r.session_id for r in result.scalars().all()}
+        assert sids == {"s3", "s4"}
 
 
 @pytest.mark.asyncio

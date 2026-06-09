@@ -17,6 +17,7 @@ from typing import Any
 from loguru import logger
 
 from src.core.events import TaskCompletedEvent, TaskUpdatedEvent
+from src.core.sensitive import redact_sensitive_text
 
 
 class ReportGenerationHook:
@@ -71,8 +72,9 @@ class ReportGenerationHook:
             task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
             logger.info(f"报告自动生成完成: {report.title}")
         except Exception as exc:
-            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=str(exc))
-            logger.error(f"自动报告生成失败: {exc}")
+            safe_error = redact_sensitive_text(str(exc))
+            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=safe_error)
+            logger.error(f"自动报告生成失败: {safe_error}")
 
     @staticmethod
     def _build_default_prompt(task: Any) -> str:
@@ -92,15 +94,18 @@ class AlertHook:
             return
 
         task = event.task
-        error_msg = "; ".join(event.errors) if event.errors else (task.error or "未知错误")
+        if event.errors:
+            error_msg = "; ".join(redact_sensitive_text(str(error)) for error in event.errors)
+        else:
+            error_msg = redact_sensitive_text(task.error or "未知错误")
         try:
             await self._alert_service.send_alert(
-                f"任务执行失败: {task.name}",
+                f"任务执行失败: {redact_sensitive_text(task.name)}",
                 f"**Task ID**: {task.id}\n**Error**: {error_msg}",
                 level="error",
             )
         except Exception as exc:
-            logger.error(f"告警发送失败: {exc}")
+            logger.error(f"告警发送失败: {redact_sensitive_text(str(exc))}")
 
 
 class WebSocketBroadcastHook:
@@ -113,4 +118,4 @@ class WebSocketBroadcastHook:
         try:
             await self._manager.broadcast({"type": "task_update", "task": event.payload})
         except Exception as exc:
-            logger.debug(f"WebSocket broadcast failed: {exc}")
+            logger.debug(f"WebSocket broadcast failed: {redact_sensitive_text(str(exc))}")

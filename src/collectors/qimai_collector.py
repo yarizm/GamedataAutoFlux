@@ -24,6 +24,7 @@ from loguru import logger
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.config import get as get_config
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 try:
     from playwright.async_api import Response as AsyncResponse
@@ -39,6 +40,10 @@ except ImportError:  # pragma: no cover - dependency is optional at import time
 
 class QimaiScrapeFailed(Exception):
     """Raised when Qimai scraping fails."""
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 @registry.register("collector", "qimai")
@@ -120,7 +125,12 @@ class QimaiCollector(BaseCollector):
             )
 
         country = str(target.params.get("country") or "cn").lower()
-        logger.info("[Qimai] collecting {} app_id={} country={}", target.name, app_id, country)
+        logger.info(
+            "[Qimai] collecting {} app_id={} country={}",
+            _safe_log_text(target.name),
+            _safe_log_text(app_id),
+            _safe_log_text(country),
+        )
 
         try:
             if self._should_use_threaded_playwright():
@@ -128,11 +138,12 @@ class QimaiCollector(BaseCollector):
             else:
                 qimai_data = await self._scrape_async(app_id, country)
         except Exception as exc:
-            logger.exception("[Qimai] collection failed")
+            safe_error = _safe_log_text(exc)
+            logger.error("[Qimai] collection failed: {}", safe_error)
             return CollectResult(
                 target=target,
                 success=False,
-                error=f"Qimai collection failed: {exc}",
+                error=f"Qimai collection failed: {safe_error}",
                 metadata={"collector": "qimai"},
             )
 

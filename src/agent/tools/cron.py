@@ -10,7 +10,7 @@ from src.agent.schemas import (
     CreateCronJobInput,
     DeleteCronJobInput,
 )
-from src.agent.tools.utils import _format_result, _safe_json
+from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
 
 
 class ListCronJobsTool(BaseTool):
@@ -64,7 +64,7 @@ class CreateCronJobTool(BaseTool):
                 record_count=1,
             )
         except Exception as e:
-            return _format_result("error", f"创建定时任务失败: {e}")
+            return _format_result("error", f"创建定时任务失败: {_safe_error_text(e)}")
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")

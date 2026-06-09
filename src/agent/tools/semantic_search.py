@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from loguru import logger
 from src.services._utils import get_embeddings, extract_record_identity
 
-from src.agent.tools.utils import _format_result
+from src.agent.tools.utils import _format_result, _safe_error_text
 
 
 class SemanticSearchInput(BaseModel):
@@ -27,7 +27,7 @@ class SemanticSearchTool(BaseTool):
         try:
             query_vector = await embeddings.aembed_query(query)
         except Exception as e:
-            return f"[Error] Failed to embed query: {e}"
+            return _format_result("error", f"向量化查询失败: {_safe_error_text(e)}")
 
         store = get_storage()
         await store.initialize()
@@ -67,8 +67,8 @@ class SemanticSearchTool(BaseTool):
                 max_data_length=15000,
             )
         except Exception as e:
-            logger.error(f"Semantic search failed: {e}")
-            return _format_result("error", f"执行语义检索时发生错误: {e}")
+            logger.error(f"Semantic search failed: {_safe_error_text(e)}")
+            return _format_result("error", f"执行语义检索时发生错误: {_safe_error_text(e)}")
         finally:
             await store.close()
 

@@ -28,6 +28,7 @@ from src.collectors.steam.steam_api_client import SteamAPIClient
 from src.collectors.steam.steamdb_scraper import SteamDBScraper, SteamDBScrapeFailed
 from src.collectors.steam.firecrawl_fallback import FirecrawlFallback
 from src.core.errors import ErrorCode, classify_exception
+from src.core.sensitive import redact_sensitive_text
 from src.core.registry import registry
 
 
@@ -199,10 +200,11 @@ class SteamCollector(BaseCollector):
                 review_summary_concurrency=review_summary_concurrency,
             )
         except Exception as e:
-            logger.error(f"[Steam] 官方 API 采集失败: {e}")
+            safe_error = _safe_log_text(e)
+            logger.error(f"[Steam] 官方 API 采集失败: {safe_error}")
             steam_data = {
                 "source": "steam_api",
-                "error": str(e),
+                "error": safe_error,
                 "_error_code": classify_exception(e).value,
             }
 
@@ -245,8 +247,9 @@ class SteamCollector(BaseCollector):
                     )
                     logger.info("[Steam] SteamDB Playwright ✓")
                 except SteamDBScrapeFailed as e:
-                    steamdb_warning = f"SteamDB Playwright 失败: {e}"
-                    logger.warning(f"[Steam] Playwright 失败: {e}")
+                    safe_error = _safe_log_text(e)
+                    steamdb_warning = f"SteamDB Playwright 失败: {safe_error}"
+                    logger.warning(f"[Steam] Playwright 失败: {safe_error}")
                     steamdb_data = await self._run_firecrawl_fallback(
                         app_id,
                         steamdb_warning,
@@ -255,8 +258,9 @@ class SteamCollector(BaseCollector):
                         headers=firecrawl_headers,
                     )
                 except Exception as e:
-                    steamdb_warning = f"SteamDB 可选采集异常: {e}"
-                    logger.warning(f"[Steam] SteamDB 可选采集异常，保留官方 API 结果: {e}")
+                    safe_error = _safe_log_text(e)
+                    steamdb_warning = f"SteamDB 可选采集异常: {safe_error}"
+                    logger.warning(f"[Steam] SteamDB 可选采集异常，保留官方 API 结果: {safe_error}")
                     steamdb_data = await self._run_firecrawl_fallback(
                         app_id,
                         steamdb_warning,
@@ -343,10 +347,11 @@ class SteamCollector(BaseCollector):
                 logger.info("[Steam] Firecrawl 兜底 ✓")
                 return result
             except Exception as fc_err:
-                logger.error(f"[Steam] Firecrawl 也失败: {fc_err}")
+                safe_error = _safe_log_text(fc_err)
+                logger.error(f"[Steam] Firecrawl 也失败: {safe_error}")
                 return {
                     "source": "firecrawl",
-                    "error": str(fc_err),
+                    "error": safe_error,
                 }
 
         return {
@@ -360,17 +365,17 @@ class SteamCollector(BaseCollector):
             try:
                 await self._steam_api.teardown()
             except Exception as e:
-                logger.error(f"[SteamCollector] steam_api teardown failed: {e}")
+                logger.error(f"[SteamCollector] steam_api teardown failed: {_safe_log_text(e)}")
         if self._steamdb:
             try:
                 await self._steamdb.teardown()
             except Exception as e:
-                logger.error(f"[SteamCollector] steamdb teardown failed: {e}")
+                logger.error(f"[SteamCollector] steamdb teardown failed: {_safe_log_text(e)}")
         if self._firecrawl:
             try:
                 await self._firecrawl.teardown()
             except Exception as e:
-                logger.error(f"[SteamCollector] firecrawl teardown failed: {e}")
+                logger.error(f"[SteamCollector] firecrawl teardown failed: {_safe_log_text(e)}")
         await super().teardown()
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
@@ -470,6 +475,10 @@ def _clean_headers(value: Any) -> dict[str, str]:
         for key, header_value in value.items()
         if key not in (None, "") and header_value not in (None, "")
     }
+
+
+def _safe_log_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
 
 
 def _safe_int(value: Any) -> int | None:

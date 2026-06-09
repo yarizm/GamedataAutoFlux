@@ -12,6 +12,7 @@ from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult
 
 from src.core.config import get as get_config
+from src.core.sensitive import redact_sensitive_text
 
 # Connection-level errors that indicate the MCP server process is dead.
 # When these occur, we mark the manager as not running and stop all retries.
@@ -68,7 +69,7 @@ class PlaywrightMcpManager:
         try:
             await start_future
         except Exception as e:
-            logger.error(f"Failed to start Playwright MCP server: {e}")
+            logger.error(f"Failed to start Playwright MCP server: {redact_sensitive_text(str(e))}")
             await self.stop()
 
     async def _run_manager_task(self, start_future: asyncio.Future) -> None:
@@ -123,13 +124,19 @@ class PlaywrightMcpManager:
                 attempt += 1
                 if attempt > max_retries:
                     logger.error(
-                        f"MCP background task failed after {max_retries} attempts, giving up: {e}"
+                        "MCP background task failed after {} attempts, giving up: {}",
+                        max_retries,
+                        redact_sensitive_text(str(e)),
                     )
                     break
 
                 backoff = min(max_backoff, base_backoff * (2 ** (attempt - 1)))
                 logger.error(
-                    f"MCP background task crashed: {e}. Restarting in {backoff}s (attempt {attempt}/{max_retries})..."
+                    "MCP background task crashed: {}. Restarting in {}s (attempt {}/{})...",
+                    redact_sensitive_text(str(e)),
+                    backoff,
+                    attempt,
+                    max_retries,
                 )
                 await asyncio.sleep(backoff)
 
@@ -180,7 +187,7 @@ class PlaywrightMcpManager:
                 self._tools_cache.append(langchain_tool)
             logger.info(f"Loaded {len(self._tools_cache)} tools from Playwright MCP.")
         except Exception as e:
-            logger.error(f"Failed to fetch tools from MCP server: {e}")
+            logger.error(f"Failed to fetch tools from MCP server: {redact_sensitive_text(str(e))}")
 
     def get_langchain_tools(self) -> List[BaseTool]:
         """Returns the list of LangChain tools generated from the MCP server."""
@@ -281,7 +288,7 @@ class PlaywrightMcpManager:
 
                     if result.isError:
                         self._consecutive_failures += 1
-                        return f"MCP 工具错误: {' | '.join(output_parts)}"
+                        return f"MCP 工具错误: {redact_sensitive_text(' | '.join(output_parts))}"
 
                     # Success: reset failure counter.
                     self._consecutive_failures = 0
@@ -289,7 +296,7 @@ class PlaywrightMcpManager:
 
                 except Exception as e:
                     exc_type = type(e).__name__
-                    exc_msg = str(e) or "(无详细信息)"
+                    exc_msg = redact_sensitive_text(str(e) or "(无详细信息)")
                     logger.warning(f"MCP tool {self.name} failed: [{exc_type}] {exc_msg}")
 
                     self._consecutive_failures += 1

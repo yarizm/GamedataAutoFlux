@@ -15,7 +15,7 @@ from src.agent.schemas import (
     VerifyGameIdentifierInput,
     VerifySteamAppIdInput,
 )
-from src.agent.tools.utils import _format_result, _safe_json
+from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
 from loguru import logger
 
 
@@ -34,7 +34,9 @@ async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> lis
     try:
         await resolver.setup()
     except (NotImplementedError, RuntimeError, OSError) as e:
-        logger.warning(f"标识符自动填充跳过 (Playwright/浏览器不可用): {e}")
+        logger.warning(
+            f"标识符自动填充跳过 (Playwright/浏览器不可用): {_safe_error_text(e)}"
+        )
         return targets
 
     try:
@@ -133,7 +135,7 @@ class ResolveSteamAppIdTool(BaseTool):
                 if isinstance(data, list):
                     add_items(data, key_id="appid")
             except Exception as e:
-                logger.warning(f"Steam Community SearchApps error: {e}")
+                logger.warning(f"Steam Community SearchApps error: {_safe_error_text(e)}")
 
             try:
                 resp = await fetch_with_retry(
@@ -144,7 +146,7 @@ class ResolveSteamAppIdTool(BaseTool):
                 data = resp.json()
                 add_items(data.get("items", []), key_id="id")
             except Exception as e:
-                logger.warning(f"Steam Store Search(EN) error: {e}")
+                logger.warning(f"Steam Store Search(EN) error: {_safe_error_text(e)}")
 
             try:
                 resp = await fetch_with_retry(
@@ -155,7 +157,7 @@ class ResolveSteamAppIdTool(BaseTool):
                 data = resp.json()
                 add_items(data.get("items", []), key_id="id")
             except Exception as e:
-                logger.warning(f"Steam Store Search(CN) error: {e}")
+                logger.warning(f"Steam Store Search(CN) error: {_safe_error_text(e)}")
 
         if all_items:
             return _safe_json({"found": True, "source": "steam_api", "results": all_items[:10]})
@@ -258,9 +260,7 @@ class VerifySteamAppIdTool(BaseTool):
                     )
                 return json.dumps({"valid": False, "app_id": app_id}, ensure_ascii=False)
         except Exception as e:
-            return json.dumps(
-                {"valid": False, "app_id": app_id, "error": str(e)}, ensure_ascii=False
-            )
+            return _safe_json({"valid": False, "app_id": app_id, "error": _safe_error_text(e)})
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -301,7 +301,7 @@ class SearchGameIdentifiersTool(BaseTool):
                 ),
             )
         except Exception as e:
-            return _format_result("error", f"搜索标识符失败: {e}")
+            return _format_result("error", f"搜索标识符失败: {_safe_error_text(e)}")
         finally:
             await resolver.teardown()
 
@@ -326,7 +326,7 @@ class VerifyGameIdentifierTool(BaseTool):
             result = await resolver.verify_identifier(platform, identifier, game_name)
             return json.dumps(result, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"valid": False, "error": str(e)}, ensure_ascii=False)
+            return _safe_json({"valid": False, "error": _safe_error_text(e)})
         finally:
             await resolver.teardown()
 

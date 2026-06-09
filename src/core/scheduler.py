@@ -25,7 +25,7 @@ from src.core.config import get as get_config
 from src.core.events import EventBus
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.registry import registry
-from src.core.sensitive import redact_sensitive
+from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.services.task_repository import TaskRepository
 from src.services.cron_repository import CronRepository, CronJobConfig
@@ -280,11 +280,15 @@ class Scheduler:
                                 try:
                                     await self._generate_report_for_task(task, pipeline, result)
                                 except Exception as e:
-                                    logger.error(f"任务报告生成失败 (不影响任务成功状态): [{task.id}] {e}")
+                                    safe_error = redact_sensitive_text(str(e))
+                                    logger.error(
+                                        f"任务报告生成失败 (不影响任务成功状态): [{task.id}] {safe_error}"
+                                    )
 
                         # 重新检查：hook 可能已将 result.success 设为 False
                         if not result.success:
-                            error_msg = "; ".join(result.errors)
+                            error_msg = _join_safe_error_messages(result.errors)
+                            task.result = result
                             task.fail(error_msg)
                             await self._persist_task(task)
                             logger.error(
@@ -296,8 +300,9 @@ class Scheduler:
                         await self._persist_task(task)
                         logger.info(f"任务执行成功: [{task.id}] {task.name}")
                     else:
-                        error_msg = "; ".join(result.errors)
-                        if task.retry():
+                        error_msg = _join_safe_error_messages(result.errors)
+                        retry_suppression_reason = _pipeline_result_retry_suppression_reason(result)
+                        if not retry_suppression_reason and task.retry():
                             await self._persist_task(task)
                             logger.warning(
                                 f"任务失败，重试 ({task.retry_count}/{task.max_retries}): "
@@ -306,6 +311,14 @@ class Scheduler:
                             should_retry = True
                             backoff = min(60, 2 ** task.retry_count)
                         else:
+                            if retry_suppression_reason:
+                                task.add_step_log(
+                                    "retry:policy",
+                                    TaskStatus.FAILED,
+                                    "Auto retry skipped to avoid duplicating stored partial results.",
+                                    error=retry_suppression_reason,
+                                )
+                            task.result = result
                             task.fail(error_msg)
                             await self._persist_task(task)
                             logger.error(f"任务最终失败: [{task.id}] {task.name} - {error_msg}")
@@ -320,7 +333,7 @@ class Scheduler:
                                         result=result,
                                         task=task,
                                         pipeline=pipeline,
-                                        errors=result.errors,
+                                        errors=_safe_error_messages(result.errors),
                                     ),
                                 )
                             else:
@@ -328,7 +341,7 @@ class Scheduler:
 
                                 self._create_background_task(
                                     AlertService.get_instance().send_alert(
-                                        f"任务执行失败: {task.name}",
+                                        f"任务执行失败: {redact_sensitive_text(task.name)}",
                                         f"**Task ID**: {task.id}\n**Error**: {error_msg}",
                                         level="error",
                                     )
@@ -344,7 +357,7 @@ class Scheduler:
                     return None
 
                 except Exception as e:
-                    error_msg = str(e)
+                    error_msg = redact_sensitive_text(str(e))
                     task.fail(error_msg)  # 先标记为 FAILED，再判断是否可重试
                     if task.retry():
                         await self._persist_task(task)
@@ -376,7 +389,7 @@ class Scheduler:
 
                             self._create_background_task(
                                 AlertService.get_instance().send_alert(
-                                    f"任务执行异常: {task.name}",
+                                    f"任务执行异常: {redact_sensitive_text(task.name)}",
                                     f"**Task ID**: {task.id}\n**Exception**: {error_msg}",
                                     level="error",
                                 )
@@ -662,11 +675,11 @@ class Scheduler:
                 },
             )
         except Exception as exc:
-            error_msg = f"auto_report: {exc}"
+            error_msg = f"auto_report: {redact_sensitive_text(str(exc))}"
             result.success = False
             result.errors.append(error_msg)
             task.result = result
-            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=str(exc))
+            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=error_msg)
             await self._persist_task(task)
             raise RuntimeError(error_msg) from exc
 
@@ -683,8 +696,8 @@ class Scheduler:
 
     async def _persist_task(self, task: Task) -> None:
         """持久化任务快照，并向前端广播状态。"""
-        # 提取给前端的简明数据
-        task_payload = redact_sensitive(task.to_storage_payload())
+        storage_payload = task.to_storage_payload()
+        public_payload = task.to_public_payload()
 
         # 优先使用注入的 TaskRepository
         if self._task_repo is not None:
@@ -693,7 +706,7 @@ class Scheduler:
             await self._task_store.save(
                 StorageRecord(
                     key=f"task:{task.id}",
-                    data=task_payload,
+                    data=storage_payload,
                     metadata={
                         "kind": "task",
                         "status": task.status.value,
@@ -712,7 +725,7 @@ class Scheduler:
                     "task_updated",
                     TaskUpdatedEvent(
                         task_id=task.id,
-                        payload=task_payload,
+                        payload=public_payload,
                         status=task.status.value,
                         pipeline_name=task.pipeline_name,
                     ),
@@ -724,7 +737,7 @@ class Scheduler:
                 from src.web.routes.ws import manager
 
                 self._create_background_task(
-                    manager.broadcast({"type": "task_update", "task": task_payload})
+                    manager.broadcast({"type": "task_update", "task": public_payload})
                 )
             except Exception as exc:
                 logger.debug(f"Failed to broadcast task update: {exc}")
@@ -879,7 +892,51 @@ def _on_background_task_done(task: asyncio.Task, tasks_set: set[asyncio.Task]) -
         return
     exc = task.exception()
     if exc is not None:
-        logger.error(f"Background task failed: {exc}")
+        logger.error(f"Background task failed: {redact_sensitive_text(str(exc))}")
+
+
+def _safe_error_messages(errors: list[str]) -> list[str]:
+    return [redact_sensitive_text(str(error or "")) for error in errors if str(error or "")]
+
+
+def _join_safe_error_messages(errors: list[str]) -> str:
+    return "; ".join(_safe_error_messages(errors))
+
+
+def _pipeline_result_retry_suppression_reason(result: PipelineResult) -> str:
+    """Return a reason when task-level retry would likely duplicate stored partial data."""
+    if not _has_stored_partial_collection_result(result):
+        return ""
+    summary = result.collection_summary
+    failed_count = _safe_int(summary.get("failed_targets_count"))
+    stored_count = int(getattr(result, "storage_count", 0) or 0)
+    output_count = len(getattr(result, "output_records", []) or [])
+    return (
+        "Partial collection already produced stored records "
+        f"(stored={stored_count}, output_records={output_count}, failed_targets={failed_count}). "
+        "Review collection failures and create targeted follow-up tasks instead of retrying "
+        "the whole pipeline."
+    )
+
+
+def _has_stored_partial_collection_result(result: PipelineResult) -> bool:
+    stored_count = int(getattr(result, "storage_count", 0) or 0)
+    output_records = getattr(result, "output_records", []) or []
+    if stored_count <= 0 and not output_records:
+        return False
+
+    summary = getattr(result, "collection_summary", {})
+    if not isinstance(summary, dict):
+        return False
+    return summary.get("status") == "partial" and _safe_int(summary.get("failed_targets_count")) > 0
+
+
+def _safe_int(value: Any, *, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _roll_refresh_template(task_template: dict[str, Any]) -> dict[str, Any]:

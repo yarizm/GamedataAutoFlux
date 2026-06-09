@@ -116,6 +116,7 @@ export default {
     this._renderSessions();
     this._restoreMessages();
     this._initProviderSelector();
+    this._refreshStatus();
   },
 
   // ── Sessions ──
@@ -236,6 +237,31 @@ export default {
     } catch { select.innerHTML = '<option value="">不可用</option>'; }
   },
 
+  async _refreshStatus() {
+    const text = document.getElementById('agent-status-text');
+    const dot = document.getElementById('agent-status-dot');
+    const wrap = document.getElementById('agent-runtime-status');
+    if (!text) return;
+    try {
+      const status = await api('/agent/status');
+      const model = status.model || status.provider || 'unknown';
+      const toolCount = status.active_tool_count ?? 0;
+      const mcp = status.mcp_running ? 'MCP on' : status.mcp_enabled ? 'MCP idle' : 'MCP off';
+      text.textContent = `${model} · ${toolCount} tools · ${mcp}`;
+      if (wrap) wrap.title = `Provider: ${status.provider || '-'}\nAgent: ${status.agent_type || '-'}\nSessions: ${status.session_count ?? 0}`;
+      if (dot) {
+        dot.style.backgroundColor = status.initialized ? '#34d399' : '#a78bfa';
+        dot.style.boxShadow = status.mcp_running ? '0 0 8px rgba(52,211,153,0.8)' : '0 0 5px rgba(139,92,246,0.8)';
+      }
+    } catch {
+      text.textContent = 'Agent unavailable';
+      if (dot) {
+        dot.style.backgroundColor = '#fb7185';
+        dot.style.boxShadow = '0 0 8px rgba(251,113,133,0.8)';
+      }
+    }
+  },
+
   async _onProviderChange() {
     const select = document.getElementById('agent-provider-select');
     if (!select) return;
@@ -245,6 +271,7 @@ export default {
       await api('/agent/providers', { method: 'POST', body: JSON.stringify({ provider }) });
       localStorage.setItem('agent_provider', provider);
       toast('已切换到 ' + providerLabel(provider), 'success');
+      this._refreshStatus();
     } catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); select.value = prev; }
   },
 
@@ -317,6 +344,7 @@ export default {
       toast(t('common.save'), 'success');
       window.closeModal('modal-provider-config');
       this._initProviderSelector();
+      this._refreshStatus();
     } catch (err) { toast(t('message.editFailed', { error: err.message }), 'error'); }
   },
 

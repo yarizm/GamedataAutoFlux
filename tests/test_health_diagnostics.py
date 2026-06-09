@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from src.core.config import get as get_config
+from src.core.config import load_settings
 from src.core.config_schema import validate_settings_payload
 from src.core.diagnostics import build_config_diagnostics, build_health_report
 from src.web.app import app
@@ -36,6 +38,34 @@ def test_settings_schema_accepts_minimal_payload() -> None:
     assert validation["issues"] == []
 
 
+def test_settings_schema_accepts_batch_concurrency() -> None:
+    validation = validate_settings_payload(
+        {
+            "collector": {
+                "batch_concurrency": 2,
+                "collect_timeout": 30,
+                "collect_retries": 1,
+                "collect_retry_delay": 0.5,
+            },
+            "steam": {"batch_concurrency": 2, "collect_timeout": 30, "collect_retries": 1},
+            "taptap": {"batch_concurrency": 2, "collect_timeout": 30, "collect_retries": 1},
+            "monitor": {"batch_concurrency": 2, "collect_timeout": 30, "collect_retries": 1},
+            "gtrends": {"collect_timeout": 30, "collect_retries": 1},
+        }
+    )
+
+    assert validation["valid"] is True
+    assert validation["normalized"]["collector"]["batch_concurrency"] == 2
+    assert validation["normalized"]["steam"]["batch_concurrency"] == 2
+    assert validation["normalized"]["taptap"]["batch_concurrency"] == 2
+    assert validation["normalized"]["monitor"]["batch_concurrency"] == 2
+    assert validation["normalized"]["collector"]["collect_timeout"] == 30
+    assert validation["normalized"]["collector"]["collect_retries"] == 1
+    assert validation["normalized"]["collector"]["collect_retry_delay"] == 0.5
+    assert validation["normalized"]["gtrends"]["collect_timeout"] == 30
+    assert validation["normalized"]["gtrends"]["collect_retries"] == 1
+
+
 def test_settings_schema_reports_invalid_values() -> None:
     validation = validate_settings_payload(
         {
@@ -49,6 +79,52 @@ def test_settings_schema_reports_invalid_values() -> None:
         "server.port",
         "scheduler.max_concurrent_tasks",
     }
+
+
+def test_settings_schema_rejects_invalid_batch_concurrency() -> None:
+    validation = validate_settings_payload(
+        {
+            "collector": {
+                "batch_concurrency": 0,
+                "collect_timeout": -1,
+                "collect_retries": -1,
+                "collect_retry_delay": -1,
+            },
+            "steam": {"batch_concurrency": 0, "collect_timeout": -1, "collect_retries": -1},
+            "taptap": {"batch_concurrency": 0, "collect_timeout": -1, "collect_retries": -1},
+            "monitor": {"batch_concurrency": 0, "collect_timeout": -1, "collect_retries": -1},
+            "gtrends": {"collect_timeout": -1, "collect_retries": -1},
+        }
+    )
+
+    assert validation["valid"] is False
+    assert {issue["path"] for issue in validation["issues"]} == {
+        "collector.batch_concurrency",
+        "steam.batch_concurrency",
+        "taptap.batch_concurrency",
+        "monitor.batch_concurrency",
+        "collector.collect_timeout",
+        "collector.collect_retries",
+        "collector.collect_retry_delay",
+        "steam.collect_timeout",
+        "steam.collect_retries",
+        "taptap.collect_timeout",
+        "taptap.collect_retries",
+        "monitor.collect_timeout",
+        "monitor.collect_retries",
+        "gtrends.collect_timeout",
+        "gtrends.collect_retries",
+    }
+
+
+def test_server_env_overrides_settings(monkeypatch) -> None:
+    monkeypatch.setenv("SERVER_HOST", "0.0.0.0")
+    monkeypatch.setenv("SERVER_PORT", "8123")
+
+    load_settings()
+
+    assert get_config("server.host") == "0.0.0.0"
+    assert get_config("server.port") == 8123
 
 
 def test_health_api_returns_diagnostic_payload() -> None:

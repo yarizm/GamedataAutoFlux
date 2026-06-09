@@ -11,7 +11,7 @@ from src.agent.schemas import (
     CreatePipelineInput,
     DeletePipelineInput,
 )
-from src.agent.tools.utils import _format_result, _safe_json
+from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
 
 
 class ListPipelineTemplatesTool(BaseTool):
@@ -75,7 +75,9 @@ class CreatePipelineTool(BaseTool):
                     try:
                         validate_dynamic_playwright_config(step_config)
                     except Exception as e:
-                        return _format_result("error", f"动态 Pipeline 配置不安全: {e}")
+                        return _format_result(
+                            "error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}"
+                        )
                 pipeline.add_collector(step_name, config=step_config)
             elif step_type == StepType.PROCESSOR:
                 pipeline.add_processor(step_name, config=step_config)
@@ -91,7 +93,7 @@ class CreatePipelineTool(BaseTool):
                 record_count=1,
             )
         except Exception as e:
-            return _format_result("error", f"创建 Pipeline 失败: {e}")
+            return _format_result("error", f"创建 Pipeline 失败: {_safe_error_text(e)}")
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")
@@ -157,7 +159,9 @@ class CreateDynamicPipelineTool(BaseTool):
         try:
             validate_dynamic_playwright_config(collector_config)
         except Exception as e:
-            return _format_result("error", f"动态 Pipeline 配置不安全: {e}")
+            return _format_result(
+                "error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}"
+            )
 
         pipeline = (
             Pipeline(pipeline_name)
@@ -178,7 +182,7 @@ class CreateDynamicPipelineTool(BaseTool):
                 record_count=1,
             )
         except Exception as e:
-            return _format_result("error", f"创建动态 Pipeline 失败: {e}")
+            return _format_result("error", f"创建动态 Pipeline 失败: {_safe_error_text(e)}")
 
     def _run(self, **kwargs) -> str:
         raise NotImplementedError("Use _arun")

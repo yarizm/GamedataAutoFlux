@@ -19,14 +19,14 @@ from .data import (
     ReviewCollectionResultsTool,
     GetDataRecordContentTool,
 )
-from .reports import GenerateReportTool, GetReportContentTool
+from .reports import GenerateReportTool, GetReportContentTool, ListReportsTool, PrecheckReportTool
 from .identifiers import (
     ResolveSteamAppIdTool,
     VerifySteamAppIdTool,
     SearchGameIdentifiersTool,
     VerifyGameIdentifierTool,
 )
-from .system import GetSystemStatsTool, LaunchSteamDBBrowserTool
+from .system import GetAgentStatusTool, GetSystemStatsTool, LaunchSteamDBBrowserTool
 from .semantic_search import SemanticSearchTool
 
 ALL_TOOLS: list[BaseTool] = [
@@ -47,9 +47,12 @@ ALL_TOOLS: list[BaseTool] = [
     DeleteCronJobTool(),
     ListDataGamesTool(),
     SearchDataTool(),
+    PrecheckReportTool(),
+    ListReportsTool(),
     GenerateReportTool(),
     GetReportContentTool(),
     GetSystemStatsTool(),
+    GetAgentStatusTool(),
     SearchGameIdentifiersTool(),
     VerifyGameIdentifierTool(),
     ReviewCollectionResultsTool(),

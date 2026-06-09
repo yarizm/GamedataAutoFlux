@@ -91,11 +91,13 @@ class TestCollectResultSummary:
             target=CollectTarget(name="CS2"),
             success=True,
             data={"players": 1000},
+            metadata={"attempts": 2, "max_attempts": 3, "retry_attempts": 1},
         )
         s = result.to_summary()
         assert s["success"] is True
         assert s["status"] == "ok"
         assert s["target"] == "CS2"
+        assert s["retry"] == {"attempts": 2, "max_attempts": 3, "retry_attempts": 1}
 
     def test_failed_result_summary_with_error_code(self):
         from src.collectors.base import CollectTarget, CollectResult
@@ -105,6 +107,7 @@ class TestCollectResultSummary:
             success=False,
             error="timeout",
             error_code=ErrorCode.network_unreachable.value,
+            metadata={"attempts": "2", "max_attempts": "2", "retry_attempts": "1"},
         )
         s = result.to_summary()
         assert s["success"] is False
@@ -113,6 +116,7 @@ class TestCollectResultSummary:
         assert s["error_label"] == "网络不可达"
         assert s["severity"] == "error"
         assert "suggestion" in s
+        assert s["retry"] == {"attempts": 2, "max_attempts": 2, "retry_attempts": 1}
 
     def test_failed_result_summary_no_code_fallback(self):
         from src.collectors.base import CollectTarget, CollectResult
@@ -126,3 +130,38 @@ class TestCollectResultSummary:
         assert s["status"] == "error"
         assert s["error_code"] == "unknown"
         assert s["error_label"] == "未知错误"
+
+    def test_failed_result_summary_redacts_error_text(self):
+        from src.collectors.base import CollectTarget, CollectResult
+
+        result = CollectResult(
+            target=CollectTarget(name="api_key=target-secret"),
+            success=False,
+            error="upstream failed: api_key=raw-secret; token: secret-token",
+        )
+
+        s = result.to_summary()
+
+        assert s["target"] == "api_key=[REDACTED]"
+        assert s["error"] == "upstream failed: api_key=[REDACTED]; token=[REDACTED]"
+        assert "raw-secret" not in str(s)
+        assert "secret-token" not in str(s)
+
+    def test_result_summary_includes_redacted_target_params(self):
+        from src.collectors.base import CollectTarget, CollectResult
+
+        result = CollectResult(
+            target=CollectTarget(
+                name="Same Game",
+                target_type="game",
+                params={"app_id": "200", "api_key": "target-secret"},
+            ),
+            success=False,
+            error="timeout",
+        )
+
+        summary = result.to_summary()
+        rendered = str(summary)
+
+        assert summary["target_params"] == {"app_id": "200", "api_key": "[REDACTED]"}
+        assert "target-secret" not in rendered

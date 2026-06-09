@@ -1,6 +1,15 @@
 """Tests for Pipeline model and PipelineResult."""
 
-from src.core.pipeline import Pipeline, PipelineResult, PipelineStep, StepType
+from src.core.pipeline import (
+    Pipeline,
+    PipelineResult,
+    PipelineStep,
+    StepType,
+    _build_storage_metadata,
+    _collect_failure_message,
+)
+from src.collectors.base import CollectResult, CollectTarget
+from src.core.task import Task, TaskTarget
 
 
 class TestPipelineConstruction:
@@ -121,6 +130,130 @@ class TestPipelineResult:
         r = PipelineResult(pipeline_name="p", task_id="t1")
         r.errors.append("something went wrong")
         assert r.errors == ["something went wrong"]
+
+    def test_collection_summary_reports_failures_and_retries_redacted(self):
+        r = PipelineResult(pipeline_name="p", task_id="t1")
+        r.collect_results = [
+            CollectResult(
+                target=CollectTarget(name="CS2 api_key=target-secret"),
+                success=False,
+                error="network failed api_key=result-secret",
+                error_code="network_unreachable",
+                metadata={
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "retry_attempts": 2,
+                    "last_retry_error": "timeout token=retry-secret",
+                },
+            ),
+            CollectResult(
+                target=CollectTarget(name="Dota 2"),
+                success=True,
+                data={"ok": True},
+                metadata={"attempts": 2, "max_attempts": 3, "retry_attempts": 1},
+            ),
+        ]
+
+        summary = r.collection_summary
+        rendered = str(summary)
+
+        assert summary["status"] == "partial"
+        assert summary["total_targets"] == 2
+        assert summary["successful_targets"] == 1
+        assert summary["failed_targets_count"] == 1
+        assert summary["retried_targets_count"] == 2
+        assert summary["retry_attempts_total"] == 3
+        assert summary["error_codes"] == {"network_unreachable": 1}
+        assert summary["failed_targets"][0]["target"] == "CS2 api_key=[REDACTED]"
+        assert summary["failed_targets"][0]["retry"]["retry_attempts"] == 2
+        assert summary["retried_targets"][1]["target"] == "Dota 2"
+        assert "target-secret" not in rendered
+        assert "result-secret" not in rendered
+        assert "retry-secret" not in rendered
+
+    def test_task_result_summary_includes_collection_summary(self):
+        r = PipelineResult(pipeline_name="p", task_id="t1", success=False)
+        r.collect_results = [
+            CollectResult(
+                target=CollectTarget(name="CS2"),
+                success=False,
+                error="rate limit 429",
+                error_code="rate_limited",
+                metadata={"attempts": 2, "max_attempts": 2, "retry_attempts": 1},
+            )
+        ]
+        task = Task(id="t1", name="T")
+        task.result = r
+
+        summary = task.result_summary
+
+        assert summary is not None
+        assert summary["collection_summary"]["status"] == "failed"
+        assert summary["collection_summary"]["failed_targets_count"] == 1
+        assert summary["collection_summary"]["failed_targets"][0]["error_code"] == "rate_limited"
+
+    def test_collect_failure_message_includes_last_retry_context_redacted(self):
+        message = _collect_failure_message(
+            CollectResult(
+                target=CollectTarget(name="CS2 api_key=target-secret"),
+                success=False,
+                error="network failed token=result-secret",
+                error_code="network_unreachable",
+                metadata={
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "retry_attempts": 2,
+                    "last_retry_error": "HTTP 429 password=retry-secret",
+                    "last_retry_error_code": "rate_limited",
+                },
+            )
+        )
+
+        assert "attempts 3/3, retries 2" in message
+        assert "last retry [rate_limited] HTTP 429 password=[REDACTED]" in message
+        assert "target-secret" not in message
+        assert "result-secret" not in message
+        assert "retry-secret" not in message
+
+
+class TestPipelineStorageMetadata:
+    def test_build_storage_metadata_redacts_collector_metadata_and_task_context(self):
+        task = Task(
+            id="task-redact",
+            name="Secret Task",
+            pipeline_name="steam_basic",
+            collector_name="steam",
+            targets=[
+                TaskTarget(
+                    name="CS2",
+                    target_type="game",
+                    params={"app_id": "730", "api_key": "target-secret"},
+                )
+            ],
+            config={"cookie": "task-cookie", "data_group": {"name": "CS2"}},
+        )
+
+        metadata = _build_storage_metadata(
+            task,
+            {
+                "target": "CS2",
+                "collector": "steam",
+                "api_key": "collector-secret",
+                "nested": {"token": "collector-token"},
+            },
+        )
+
+        assert metadata["api_key"] == "[REDACTED]"
+        assert metadata["nested"]["token"] == "[REDACTED]"
+        assert metadata["source_task"]["target_params"] == {
+            "app_id": "730",
+            "api_key": "[REDACTED]",
+        }
+        assert metadata["source_task"]["task_config"]["cookie"] == "[REDACTED]"
+        assert "collector-secret" not in str(metadata)
+        assert "collector-token" not in str(metadata)
+        assert "target-secret" not in str(metadata)
+        assert "task-cookie" not in str(metadata)
 
 
 class TestPipelineStep:

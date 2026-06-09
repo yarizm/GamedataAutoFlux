@@ -6,6 +6,7 @@ import importlib.util
 from typing import Any
 
 from src.core.config import get as get_config
+from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskTarget, TaskStatus
 
 
@@ -35,10 +36,10 @@ class TaskService:
             return None
         return [
             {
-                "step": log.step_name,
+                "step": redact_sensitive_text(log.step_name),
                 "status": log.status.value,
-                "message": log.message,
-                "error": log.error,
+                "message": redact_sensitive_text(log.message),
+                "error": redact_sensitive_text(log.error) if log.error else None,
                 "started_at": log.started_at.isoformat() if log.started_at else None,
                 "completed_at": log.completed_at.isoformat() if log.completed_at else None,
             }
@@ -238,9 +239,8 @@ class TaskService:
             "taptap": ["target.params.app_id or target.params.url"],
             "gtrends": ["target.name"],
             "monitor": [
-                "target.params.app_id",
+                "target.params.app_id or target.params.siteurl",
                 "target.params.twitch_name (optional)",
-                "target.params.siteurl (optional)",
             ],
             "qimai": ["target.params.app_id"],
             "official_site": ["target.params.official_url"],
@@ -306,13 +306,13 @@ class TaskService:
                     )
                 )
         elif collector_name == "monitor":
-            if not str(params.get("app_id") or "").strip():
+            if not str(params.get("app_id") or params.get("siteurl") or "").strip():
                 issues.append(
                     TaskPrecheckIssue(
                         level="error",
                         code="missing_monitor_app_id",
                         field=field,
-                        message="Monitor target requires app_id (twitch_name and siteurl are optional supplements).",
+                        message="Monitor target requires app_id or siteurl.",
                     )
                 )
         elif collector_name == "qimai":

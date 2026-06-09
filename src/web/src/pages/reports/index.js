@@ -42,6 +42,41 @@ function setReportProgress(progress, stage, message) {
 
 function resetReportProgress() { setReportProgress(0, 'queued', t('reports.waiting')); }
 
+function formatQualityStatus(status) {
+  const labels = { complete: 'Complete', partial: 'Partial', empty: 'Empty', unchecked: 'Unchecked', unknown: 'Unknown' };
+  return labels[status] || status;
+}
+
+function qualityBadgeClass(status) {
+  const classes = {
+    complete: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    partial: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    empty: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+    unchecked: 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30',
+  };
+  return classes[status] || 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30';
+}
+
+function renderReportQuality(quality, compact = false) {
+  if (!quality || typeof quality !== 'object') return '';
+  const status = String(quality.quality_status || quality.template_status || '').toLowerCase();
+  if (!status && quality.regeneration_recommended == null) return '';
+  const label = formatQualityStatus(status || 'unknown');
+  const risks = Array.isArray(quality.coverage_risks) ? quality.coverage_risks : [];
+  const missing = Array.isArray(quality.missing_collectors) ? quality.missing_collectors : [];
+  const summary = String(quality.quality_summary || risks[0] || '');
+  const detail = compact
+    ? (missing.length ? `Missing: ${missing.map(labelCollector).join(' / ')}` : summary)
+    : summary;
+  const action = quality.regeneration_recommended ? 'Regenerate recommended' : '';
+  return `
+    <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]" title="${escapeHtml(summary)}">
+      <span class="inline-flex items-center h-5 px-2 border ${qualityBadgeClass(status)} font-medium">${escapeHtml(label)}</span>
+      ${detail ? `<span class="text-zinc-500 truncate max-w-full">${escapeHtml(detail)}</span>` : ''}
+      ${action ? `<span class="text-amber-300/90">${escapeHtml(action)}</span>` : ''}
+    </div>`;
+}
+
 export default {
   init(container, store) {
     this.container = container;
@@ -108,6 +143,7 @@ export default {
             <button class="flex-1 text-left min-w-0 pr-4 outline-none" data-view="${report.id}">
               <div class="font-semibold text-zinc-100 text-sm mb-1 truncate tracking-tight group-hover:text-violet-400 transition-colors">${escapeHtml(report.title)}</div>
               <div class="text-xs text-zinc-500 truncate mb-0.5 tabular-nums">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${t('reports.records', { count: report.matched_records })}</div>
+              ${renderReportQuality(report.quality, true)}
             </button>
             <div class="inline-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
               <button class="btn btn-ghost px-2 h-7 text-xs border border-white/10" data-edit="${report.id}">编辑</button>
@@ -455,7 +491,7 @@ export default {
   _renderReport(report) {
     const container = document.getElementById('report-content');
     if (!container) return;
-    let html = `<div class="markdown-body">${renderSafeMarkdown(report.content || '')}</div>`;
+    let html = `${renderReportQuality(report.quality)}<div class="markdown-body">${renderSafeMarkdown(report.content || '')}</div>`;
     const isExcel = report.metadata?.format === 'excel' || report.metadata?.excel_path;
     if (isExcel) {
       html = `<div style="margin-bottom:1rem;padding:1rem;background:var(--bg-card);border-radius:4px;border:1px solid var(--border)">

@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,12 +21,23 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from src.core.config import get as get_config
-from src.core.config import get_data_dir
+from src.core.config import get_root_dir
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.storage.base import StorageRecord
 from src.storage.factory import get_storage
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.excel_exporter import export_to_excel
 from src.reporting.report_templates import get_report_template, validate_template_sources
+from src.services._utils import (
+    build_record_summary,
+    compute_record_completeness,
+    coerce_record_limit,
+    derive_collection_target_context,
+    extract_record_identity,
+    filter_records_by_data_source,
+    filter_source_data_records,
+    is_report_history_record,
+)
 
 
 class ReportSummary(BaseModel):
@@ -38,14 +50,24 @@ class ReportSummary(BaseModel):
     template: str
     generated_at: datetime
     matched_records: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class GeneratedReport(ReportSummary):
     """Full generated report."""
 
     content: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
     excel_path: str | None = Field(default=None, description="Excel report file path")
+
+
+def get_reports_dir() -> Path:
+    """Return the configured report output directory as an absolute path."""
+    configured = str(get_config("storage.reports_dir", "data/excel_reports") or "").strip()
+    report_dir = get_root_dir() / "data" / "excel_reports" if not configured else Path(configured)
+    if not report_dir.is_absolute():
+        report_dir = get_root_dir() / report_dir
+    report_dir.mkdir(parents=True, exist_ok=True)
+    return report_dir.resolve()
 
 
 class ReportGenerator:
@@ -97,6 +119,8 @@ class ReportGenerator:
             records = await self._load_source_records(
                 prompt=prompt, data_source=data_source, params=params
             )
+        else:
+            records, metadata = _prepare_explicit_source_records(records, metadata)
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
         usable_records = [r for r in records if r.data is not None]
@@ -128,12 +152,22 @@ class ReportGenerator:
             generated_at=datetime.now(),
             matched_records=len(records),
             content=content,
-            metadata={
-                "provider": self._llm_provider,
-                "template": template,
-                "source_query": data_source or prompt,
-                **(metadata or {}),
-            },
+            metadata=_build_report_metadata(
+                provider=self._llm_provider,
+                template=template,
+                source_query=data_source or prompt,
+                records=records,
+                usable_records=usable_records,
+                source_coverage=extracted.source_coverage,
+                template_validation=template_validation,
+                target_context=derive_collection_target_context(
+                    records,
+                    prompt=prompt,
+                    data_source=data_source,
+                ),
+                extra=metadata,
+                report_format="markdown",
+            ),
         )
 
         await self._save_report(report)
@@ -185,6 +219,8 @@ class ReportGenerator:
             records = await self._load_source_records(
                 prompt=prompt, data_source=data_source, params=params
             )
+        else:
+            records, metadata = _prepare_explicit_source_records(records, metadata)
         logger.info("[Report] records loaded count={} template={}", len(records), template)
 
         usable_records = [r for r in records if r.data is not None]
@@ -226,19 +262,23 @@ class ReportGenerator:
                 )
                 await _emit_report_progress(progress_id, "llm_done", 0.68, "LLM analysis completed")
             except Exception as exc:
-                logger.warning("[Report] LLM analysis failed, fallback to template report: {}", exc)
+                safe_error = _safe_context_text(exc)
+                logger.warning(
+                    "[Report] LLM analysis failed, fallback to template report: {}",
+                    safe_error,
+                )
                 await _emit_report_progress(
                     progress_id,
                     "llm_failed",
                     0.62,
-                    f"LLM failed; falling back to template report: {exc}",
+                    f"LLM failed; falling back to template report: {safe_error}",
                 )
 
         # Write Excel output.
         await _emit_report_progress(progress_id, "exporting", 0.78, "Writing Excel report")
         report_id = uuid.uuid4().hex[:12]
         title = self._build_title(prompt, data_source, template)
-        excel_dir = get_data_dir() / "excel_reports"
+        excel_dir = get_reports_dir()
         excel_path = excel_dir / f"report_{report_id}.xlsx"
 
         export_to_excel(
@@ -260,27 +300,37 @@ class ReportGenerator:
             matched_records=len(records),
             content=llm_content or "Report generated as an Excel file",
             excel_path=str(excel_path),
-            metadata={
-                "provider": self._llm_provider,
-                "template": template,
-                "source_query": data_source or prompt,
-                "format": "excel",
-                "sheets": {
-                    "overview": len(extracted.overview),
-                    "reviews": len(extracted.reviews),
-                    "trends": len(extracted.trends),
-                    "related_queries": len(extracted.related_queries),
-                    "steam_player_peaks": len(extracted.steam_player_peaks),
-                    "steam_monthly_peaks": len(extracted.steam_monthly_peaks),
-                    "google_trends": len(extracted.google_trends),
-                    "monitor_metrics": len(extracted.monitor_metrics),
-                    "events": len(extracted.events),
-                    "community_discussions": len(extracted.community_discussions),
-                    "raw_appendices": len(extracted.raw_sources),
+            metadata=_build_report_metadata(
+                provider=self._llm_provider,
+                template=template,
+                source_query=data_source or prompt,
+                records=records,
+                usable_records=usable_records,
+                source_coverage=extracted.source_coverage,
+                template_validation=template_validation,
+                target_context=derive_collection_target_context(
+                    records,
+                    prompt=prompt,
+                    data_source=data_source,
+                ),
+                extra={
+                    **(metadata or {}),
+                    "sheets": {
+                        "overview": len(extracted.overview),
+                        "reviews": len(extracted.reviews),
+                        "trends": len(extracted.trends),
+                        "related_queries": len(extracted.related_queries),
+                        "steam_player_peaks": len(extracted.steam_player_peaks),
+                        "steam_monthly_peaks": len(extracted.steam_monthly_peaks),
+                        "google_trends": len(extracted.google_trends),
+                        "monitor_metrics": len(extracted.monitor_metrics),
+                        "events": len(extracted.events),
+                        "community_discussions": len(extracted.community_discussions),
+                        "raw_appendices": len(extracted.raw_sources),
+                    },
                 },
-                "template_validation": template_validation,
-                **(metadata or {}),
-            },
+                report_format="excel",
+            ),
         )
 
         await self._save_report(report)
@@ -350,15 +400,16 @@ class ReportGenerator:
         if report is None:
             return False
         excel_path = report.excel_path or report.metadata.get("excel_path")
-        if excel_path:
+        path = _deletable_report_file(excel_path)
+        if path and path.exists():
             try:
-                from pathlib import Path
-
-                path = Path(excel_path)
-                if path.exists():
-                    path.unlink()
-            except Exception:
-                pass
+                path.unlink()
+            except Exception as exc:
+                logger.warning(
+                    "[Report] failed to delete Excel file {}: {}",
+                    _safe_context_text(path),
+                    _safe_context_text(exc),
+                )
         store = get_storage()
         await store.initialize()
         try:
@@ -393,22 +444,37 @@ class ReportGenerator:
         data_source: str,
         params: dict[str, Any],
     ) -> list[StorageRecord]:
-        limit = int(params.get("limit", 5))
+        limit = coerce_record_limit(params.get("limit"), default=5)
 
         store = get_storage()
         await store.initialize()
         try:
             if data_source:
                 result = await store.query(f"source:{data_source}", limit=limit)
-                return result.records
+                source_records = filter_source_data_records(result.records)
+                if source_records:
+                    return source_records
+
+                scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
+                candidates_by_key: dict[str, StorageRecord] = {}
+                for query in (data_source, "key:"):
+                    result = await store.query(query, limit=scan_limit)
+                    for record in result.records:
+                        candidates_by_key[record.key] = record
+                return filter_records_by_data_source(
+                    list(candidates_by_key.values()),
+                    data_source,
+                )[:limit]
 
             keywords = self._extract_keywords(prompt)
             for keyword in keywords:
                 result = await store.query(keyword, limit=limit)
-                if result.records:
-                    return result.records
+                source_records = filter_source_data_records(result.records)
+                if source_records:
+                    return source_records
 
-            return (await store.query("key:", limit=limit)).records
+            scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
+            return filter_source_data_records((await store.query("key:", limit=scan_limit)).records)[:limit]
         finally:
             await store.close()
 
@@ -492,12 +558,16 @@ class ReportGenerator:
                 if not fallback_enabled:
                     raise
                 provider_label = self.provider_label(self._llm_provider)
+                safe_error = _safe_context_text(exc)
                 return self._render_stub_report(
                     prompt=prompt,
                     data_source=data_source,
                     template=template,
                     records=records,
-                    extra_note=f"{provider_label} request failed; fell back to template report: {exc}",
+                    extra_note=(
+                        f"{provider_label} request failed; fell back to template report: "
+                        f"{safe_error}"
+                    ),
                 )
         return self._render_stub_report(prompt, data_source, template, records)
 
@@ -680,7 +750,7 @@ class ReportGenerator:
                         continue
                     raise ValueError(
                         f"{provider_label} report request failed: status={response.status_code}, "
-                        f"{request_stats}, body={error_payload}"
+                        f"{request_stats}, body={redact_sensitive(error_payload)}"
                     )
                 data = response.json()
                 logger.info(
@@ -703,7 +773,7 @@ class ReportGenerator:
                         attempt,
                         attempts,
                         exc.__class__.__name__,
-                        repr(exc),
+                        _safe_context_text(repr(exc)),
                         elapsed,
                         timeout,
                         request_stats,
@@ -712,13 +782,15 @@ class ReportGenerator:
                     continue
                 raise ValueError(
                     f"{provider_label} report request failed after {attempt} attempts: "
-                    f"{exc.__class__.__name__}: {repr(exc)}; elapsed={elapsed:.2f}s; "
+                    f"{exc.__class__.__name__}: {_safe_context_text(repr(exc))}; "
+                    f"elapsed={elapsed:.2f}s; "
                     f"read_timeout={timeout}; {request_stats}"
                 ) from exc
 
         if data is None:
             raise ValueError(
-                f"{provider_label} report request failed: {last_error}; {request_stats}"
+                f"{provider_label} report request failed: {_safe_context_text(last_error)}; "
+                f"{request_stats}"
             )
 
         choices = data.get("choices") or []
@@ -766,15 +838,15 @@ class ReportGenerator:
             return "No records were matched."
 
         max_chars = int(get_config(f"llm.{provider}.max_input_chars", 22000) if provider else 22000)
-        sections: list[str] = []
-        for index, record in enumerate(records[:12], start=1):
+        sections: list[str] = [_build_context_overview(records)]
+        for index, record in enumerate(_select_context_records(records, max_records=12), start=1):
             snapshot = _compact_value(self._extract_snapshot(record.data))
             compact_data = _compact_record_data(record.data)
             sections.append(
                 "\n".join(
                     [
                         f"### Record {index}",
-                        f"- key: {record.key}",
+                        f"- key: {_safe_context_text(record.key)}",
                         f"- source: {record.source or 'unknown'}",
                         f"- metadata: {_compact_metadata(record.metadata)}",
                         f"- snapshot: {_safe_json(snapshot, max_chars=1000)}",
@@ -865,6 +937,7 @@ class ReportGenerator:
 def _compact_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         return {}
+    metadata = redact_sensitive(metadata)
     source_task = (
         metadata.get("source_task") if isinstance(metadata.get("source_task"), dict) else {}
     )
@@ -880,6 +953,252 @@ def _compact_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         }.items()
         if value not in (None, "")
     }
+
+
+def _deletable_report_file(excel_path: Any) -> Path | None:
+    if not excel_path:
+        return None
+    try:
+        resolved = Path(str(excel_path)).resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("[Report] invalid Excel path on delete: {}", _safe_context_text(exc))
+        return None
+    allowed_dir = get_reports_dir()
+    if not resolved.is_relative_to(allowed_dir):
+        logger.warning(
+            "[Report] skip deleting Excel file outside reports dir: {}",
+            _safe_context_text(resolved),
+        )
+        return None
+    return resolved
+
+
+def _build_report_metadata(
+    *,
+    provider: str,
+    template: str,
+    source_query: str,
+    records: list[StorageRecord],
+    usable_records: list[StorageRecord],
+    source_coverage: dict[str, int],
+    template_validation: dict[str, Any],
+    target_context: dict[str, Any],
+    extra: dict[str, Any] | None,
+    report_format: str,
+) -> dict[str, Any]:
+    completeness_counts: dict[str, int] = {}
+    for record in records:
+        completeness = compute_record_completeness(record)
+        completeness_counts[completeness] = completeness_counts.get(completeness, 0) + 1
+
+    metadata: dict[str, Any] = {
+        "provider": provider,
+        "template": template,
+        "source_query": source_query,
+        "format": report_format,
+        **(extra or {}),
+    }
+    metadata.update(
+        {
+            "source_record_count": len(records),
+            "usable_record_count": len(usable_records),
+            "source_record_keys": [record.key for record in records],
+            "usable_record_keys": [record.key for record in usable_records],
+            "empty_record_keys": [record.key for record in records if record.data is None],
+            "source_coverage": dict(source_coverage or {}),
+            "record_completeness": completeness_counts,
+            "template_validation": template_validation,
+            "target_context": target_context,
+        }
+    )
+    freshness = _build_source_freshness_metadata(records)
+    if freshness:
+        metadata["source_freshness"] = freshness
+    return redact_sensitive(metadata)
+
+
+def _build_source_freshness_metadata(records: list[StorageRecord]) -> dict[str, Any]:
+    stored_times = [
+        record.stored_at
+        for record in records
+        if isinstance(getattr(record, "stored_at", None), datetime)
+    ]
+    if not stored_times:
+        return {}
+    oldest = min(stored_times)
+    newest = max(stored_times)
+    now = datetime.now(tz=oldest.tzinfo) if oldest.tzinfo else datetime.now()
+    max_age_seconds = max(0, int((now - oldest).total_seconds()))
+    newest_age_seconds = max(0, int((now - newest).total_seconds()))
+    return {
+        "oldest_record_at": oldest.isoformat(),
+        "newest_record_at": newest.isoformat(),
+        "max_age_days": max_age_seconds // 86400,
+        "newest_age_days": newest_age_seconds // 86400,
+        "warning_days": _coerce_positive_int(
+            get_config("reporting.freshness_warning_days", 30),
+            default=30,
+        ),
+    }
+
+
+def _coerce_positive_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _prepare_explicit_source_records(
+    records: list[StorageRecord],
+    metadata: dict[str, Any] | None,
+) -> tuple[list[StorageRecord], dict[str, Any] | None]:
+    if not records:
+        return records, metadata
+
+    source_records = filter_source_data_records(records)
+    excluded_keys = [record.key for record in records if is_report_history_record(record)]
+    if records and not source_records:
+        raise ValueError(
+            "Selected records only contain generated report history. "
+            "Select source data records instead."
+        )
+    if not excluded_keys:
+        return records, metadata
+
+    next_metadata = dict(metadata or {})
+    next_metadata["selected_record_keys"] = [record.key for record in source_records]
+    previous_excluded = [
+        str(key)
+        for key in next_metadata.get("excluded_report_record_keys", [])
+        if str(key or "").strip()
+    ]
+    next_metadata["excluded_report_record_keys"] = [
+        *previous_excluded,
+        *(key for key in excluded_keys if key not in previous_excluded),
+    ]
+    return source_records, next_metadata
+
+
+def _build_context_overview(records: list[StorageRecord]) -> str:
+    source_counts: dict[str, int] = {}
+    completeness_counts: dict[str, int] = {}
+    games: dict[str, set[str]] = {}
+    key_summaries: list[str] = []
+
+    for record in records:
+        identity = extract_record_identity(record)
+        source = (
+            identity.get("collector")
+            if identity
+            else record.source or _compact_metadata(record.metadata).get("collector") or "unknown"
+        )
+        source_counts[source] = source_counts.get(source, 0) + 1
+        completeness = compute_record_completeness(record)
+        completeness_counts[completeness] = completeness_counts.get(completeness, 0) + 1
+
+        if identity:
+            game_name = identity.get("game_name") or "Unknown"
+            games.setdefault(game_name, set()).add(identity.get("data_source") or source)
+
+        summary = build_record_summary(record.data)
+        if summary and len(key_summaries) < 8:
+            short_summary = ", ".join(
+                f"{key}={value}" for key, value in list(summary.items())[:4]
+            )
+            key_summaries.append(f"- {_safe_context_text(record.key)}: {short_summary}")
+
+    game_lines = [
+        f"- {name}: {', '.join(sorted(sources))}"
+        for name, sources in list(sorted(games.items()))[:8]
+    ]
+    source_line = ", ".join(
+        f"{name}={count}" for name, count in sorted(source_counts.items())
+    ) or "unknown"
+    completeness_line = ", ".join(
+        f"{name}={count}" for name, count in sorted(completeness_counts.items())
+    ) or "unknown"
+
+    return "\n".join(
+        [
+            "### Dataset Coverage",
+            f"- total_records: {len(records)}",
+            f"- sources: {source_line}",
+            f"- completeness: {completeness_line}",
+            "- games:",
+            *(game_lines or ["- Unknown"]),
+            "- key_metric_samples:",
+            *(key_summaries or ["- No compact key metrics detected."]),
+        ]
+    )
+
+
+def _select_context_records(
+    records: list[StorageRecord],
+    *,
+    max_records: int,
+) -> list[StorageRecord]:
+    """Select detailed context records while preserving source coverage."""
+    if len(records) <= max_records:
+        return records
+
+    selected: list[StorageRecord] = []
+    selected_keys: set[str] = set()
+    source_order: list[str] = []
+    best_by_source: dict[str, tuple[int, int, StorageRecord]] = {}
+
+    for index, record in enumerate(records):
+        source = _record_context_source(record)
+        if source not in best_by_source:
+            source_order.append(source)
+            best_by_source[source] = (_context_record_score(record), index, record)
+            continue
+
+        current_score, current_index, _ = best_by_source[source]
+        score = _context_record_score(record)
+        if (score, -index) > (current_score, -current_index):
+            best_by_source[source] = (score, index, record)
+
+    for source in source_order:
+        _, _, record = best_by_source[source]
+        _append_selected_context_record(record, selected, selected_keys)
+        if len(selected) >= max_records:
+            return selected
+
+    for record in records:
+        _append_selected_context_record(record, selected, selected_keys)
+        if len(selected) >= max_records:
+            break
+    return selected
+
+
+def _append_selected_context_record(
+    record: StorageRecord,
+    selected: list[StorageRecord],
+    selected_keys: set[str],
+) -> None:
+    key = str(record.key or id(record))
+    if key in selected_keys:
+        return
+    selected.append(record)
+    selected_keys.add(key)
+
+
+def _record_context_source(record: StorageRecord) -> str:
+    identity = extract_record_identity(record)
+    if identity and identity.get("collector"):
+        return str(identity["collector"])
+    metadata = _compact_metadata(record.metadata)
+    return str(record.source or metadata.get("collector") or "unknown")
+
+
+def _context_record_score(record: StorageRecord) -> int:
+    completeness_rank = {"full": 30, "partial": 20, "empty": 0}
+    score = completeness_rank.get(compute_record_completeness(record), 10)
+    summary = build_record_summary(record.data)
+    score += min(len(summary), 10)
+    return score
 
 
 def _compact_record_data(data: Any) -> Any:
@@ -956,8 +1275,12 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return text[:max_chars] + "...[truncated]"
 
 
+def _safe_context_text(value: Any) -> str:
+    return redact_sensitive_text(str(value or ""))
+
+
 def _safe_json(value: Any, *, max_chars: int) -> str:
-    text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    text = json.dumps(redact_sensitive(value), ensure_ascii=False, default=str, separators=(",", ":"))
     return _truncate_text(text, max_chars)
 
 
@@ -970,12 +1293,14 @@ async def _emit_report_progress(
 ) -> None:
     if not progress_id:
         return
+    safe_message = _safe_context_text(message)
+    safe_extra = redact_sensitive(extra)
     logger.info(
         "[Report][Progress] id={} stage={} progress={} message={}",
-        progress_id,
-        stage,
+        _safe_context_text(progress_id),
+        _safe_context_text(stage),
         progress,
-        message,
+        safe_message,
     )
     try:
         from src.web.routes.ws import manager
@@ -986,9 +1311,9 @@ async def _emit_report_progress(
                 "progress_id": progress_id,
                 "stage": stage,
                 "progress": progress,
-                "message": message,
-                **extra,
+                "message": safe_message,
+                **safe_extra,
             }
         )
     except Exception as exc:
-        logger.debug("[Report][Progress] broadcast failed: {}", exc)
+        logger.debug("[Report][Progress] broadcast failed: {}", _safe_context_text(exc))

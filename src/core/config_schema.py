@@ -36,6 +36,10 @@ class DatabaseConfig(_FlexibleModel):
     sqlalchemy_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
 
 
+class StorageConfig(_FlexibleModel):
+    reports_dir: str = "data/excel_reports"
+
+
 class ProviderConfig(_FlexibleModel):
     api_key: str | None = None
     base_url: str | None = None
@@ -78,6 +82,10 @@ class SteamDBConfig(_FlexibleModel):
 class SteamConfig(_FlexibleModel):
     api_key: str | None = None
     request_delay: float = Field(default=1.5, ge=0)
+    batch_concurrency: int = Field(default=1, ge=1)
+    collect_timeout: float = Field(default=0, ge=0)
+    collect_retries: int = Field(default=0, ge=0)
+    collect_retry_delay: float = Field(default=1.0, ge=0)
     max_reviews: int = Field(default=200, ge=0)
     review_language: str = "all"
     review_trend_mode: str = "summary"
@@ -89,6 +97,10 @@ class SteamConfig(_FlexibleModel):
 
 class RequestCollectorConfig(_FlexibleModel):
     request_delay: float = Field(default=1.5, ge=0)
+    batch_concurrency: int = Field(default=1, ge=1)
+    collect_timeout: float = Field(default=0, ge=0)
+    collect_retries: int = Field(default=0, ge=0)
+    collect_retry_delay: float = Field(default=1.0, ge=0)
     timeout: float | None = Field(default=None, ge=0)
     request_retries: int | None = Field(default=None, ge=0)
     headless: bool | None = None
@@ -104,6 +116,10 @@ class MonitorConfig(_FlexibleModel):
     default_days: int = Field(default=30, ge=1)
     timezone: str = "Asia/Shanghai"
     request_delay: float = Field(default=1.5, ge=0)
+    batch_concurrency: int = Field(default=1, ge=1)
+    collect_timeout: float = Field(default=0, ge=0)
+    collect_retries: int = Field(default=0, ge=0)
+    collect_retry_delay: float = Field(default=1.0, ge=0)
     metric_concurrency: int = Field(default=4, ge=1)
 
 
@@ -125,6 +141,9 @@ class GTrendsConfig(_FlexibleModel):
     proxies: list[str] = Field(default_factory=list)
     retries: int = Field(default=2, ge=0)
     backoff_factor: float = Field(default=0.5, ge=0)
+    collect_timeout: float = Field(default=0, ge=0)
+    collect_retries: int = Field(default=0, ge=0)
+    collect_retry_delay: float = Field(default=1.0, ge=0)
 
 
 class SchedulerPersistenceConfig(_FlexibleModel):
@@ -143,6 +162,10 @@ class SchedulerConfig(_FlexibleModel):
 class CollectorConfig(_FlexibleModel):
     request_timeout: float = Field(default=30, ge=0)
     request_delay: float = Field(default=2, ge=0)
+    batch_concurrency: int = Field(default=1, ge=1)
+    collect_timeout: float = Field(default=0, ge=0)
+    collect_retries: int = Field(default=0, ge=0)
+    collect_retry_delay: float = Field(default=1.0, ge=0)
     proxy: str | None = None
     user_agent: str = ""
 
@@ -165,6 +188,7 @@ class SettingsModel(_FlexibleModel):
     alerts: AlertConfig = Field(default_factory=AlertConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     steam: SteamConfig = Field(default_factory=SteamConfig)

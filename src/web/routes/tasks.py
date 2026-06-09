@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
-from src.core.sensitive import redact_sensitive
+from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task
 from src.schemas.tasks import TaskPrecheckResponse
 from src.web.safety import require_explicit_confirmation
@@ -192,17 +192,17 @@ async def get_task_stats():
 def _task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=task.id,
-        name=task.name,
+        name=redact_sensitive_text(task.name),
         status=task.status.value,
         progress=task.progress,
-        pipeline_name=task.pipeline_name,
-        collector_name=task.collector_name,
+        pipeline_name=redact_sensitive_text(task.pipeline_name),
+        collector_name=redact_sensitive_text(task.collector_name),
         targets_count=len(task.targets),
         created_at=task.created_at.isoformat(),
         started_at=task.started_at.isoformat() if task.started_at else None,
         completed_at=task.completed_at.isoformat() if task.completed_at else None,
         duration=task.duration_seconds,
-        error=task.error,
+        error=redact_sensitive_text(task.error) if task.error else None,
     )
 
 
@@ -210,7 +210,7 @@ def _task_to_detail_response(task: Task) -> TaskDetailResponse:
     base = _task_to_response(task)
     return TaskDetailResponse(
         **base.model_dump(),
-        description=task.description,
+        description=redact_sensitive_text(task.description),
         targets=redact_sensitive([target.model_dump() for target in task.targets]),
         config=redact_sensitive(task.config),
         retry_count=task.retry_count,
@@ -222,10 +222,10 @@ def _task_to_detail_response(task: Task) -> TaskDetailResponse:
 
 def _log_to_response(log) -> TaskLogResponse:
     return TaskLogResponse(
-        step=log.step_name,
+        step=redact_sensitive_text(log.step_name),
         status=log.status.value,
-        message=log.message,
-        error=log.error,
+        message=redact_sensitive_text(log.message),
+        error=redact_sensitive_text(log.error) if log.error else None,
         started_at=log.started_at.isoformat() if log.started_at else None,
         completed_at=log.completed_at.isoformat() if log.completed_at else None,
     )

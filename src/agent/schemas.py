@@ -108,10 +108,47 @@ class GenerateReportInput(BaseModel):
     )
 
 
+class PrecheckReportInput(BaseModel):
+    """Report readiness precheck input."""
+
+    prompt: str = Field(..., description="Report prompt or analysis goal")
+    data_source: str = Field(default="", description="Optional data source filter")
+    template: str = Field(default="general_game", description="Report template name")
+    record_keys: list[str] = Field(
+        default_factory=list,
+        description="Specific source data record keys to check",
+    )
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=5000,
+        description="Maximum source records to scan when record_keys is empty",
+    )
+
+
 class GetReportContentInput(BaseModel):
     """获取报告内容输入"""
 
     report_id: str = Field(..., description="报告 ID")
+
+
+class ListReportsInput(BaseModel):
+    """List generated reports input."""
+
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of generated reports to return",
+    )
+    query: str = Field(default="", description="Optional text filter for id/title/prompt/source")
+    data_source: str = Field(default="", description="Optional data source filter")
+    template: str = Field(default="", description="Optional report template filter")
+    quality_status: str = Field(
+        default="",
+        description="Optional report quality status filter, e.g. complete, partial, empty, or unchecked",
+    )
+    report_format: str = Field(default="", description="Optional report format filter, e.g. excel")
 
 
 class ResolveSteamAppIdInput(BaseModel):
@@ -277,6 +314,14 @@ class CollectionReviewResult(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
     identifiers_used: dict | None = Field(None)
     record_count: int = Field(0)
+    record_summaries: list[dict] = Field(default_factory=list)
+    source_coverage: dict[str, int] = Field(default_factory=dict)
+    completeness_counts: dict[str, int] = Field(default_factory=dict)
+    collection_summary: dict | None = Field(default=None)
+    retry_created: bool | None = Field(default=None)
+    retry_task_id: str | None = Field(default=None)
+    retry_task_name: str | None = Field(default=None)
+    retry_error: str | None = Field(default=None)
 
 
 class CreateDynamicPipelineInput(BaseModel):
