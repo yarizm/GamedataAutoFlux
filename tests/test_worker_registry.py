@@ -1335,11 +1335,27 @@ def test_worker_api_missing_worker_returns_404(monkeypatch) -> None:
     assert fetched.status_code == 404
 
 
-def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(monkeypatch) -> None:
+def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1402,11 +1418,25 @@ def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(mo
     assert inventory["items"][0]["lease_worker_id"] == "api-qimai-worker"
 
 
-def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> None:
+def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch, tmp_path) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1501,7 +1531,9 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> 
     assert inventory["items"][0]["lease_task_id"] == first_claimed.json()["task_id"]
 
 
-def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(monkeypatch) -> None:
+def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     class SyncFailsRegistry(InMemorySessionRegistry):
@@ -1516,6 +1548,20 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
 
     registry = SyncFailsRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1606,11 +1652,27 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
     assert second_task.json()["status"] == "pending"
 
 
-def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(monkeypatch) -> None:
+def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1723,11 +1785,25 @@ def test_worker_task_scoped_api_requires_registered_worker(monkeypatch) -> None:
     assert fake_scheduler.called is False
 
 
-def test_worker_api_complete_releases_session_lease(monkeypatch) -> None:
+def test_worker_api_complete_releases_session_lease(monkeypatch, tmp_path) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1787,7 +1863,9 @@ def test_worker_api_complete_releases_session_lease(monkeypatch) -> None:
     assert inventory["items"][0]["last_task_id"] == task_id
 
 
-def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(monkeypatch) -> None:
+def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
@@ -1799,6 +1877,20 @@ def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(monkeyp
 
     registry_provider.fail_lookup = False
     monkeypatch.setattr(app_module, "get_session_registry", registry_provider)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1857,11 +1949,27 @@ def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(monkeyp
     assert task_response.json()["status"] == "success"
 
 
-def test_worker_api_retrying_local_profile_task_retains_session_lease(monkeypatch) -> None:
+def test_worker_api_retrying_local_profile_task_retains_session_lease(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -2160,11 +2268,27 @@ def test_task_cancel_rejects_running_worker_claim_task(monkeypatch) -> None:
     assert task_response.json()["status"] == "running"
 
 
-def test_task_cancel_releases_retrying_worker_claim_session_lease(monkeypatch) -> None:
+def test_task_cancel_releases_retrying_worker_claim_session_lease(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -2488,11 +2612,25 @@ def test_worker_api_complete_releases_snapshot_session_when_registry_entry_missi
     assert inventory["items"][0]["last_task_id"] == task_id
 
 
-def test_worker_api_reconcile_marks_session_interrupted(monkeypatch) -> None:
+def test_worker_api_reconcile_marks_session_interrupted(monkeypatch, tmp_path) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -2621,7 +2759,9 @@ def test_worker_api_reconcile_succeeds_when_session_release_fails(monkeypatch) -
     assert worker_after.json()["current_task_ids"] == []
 
 
-def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(monkeypatch) -> None:
+def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
@@ -2633,6 +2773,20 @@ def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(monkey
 
     registry_provider.fail_lookup = False
     monkeypatch.setattr(app_module, "get_session_registry", registry_provider)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -2696,11 +2850,27 @@ def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(monkey
     assert worker_after.json()["current_task_ids"] == []
 
 
-def test_worker_api_reconcile_recovers_retrying_sticky_task_and_releases_lease(monkeypatch) -> None:
+def test_worker_api_reconcile_recovers_retrying_sticky_task_and_releases_lease(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
