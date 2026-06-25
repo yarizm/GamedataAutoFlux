@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.core.config import get as get_config
+
 
 class TargetValidationRule(BaseModel):
     """A declarative rule used by task precheck."""
@@ -39,6 +41,7 @@ class CollectorMetadata(BaseModel):
     target_schema: CollectorTargetSchema = Field(default_factory=CollectorTargetSchema)
     config_schema: dict[str, Any] = Field(default_factory=dict)
     credential_profiles: list[str] = Field(default_factory=list)
+    supported_session_modes: list[str] = Field(default_factory=list)
 
 
 _RECOVERY_GUIDANCE = {
@@ -47,6 +50,8 @@ _RECOVERY_GUIDANCE = {
     "L2": "This collector can resume across workers when the required session is available.",
     "L3": "This collector is idempotent and can resume on any compatible worker.",
 }
+
+_SESSION_MODES = ("api_only", "local_profile", "managed_state")
 
 
 _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
@@ -193,6 +198,7 @@ _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
         capabilities=["app_store_rank", "ratings", "download_export", "browser_collection"],
         requires_session=True,
         session_mode="local_profile",
+        supported_session_modes=["local_profile", "managed_state"],
         supports_checkpoint=False,
         recovery_level="L0",
         credential_profiles=["playwright_runtime", "local_browser_profile"],
@@ -280,10 +286,19 @@ def list_collector_metadata(
     """Return public metadata for known collectors, optionally constrained to ids."""
     ids = collector_ids or sorted(_COLLECTOR_METADATA)
     return {
-        collector_id: metadata.model_dump(mode="json")
+        collector_id: collector_metadata_payload(collector_id)
         for collector_id in ids
-        if (metadata := get_collector_metadata(collector_id)) is not None
+        if get_collector_metadata(collector_id) is not None
     }
+
+
+def list_session_sensitive_collectors() -> list[str]:
+    """Return collectors with local runtime or session requirements."""
+    return sorted(
+        collector_id
+        for collector_id, metadata in _COLLECTOR_METADATA.items()
+        if metadata.requires_session or bool(metadata.credential_profiles)
+    )
 
 
 def build_collector_recovery_info(
@@ -293,12 +308,18 @@ def build_collector_recovery_info(
 ) -> dict[str, Any]:
     """Build a compact recovery guidance payload for task/precheck surfaces."""
     metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    session_contract = resolve_session_mode_contract(collector_id)
     recovery_level = metadata.recovery_level
     info: dict[str, Any] = {
         "collector_id": metadata.collector_id,
         "supports_checkpoint": metadata.supports_checkpoint,
         "recovery_level": recovery_level,
-        "session_mode": metadata.session_mode,
+        "session_mode": session_contract["effective_mode"],
+        "default_session_mode": session_contract["default_mode"],
+        "configured_session_mode": session_contract["configured_mode"],
+        "session_mode_source": session_contract["source"],
+        "session_mode_override_status": session_contract["override_status"],
+        "supported_session_modes": session_contract["supported_modes"],
         "requires_session": metadata.requires_session,
         "guidance": _RECOVERY_GUIDANCE.get(recovery_level, _RECOVERY_GUIDANCE["L0"]),
         "latest_checkpoint": latest_checkpoint,
@@ -310,6 +331,116 @@ def build_collector_recovery_info(
     else:
         info["recommended_action"] = "record_checkpoint"
     return info
+
+
+def required_worker_capabilities(collector_id: str) -> set[str]:
+    """Return extra worker capabilities required to execute the collector."""
+    metadata = get_collector_metadata(collector_id)
+    if metadata is None or not metadata.requires_session:
+        return set()
+
+    session_mode = resolve_session_mode(collector_id)
+    required = {f"session_mode:{session_mode}"}
+    if session_mode == "local_profile":
+        required.add(f"session:{collector_id}_profile")
+    return required
+
+
+def worker_binding_mode(collector_id: str) -> str:
+    """Describe how strongly a task should stay bound to one worker."""
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    if not metadata.requires_session:
+        return "flexible"
+    session_mode = resolve_session_mode(collector_id)
+    if session_mode == "local_profile":
+        return "sticky"
+    if session_mode == "managed_state":
+        return "lease"
+    return "flexible"
+
+
+def collector_metadata_payload(collector_id: str) -> dict[str, Any]:
+    """Return collector metadata augmented with effective session configuration."""
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    session_contract = resolve_session_mode_contract(collector_id)
+    payload = metadata.model_dump(mode="json")
+    payload["default_session_mode"] = session_contract["default_mode"]
+    payload["session_mode"] = session_contract["effective_mode"]
+    payload["configured_session_mode"] = session_contract["configured_mode"]
+    payload["session_mode_source"] = session_contract["source"]
+    payload["session_mode_override_status"] = session_contract["override_status"]
+    payload["supported_session_modes"] = session_contract["supported_modes"]
+    return payload
+
+
+def resolve_session_mode(collector_id: str) -> str:
+    """Return the effective session mode after applying supported config overrides."""
+    return str(resolve_session_mode_contract(collector_id)["effective_mode"])
+
+
+def resolve_session_mode_contract(collector_id: str) -> dict[str, Any]:
+    """Resolve how a collector's effective session mode is derived."""
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    default_mode = _normalize_session_mode(metadata.session_mode)
+    supported_modes = _supported_session_modes(metadata)
+    configured_mode = _configured_session_mode(collector_id)
+
+    effective_mode = default_mode
+    source = "metadata"
+    override_status = "default"
+
+    if configured_mode:
+        if configured_mode not in _SESSION_MODES:
+            override_status = "ignored_invalid"
+        elif configured_mode not in supported_modes:
+            override_status = "ignored_unsupported"
+        else:
+            effective_mode = configured_mode
+            source = "config"
+            override_status = "applied"
+
+    return {
+        "collector_id": metadata.collector_id,
+        "default_mode": default_mode,
+        "configured_mode": configured_mode,
+        "effective_mode": effective_mode,
+        "source": source,
+        "override_status": override_status,
+        "supported_modes": list(supported_modes),
+        "config_key": _session_mode_config_key(metadata.collector_id),
+    }
+
+
+def _configured_session_mode(collector_id: str) -> str:
+    raw_value = get_config(_session_mode_config_key(collector_id), "")
+    return _normalize_session_mode(raw_value)
+
+
+def _supported_session_modes(metadata: CollectorMetadata) -> tuple[str, ...]:
+    configured = [
+        _normalize_session_mode(mode)
+        for mode in metadata.supported_session_modes
+        if _normalize_session_mode(mode) in _SESSION_MODES
+    ]
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for mode in [*configured, _normalize_session_mode(metadata.session_mode)]:
+        if not mode or mode in seen:
+            continue
+        seen.add(mode)
+        ordered.append(mode)
+    return tuple(ordered or ["api_only"])
+
+
+def _normalize_session_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in _SESSION_MODES else ""
+
+
+def _session_mode_config_key(collector_id: str) -> str:
+    if collector_id == "steam":
+        return "steam.steamdb.session_mode"
+    return f"{collector_id}.session_mode"
 
 
 def fallback_collector_metadata(collector_id: str) -> CollectorMetadata:

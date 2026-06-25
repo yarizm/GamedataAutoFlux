@@ -20,6 +20,7 @@ Pipeline 编排引擎
 from __future__ import annotations
 
 import asyncio
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -29,6 +30,13 @@ from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.core.registry import registry
+from src.core.pipeline_recovery import (
+    apply_collect_resume_context,
+    build_pipeline_recovery_context,
+    build_pipeline_resume_state,
+    build_storage_record_key,
+    resolve_storage_resume_context,
+)
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.services._utils import normalize_key
@@ -65,6 +73,7 @@ class PipelineResult:
     process_results: list[ProcessOutput] = field(default_factory=list)
     output_records: list[StorageRecord] = field(default_factory=list)
     storage_count: int = 0
+    resume_state: dict[str, Any] = field(default_factory=dict)
     generated_report_id: str | None = None
     generated_report_title: str | None = None
     generated_report_matched_records: int = 0
@@ -284,368 +293,529 @@ class Pipeline:
     def _get_storages(self) -> list[PipelineStep]:
         return [s for s in self.steps if s.step_type == StepType.STORAGE]
 
-    async def execute(self, task: Task) -> PipelineResult:
-        """
-        执行 Pipeline。
 
-        流程:
-            1. 实例化所有组件
-            2. 调用 collector.collect() 获取原始数据
-            3. 依次调用 processor.process() 处理数据
-            4. 调用 storage.save() 持久化结果
-            5. 清理组件资源
-
-        Args:
-            task: 要执行的任务
-
-        Returns:
-            PipelineResult 执行结果
-        """
+    async def execute(
+        self,
+        task: Task,
+        *,
+        recovery_checkpoint: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        """Execute the configured pipeline for one task."""
         result = PipelineResult(pipeline_name=self.name, task_id=task.id)
         collector_steps = self._get_collectors()
         processor_steps = self._get_processors()
         storage_steps = self._get_storages()
+        recovery_context = build_pipeline_recovery_context(task, recovery_checkpoint)
 
-        # 总步骤数用于计算进度
         total_phases = len(collector_steps) + len(processor_steps) + len(storage_steps)
         if total_phases == 0:
-            logger.warning(f"Pipeline [{self.name}] 没有配置任何步骤")
+            logger.warning(f"Pipeline [{self.name}] has no configured steps")
             result.completed_at = datetime.now()
             return result
 
         current_phase = 0
 
         try:
-            # === Phase 1: 实例化组件 ===
-            logger.info(f"Pipeline [{self.name}] 开始实例化组件...")
-            await self._instantiate_steps(collector_steps, "collector")
-            await self._instantiate_steps(processor_steps, "processor")
-            await self._instantiate_steps(storage_steps, "storage")
+            await self._instantiate_pipeline_steps(
+                collector_steps,
+                processor_steps,
+                storage_steps,
+            )
+            current_phase = await self._run_collect_phase(
+                task,
+                collector_steps,
+                result,
+                recovery_context,
+                current_phase=current_phase,
+                total_phases=total_phases,
+            )
+            if collector_steps and not self._has_successful_collects(result.collect_results):
+                await self._finalize_collect_failure(task, result)
+                return result
 
-            # === Phase 2: 采集 ===
-            all_collect_results: list[CollectResult] = []
-            targets = [
-                CollectTarget(name=t.name, target_type=t.target_type, params=t.params)
-                for t in task.targets
-            ]
+            current_data, current_phase = await self._run_process_phase(
+                task,
+                processor_steps,
+                self._build_process_inputs(result.collect_results),
+                result,
+                current_phase=current_phase,
+                total_phases=total_phases,
+            )
+            records = self._build_output_records(task, current_data, recovery_context)
+            result.output_records = list(records)
+            current_phase = await self._run_storage_phase(
+                task,
+                storage_steps,
+                records,
+                result,
+                current_phase=current_phase,
+                total_phases=total_phases,
+            )
+            await self._finalize_success(task, result, recovery_context)
+        except Exception as exc:
+            await self._finalize_failure(task, result, recovery_context, exc)
 
-            for step in collector_steps:
-                collector: BaseCollector = step.instance
-                step_name = f"collect:{step.component_name}"
+        return result
+
+    async def _instantiate_pipeline_steps(
+        self,
+        collector_steps: list[PipelineStep],
+        processor_steps: list[PipelineStep],
+        storage_steps: list[PipelineStep],
+    ) -> None:
+        logger.info(f"Pipeline [{self.name}] initializing components...")
+        await self._instantiate_steps(collector_steps, "collector")
+        await self._instantiate_steps(processor_steps, "processor")
+        await self._instantiate_steps(storage_steps, "storage")
+
+    async def _run_collect_phase(
+        self,
+        task: Task,
+        collector_steps: list[PipelineStep],
+        result: PipelineResult,
+        recovery_context: dict[str, Any],
+        *,
+        current_phase: int,
+        total_phases: int,
+    ) -> int:
+        targets = self._build_collect_targets(task, recovery_context)
+        all_collect_results: list[CollectResult] = []
+
+        for step in collector_steps:
+            collector: BaseCollector = step.instance
+            step_name = f"collect:{step.component_name}"
+            if recovery_context:
+                collector.config = {
+                    **collector.config,
+                    "recovery_checkpoint": copy.deepcopy(recovery_context),
+                }
+            await self._emit_event(
+                task.id,
+                "collect",
+                f"Collecting ({len(targets)} targets)",
+                payload={
+                    "status": "started",
+                    "component": step.component_name,
+                    "targets_count": len(targets),
+                },
+            )
+            task.add_step_log(
+                step_name,
+                TaskStatus.RUNNING,
+                f"Collecting ({len(targets)} targets)",
+            )
+            logger.info(f"Pipeline [{self.name}] -> collect: {step.component_name}")
+
+            await collector.setup(step.config)
+            try:
+                collect_results = await collector.collect_batch(targets)
+                all_collect_results.extend(collect_results)
+
+                success_count = sum(1 for item in collect_results if item.success)
+                failed_results = [item for item in collect_results if not item.success]
+                failed_error = "; ".join(
+                    _collect_failure_message(item) for item in failed_results
+                )
+                task.add_step_log(
+                    step_name,
+                    TaskStatus.SUCCESS if not failed_results else TaskStatus.FAILED,
+                    f"Collect complete: {success_count}/{len(collect_results)} succeeded",
+                    error=failed_error or None,
+                )
                 await self._emit_event(
                     task.id,
                     "collect",
-                    f"开始采集 ({len(targets)} 个目标)",
+                    f"Collect complete: {success_count}/{len(collect_results)} succeeded",
+                    level="warning" if failed_results else "info",
                     payload={
-                        "status": "started",
+                        "status": "failed" if failed_results else "succeeded",
                         "component": step.component_name,
-                        "targets_count": len(targets),
+                        "targets_count": len(collect_results),
+                        "success_count": success_count,
+                        "failed_count": len(failed_results),
+                        "error": failed_error or None,
                     },
                 )
-                task.add_step_log(
-                    step_name, TaskStatus.RUNNING, f"开始采集 ({len(targets)} 个目标)"
+                result.errors.extend(
+                    f"collect:{step.component_name}:{_collect_failure_message(item)}"
+                    for item in failed_results
                 )
-                logger.info(f"Pipeline [{self.name}] → 采集: {step.component_name}")
-
-                await collector.setup(step.config)
-                try:
-                    collect_results = await collector.collect_batch(targets)
-                    all_collect_results.extend(collect_results)
-
-                    success_count = sum(1 for r in collect_results if r.success)
-                    failed_results = [r for r in collect_results if not r.success]
-                    failed_error = "; ".join(
-                        _collect_failure_message(r) for r in failed_results
-                    )
-                    task.add_step_log(
-                        step_name,
-                        TaskStatus.SUCCESS if not failed_results else TaskStatus.FAILED,
-                        f"采集完成: {success_count}/{len(collect_results)} 成功",
-                        error=failed_error or None,
-                    )
-                    await self._emit_event(
-                        task.id,
-                        "collect",
-                        f"采集完成: {success_count}/{len(collect_results)} 成功",
-                        level="warning" if failed_results else "info",
-                        payload={
-                            "status": "failed" if failed_results else "succeeded",
-                            "component": step.component_name,
-                            "targets_count": len(collect_results),
-                            "success_count": success_count,
-                            "failed_count": len(failed_results),
-                            "error": failed_error or None,
-                        },
-                    )
-                    result.errors.extend(
-                        f"collect:{step.component_name}:{_collect_failure_message(r)}"
-                        for r in failed_results
-                    )
-                except Exception as exc:
-                    safe_error = redact_sensitive_text(str(exc))
-                    await self._emit_event(
-                        task.id,
-                        "collect",
-                        f"采集失败: {safe_error}",
-                        level="error",
-                        payload={
-                            "status": "failed",
-                            "component": step.component_name,
-                            "error": safe_error,
-                        },
-                    )
-                    raise
-                finally:
-                    await collector.teardown()
-
-                current_phase += 1
-                progress = current_phase / total_phases * 0.9  # 预留 10% 给最终处理
-                await self._report_progress(task.id, progress, f"采集完成: {step.component_name}")
-                task.update_progress(progress)
-
-            result.collect_results = all_collect_results
-            successful_collects = [
-                cr for cr in all_collect_results if cr.success and cr.data is not None
-            ]
-            if collector_steps and not successful_collects:
-                result.success = False
-                if not result.errors:
-                    result.errors.append("所有采集目标均失败")
-                result.completed_at = datetime.now()
+            except Exception as exc:
+                safe_error = redact_sensitive_text(str(exc))
                 await self._emit_event(
                     task.id,
-                    "error",
-                    "Pipeline 执行失败: 采集阶段无有效结果",
+                    "collect",
+                    f"Collect failed: {safe_error}",
                     level="error",
                     payload={
-                        "stage": "collect",
-                        "errors": list(result.errors),
+                        "status": "failed",
+                        "component": step.component_name,
+                        "error": safe_error,
                     },
                 )
-                await self._report_progress(task.id, 1.0, "Pipeline 执行失败")
-                task.update_progress(1.0, "Pipeline 执行失败")
-                logger.warning(
-                    f"Pipeline [{self.name}] 采集阶段无有效结果: {'; '.join(result.errors)}"
-                )
-                return result
+                raise
+            finally:
+                await collector.teardown()
 
-            # === Phase 3: 处理 ===
-            # 将采集结果转为处理器输入
-            current_data: list[ProcessInput] = [
-                ProcessInput(
-                    data=cr.data,
-                    metadata={
-                        **cr.metadata,
-                        "target": cr.target.name,
-                        "collected_at": cr.collected_at.isoformat(),
-                    },
-                    source=cr.target.name,
-                )
-                for cr in all_collect_results
-                if cr.success and cr.data is not None
-            ]
+            current_phase = await self._advance_phase(
+                task,
+                current_phase=current_phase,
+                total_phases=total_phases,
+                message=f"Collect complete: {step.component_name}",
+            )
 
-            for step in processor_steps:
-                processor: BaseProcessor = step.instance
-                step_name = f"process:{step.component_name}"
+        result.collect_results = all_collect_results
+        return current_phase
+
+    async def _run_process_phase(
+        self,
+        task: Task,
+        processor_steps: list[PipelineStep],
+        current_data: list[ProcessInput],
+        result: PipelineResult,
+        *,
+        current_phase: int,
+        total_phases: int,
+    ) -> tuple[list[ProcessInput], int]:
+        for step in processor_steps:
+            processor: BaseProcessor = step.instance
+            step_name = f"process:{step.component_name}"
+            await self._emit_event(
+                task.id,
+                "process",
+                f"Processing {len(current_data)} records",
+                payload={
+                    "status": "started",
+                    "component": step.component_name,
+                    "input_count": len(current_data),
+                },
+            )
+            task.add_step_log(
+                step_name,
+                TaskStatus.RUNNING,
+                f"Processing {len(current_data)} records",
+            )
+            logger.info(f"Pipeline [{self.name}] -> process: {step.component_name}")
+
+            await processor.setup()
+            try:
+                process_results = await processor.process_batch(current_data)
+                result.process_results.extend(process_results)
+                current_data = [
+                    ProcessInput(
+                        data=process_result.data,
+                        metadata=process_result.metadata,
+                        source=process_result.processor_name,
+                    )
+                    for process_result in process_results
+                    if process_result.success and process_result.data is not None
+                ]
+
+                success_count = sum(1 for item in process_results if item.success)
+                failed_count = len(process_results) - success_count
+                task.add_step_log(
+                    step_name,
+                    TaskStatus.SUCCESS,
+                    f"Process complete: {success_count}/{len(process_results)} succeeded",
+                )
                 await self._emit_event(
                     task.id,
                     "process",
-                    f"开始处理 {len(current_data)} 条数据",
+                    f"Process complete: {success_count}/{len(process_results)} succeeded",
+                    level="warning" if failed_count else "info",
                     payload={
-                        "status": "started",
+                        "status": "failed" if failed_count else "succeeded",
                         "component": step.component_name,
-                        "input_count": len(current_data),
+                        "input_count": len(process_results),
+                        "success_count": success_count,
+                        "failed_count": failed_count,
                     },
                 )
-                task.add_step_log(step_name, TaskStatus.RUNNING, f"处理 {len(current_data)} 条数据")
-                logger.info(f"Pipeline [{self.name}] → 处理: {step.component_name}")
-
-                await processor.setup()
-                try:
-                    process_results = await processor.process_batch(current_data)
-                    result.process_results.extend(process_results)
-
-                    # 将处理结果转为下一个处理器的输入
-                    current_data = [
-                        ProcessInput(
-                            data=pr.data,
-                            metadata=pr.metadata,
-                            source=pr.processor_name,
-                        )
-                        for pr in process_results
-                        if pr.success and pr.data is not None
-                    ]
-
-                    success_count = sum(1 for r in process_results if r.success)
-                    task.add_step_log(
-                        step_name,
-                        TaskStatus.SUCCESS,
-                        f"处理完成: {success_count}/{len(process_results)} 成功",
-                    )
-                    failed_count = len(process_results) - success_count
-                    await self._emit_event(
-                        task.id,
-                        "process",
-                        f"处理完成: {success_count}/{len(process_results)} 成功",
-                        level="warning" if failed_count else "info",
-                        payload={
-                            "status": "failed" if failed_count else "succeeded",
-                            "component": step.component_name,
-                            "input_count": len(process_results),
-                            "success_count": success_count,
-                            "failed_count": failed_count,
-                        },
-                    )
-                except Exception as exc:
-                    safe_error = redact_sensitive_text(str(exc))
-                    await self._emit_event(
-                        task.id,
-                        "process",
-                        f"处理失败: {safe_error}",
-                        level="error",
-                        payload={
-                            "status": "failed",
-                            "component": step.component_name,
-                            "error": safe_error,
-                        },
-                    )
-                    raise
-                finally:
-                    await processor.teardown()
-
-                current_phase += 1
-                progress = current_phase / total_phases * 0.9
-                await self._report_progress(task.id, progress, f"处理完成: {step.component_name}")
-                task.update_progress(progress)
-
-            # === Phase 4: 存储 ===
-            records = [
-                StorageRecord(
-                    key=f"{task.id}:{pd.source}:{i}",
-                    data=pd.data,
-                    metadata=_build_storage_metadata(task, pd.metadata),
-                    source=pd.source,
+            except Exception as exc:
+                safe_error = redact_sensitive_text(str(exc))
+                await self._emit_event(
+                    task.id,
+                    "process",
+                    f"Process failed: {safe_error}",
+                    level="error",
+                    payload={
+                        "status": "failed",
+                        "component": step.component_name,
+                        "error": safe_error,
+                    },
                 )
-                for i, pd in enumerate(current_data)
-            ]
-            result.output_records = list(records)
+                raise
+            finally:
+                await processor.teardown()
 
-            for step in storage_steps:
-                storage: BaseStorage = step.instance
-                step_name = f"storage:{step.component_name}"
+            current_phase = await self._advance_phase(
+                task,
+                current_phase=current_phase,
+                total_phases=total_phases,
+                message=f"Process complete: {step.component_name}",
+            )
+
+        return current_data, current_phase
+
+    async def _run_storage_phase(
+        self,
+        task: Task,
+        storage_steps: list[PipelineStep],
+        records: list[StorageRecord],
+        result: PipelineResult,
+        *,
+        current_phase: int,
+        total_phases: int,
+    ) -> int:
+        for step in storage_steps:
+            storage: BaseStorage = step.instance
+            step_name = f"storage:{step.component_name}"
+            await self._emit_event(
+                task.id,
+                "storage",
+                f"Storing {len(records)} records",
+                payload={
+                    "status": "started",
+                    "component": step.component_name,
+                    "record_count": len(records),
+                },
+            )
+            task.add_step_log(
+                step_name,
+                TaskStatus.RUNNING,
+                f"Storing {len(records)} records",
+            )
+            logger.info(f"Pipeline [{self.name}] -> storage: {step.component_name}")
+
+            try:
+                await storage.initialize()
+                await storage.save_batch(records)
+                result.storage_count += len(records)
+
+                task.add_step_log(
+                    step_name,
+                    TaskStatus.SUCCESS,
+                    f"Storage complete: {len(records)} records",
+                )
                 await self._emit_event(
                     task.id,
                     "storage",
-                    f"开始存储 {len(records)} 条记录",
+                    f"Storage complete: {len(records)} records",
                     payload={
-                        "status": "started",
+                        "status": "succeeded",
                         "component": step.component_name,
                         "record_count": len(records),
                     },
                 )
-                task.add_step_log(step_name, TaskStatus.RUNNING, f"存储 {len(records)} 条记录")
-                logger.info(f"Pipeline [{self.name}] → 存储: {step.component_name}")
-
-                try:
-                    await storage.initialize()
-                    await storage.save_batch(records)
-                    result.storage_count += len(records)
-
-                    task.add_step_log(step_name, TaskStatus.SUCCESS, f"存储完成: {len(records)} 条记录")
-                    await self._emit_event(
-                        task.id,
-                        "storage",
-                        f"存储完成: {len(records)} 条记录",
-                        payload={
-                            "status": "succeeded",
-                            "component": step.component_name,
-                            "record_count": len(records),
-                        },
-                    )
-                except Exception as e:
-                    safe_error = redact_sensitive_text(str(e))
-                    logger.error(
-                        f"Pipeline [{self.name}] 存储 {step.component_name} 失败: {safe_error}"
-                    )
-                    task.add_step_log(step_name, TaskStatus.FAILED, f"存储失败: {safe_error}")
-                    await self._emit_event(
-                        task.id,
-                        "storage",
-                        f"存储失败: {safe_error}",
-                        level="error",
-                        payload={
-                            "status": "failed",
-                            "component": step.component_name,
-                            "record_count": len(records),
-                            "error": safe_error,
-                        },
-                    )
-                    result.success = False
-                    result.errors.append(f"storage:{step.component_name} 失败: {safe_error}")
-                finally:
-                    try:
-                        await storage.close()
-                    except Exception as e:
-                        safe_error = redact_sensitive_text(str(e))
-                        logger.error(
-                            f"Pipeline [{self.name}] 存储 {step.component_name} close 失败: "
-                            f"{safe_error}"
-                        )
-
-                current_phase += 1
-                progress = current_phase / total_phases * 0.9
-                await self._report_progress(task.id, progress, f"存储完成: {step.component_name}")
-                task.update_progress(progress)
-
-            # === 完成 ===
-            # 仅在所有步骤均无错误时标记成功（存储阶段的错误不应被覆盖）
-            if not result.errors:
-                result.success = True
-            else:
+            except Exception as exc:
+                safe_error = redact_sensitive_text(str(exc))
+                logger.error(
+                    f"Pipeline [{self.name}] storage {step.component_name} failed: {safe_error}"
+                )
+                task.add_step_log(step_name, TaskStatus.FAILED, f"Storage failed: {safe_error}")
+                await self._emit_event(
+                    task.id,
+                    "storage",
+                    f"Storage failed: {safe_error}",
+                    level="error",
+                    payload={
+                        "status": "failed",
+                        "component": step.component_name,
+                        "record_count": len(records),
+                        "error": safe_error,
+                    },
+                )
                 result.success = False
-            result.completed_at = datetime.now()
-            await self._emit_event(
-                task.id,
-                "pipeline",
-                f"Pipeline 执行{'成功' if result.success else '部分失败'}",
-                level="info" if result.success else "warning",
-                payload={
-                    "status": "succeeded" if result.success else "failed",
-                    "collect_count": len(result.collect_results),
-                    "storage_count": result.storage_count,
-                    "duration_seconds": result.duration_seconds,
+                result.errors.append(f"storage:{step.component_name} failed: {safe_error}")
+            finally:
+                try:
+                    await storage.close()
+                except Exception as exc:
+                    safe_error = redact_sensitive_text(str(exc))
+                    logger.error(
+                        f"Pipeline [{self.name}] storage {step.component_name} close failed: "
+                        f"{safe_error}"
+                    )
+
+            current_phase = await self._advance_phase(
+                task,
+                current_phase=current_phase,
+                total_phases=total_phases,
+                message=f"Storage complete: {step.component_name}",
+            )
+
+        return current_phase
+
+    async def _finalize_collect_failure(
+        self,
+        task: Task,
+        result: PipelineResult,
+    ) -> None:
+        result.success = False
+        if not result.errors:
+            result.errors.append("all collect targets failed")
+        result.completed_at = datetime.now()
+        await self._emit_event(
+            task.id,
+            "error",
+            "Pipeline failed: collect stage produced no usable results",
+            level="error",
+            payload={
+                "stage": "collect",
+                "errors": list(result.errors),
+            },
+        )
+        await self._report_progress(task.id, 1.0, "Pipeline failed")
+        task.update_progress(1.0, "Pipeline failed")
+        logger.warning(
+            f"Pipeline [{self.name}] collect stage produced no usable results: "
+            f"{'; '.join(result.errors)}"
+        )
+
+    async def _finalize_success(
+        self,
+        task: Task,
+        result: PipelineResult,
+        recovery_context: dict[str, Any],
+    ) -> None:
+        result.success = not result.errors
+        result.resume_state = build_pipeline_resume_state(
+            task,
+            recovery_context=recovery_context,
+            collect_results=result.collect_results,
+            output_records=result.output_records,
+        )
+        result.completed_at = datetime.now()
+        await self._emit_event(
+            task.id,
+            "pipeline",
+            f"Pipeline {'succeeded' if result.success else 'partially failed'}",
+            level="info" if result.success else "warning",
+            payload={
+                "status": "succeeded" if result.success else "failed",
+                "collect_count": len(result.collect_results),
+                "storage_count": result.storage_count,
+                "duration_seconds": result.duration_seconds,
+                "resume_state": result.resume_state,
+            },
+        )
+        await self._report_progress(task.id, 1.0, "Pipeline completed")
+        task.update_progress(1.0, "Pipeline completed")
+
+        status_label = "succeeded" if result.success else "partially failed"
+        logger.info(
+            f"Pipeline [{self.name}] {status_label}: "
+            f"collect {len(result.collect_results)} items "
+            f"stored {result.storage_count} records "
+            f"duration {result.duration_seconds:.1f}s"
+        )
+
+    async def _finalize_failure(
+        self,
+        task: Task,
+        result: PipelineResult,
+        recovery_context: dict[str, Any],
+        exc: Exception,
+    ) -> None:
+        safe_error = redact_sensitive_text(str(exc))
+        logger.error(f"Pipeline [{self.name}] failed: {safe_error}")
+        result.success = False
+        result.errors.append(safe_error)
+        result.resume_state = build_pipeline_resume_state(
+            task,
+            recovery_context=recovery_context,
+            collect_results=result.collect_results,
+            output_records=result.output_records,
+        )
+        result.completed_at = datetime.now()
+        await self._emit_event(
+            task.id,
+            "error",
+            f"Pipeline failed: {safe_error}",
+            level="error",
+            payload={
+                "stage": "pipeline",
+                "error": safe_error,
+                "resume_state": result.resume_state,
+            },
+        )
+
+    def _build_collect_targets(
+        self,
+        task: Task,
+        recovery_context: dict[str, Any],
+    ) -> list[CollectTarget]:
+        targets = [
+            CollectTarget(name=target.name, target_type=target.target_type, params=target.params)
+            for target in task.targets
+        ]
+        return apply_collect_resume_context(
+            targets,
+            recovery_context.get("collect", {}),
+        )
+
+    def _build_process_inputs(
+        self,
+        collect_results: list[CollectResult],
+    ) -> list[ProcessInput]:
+        return [
+            ProcessInput(
+                data=collect_result.data,
+                metadata={
+                    **collect_result.metadata,
+                    "target": collect_result.target.name,
+                    "collected_at": collect_result.collected_at.isoformat(),
                 },
+                source=collect_result.target.name,
             )
-            await self._report_progress(task.id, 1.0, "Pipeline 执行完成")
-            task.update_progress(1.0, "Pipeline 执行完成")
+            for collect_result in collect_results
+            if collect_result.success and collect_result.data is not None
+        ]
 
-            status_label = "成功" if result.success else "部分失败"
-            logger.info(
-                f"Pipeline [{self.name}] 执行{status_label}: "
-                f"采集 {len(result.collect_results)} 条, "
-                f"存储 {result.storage_count} 条, "
-                f"耗时 {result.duration_seconds:.1f}s"
+    def _build_output_records(
+        self,
+        task: Task,
+        current_data: list[ProcessInput],
+        recovery_context: dict[str, Any],
+    ) -> list[StorageRecord]:
+        storage_context = resolve_storage_resume_context(
+            recovery_context,
+            current_data=current_data,
+        )
+        return [
+            StorageRecord(
+                key=build_storage_record_key(
+                    task,
+                    process_input,
+                    index=index,
+                    storage_context=storage_context,
+                ),
+                data=process_input.data,
+                metadata=_build_storage_metadata(task, process_input.metadata),
+                source=process_input.source,
             )
+            for index, process_input in enumerate(current_data)
+        ]
 
-        except Exception as e:
-            safe_error = redact_sensitive_text(str(e))
-            logger.error(f"Pipeline [{self.name}] 执行失败: {safe_error}")
-            result.success = False
-            result.errors.append(safe_error)
-            result.completed_at = datetime.now()
-            await self._emit_event(
-                task.id,
-                "error",
-                f"Pipeline 执行失败: {safe_error}",
-                level="error",
-                payload={
-                    "stage": "pipeline",
-                    "error": safe_error,
-                },
-            )
+    def _has_successful_collects(self, collect_results: list[CollectResult]) -> bool:
+        return any(result.success and result.data is not None for result in collect_results)
 
-        return result
+    async def _advance_phase(
+        self,
+        task: Task,
+        *,
+        current_phase: int,
+        total_phases: int,
+        message: str,
+    ) -> int:
+        current_phase += 1
+        progress = self._phase_progress(current_phase, total_phases)
+        await self._report_progress(task.id, progress, message)
+        task.update_progress(progress)
+        return current_phase
+
+    def _phase_progress(self, current_phase: int, total_phases: int) -> float:
+        return current_phase / total_phases * 0.9
 
     async def _instantiate_steps(self, steps: list[PipelineStep], component_type: str) -> None:
         """实例化步骤中的组件"""

@@ -26,6 +26,7 @@ class TaskCheckpoint(BaseModel):
     worker_id: str = ""
     recovery_level: str = "L0"
     cursor: dict[str, Any] = Field(default_factory=dict)
+    state: dict[str, Any] = Field(default_factory=dict)
     stats: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -33,6 +34,13 @@ class TaskCheckpoint(BaseModel):
 
     def to_public_payload(self) -> dict[str, Any]:
         """Return the API/WebSocket-safe representation."""
+        payload = redact_sensitive(self.model_dump(mode="json"))
+        payload.pop("state", None)
+        payload["artifacts"] = _public_checkpoint_artifacts(payload.get("artifacts", []))
+        return payload
+
+    def to_worker_payload(self) -> dict[str, Any]:
+        """Return a worker-safe representation that retains internal resume state."""
         payload = redact_sensitive(self.model_dump(mode="json"))
         payload["artifacts"] = _public_checkpoint_artifacts(payload.get("artifacts", []))
         return payload
@@ -51,6 +59,7 @@ class TaskCheckpointService(ABC):
         worker_id: str = "",
         recovery_level: str = "L0",
         cursor: dict[str, Any] | None = None,
+        state: dict[str, Any] | None = None,
         stats: dict[str, Any] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -94,6 +103,7 @@ class InMemoryTaskCheckpointService(TaskCheckpointService):
         worker_id: str = "",
         recovery_level: str = "L0",
         cursor: dict[str, Any] | None = None,
+        state: dict[str, Any] | None = None,
         stats: dict[str, Any] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -108,6 +118,7 @@ class InMemoryTaskCheckpointService(TaskCheckpointService):
                 worker_id=worker_id,
                 recovery_level=recovery_level,
                 cursor=cursor,
+                state=state,
                 stats=stats,
                 artifacts=artifacts,
                 metadata=metadata,
@@ -149,6 +160,7 @@ class StorageTaskCheckpointService(TaskCheckpointService):
         worker_id: str = "",
         recovery_level: str = "L0",
         cursor: dict[str, Any] | None = None,
+        state: dict[str, Any] | None = None,
         stats: dict[str, Any] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -163,6 +175,7 @@ class StorageTaskCheckpointService(TaskCheckpointService):
                 worker_id=worker_id,
                 recovery_level=recovery_level,
                 cursor=cursor,
+                state=state,
                 stats=stats,
                 artifacts=artifacts,
                 metadata=metadata,
@@ -231,6 +244,7 @@ def _build_checkpoint(
     worker_id: str,
     recovery_level: str,
     cursor: dict[str, Any] | None,
+    state: dict[str, Any] | None,
     stats: dict[str, Any] | None,
     artifacts: list[dict[str, Any]] | None,
     metadata: dict[str, Any] | None,
@@ -243,6 +257,7 @@ def _build_checkpoint(
         worker_id=redact_sensitive_text(str(worker_id or "")),
         recovery_level=_safe_recovery_level(recovery_level),
         cursor=redact_sensitive(cursor or {}),
+        state=redact_sensitive(state or {}),
         stats=redact_sensitive(stats or {}),
         artifacts=redact_sensitive(artifacts or []),
         metadata=redact_sensitive(metadata or {}),

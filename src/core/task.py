@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 
@@ -101,6 +101,15 @@ class Task(BaseModel):
     started_at: datetime | None = Field(default=None, description="开始执行时间（每次重试重置）")
     first_started_at: datetime | None = Field(default=None, description="首次开始执行时间（跨重试保留）")
     completed_at: datetime | None = Field(default=None, description="完成时间")
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _ensure_created_at_utc(cls, v: Any) -> datetime:
+        if isinstance(v, str):
+            v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
     def start(self) -> None:
         """标记任务开始执行"""
@@ -276,6 +285,7 @@ class Task(BaseModel):
             "pipeline_name",
             "errors",
             "collection_summary",
+            "resume_state",
             "duration_seconds",
             "generated_report_id",
             "generated_report_title",

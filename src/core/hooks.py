@@ -17,6 +17,7 @@ from typing import Any
 from loguru import logger
 
 from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent, TaskUpdatedEvent
+from src.core.task_report_service import TaskReportService
 from src.core.sensitive import redact_sensitive_text
 
 
@@ -24,70 +25,35 @@ class ReportGenerationHook:
     """订阅 task_completed → 生成报告"""
 
     def __init__(self, report_generator: Any, scheduler: Any | None = None) -> None:
-        self._report_generator = report_generator
-        self._scheduler = scheduler
+        self._task_report_service = TaskReportService(
+            register_report_artifact=(
+                scheduler.register_report_artifact if scheduler is not None else None
+            ),
+            report_generator=report_generator,
+        )
 
     async def handle(self, event: TaskCompletedEvent) -> None:
         if not event.success:
             return
 
         task = event.task
-        report_config = task.config.get("report", {})
-        if not report_config.get("enabled"):
+        if not self._task_report_service.should_generate_report(task):
             return
 
         pipeline_result = event.result
         if pipeline_result is None:
             return
 
-        prompt = str(report_config.get("prompt") or self._build_default_prompt(task))
-        template = str(report_config.get("template", "default"))
-        params = dict(report_config.get("params", {}))
-        if "use_vector" not in params and event.pipeline is not None:
-            params["use_vector"] = any(
-                step.step_type.value == "storage" and step.component_name == "vector"
-                for step in event.pipeline.steps
-            )
-
-        from src.core.task import TaskStatus
-
-        task.add_step_log("report:auto", TaskStatus.RUNNING, "开始生成报告")
-
         try:
-            report = await self._report_generator.generate_excel(
-                prompt=prompt,
-                data_source=str(
-                    report_config.get("data_source") or task.collector_name or task.pipeline_name
-                ),
-                template=template,
-                params=params,
-                records=list(pipeline_result.output_records)
-                if hasattr(pipeline_result, "output_records")
-                else [],
-                metadata={
-                    "task_id": task.id,
-                    "pipeline_name": task.pipeline_name,
-                    "auto_generated": True,
-                },
+            await self._task_report_service.generate_report_for_task(
+                task,
+                event.pipeline,
+                pipeline_result,
+                fail_task_on_error=False,
             )
-            task.add_step_log("report:auto", TaskStatus.SUCCESS, f"报告生成完成: {report.title}")
-            if self._scheduler is not None:
-                await self._scheduler.register_report_artifact(task, report)
-            if pipeline_result is not None:
-                pipeline_result.generated_report_id = report.id
-                pipeline_result.generated_report_title = report.title
-                pipeline_result.generated_report_matched_records = report.matched_records
-            logger.info(f"报告自动生成完成: {report.title}")
         except Exception as exc:
             safe_error = redact_sensitive_text(str(exc))
-            task.add_step_log("report:auto", TaskStatus.FAILED, "报告生成失败", error=safe_error)
             logger.error(f"自动报告生成失败: {safe_error}")
-
-    @staticmethod
-    def _build_default_prompt(task: Any) -> str:
-        targets = [target.name for target in task.targets if target.name]
-        subject = "、".join(targets[:3]) if targets else task.name
-        return f"基于本次采集结果，总结{subject}的核心表现、版本更新、评论反馈和关键事件。"
 
 
 class AlertHook:

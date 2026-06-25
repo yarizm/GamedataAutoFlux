@@ -66,18 +66,43 @@ def build_config_diagnostics() -> dict[str, Any]:
 
 def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
     """Build local session/runtime diagnostics for one collector."""
-    from src.core.collector_metadata import fallback_collector_metadata, get_collector_metadata
+    from src.core.collector_metadata import (
+        collector_metadata_payload,
+        fallback_collector_metadata,
+        get_collector_metadata,
+        resolve_session_mode_contract,
+    )
+    from src.core.session_runtime import build_collector_session_runtime
 
     metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    session_contract = resolve_session_mode_contract(metadata.collector_id)
     checks: list[dict[str, Any]] = []
     profiles = set(metadata.credential_profiles)
+    effective_mode = str(session_contract["effective_mode"])
 
     if "playwright_runtime" in profiles:
         checks.append(_dependency_check("playwright", required=True))
     if "steamdb_optional_browser_session" in profiles:
         checks.append(_steamdb_session_check(optional=True))
-    if "local_browser_profile" in profiles:
+    if "local_browser_profile" in profiles and effective_mode == "local_profile":
         checks.extend(_local_profile_session_checks(metadata.collector_id))
+    if metadata.collector_id == "qimai" and effective_mode == "managed_state":
+        checks.append(_storage_state_check("session:qimai_storage_state", "qimai.storage_state_path"))
+    if (
+        "local_browser_profile" in profiles
+        and effective_mode != "local_profile"
+        and session_contract["override_status"] != "applied"
+    ):
+        checks.append(
+            _check(
+                "session_mode_override",
+                "warning",
+                "Collector declares a local browser profile, but the effective session mode is not local_profile.",
+                configured_mode=session_contract["configured_mode"],
+                effective_mode=effective_mode,
+                override_status=session_contract["override_status"],
+            )
+        )
 
     if not checks:
         checks.append(
@@ -88,12 +113,100 @@ def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
             )
         )
 
+    runtime = build_collector_session_runtime(metadata.collector_id, checks=checks)
+
     return {
         "collector_id": metadata.collector_id,
+        "display_name": metadata.display_name,
         "requires_session": metadata.requires_session,
-        "session_mode": metadata.session_mode,
+        "session_mode": effective_mode,
+        "default_session_mode": session_contract["default_mode"],
+        "configured_session_mode": session_contract["configured_mode"],
+        "session_mode_source": session_contract["source"],
+        "session_mode_override_status": session_contract["override_status"],
+        "supported_session_modes": session_contract["supported_modes"],
+        "worker_binding": runtime["worker_binding"],
+        "required_worker_capabilities": runtime["required_worker_capabilities"],
+        "credential_profiles": sorted(profiles),
         "status": _overall_status(checks),
+        "collector_metadata": collector_metadata_payload(metadata.collector_id),
+        "session_account": runtime["account"],
+        "session_state": runtime["state"],
+        "session_lease": runtime["lease"],
         "checks": checks,
+    }
+
+
+def build_session_diagnostics_overview(
+    collector_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build diagnostics for all collectors with local runtime/session dependencies."""
+    from src.core.collector_metadata import list_session_sensitive_collectors
+
+    ids = collector_ids or list_session_sensitive_collectors()
+    collectors = [build_collector_session_diagnostics(collector_id) for collector_id in ids]
+    checks = [check for collector in collectors for check in collector.get("checks", [])]
+    return {
+        "status": _overall_status(checks or [{"status": "ok"}]),
+        "summary": {
+            "collectors": len(collectors),
+            "requires_session": sum(1 for item in collectors if item.get("requires_session")),
+            "errors": sum(1 for item in collectors if item.get("status") == "error"),
+            "warnings": sum(1 for item in collectors if item.get("status") == "warning"),
+        },
+        "collectors": collectors,
+    }
+
+
+def build_session_readiness_summary(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact task-facing readiness summary from session diagnostics."""
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        return {}
+
+    requires_session = bool(diagnostics.get("requires_session", False))
+    mode = str(diagnostics.get("session_mode") or "api_only").strip() or "api_only"
+    binding = str(diagnostics.get("worker_binding") or "flexible").strip() or "flexible"
+    diagnostics_status = str(diagnostics.get("status") or "unknown").strip().lower() or "unknown"
+    account = diagnostics.get("session_account", {}) if isinstance(diagnostics.get("session_account"), dict) else {}
+    lease = diagnostics.get("session_lease", {}) if isinstance(diagnostics.get("session_lease"), dict) else {}
+    state = diagnostics.get("session_state", {}) if isinstance(diagnostics.get("session_state"), dict) else {}
+    health = str(state.get("health") or ("ready" if not requires_session else "unknown")).strip().lower()
+    status = "not_required" if not requires_session else health or "unknown"
+    relevant_checks = _session_attention_checks(diagnostics)
+    precheck_status = _session_precheck_status(
+        requires_session=requires_session,
+        mode=mode,
+        health=health,
+        diagnostics_status=diagnostics_status,
+        state=state,
+        relevant_checks=relevant_checks,
+    )
+    summary, recommended_action = _session_readiness_message(
+        requires_session=requires_session,
+        mode=mode,
+        health=health,
+        state=state,
+        relevant_checks=relevant_checks,
+    )
+
+    return {
+        "required": requires_session,
+        "status": status,
+        "is_ready": precheck_status == "ok",
+        "precheck_status": precheck_status,
+        "diagnostics_status": diagnostics_status,
+        "mode": mode,
+        "binding": binding,
+        "summary": summary,
+        "recommended_action": recommended_action,
+        "required_worker_capabilities": list(diagnostics.get("required_worker_capabilities", []) or []),
+        "account_kind": str(account.get("account_kind") or "not_required"),
+        "account_id": str(account.get("account_id") or ""),
+        "locator": str(account.get("locator") or ""),
+        "locator_label": str(account.get("locator_label") or ""),
+        "lease_strategy": str(lease.get("strategy") or "none"),
+        "blocking_reasons": relevant_checks if precheck_status == "error" else [],
+        "attention_reasons": relevant_checks if precheck_status == "warning" else [],
     }
 
 
@@ -325,6 +438,22 @@ def _profile_dir_check(name: str, profile_dir: Path) -> dict[str, Any]:
     )
 
 
+def _storage_state_check(name: str, config_key: str) -> dict[str, Any]:
+    storage_state_path = _resolve_project_path(str(get_config(config_key, "") or ""))
+    details = {
+        "storage_state_path": str(storage_state_path),
+        "exists": storage_state_path.exists(),
+    }
+    if storage_state_path.exists() and storage_state_path.is_file():
+        return _check(name, "ok", "Storage state file exists", **details)
+    return _check(
+        name,
+        "warning",
+        "Storage state file is missing; export a logged-in browser storage state before collection",
+        **details,
+    )
+
+
 def _cdp_session_check(
     name: str,
     *,
@@ -406,6 +535,113 @@ def _overall_status(checks: list[dict[str, Any]]) -> str:
     if "warning" in statuses:
         return "warning"
     return "ok"
+
+
+def _session_attention_checks(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    relevant: list[dict[str, Any]] = []
+    for raw_check in diagnostics.get("checks", []) or []:
+        if not isinstance(raw_check, dict):
+            continue
+        name = str(raw_check.get("name") or "session")
+        if name.startswith("dependency:"):
+            continue
+        status = str(raw_check.get("status") or "").strip().lower()
+        if status not in {"warning", "error"}:
+            continue
+        relevant.append(
+            {
+                "name": name,
+                "status": status,
+                "message": str(raw_check.get("message") or ""),
+            }
+        )
+    return relevant
+
+
+def _session_precheck_status(
+    *,
+    requires_session: bool,
+    mode: str,
+    health: str,
+    diagnostics_status: str,
+    state: dict[str, Any],
+    relevant_checks: list[dict[str, Any]],
+) -> str:
+    if diagnostics_status == "error":
+        return "error"
+    if requires_session and health == "blocked":
+        return "error"
+    if requires_session and mode == "managed_state" and not bool(state.get("storage_state_ready")):
+        return "error"
+    if requires_session and mode == "local_profile" and not bool(state.get("local_profile_ready")):
+        return "error"
+    if requires_session and mode == "local_profile" and str(state.get("cdp_status") or "") == "error":
+        return "error"
+    if diagnostics_status == "warning":
+        return "warning"
+    if health == "degraded":
+        return "warning"
+    if any(check.get("status") == "error" for check in relevant_checks):
+        return "error"
+    if relevant_checks:
+        return "warning"
+    return "ok"
+
+
+def _session_readiness_message(
+    *,
+    requires_session: bool,
+    mode: str,
+    health: str,
+    state: dict[str, Any],
+    relevant_checks: list[dict[str, Any]],
+) -> tuple[str, str]:
+    if not requires_session:
+        if relevant_checks:
+            return (
+                "No required local session, but optional browser session attention is recommended.",
+                "review_optional_session",
+            )
+        return ("No local session required for task submission.", "none")
+
+    if mode == "managed_state":
+        if bool(state.get("storage_state_ready")):
+            return ("Managed browser state is ready for task submission.", "none")
+        return (
+            "Managed browser state is missing. Export a logged-in storage_state before submitting this task.",
+            "export_storage_state",
+        )
+
+    if mode == "local_profile":
+        if not bool(state.get("local_profile_ready")):
+            return (
+                "Local browser profile is missing. Complete the one-time browser login before submitting this task.",
+                "prepare_local_profile",
+            )
+        cdp_status = str(state.get("cdp_status") or "not_configured")
+        if cdp_status == "error":
+            return (
+                "Local browser profile exists, but the required CDP browser is not reachable.",
+                "start_cdp_browser",
+            )
+        if cdp_status == "warning":
+            return (
+                "Local browser profile is ready, but the optional CDP browser is not reachable.",
+                "start_cdp_browser",
+            )
+        return ("Local browser profile is ready for task submission.", "none")
+
+    if health == "blocked":
+        return (
+            "Collector session is blocked and needs attention before task submission.",
+            "review_session",
+        )
+    if health == "degraded" or relevant_checks:
+        return (
+            "Collector session is partially ready. Review the session warnings before task submission.",
+            "review_session",
+        )
+    return ("Collector session is ready for task submission.", "none")
 
 
 def build_steamdb_launch_command() -> list[str]:
