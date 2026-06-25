@@ -23,6 +23,7 @@ class TaskPrecheckResponse(BaseModel):
     data_source_status: dict[str, str] = Field(default_factory=dict)
     collector_metadata: dict[str, Any] = Field(default_factory=dict)
     session_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    session_readiness: dict[str, Any] = Field(default_factory=dict)
     recovery: dict[str, Any] = Field(default_factory=dict)
 
 

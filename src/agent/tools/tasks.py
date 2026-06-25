@@ -163,6 +163,27 @@ def _safe_int(value: Any, *, default: int = 0) -> int:
     return parsed if parsed >= 0 else default
 
 
+def _precheck_failure_suggestion(precheck: Any) -> str:
+    session_readiness = getattr(precheck, "session_readiness", {}) or {}
+    session_level = str(session_readiness.get("precheck_status") or "").strip().lower()
+    session_summary = str(session_readiness.get("summary") or "").strip()
+    recommended_action = str(session_readiness.get("recommended_action") or "").strip()
+    if session_level == "error":
+        action_hint = {
+            "prepare_local_profile": "Prepare the collector browser profile before retrying.",
+            "export_storage_state": "Export the logged-in storage_state before retrying.",
+            "start_cdp_browser": "Start the required browser/CDP session before retrying.",
+        }.get(recommended_action, "Fix the collector session readiness before retrying.")
+        if session_summary:
+            return f"{action_hint} Current session state: {session_summary}"
+        return action_hint
+
+    required_fields = list(getattr(precheck, "required_fields", []) or [])
+    if required_fields:
+        return "Please fill the required fields and retry: " + ", ".join(required_fields)
+    return "Review the precheck issues and retry."
+
+
 class ListTasksTool(BaseTool):
     name: str = "list_tasks"
     description: str = (
@@ -226,6 +247,11 @@ class GetTaskDetailTool(BaseTool):
             session_diagnostics = session_diagnostics_getter(task_id)
             if session_diagnostics:
                 payload["session_diagnostics"] = session_diagnostics
+        session_readiness_getter = getattr(task_service, "get_task_session_readiness", None)
+        if callable(session_readiness_getter):
+            session_readiness = session_readiness_getter(task_id)
+            if session_readiness:
+                payload["session_readiness"] = session_readiness
         recovery = await task_service.get_task_recovery_info(task_id)
         if recovery:
             payload["recovery"] = recovery
@@ -296,7 +322,7 @@ class CreateTaskTool(BaseTool):
                     for i in precheck.issues
                 ],
                 warnings=[i.message for i in precheck.issues if i.level == "warning"],
-                suggestion="请补充必填字段后重试。必填字段: " + ", ".join(precheck.required_fields),
+                suggestion=_precheck_failure_suggestion(precheck),
             )
 
         try:

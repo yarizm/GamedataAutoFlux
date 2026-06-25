@@ -3,6 +3,8 @@ import 'codemirror/mode/javascript/javascript.js';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/theme/dracula.css';
 
+let editorsInitialized = false;
+
 function createJsonEditor(textareaId, options = {}) {
   const textarea = document.getElementById(textareaId);
   if (!textarea) return null;
@@ -21,6 +23,8 @@ function createJsonEditor(textareaId, options = {}) {
 }
 
 export function initEditors() {
+  if (editorsInitialized) return;
+  editorsInitialized = true;
   window.CodeMirror = CodeMirror;
   if (!window.taskTargetsEditor) {
     window.taskTargetsEditor = createJsonEditor('task-targets', { viewportMargin: Infinity });

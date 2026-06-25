@@ -19,17 +19,21 @@ export default {
 
   destroy() { if (this._unsub) this._unsub(); },
 
-  async refresh(silent) {
+  async refresh(silent = false) {
     try {
-      const [health, diagnostics, workers] = await Promise.all([
+      const [health, diagnostics, workers, sessionDiagnostics, sessionInventory] = await Promise.all([
         api('/health'),
         api('/diagnostics/config'),
         api('/workers?stale_after_seconds=120').catch(() => []),
+        api('/diagnostics/sessions').catch(() => ({ collectors: [], summary: {} })),
+        api('/diagnostics/sessions-inventory?sync=true').catch(() => ({ items: [], summary: {} })),
       ]);
       this._renderStatus(health, diagnostics);
       this._renderChecks(diagnostics.checks || []);
       this._renderPaths(diagnostics.paths || {});
       this._renderWorkers(workers || []);
+      this._renderSessions(sessionDiagnostics || {});
+      this._renderSessionInventory(sessionInventory || {});
     } catch (err) {
       if (!silent) {
         const list = this.container.querySelector('#system-checks-list');
@@ -70,8 +74,10 @@ export default {
       const details = check.details && Object.keys(check.details).length
         ? `<pre class="system-check-details terminal-console mt-3 p-3 bg-zinc-950 border border-white/5 rounded-lg text-[12px] shadow-[inset_0_0_15px_rgba(0,0,0,0.5)]">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
         : '';
-      const statusIcon = check.status === 'ok' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 
-                         check.status === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]';
+      const statusIcon = check.status === 'ok' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
+        check.status === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]';
+      const statusTextTone = check.status === 'ok' ? 'text-emerald-400' :
+        check.status === 'error' ? 'text-rose-400' : 'text-amber-400';
 
       return `<div class="system-check-row group p-4 rounded-xl border border-transparent transition-all duration-300 hover:bg-white/5 hover:border-white/5 mb-1">
         <div class="flex items-start gap-4">
@@ -79,7 +85,7 @@ export default {
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between mb-1">
               <span class="text-sm font-bold text-zinc-100 tracking-tight">${escapeHtml(check.name)}</span>
-              <span class="text-[10px] font-mono uppercase tracking-widest ${check.status === 'ok' ? 'text-emerald-400' : 'text-rose-400'}">${escapeHtml(check.status)}</span>
+              <span class="text-[10px] font-mono uppercase tracking-widest ${statusTextTone}">${escapeHtml(check.status)}</span>
             </div>
             <div class="text-xs text-zinc-500 leading-relaxed">${escapeHtml(check.message)}</div>
             ${actionBtn}
@@ -124,6 +130,8 @@ export default {
             : 'text-amber-300 bg-amber-500/10 border-amber-500/20';
       const capabilities = (worker.capabilities || []).slice(0, 8);
       const taskIds = worker.current_task_ids || [];
+      const claim = this._workerClaimStatus(worker);
+      const claimHtml = this._renderWorkerClaimStatus(claim);
       return `<div class="rounded-xl bg-zinc-950 border border-white/5 p-4">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
@@ -142,11 +150,311 @@ export default {
             <div class="text-zinc-300">${taskIds.length ? taskIds.map(id => `<code class="mr-1">${escapeHtml(id)}</code>`).join('') : '-'}</div>
           </div>
         </div>
+        ${claimHtml}
         <div class="mt-4 flex flex-wrap gap-1.5">
           ${capabilities.length ? capabilities.map(capability => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('') : '<span class="text-xs text-zinc-600">No capabilities declared.</span>'}
         </div>
       </div>`;
     }).join('') + `</div>`;
+  },
+
+  _renderSessions(payload) {
+    const list = this.container.querySelector('#system-session-list');
+    if (!list) return;
+    const collectors = payload.collectors || [];
+    const summary = payload.summary || {};
+    if (!collectors.length) {
+      list.innerHTML = `<p class="text-zinc-600 text-sm px-2">No session diagnostics available.</p>`;
+      return;
+    }
+
+    const summaryHtml = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      ${this._renderSessionStat('Collectors', summary.collectors ?? collectors.length)}
+      ${this._renderSessionStat('Required', summary.requires_session ?? 0)}
+      ${this._renderSessionStat('Warnings', summary.warnings ?? 0)}
+      ${this._renderSessionStat('Errors', summary.errors ?? 0)}
+    </div>`;
+
+    list.innerHTML = summaryHtml + `<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">` + collectors.map((collector) => {
+      const status = collector.status || 'unknown';
+      const tone = status === 'ok'
+        ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+        : status === 'error'
+          ? 'text-rose-300 bg-rose-500/10 border-rose-500/20'
+          : 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+      const state = collector.session_state || {};
+      const requiredCapabilities = collector.required_worker_capabilities || [];
+      const checks = collector.checks || [];
+      const stateLabel = this._sessionStateLabel(state, collector.session_mode);
+      return `<div class="rounded-xl bg-zinc-950 border border-white/5 p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-sm font-bold text-zinc-100 truncate">${escapeHtml(collector.display_name || collector.collector_id || '-')}</div>
+            <div class="text-xs text-zinc-500 truncate mt-1">${escapeHtml(collector.collector_id || '-')}</div>
+          </div>
+          <span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(status)}</span>
+        </div>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Session</div>
+            <div class="text-zinc-300">${escapeHtml(collector.session_mode || '-')} / ${escapeHtml(collector.worker_binding || '-')}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">State</div>
+            <div class="text-zinc-300">${escapeHtml(stateLabel)}${state.cdp_status && state.cdp_status !== 'not_configured' ? ` / ${escapeHtml(state.cdp_status)}` : ''}</div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-1.5">
+          ${requiredCapabilities.length
+            ? requiredCapabilities.map(capability => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('')
+            : '<span class="text-xs text-zinc-600">No extra worker capability required.</span>'}
+        </div>
+        ${checks.length ? `<div class="mt-4 space-y-2">${checks.map(check => this._renderSessionCheck(check)).join('')}</div>` : ''}
+      </div>`;
+    }).join('') + `</div>`;
+  },
+
+  _renderSessionInventory(payload) {
+    const list = this.container.querySelector('#system-session-inventory-list');
+    if (!list) return;
+    const items = payload.items || [];
+    const summary = payload.summary || {};
+    if (!items.length) {
+      list.innerHTML = `<p class="text-zinc-600 text-sm px-2">No persisted session inventory available.</p>`;
+      return;
+    }
+
+    const summaryHtml = `<div class="grid grid-cols-2 md:grid-cols-7 gap-3 mb-4">
+      ${this._renderSessionStat('Items', summary.items ?? items.length)}
+      ${this._renderSessionStat('Collectors', summary.collectors ?? 0)}
+      ${this._renderSessionStat('Ready', summary.ready ?? 0)}
+      ${this._renderSessionStat('Claimed', summary.claimed ?? 0)}
+      ${this._renderSessionStat('Stale', summary.stale ?? 0)}
+      ${this._renderSessionStat('Warnings', summary.warnings ?? 0)}
+      ${this._renderSessionStat('Errors', summary.errors ?? 0)}
+    </div>`;
+
+    const observedHint = summary.latest_observed_at
+      ? `<div class="mb-4 text-xs text-zinc-500">Latest observed: ${escapeHtml(formatTime(summary.latest_observed_at))}</div>`
+      : '';
+
+    const leaseHint = this._renderLeaseSummary(summary.lease_statuses || {});
+
+    list.innerHTML = summaryHtml + observedHint + leaseHint + `<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">` + items.map((item) => {
+      const tone = this._statusTone(item.diagnostics_status || item.health || 'unknown');
+      const stateLabel = this._sessionInventoryStateLabel(item);
+      const capabilityBadges = item.required_worker_capabilities || [];
+      const modeSource = item.session_mode_source || 'metadata';
+      const overrideStatus = item.session_mode_override_status || 'default';
+      const locator = item.locator || '-';
+      const locatorLabel = item.locator_label || 'locator';
+      const leaseTone = this._leaseTone(item.lease_status);
+      const leaseStatus = item.lease_status || 'unbound';
+      const leaseWorker = item.lease_worker_id || item.last_worker_id || '-';
+      const leaseTask = item.lease_task_id || item.last_task_id || '-';
+      const leaseTime = item.lease_status === 'claimed'
+        ? item.lease_acquired_at
+        : item.lease_released_at;
+      const leaseTimeLabel = item.lease_status === 'claimed' ? 'Acquired' : 'Released';
+      const staleBadge = item.is_stale
+        ? '<span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase text-amber-300 bg-amber-500/10 border-amber-500/20">stale</span>'
+        : '';
+
+      return `<div class="rounded-xl bg-zinc-950 border border-white/5 p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-sm font-bold text-zinc-100 truncate">${escapeHtml(item.display_name || item.collector_id || '-')}</div>
+            <div class="text-xs text-zinc-500 truncate mt-1">${escapeHtml(item.collector_id || '-')} / ${escapeHtml(item.session_id || '-')}</div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            ${staleBadge}
+            <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(item.diagnostics_status || item.health || 'unknown')}</span>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Session</div>
+            <div class="text-zinc-300">${escapeHtml(item.session_mode || '-')} / ${escapeHtml(item.worker_binding || '-')}</div>
+            <div class="text-zinc-500 mt-1">${escapeHtml(modeSource)} / ${escapeHtml(overrideStatus)}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Observed</div>
+            <div class="text-zinc-300">${escapeHtml(formatTime(item.observed_at))}</div>
+            <div class="text-zinc-500 mt-1">${escapeHtml(stateLabel)}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Account</div>
+            <div class="text-zinc-300">${escapeHtml(item.account_kind || '-')}</div>
+            <div class="text-zinc-500 mt-1 break-all">${escapeHtml(item.account_id || '-')}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Lease</div>
+            <div class="flex items-center gap-2 text-zinc-300">
+              <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase ${leaseTone}">${escapeHtml(leaseStatus)}</span>
+            </div>
+            <div class="text-zinc-500 mt-1 break-all">worker: ${escapeHtml(leaseWorker)}</div>
+            <div class="text-zinc-500 mt-1 break-all">task: ${escapeHtml(leaseTask)}</div>
+            <div class="text-zinc-500 mt-1">${escapeHtml(leaseTimeLabel)}: ${escapeHtml(formatTime(leaseTime))}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">${escapeHtml(locatorLabel)}</div>
+            <div class="text-zinc-300 break-all">${escapeHtml(locator)}</div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-1.5">
+          ${capabilityBadges.length
+            ? capabilityBadges.map((capability) => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('')
+            : '<span class="text-xs text-zinc-600">No extra worker capability required.</span>'}
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+  },
+
+  _renderSessionCheck(check) {
+    if (!check || typeof check !== 'object') {
+      return '';
+    }
+
+    const status = String(check.status || 'unknown');
+    const name = String(check.name || 'session');
+    const message = String(check.message || '-');
+    const tone = this._statusTone(status);
+    const hasDetails = check.details !== undefined
+      && check.details !== null
+      && (typeof check.details !== 'object' || Object.keys(check.details).length > 0);
+    const details = hasDetails
+      ? `<pre class="mt-2 rounded-lg border border-white/5 bg-zinc-950 p-3 text-[11px] text-zinc-400 shadow-[inset_0_0_12px_rgba(0,0,0,0.35)]">${escapeHtml(JSON.stringify(check.details, null, 2))}</pre>`
+      : '';
+
+    return `<div class="rounded-lg border border-white/5 bg-white/[0.03] p-3 text-xs">
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-[11px] font-bold tracking-widest text-zinc-300 uppercase">${escapeHtml(name)}</div>
+          <div class="mt-1 text-zinc-400 leading-relaxed">${escapeHtml(message)}</div>
+        </div>
+        <span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(status)}</span>
+      </div>
+      ${details}
+    </div>`;
+  },
+
+  _renderSessionStat(label, value) {
+    return `<div class="rounded-lg bg-zinc-950 border border-white/5 px-3 py-3">
+      <div class="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">${escapeHtml(label)}</div>
+      <div class="mt-1 text-lg font-bold text-zinc-100">${escapeHtml(String(value ?? '-'))}</div>
+    </div>`;
+  },
+
+  _statusTone(status) {
+    if (status === 'ok' || status === 'ready') {
+      return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20';
+    }
+    if (status === 'error') {
+      return 'text-rose-300 bg-rose-500/10 border-rose-500/20';
+    }
+    return 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+  },
+
+  _workerClaimStatus(worker) {
+    const metadata = worker.metadata || {};
+    const claim = metadata.worker_claim || {};
+    if (!claim || typeof claim !== 'object') {
+      return null;
+    }
+    return {
+      status: claim.status || 'unknown',
+      reason: claim.reason || '',
+      taskId: claim.task_id || '',
+      blockedSessions: Array.isArray(claim.blocked_sessions) ? claim.blocked_sessions : [],
+    };
+  },
+
+  _renderWorkerClaimStatus(claim) {
+    if (!claim) {
+      return '';
+    }
+    const tone = this._claimTone(claim.status);
+    const reason = claim.reason ? `reason: ${escapeHtml(claim.reason)}` : 'ready';
+    const taskHint = claim.taskId ? `<div class="text-zinc-500 mt-1 break-all">task: ${escapeHtml(claim.taskId)}</div>` : '';
+    const blocked = claim.blockedSessions.slice(0, 2);
+    const blockedHtml = blocked.length
+      ? `<div class="mt-2 space-y-1">` + blocked.map((item) => {
+        const collector = item.collector_id || '-';
+        const owner = item.lease_worker_id || '-';
+        const task = item.lease_task_id || '-';
+        return `<div class="rounded border border-white/5 bg-white/[0.03] px-2 py-1 text-[11px] text-zinc-400">
+          <span class="text-zinc-300">${escapeHtml(collector)}</span>
+          <span class="text-zinc-600"> owner </span>${escapeHtml(owner)}
+          <span class="text-zinc-600"> task </span>${escapeHtml(task)}
+        </div>`;
+      }).join('') + `</div>`
+      : '';
+    return `<div class="mt-4 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-xs">
+      <div class="flex items-center justify-between gap-3">
+        <div class="text-zinc-600 uppercase font-bold tracking-widest">Claim</div>
+        <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(claim.status || 'unknown')}</span>
+      </div>
+      <div class="mt-2 text-zinc-400">${reason}</div>
+      ${taskHint}
+      ${blockedHtml}
+    </div>`;
+  },
+
+  _claimTone(status) {
+    if (status === 'claimed') {
+      return 'text-cyan-300 bg-cyan-500/10 border-cyan-500/20';
+    }
+    if (status === 'blocked') {
+      return 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+    }
+    if (status === 'no_task') {
+      return 'text-zinc-300 bg-white/5 border-white/10';
+    }
+    if (status === 'invalid_response') {
+      return 'text-rose-300 bg-rose-500/10 border-rose-500/20';
+    }
+    return 'text-zinc-300 bg-white/5 border-white/10';
+  },
+
+  _leaseTone(status) {
+    if (status === 'claimed') {
+      return 'text-cyan-300 bg-cyan-500/10 border-cyan-500/20';
+    }
+    if (status === 'released') {
+      return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20';
+    }
+    if (status === 'interrupted') {
+      return 'text-rose-300 bg-rose-500/10 border-rose-500/20';
+    }
+    if (status === 'stale') {
+      return 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+    }
+    return 'text-zinc-300 bg-white/5 border-white/10';
+  },
+
+  _renderLeaseSummary(leaseStatuses) {
+    const entries = Object.entries(leaseStatuses || {}).filter(([, count]) => Number(count) > 0);
+    if (!entries.length) {
+      return '';
+    }
+    return `<div class="mb-4 flex flex-wrap gap-2">` + entries.map(([status, count]) => (
+      `<span class="rounded border px-2.5 py-1 text-[11px] font-bold uppercase ${this._leaseTone(status)}">${escapeHtml(status)} ${escapeHtml(String(count))}</span>`
+    )).join('') + `</div>`;
+  },
+
+  _sessionStateLabel(state, sessionMode) {
+    if (sessionMode === 'managed_state') {
+      return state.storage_state_ready ? 'storage_state_ready' : 'storage_state_missing';
+    }
+    if (sessionMode === 'local_profile') {
+      return state.local_profile_ready ? 'profile_ready' : 'profile_missing';
+    }
+    return state.health || 'ready';
+  },
+
+  _sessionInventoryStateLabel(item) {
+    const state = item.session_state || {};
+    return this._sessionStateLabel(state, item.session_mode) || item.health || 'unknown';
   },
 };
 
@@ -166,8 +474,10 @@ window._launchSteamDBBrowser = async function() {
     }
 };
 
-window.loadSystemDiagnostics = function (options) {
-  if (window._systemPage) window._systemPage.refresh(!(options && !options.silent));
+window.loadSystemDiagnostics = function (options = {}) {
+  if (window._systemPage) {
+    window._systemPage.refresh(Boolean(options.silent));
+  }
 };
 
 let _reconcileWorkersRunning = false;
@@ -177,7 +487,13 @@ window._reconcileStaleWorkerTasks = async function() {
   try {
     const result = await api('/workers/reconcile-stale-tasks', { method: 'POST' });
     const interrupted = result.interrupted_tasks?.length || 0;
-    toast(`Interrupted ${interrupted} stale worker task(s).`, interrupted ? 'warning' : 'success');
+    const recoveredRetry = result.recovered_retry_tasks?.length || 0;
+    const updatedWorkers = result.updated_worker_ids?.length || 0;
+    const totalRecovered = interrupted + recoveredRetry;
+    toast(
+      `Recovered ${totalRecovered} stale worker task(s) (${interrupted} running, ${recoveredRetry} retrying) and cleaned ${updatedWorkers} worker state record(s).`,
+      totalRecovered || updatedWorkers ? 'warning' : 'success'
+    );
     window.loadSystemDiagnostics();
   } catch (err) {
     toast(`Worker reconcile failed: ${err.message}`, 'error');

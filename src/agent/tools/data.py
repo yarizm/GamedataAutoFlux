@@ -15,17 +15,35 @@ from src.agent.schemas import (
 )
 from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
 from src.core.sensitive import redact_sensitive
+from src.services.data_browser_service import DataBrowserService
 from src.services._utils import (
     coerce_record_limit,
     compute_record_completeness,
     extract_record_identity,
     filter_source_data_records,
     is_report_history_record,
+    max_iso,
+    normalize_key,
+    record_group,
 )
 
 
 def _source_scan_limit(limit: int) -> int:
     return coerce_record_limit(limit * 20, default=500, maximum=5000)
+
+
+def _get_data_browser() -> DataBrowserService:
+    return DataBrowserService(
+        record_summary=lambda record: None,
+        record_source_match_kind=lambda record, source_filter: "",
+        extract_record_identity=extract_record_identity,
+        record_group=record_group,
+        normalize_key=normalize_key,
+        redact_text=lambda value: str(value or ""),
+        max_iso=max_iso,
+        filter_records_by_data_source=lambda records, source: records,
+        merge_app_id=lambda current, incoming: str(incoming or current or ""),
+    )
 
 
 def _task_targets_payload(task: Any) -> list[dict[str, Any]]:
@@ -339,19 +357,11 @@ class ListDataGamesTool(BaseTool):
         await store.initialize()
         try:
             result = await store.query("key:", limit=_source_scan_limit(limit))
-            games: dict[str, list[str]] = {}
-            for record in filter_source_data_records(result.records):
-                identity = extract_record_identity(record)
-                if not identity:
-                    continue
-                name = identity["game_name"]
-                src = identity["data_source"]
-                if name not in games:
-                    games[name] = []
-                if src not in games[name]:
-                    games[name].append(src)
-
-            items = [{"game": g, "sources": s} for g, s in sorted(games.items())[:limit]]
+            items = _get_data_browser().list_game_overview(
+                filter_source_data_records(result.records),
+                limit=limit,
+            )
+            games = items
             if not items:
                 return _format_result(
                     "empty",
@@ -386,19 +396,13 @@ class SearchDataTool(BaseTool):
         try:
             result = await store.query(query, limit=_source_scan_limit(limit))
             source_records = filter_source_data_records(result.records)
-            result.total = len(source_records)
-            summaries = []
-            for record in source_records[:limit]:
-                identity = extract_record_identity(record)
-                summaries.append(
-                    {
-                        "key": record.key,
-                        "source": record.source,
-                        "game": identity.get("game_name", "") if identity else "",
-                        "app_id": identity.get("app_id", "") if identity else "",
-                        "stored_at": str(record.stored_at) if record.stored_at else "",
-                    }
-                )
+            search_payload = _get_data_browser().search_record_overview(
+                source_records,
+                query=query,
+                limit=limit,
+            )
+            result.total = search_payload["total"]
+            summaries = search_payload["items"]
             if not summaries:
                 return _format_result(
                     "empty",

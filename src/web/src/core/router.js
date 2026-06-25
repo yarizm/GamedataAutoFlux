@@ -1,7 +1,6 @@
-import { refreshEditorForModal } from './editors.js';
-
 const AUTO_REFRESH_INTERVAL_MS = 30000;
 let autoRefreshHandle = null;
+let editorsModulePromise = null;
 
 export function activateTab(tab, store) {
   store.set('activeTab', tab);
@@ -50,12 +49,23 @@ export function restartAutoRefresh(store) {
   }, AUTO_REFRESH_INTERVAL_MS);
 }
 
+async function ensureEditorsForModal(id) {
+  if (id !== 'modal-create-task' && id !== 'modal-create-pipeline') {
+    return null;
+  }
+  editorsModulePromise ||= import('./editors.js');
+  const module = await editorsModulePromise;
+  module.initEditors();
+  return module;
+}
+
 export function openModal(id) {
   const modal = document.getElementById(id);
   if (modal) {
     modal.classList.add('show');
-    setTimeout(() => {
-      refreshEditorForModal(id);
+    setTimeout(async () => {
+      const editors = await ensureEditorsForModal(id);
+      editors?.refreshEditorForModal(id);
     }, 10);
   }
 }

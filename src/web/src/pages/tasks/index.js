@@ -342,6 +342,7 @@ export default {
     const credentials = precheck.credential_status || {};
     const dataSources = precheck.data_source_status || {};
     const required = precheck.required_fields || [];
+    const session = precheck.session_readiness || {};
     container.style.display = 'block';
     container.className = `task-precheck task-precheck-${precheck.status || 'ok'}`;
     container.innerHTML = `
@@ -352,7 +353,65 @@ export default {
         <span>${t('tasks.credentials')}</span><strong>${escapeHtml(Object.entries(credentials).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
         <span>${t('tasks.dataSource')}</span><strong>${escapeHtml(Object.entries(dataSources).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
       </div>
+      ${this._renderPrecheckSessionReadiness(session)}
       ${issues.length ? `<ul>${issues.map(i => `<li class="task-precheck-${escapeHtml(i.level)}">${escapeHtml(i.field)}: ${escapeHtml(i.message)}</li>`).join('')}</ul>` : ''}`;
+  },
+
+  _renderPrecheckSessionReadiness(session) {
+    if (!session || !Object.keys(session).length) return '';
+    const mode = session.mode || 'api_only';
+    const binding = session.binding || '-';
+    const status = session.status || 'unknown';
+    const precheckStatus = session.precheck_status || 'ok';
+    const summary = session.summary || '-';
+    const locator = session.locator || '-';
+    const locatorLabel = session.locator_label || 'locator';
+    const accountKind = session.account_kind || '-';
+    const leaseStrategy = session.lease_strategy || '-';
+    const capabilities = session.required_worker_capabilities || [];
+    const reasons = [
+      ...(session.blocking_reasons || []),
+      ...(session.attention_reasons || []),
+    ];
+    const tone = this._precheckTone(precheckStatus);
+
+    return `
+      <div class="mt-4 rounded-xl bg-zinc-950 border border-white/5 p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Session readiness</div>
+          <span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(precheckStatus)} / ${escapeHtml(status)}</span>
+        </div>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Mode</div>
+            <div class="text-zinc-300">${escapeHtml(mode)} / ${escapeHtml(binding)}</div>
+            <div class="text-zinc-500 mt-1">${escapeHtml(leaseStrategy)}</div>
+          </div>
+          <div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Account</div>
+            <div class="text-zinc-300">${escapeHtml(accountKind)}</div>
+            <div class="text-zinc-500 mt-1 break-all">${escapeHtml(locatorLabel)}: ${escapeHtml(locator)}</div>
+          </div>
+        </div>
+        <div class="mt-3 text-sm text-zinc-300 leading-relaxed">${escapeHtml(summary)}</div>
+        <div class="mt-3 flex flex-wrap gap-1.5">
+          ${capabilities.length
+            ? capabilities.map((capability) => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('')
+            : '<span class="text-xs text-zinc-600">No extra worker capability required.</span>'}
+        </div>
+        ${reasons.length ? `<div class="mt-3 space-y-2">${reasons.map((reason) => `
+          <div class="rounded-lg bg-white/5 border border-white/5 px-3 py-2">
+            <div class="text-xs font-semibold text-zinc-200">${escapeHtml(reason.name || 'session')}</div>
+            <div class="text-xs text-zinc-500 mt-1">${escapeHtml(reason.message || '')}</div>
+          </div>
+        `).join('')}</div>` : ''}
+      </div>`;
+  },
+
+  _precheckTone(status) {
+    if (status === 'ok') return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20';
+    if (status === 'error') return 'text-rose-300 bg-rose-500/10 border-rose-500/20';
+    return 'text-amber-300 bg-amber-500/10 border-amber-500/20';
   },
 
   async _cancelTask(id) {
@@ -453,6 +512,10 @@ export default {
     const metadata = task.collector_metadata || {};
     const recovery = task.recovery || {};
     const session = task.session_diagnostics || {};
+    const sessionAccount = session.session_account || {};
+    const sessionState = session.session_state || {};
+    const sessionLease = session.session_lease || {};
+    const sessionLabel = this._taskSessionStateLabel(sessionState, session.session_mode || metadata.session_mode);
     const latestEvents = (events || []).slice(0, 8);
     const latestCheckpoints = (checkpoints || []).slice(0, 4);
     return `
@@ -462,10 +525,32 @@ export default {
           <div class="task-observe-grid">
             ${this._renderObserveKv('Collector', metadata.collector_id || task.collector_name || '-')}
             ${this._renderObserveKv('Session', `${metadata.session_mode || session.session_mode || '-'}${metadata.requires_session ? ' / required' : ''}`)}
+            ${this._renderObserveKv('Binding', session.worker_binding || '-')}
             ${this._renderObserveKv('Checkpoint', `${recovery.recovery_level || metadata.recovery_level || 'L0'} / ${recovery.supports_checkpoint || metadata.supports_checkpoint ? 'supported' : 'not supported'}`)}
             ${this._renderObserveKv('Action', recovery.recommended_action || '-')}
           </div>
           ${recovery.guidance ? `<p class="mt-3 text-xs text-zinc-500 leading-relaxed">${escapeHtml(recovery.guidance)}</p>` : ''}
+          ${(sessionAccount.account_kind || sessionState.health || sessionLease.strategy) ? `
+            <div class="mt-3 rounded-lg bg-zinc-950 border border-white/5 p-3">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Account</div>
+                  <div class="text-zinc-300">${escapeHtml(sessionAccount.account_kind || '-')}</div>
+                  <div class="text-zinc-500 mt-1 break-all">${escapeHtml(sessionAccount.account_id || '-')}</div>
+                </div>
+                <div>
+                  <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">State</div>
+                  <div class="text-zinc-300">${escapeHtml(sessionLabel)}</div>
+                  <div class="text-zinc-500 mt-1">${escapeHtml(sessionState.cdp_status || '-')}</div>
+                </div>
+                <div>
+                  <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Lease</div>
+                  <div class="text-zinc-300">${escapeHtml(sessionLease.strategy || '-')}</div>
+                  <div class="text-zinc-500 mt-1">${escapeHtml(String(sessionLease.transferable ?? '-'))}</div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
           ${session.checks?.length ? `<div class="mt-3 space-y-2">${session.checks.map(check => this._renderSessionCheck(check)).join('')}</div>` : ''}
         </div>
         <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
@@ -542,6 +627,18 @@ export default {
       </div>
       <div class="mt-1 text-xs text-zinc-500 truncate">${escapeHtml(`${checkpoint.collector_name || '-'}${cursor}`)}</div>
     </div>`;
+  },
+
+  _taskSessionStateLabel(sessionState, sessionMode) {
+    if (sessionMode === 'managed_state') {
+      if (sessionState.storage_state_ready) return 'ready / storage_state';
+      return 'blocked / storage_state_missing';
+    }
+    if (sessionMode === 'local_profile') {
+      if (sessionState.local_profile_ready) return 'ready / local_profile';
+      return sessionState.health || 'blocked / local_profile_missing';
+    }
+    return sessionState.health || '-';
   },
 };
 

@@ -3,6 +3,8 @@ import { renderBadge, renderProgress } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 
 let dashboardChart = null;
+let echartsModulePromise = null;
+let dashboardResizeHandler = null;
 
 function renderTaskActions(task) {
   return `<div class="btn-group">
@@ -26,6 +28,10 @@ export default {
 
   destroy() {
     if (this._unsub) this._unsub();
+    if (dashboardResizeHandler) {
+      window.removeEventListener('resize', dashboardResizeHandler);
+      dashboardResizeHandler = null;
+    }
     if (dashboardChart) { dashboardChart.dispose(); dashboardChart = null; }
   },
 
@@ -62,10 +68,16 @@ export default {
     const chartDom = document.getElementById('dashboard-chart');
     if (!chartDom) return;
     if (!dashboardChart) {
-      import('echarts').then((echarts) => {
+      echartsModulePromise ||= import('../../core/echarts.js');
+      echartsModulePromise.then(({ echarts }) => {
         if (!dashboardChart) {
           dashboardChart = echarts.init(chartDom);
-          window.addEventListener('resize', () => dashboardChart && dashboardChart.resize());
+          if (!dashboardResizeHandler) {
+            dashboardResizeHandler = () => {
+              if (dashboardChart) dashboardChart.resize();
+            };
+            window.addEventListener('resize', dashboardResizeHandler);
+          }
           this._setChartOption(stats);
         }
       });

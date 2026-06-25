@@ -44,15 +44,22 @@ class WorkerClaimTaskRequest(BaseModel):
 class WorkerClaimTaskResponse(BaseModel):
     worker_id: str
     task_id: str | None = None
+    claim_status: str = "no_task"
+    claim_reason: str = ""
+    blocked_sessions: list[dict[str, Any]] = Field(default_factory=list)
     task: dict[str, Any] | None = None
     pipeline: dict[str, Any] | None = None
     latest_checkpoint: dict[str, Any] | None = None
+    collector_metadata: dict[str, Any] = Field(default_factory=dict)
+    session_diagnostics: dict[str, Any] = Field(default_factory=dict)
     recovery: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkerReconcileStaleTasksResponse(BaseModel):
     offline_worker_ids: list[str] = Field(default_factory=list)
+    updated_worker_ids: list[str] = Field(default_factory=list)
     interrupted_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    recovered_retry_tasks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkerTaskEventRequest(BaseModel):
@@ -80,6 +87,7 @@ class WorkerTaskArtifactRequest(BaseModel):
 class WorkerTaskCheckpointRequest(BaseModel):
     recovery_level: str = Field(default="L0")
     cursor: dict[str, Any] = Field(default_factory=dict)
+    state: dict[str, Any] = Field(default_factory=dict)
     stats: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

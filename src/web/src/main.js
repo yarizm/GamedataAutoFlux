@@ -2,7 +2,6 @@ import './style.css';
 import { createStore } from './core/store.js';
 import { activateTab, bindNavigation, bindModalOverlayClose, restartAutoRefresh } from './core/router.js';
 import { initWebSocket } from './core/websocket.js';
-import { initEditors } from './core/editors.js';
 import { applyTranslations, bindLanguageControls, configureI18n, getLanguage, setLanguage, t } from './core/i18n.js';
 import {
   getCollectorForPipeline,
@@ -187,7 +186,10 @@ function installGlobalBridge() {
   window.saveProviderConfig = action('agent', '_saveProviderConfig', { activate: true });
   window.onAgentProviderChange = action('agent', '_onProviderChange', { activate: true });
 
-  window.loadSystemDiagnostics = action('system', 'refresh');
+  window.loadSystemDiagnostics = (options = {}) => {
+    const silent = typeof options === 'boolean' ? options : Boolean(options?.silent);
+    return runPageAction('system', 'refresh', [silent]);
+  };
 }
 
 function isModalOpen(id) {
@@ -227,7 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
   installGlobalBridge();
   configureI18n(store);
   bindLanguageControls();
-  initEditors();
   loadAvailablePipelines().catch((err) => console.error('Load pipeline cache failed:', err));
   bindNavigation(store);
   bindModalOverlayClose();
