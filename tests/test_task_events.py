@@ -154,7 +154,7 @@ class _StaticPipeline:
     def __init__(self, result: PipelineResult) -> None:
         self._result = result
 
-    async def execute(self, task: Task) -> PipelineResult:
+    async def execute(self, task: Task, *, recovery_checkpoint=None) -> PipelineResult:
         return self._result
 
 

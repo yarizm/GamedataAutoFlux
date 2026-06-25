@@ -10,6 +10,10 @@ from src.core.pipeline import (
 )
 from src.collectors.base import CollectResult, CollectTarget
 from src.core.task import Task, TaskTarget
+from src.collectors.base import BaseCollector
+from src.core.registry import registry
+from src.storage.base import BaseStorage, StorageRecord
+from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 
 
 class TestPipelineConstruction:
@@ -267,3 +271,89 @@ class TestPipelineStep:
     def test_with_config(self):
         s = PipelineStep(step_type=StepType.STORAGE, component_name="local", config={"db": "x.db"})
         assert s.config == {"db": "x.db"}
+
+
+@registry.register("collector", "resume_test_collector")
+class _ResumeTestCollector(BaseCollector):
+    async def collect(self, target: CollectTarget) -> CollectResult:
+        return CollectResult(
+            target=target,
+            data={"value": target.name},
+            metadata={"collector": "resume_test", "target": target.name},
+        )
+
+
+@registry.register("processor", "resume_test_processor")
+class _ResumeTestProcessor(BaseProcessor):
+    async def process(self, input_data: ProcessInput) -> ProcessOutput:
+        return ProcessOutput(
+            data=input_data.data,
+            metadata=input_data.metadata,
+            processor_name="resume_test_processor",
+        )
+
+
+@registry.register("storage", "resume_test_storage")
+class _ResumeTestStorage(BaseStorage):
+    saved_batches: list[list[StorageRecord]] = []
+
+    async def save(self, record: StorageRecord) -> None:
+        self.saved_batches.append([record])
+
+    async def save_batch(self, records: list[StorageRecord]) -> None:
+        self.saved_batches.append(list(records))
+
+    async def load(self, key: str) -> StorageRecord | None:
+        return None
+
+    async def query(self, query: str, limit: int = 10, **kwargs):
+        raise NotImplementedError
+
+
+def test_pipeline_resume_skips_completed_targets_and_avoids_key_collisions():
+    import src.storage.factory as storage_factory
+
+    _ResumeTestStorage.saved_batches.clear()
+    original_get_storage = storage_factory.get_storage
+    storage_factory.get_storage = lambda name=None: _ResumeTestStorage()
+    pipeline = (
+        Pipeline("resume_pipeline")
+        .add_collector("resume_test_collector")
+        .add_processor("resume_test_processor")
+        .add_storage("resume_test_storage")
+    )
+    task = Task(
+        id="resume-task",
+        name="Resume Task",
+        pipeline_name="resume_pipeline",
+        collector_name="gtrends",
+        targets=[
+            TaskTarget(name="A"),
+            TaskTarget(name="B"),
+            TaskTarget(name="C"),
+        ],
+    )
+
+    import asyncio
+
+    checkpoint = {
+        "checkpoint_id": "checkpoint-1",
+        "task_id": task.id,
+        "recovery_level": "L1",
+        "cursor": {"stage": "collect", "component": "gtrends", "status": "failed"},
+        "state": {
+            "target_order": ["A", "B", "C"],
+            "next_target_index": 2,
+            "completed_targets": ["A", "B"],
+        },
+    }
+    try:
+        result = asyncio.run(pipeline.execute(task, recovery_checkpoint=checkpoint))
+    finally:
+        storage_factory.get_storage = original_get_storage
+
+    assert result.success is True
+    assert [item.target.name for item in result.collect_results] == ["C"]
+    assert result.resume_state["next_target_index"] == 3
+    assert result.output_records[0].key == "resume-task:resume_test_processor:1:2"
+    assert _ResumeTestStorage.saved_batches[-1][0].key == "resume-task:resume_test_processor:1:2"

@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from src.storage.base import QueryResult, StorageRecord
+from src.services.session_registry import InMemorySessionRegistry
 from src.storage.factory import get_storage
 from src.web.app import app
 
@@ -284,6 +285,352 @@ def test_data_records_api_validates_page_size(tmp_path, monkeypatch) -> None:
         response = client.get("/api/data/records?page_size=201")
 
     assert response.status_code == 422
+
+
+def test_update_data_record_uses_management_service(monkeypatch) -> None:
+    record = StorageRecord(
+        key="record:update-managed",
+        source="steam",
+        data={"collector": "steam", "game_name": "Managed Game"},
+        metadata={"display_name": "Before"},
+        stored_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    _save_record(record)
+
+    called: dict[str, object] = {}
+
+    class _FakeManagementService:
+        async def update_record_metadata(self, record_key: str, req) -> None:
+            called["record_key"] = record_key
+            called["display_name"] = req.display_name
+            store = get_storage()
+            await store.initialize()
+            try:
+                current = await store.load(record_key)
+                assert current is not None
+                await store.save(
+                    StorageRecord(
+                        key=current.key,
+                        source=current.source,
+                        data=current.data,
+                        stored_at=current.stored_at,
+                        tags=current.tags,
+                        metadata={**current.metadata, "display_name": req.display_name},
+                    )
+                )
+            finally:
+                await store.close()
+
+    monkeypatch.setattr(
+        "src.web.routes.data._get_data_management_service",
+        lambda: _FakeManagementService(),
+    )
+
+    with TestClient(app) as client:
+        response = client.patch(
+            "/api/data/records/record:update-managed",
+            json={"display_name": "After"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called == {"record_key": "record:update-managed", "display_name": "After"}
+    assert payload["display_name"] == "After"
+
+
+def test_delete_data_category_uses_management_service(monkeypatch) -> None:
+    called: dict[str, object] = {}
+
+    class _FakeManagementService:
+        async def delete_data_category(
+            self,
+            *,
+            scheduler,
+            report_generator,
+            game_key: str = "",
+            group_id: str = "",
+        ) -> dict[str, object]:
+            called["game_key"] = game_key
+            called["group_id"] = group_id
+            called["scheduler"] = scheduler
+            called["report_generator"] = report_generator
+            return {
+                "message": "Data category deleted",
+                "game_key": game_key,
+                "group_id": group_id,
+                "records_deleted": 2,
+                "tasks_deleted": 1,
+                "cron_jobs_deleted": 1,
+                "reports_deleted": 1,
+            }
+
+    monkeypatch.setattr(
+        "src.web.routes.data._get_data_management_service",
+        lambda: _FakeManagementService(),
+    )
+
+    with TestClient(app) as client:
+        import src.web.app as web_app
+
+        called["scheduler"] = web_app.scheduler
+        called["report_generator"] = web_app.report_generator
+        response = client.delete("/api/data/games/name:managed-game", params={"confirm": "true"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called["game_key"] == "name:managed-game"
+    assert called["group_id"] == ""
+    assert payload["records_deleted"] == 2
+    assert payload["tasks_deleted"] == 1
+    assert payload["cron_jobs_deleted"] == 1
+    assert payload["reports_deleted"] == 1
+
+
+def test_refresh_routes_use_management_service(monkeypatch) -> None:
+    calls: list[tuple[str, str, object]] = []
+
+    class _FakeManagementService:
+        async def submit_refresh_task(
+            self,
+            *,
+            task_service,
+            record_key: str,
+            rolling_window: bool,
+        ) -> dict[str, str]:
+            calls.append(("refresh", record_key, rolling_window))
+            assert task_service is fake_task_service
+            return {"message": "Refresh task submitted", "task_id": "task-refresh"}
+
+        async def create_refresh_schedule(
+            self,
+            *,
+            scheduler,
+            task_service,
+            record_key: str,
+            req,
+            safe_filename,
+        ) -> dict[str, str]:
+            calls.append(("schedule", record_key, req.cron_expr))
+            assert scheduler is fake_scheduler
+            assert task_service is fake_task_service
+            assert safe_filename("record:key") == "record_key"
+            return {"message": "Refresh schedule created", "job_id": "job-refresh"}
+
+    monkeypatch.setattr(
+        "src.web.routes.data._get_data_management_service",
+        lambda: _FakeManagementService(),
+    )
+
+    with TestClient(app) as client:
+        import src.web.app as web_app
+
+        fake_scheduler = web_app.scheduler
+        fake_task_service = object()
+        monkeypatch.setattr(web_app, "get_task_service", lambda: fake_task_service)
+        refresh = client.post(
+            "/api/data/records/record:refresh/refresh",
+            json={"rolling_window": False},
+        )
+        schedule = client.post(
+            "/api/data/records/record:refresh/refresh-schedules",
+            json={"cron_expr": "0 0 * * *", "rolling_window": True},
+        )
+
+    assert refresh.status_code == 200
+    assert schedule.status_code == 200
+    assert refresh.json()["task_id"] == "task-refresh"
+    assert schedule.json()["job_id"] == "job-refresh"
+    assert calls == [
+        ("refresh", "record:refresh", False),
+        ("schedule", "record:refresh", "0 0 * * *"),
+    ]
+
+
+def test_refresh_route_uses_task_service_precheck_for_invalid_source_task(tmp_path, monkeypatch) -> None:
+    _save_record(
+        StorageRecord(
+            key="record:dynamic-refresh",
+            source="dynamic_playwright",
+            data={"collector": "dynamic_playwright", "game_name": "Dynamic Refresh"},
+            metadata={
+                "source_task": {
+                    "task_name": "Dynamic Refresh Source",
+                    "pipeline_name": "dynamic_playwright_basic",
+                    "collector_name": "dynamic_playwright",
+                    "target": "Example Page",
+                    "target_type": "web",
+                    "target_params": {},
+                    "task_config": {},
+                }
+            },
+            stored_at=datetime(2026, 1, 1, 12, 0, 0),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/data/records/record:dynamic-refresh/refresh",
+            json={"rolling_window": False},
+        )
+
+    assert response.status_code == 400
+    assert "missing_collector_config" in response.json()["detail"]
+
+
+def test_refresh_schedule_route_uses_task_service_precheck_for_invalid_source_task(
+    tmp_path, monkeypatch
+) -> None:
+    _save_record(
+        StorageRecord(
+            key="record:dynamic-refresh-schedule",
+            source="dynamic_playwright",
+            data={"collector": "dynamic_playwright", "game_name": "Dynamic Refresh Schedule"},
+            metadata={
+                "source_task": {
+                    "task_name": "Dynamic Refresh Schedule Source",
+                    "pipeline_name": "dynamic_playwright_basic",
+                    "collector_name": "dynamic_playwright",
+                    "target": "Example Page",
+                    "target_type": "web",
+                    "target_params": {},
+                    "task_config": {},
+                }
+            },
+            stored_at=datetime(2026, 1, 1, 12, 0, 0),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/data/records/record:dynamic-refresh-schedule/refresh-schedules",
+            json={"cron_expr": "0 0 * * *", "rolling_window": False},
+        )
+
+    assert response.status_code == 400
+    assert "missing_collector_config" in response.json()["detail"]
+
+
+def test_refresh_schedule_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class FailingSyncRegistry(InMemorySessionRegistry):
+        async def sync_from_diagnostics(self, diagnostics: dict):
+            raise RuntimeError("sync failed token=data-refresh-schedule-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: FailingSyncRegistry())
+
+    _save_record(
+        StorageRecord(
+            key="record:qimai-refresh-schedule",
+            source="qimai",
+            data={"collector": "qimai", "game_name": "Qimai Refresh Schedule"},
+            metadata={
+                "source_task": {
+                    "task_name": "Qimai Refresh Source",
+                    "pipeline_name": "qimai_refresh_schedule_pipeline",
+                    "collector_name": "qimai",
+                    "target": "Example App",
+                    "target_type": "app",
+                    "target_params": {"app_id": "123456"},
+                    "task_config": {},
+                }
+            },
+            stored_at=datetime(2026, 1, 1, 12, 0, 0),
+        )
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/pipelines",
+            json={
+                "name": "qimai_refresh_schedule_pipeline",
+                "steps": [{"type": "collector", "name": "qimai", "config": {}}],
+            },
+        )
+        response = client.post(
+            "/api/data/records/record:qimai-refresh-schedule/refresh-schedules",
+            json={"cron_expr": "0 0 * * *", "rolling_window": False},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["message"] == "Refresh schedule created"
+    assert payload["job_id"]
+
+
+def test_refresh_schedule_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=data-refresh-schedule-lookup-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+
+    _save_record(
+        StorageRecord(
+            key="record:qimai-refresh-schedule-lookup",
+            source="qimai",
+            data={"collector": "qimai", "game_name": "Qimai Refresh Schedule Lookup"},
+            metadata={
+                "source_task": {
+                    "task_name": "Qimai Refresh Lookup Source",
+                    "pipeline_name": "qimai_refresh_schedule_lookup_pipeline",
+                    "collector_name": "qimai",
+                    "target": "Example App",
+                    "target_type": "app",
+                    "target_params": {"app_id": "123456"},
+                    "task_config": {},
+                }
+            },
+            stored_at=datetime(2026, 1, 1, 12, 0, 0),
+        )
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/pipelines",
+            json={
+                "name": "qimai_refresh_schedule_lookup_pipeline",
+                "steps": [{"type": "collector", "name": "qimai", "config": {}}],
+            },
+        )
+        response = client.post(
+            "/api/data/records/record:qimai-refresh-schedule-lookup/refresh-schedules",
+            json={"cron_expr": "0 0 * * *", "rolling_window": False},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["message"] == "Refresh schedule created"
+    assert payload["job_id"]
 
 
 def _save_record(record: StorageRecord) -> None:

@@ -26,6 +26,7 @@ async def test_in_memory_task_checkpoint_service_orders_latest_and_redacts() -> 
         "task-1",
         recovery_level="L2",
         cursor={"page": 2},
+        state={"next_target_index": 2, "target_order": ["A", "B"]},
         artifacts=[
             {
                 "name": "snapshot.html",
@@ -55,6 +56,8 @@ async def test_in_memory_task_checkpoint_service_orders_latest_and_redacts() -> 
     assert latest is second
     assert checkpoints[1].cursor["api_key"] == "[REDACTED]"
     assert checkpoints[0].metadata["token"] == "[REDACTED]"
+    assert checkpoints[0].state["next_target_index"] == 2
+    assert "state" not in public_second
     assert second.artifacts[0]["path"] == "C:/secret/snapshot.html"
     assert public_second["artifacts"][0]["path"] == ""
     assert public_second["artifacts"][0]["local_path"] == ""
@@ -136,6 +139,13 @@ async def test_scheduler_records_l1_checkpoint_from_pipeline_collect_event() -> 
         "stage": "collect",
         "component": "gtrends",
         "status": "failed",
+    }
+    assert checkpoints[0].state == {
+        "target_order": [],
+        "next_target_index": 0,
+        "completed_targets": [],
+        "successful_targets": [],
+        "failed_targets": [],
     }
     assert checkpoints[0].stats == {
         "targets_count": 3,
@@ -262,6 +272,15 @@ def test_task_detail_api_includes_recovery_info(monkeypatch) -> None:
                 "status": "ok",
             }
 
+        def get_task_session_readiness(self, task_id: str):
+            if task_id != task.id:
+                return None
+            return {
+                "status": "not_required",
+                "precheck_status": "ok",
+                "summary": "No local session required for task submission.",
+            }
+
     monkeypatch.setattr(app_module, "get_task_service", lambda: FakeTaskService())
 
     client = TestClient(create_app())
@@ -272,4 +291,102 @@ def test_task_detail_api_includes_recovery_info(monkeypatch) -> None:
     assert payload["recovery"]["recovery_level"] == "L1"
     assert payload["recovery"]["latest_checkpoint"]["checkpoint_id"] == "checkpoint-1"
     assert payload["collector_metadata"]["collector_id"] == "gtrends"
+    assert payload["session_diagnostics"]["status"] == "ok"
+    assert payload["session_readiness"]["status"] == "not_required"
+
+
+def test_task_detail_api_succeeds_when_session_inventory_sync_fails(monkeypatch) -> None:
+    from src.web import app as app_module
+    from src.web.app import create_app
+
+    task = Task(
+        id="task-detail-sync-failure",
+        name="Recovery Detail",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+    )
+
+    class FakeTaskService:
+        def get_task(self, task_id: str):
+            return task if task_id == task.id else None
+
+        async def get_task_recovery_info(self, task_id: str):
+            return {"collector_id": "gtrends"} if task_id == task.id else None
+
+        def get_task_collector_metadata(self, task_id: str):
+            return {"collector_id": "gtrends"} if task_id == task.id else None
+
+        def get_task_session_diagnostics(self, task_id: str):
+            if task_id != task.id:
+                return None
+            return {
+                "collector_id": "gtrends",
+                "session_mode": "api_only",
+                "status": "ok",
+            }
+
+        def get_task_session_readiness(self, task_id: str):
+            return {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+
+    class BrokenRegistry:
+        async def sync_from_diagnostics(self, diagnostics):
+            raise RuntimeError("detail sync failed token=broken-secret")
+
+    monkeypatch.setattr(app_module, "get_task_service", lambda: FakeTaskService())
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: BrokenRegistry())
+
+    client = TestClient(create_app())
+    response = client.get(f"/api/tasks/{task.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == task.id
+    assert payload["session_diagnostics"]["status"] == "ok"
+
+
+def test_task_detail_api_succeeds_when_session_registry_lookup_fails(monkeypatch) -> None:
+    from src.web import app as app_module
+    from src.web.app import create_app
+
+    task = Task(
+        id="task-detail-lookup-failure",
+        name="Recovery Detail Lookup Failure",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+    )
+
+    class FakeTaskService:
+        def get_task(self, task_id: str):
+            return task if task_id == task.id else None
+
+        async def get_task_recovery_info(self, task_id: str):
+            return {"collector_id": "gtrends"} if task_id == task.id else None
+
+        def get_task_collector_metadata(self, task_id: str):
+            return {"collector_id": "gtrends"} if task_id == task.id else None
+
+        def get_task_session_diagnostics(self, task_id: str):
+            if task_id != task.id:
+                return None
+            return {
+                "collector_id": "gtrends",
+                "session_mode": "api_only",
+                "status": "ok",
+            }
+
+        def get_task_session_readiness(self, task_id: str):
+            return {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=detail-lookup-secret")
+
+    monkeypatch.setattr(app_module, "get_task_service", lambda: FakeTaskService())
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+
+    client = TestClient(create_app())
+    response = client.get(f"/api/tasks/{task.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == task.id
     assert payload["session_diagnostics"]["status"] == "ok"

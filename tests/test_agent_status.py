@@ -204,3 +204,70 @@ def test_agent_stream_redacts_sensitive_text_and_json_strings() -> None:
     assert "secret-token" not in text
     assert "secret-key" not in json_text
     assert "ok" in json_text
+
+
+def test_reset_runtime_singletons_clears_agent_chain() -> None:
+    original_agent_service = web_app._agent_service
+    original_agent_session_service = web_app._agent_session_service
+    original_task_service = web_app._task_service
+    original_worker_registry = web_app._worker_registry
+    original_session_registry = web_app._session_registry
+    try:
+        web_app._agent_service = object()
+        web_app._agent_session_service = object()
+        web_app._task_service = object()
+        web_app._worker_registry = object()
+        web_app._session_registry = object()
+
+        web_app._reset_runtime_singletons(reset_agent=True, reset_agent_session=True)
+    finally:
+        cleared_agent_service = web_app._agent_service
+        cleared_agent_session_service = web_app._agent_session_service
+        cleared_task_service = web_app._task_service
+        cleared_worker_registry = web_app._worker_registry
+        cleared_session_registry = web_app._session_registry
+        web_app._agent_service = original_agent_service
+        web_app._agent_session_service = original_agent_session_service
+        web_app._task_service = original_task_service
+        web_app._worker_registry = original_worker_registry
+        web_app._session_registry = original_session_registry
+
+    assert cleared_agent_service is None
+    assert cleared_agent_session_service is None
+    assert cleared_task_service is None
+    assert cleared_worker_registry is None
+    assert cleared_session_registry is None
+
+
+def test_get_agent_service_rebuilds_after_session_service_replaced(monkeypatch) -> None:
+    original_agent_service = web_app._agent_service
+    original_agent_session_service = web_app._agent_session_service
+
+    class SessionServiceA:
+        pass
+
+    class SessionServiceB:
+        pass
+
+    class FakeAgentService:
+        def __init__(self, session_service):
+            self.session_service = session_service
+
+    try:
+        monkeypatch.setattr(web_app, "get_config", lambda key, default=None: True)
+        monkeypatch.setattr("src.agent.agent.AgentService", FakeAgentService)
+
+        web_app._agent_service = None
+        web_app._agent_session_service = SessionServiceA()
+        first = web_app.get_agent_service()
+
+        web_app._reset_runtime_singletons(reset_agent=True)
+        web_app._agent_session_service = SessionServiceB()
+        second = web_app.get_agent_service()
+    finally:
+        web_app._agent_service = original_agent_service
+        web_app._agent_session_service = original_agent_session_service
+
+    assert first is not second
+    assert first.session_service.__class__ is SessionServiceA
+    assert second.session_service.__class__ is SessionServiceB

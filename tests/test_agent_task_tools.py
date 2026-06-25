@@ -105,6 +105,50 @@ async def test_create_task_tool_redacts_create_exception_detail(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_create_task_tool_guides_session_setup_when_precheck_is_blocked(monkeypatch) -> None:
+    async def passthrough_auto_fill(targets, pipeline_name):
+        return targets
+
+    fake_service = _FakeCreateTaskService()
+    fake_service.precheck_response = SimpleNamespace(
+        can_submit=False,
+        issues=[
+            SimpleNamespace(
+                level="error",
+                code="session_blocked",
+                field="session",
+                message="Local browser profile is missing.",
+            )
+        ],
+        required_fields=["target.params.app_id"],
+        session_readiness={
+            "precheck_status": "error",
+            "recommended_action": "prepare_local_profile",
+            "summary": (
+                "Local browser profile is missing. Complete the one-time browser login "
+                "before submitting this task."
+            ),
+        },
+    )
+    monkeypatch.setattr("src.agent.tools.tasks._auto_fill_identifiers", passthrough_auto_fill)
+    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+
+    payload = json.loads(
+        await CreateTaskTool()._arun(
+            name="Collect Qimai",
+            pipeline_name="qimai_basic",
+            collector_name="qimai",
+            targets=[{"name": "Example", "target_type": "app", "params": {"app_id": "123"}}],
+            config={},
+        )
+    )
+
+    assert payload["status"] == "error"
+    assert "Prepare the collector browser profile before retrying." in payload["suggestion"]
+    assert "Current session state" in payload["suggestion"]
+
+
+@pytest.mark.asyncio
 async def test_get_task_detail_guides_partial_collection_follow_up(monkeypatch) -> None:
     task = Task(
         id="task-partial",
@@ -209,6 +253,10 @@ async def test_get_task_detail_includes_recovery_guidance(monkeypatch) -> None:
         "session_mode": "api_only",
         "status": "ok",
     }
+    fake_service.session_readiness = {
+        "status": "not_required",
+        "summary": "No local session required for task submission.",
+    }
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
     payload = json.loads(await GetTaskDetailTool()._arun(task.id))
@@ -217,6 +265,7 @@ async def test_get_task_detail_includes_recovery_guidance(monkeypatch) -> None:
     assert data["recovery"]["recovery_level"] == "L1"
     assert data["collector_metadata"]["collector_id"] == "gtrends"
     assert data["session_diagnostics"]["status"] == "ok"
+    assert data["session_readiness"]["status"] == "not_required"
     assert "checkpoint is available" in data["agent_guidance"]
 
 
@@ -224,13 +273,15 @@ class _FakeCreateTaskService:
     def __init__(self) -> None:
         self.created = {}
         self.create_error = None
-
-    def precheck(self, **kwargs):
-        return SimpleNamespace(
+        self.precheck_response = SimpleNamespace(
             can_submit=True,
             issues=[],
             required_fields=["target.name"],
+            session_readiness={},
         )
+
+    def precheck(self, **kwargs):
+        return self.precheck_response
 
     async def create(self, **kwargs):
         if self.create_error is not None:
@@ -248,6 +299,7 @@ class _FakeTaskDetailService:
         self.recovery = {}
         self.collector_metadata = {}
         self.session_diagnostics = {}
+        self.session_readiness = {}
 
     def get_task(self, task_id: str) -> Task | None:
         return self.task if task_id == self.task.id else None
@@ -260,3 +312,6 @@ class _FakeTaskDetailService:
 
     def get_task_session_diagnostics(self, task_id: str):
         return self.session_diagnostics if task_id == self.task.id else None
+
+    def get_task_session_readiness(self, task_id: str):
+        return self.session_readiness if task_id == self.task.id else None

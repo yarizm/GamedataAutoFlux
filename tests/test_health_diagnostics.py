@@ -7,7 +7,9 @@ from src.core.diagnostics import (
     build_collector_session_diagnostics,
     build_config_diagnostics,
     build_health_report,
+    build_session_diagnostics_overview,
 )
+from src.services.session_registry import InMemorySessionRegistry
 from src.web.app import app
 
 
@@ -49,8 +51,72 @@ def test_build_collector_session_diagnostics_for_qimai_profile(monkeypatch, tmp_
     assert diagnostics["collector_id"] == "qimai"
     assert diagnostics["requires_session"] is True
     assert diagnostics["session_mode"] == "local_profile"
+    assert diagnostics["worker_binding"] == "sticky"
+    assert diagnostics["required_worker_capabilities"] == [
+        "session:qimai_profile",
+        "session_mode:local_profile",
+    ]
+    assert diagnostics["session_account"]["account_kind"] == "local_profile"
+    assert diagnostics["session_account"]["account_id"] == "local:qimai_profile"
+    assert diagnostics["session_lease"]["strategy"] == "sticky_worker"
+    assert diagnostics["session_state"]["health"] == "ready"
+    assert diagnostics["session_state"]["local_profile_ready"] is True
     assert diagnostics["status"] == "ok"
     assert any(check["name"] == "session:qimai_profile" for check in diagnostics["checks"])
+
+
+def test_build_session_diagnostics_overview(monkeypatch, tmp_path) -> None:
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+        "steam.steamdb.enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+
+    overview = build_session_diagnostics_overview(["qimai", "steam"])
+
+    assert overview["summary"]["collectors"] == 2
+    assert overview["summary"]["requires_session"] == 1
+    assert overview["status"] in {"ok", "warning", "error"}
+    assert [item["collector_id"] for item in overview["collectors"]] == ["qimai", "steam"]
+    assert overview["collectors"][0]["session_account"]["account_kind"] == "local_profile"
+    assert overview["collectors"][1]["session_lease"]["transferable"] is True
+
+
+def test_build_collector_session_diagnostics_for_qimai_managed_state(monkeypatch, tmp_path) -> None:
+    storage_state = tmp_path / "qimai_storage_state.json"
+    storage_state.write_text("{}", encoding="utf-8")
+
+    values = {
+        "qimai.session_mode": "managed_state",
+        "qimai.storage_state_path": str(storage_state),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    diagnostics = build_collector_session_diagnostics("qimai")
+
+    assert diagnostics["session_mode"] == "managed_state"
+    assert diagnostics["worker_binding"] == "lease"
+    assert diagnostics["required_worker_capabilities"] == ["session_mode:managed_state"]
+    assert diagnostics["session_account"]["account_kind"] == "managed_state"
+    assert diagnostics["session_lease"]["strategy"] == "exclusive_lease"
+    assert diagnostics["session_state"]["health"] == "ready"
+    assert diagnostics["session_state"]["storage_state_ready"] is True
+    assert any(check["name"] == "session:qimai_storage_state" for check in diagnostics["checks"])
 
 
 def test_settings_schema_accepts_minimal_payload() -> None:
@@ -174,3 +240,386 @@ def test_config_diagnostics_api_returns_diagnostic_payload() -> None:
     assert payload["status"] in {"ok", "warning", "error"}
     assert isinstance(payload["checks"], list)
     assert "paths" in payload
+
+
+def test_session_diagnostics_api_returns_diagnostic_payload() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"ok", "warning", "error"}
+    assert "summary" in payload
+    assert isinstance(payload["collectors"], list)
+
+
+def test_session_diagnostics_api_returns_payload_when_inventory_sync_fails(
+    monkeypatch, tmp_path
+) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class FailingSyncRegistry(InMemorySessionRegistry):
+        async def sync_from_diagnostics(self, diagnostics: dict):
+            raise RuntimeError("sync failed token=health-overview-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: FailingSyncRegistry())
+
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions?collectors=qimai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["collectors"] == 1
+    assert payload["collectors"][0]["collector_id"] == "qimai"
+
+
+def test_session_diagnostics_api_returns_payload_when_registry_lookup_fails(
+    monkeypatch, tmp_path
+) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=health-lookup-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions?collectors=qimai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["collectors"] == 1
+    assert payload["collectors"][0]["collector_id"] == "qimai"
+
+
+def test_single_collector_session_diagnostics_api_returns_runtime_model() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions/qimai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["collector_id"] == "qimai"
+    assert "session_account" in payload
+    assert "session_state" in payload
+    assert "session_lease" in payload
+
+
+def test_single_collector_session_diagnostics_api_returns_payload_when_inventory_sync_fails(
+    monkeypatch, tmp_path
+) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class FailingSyncRegistry(InMemorySessionRegistry):
+        async def sync_from_diagnostics(self, diagnostics: dict):
+            raise RuntimeError("sync failed token=health-single-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: FailingSyncRegistry())
+
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions/qimai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["collector_id"] == "qimai"
+    assert payload["session_mode"] == "local_profile"
+
+
+def test_single_collector_session_diagnostics_api_returns_payload_when_registry_lookup_fails(
+    monkeypatch, tmp_path
+) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=health-single-lookup-secret")
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+
+    with TestClient(app) as client:
+        response = client.get("/api/diagnostics/sessions/qimai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["collector_id"] == "qimai"
+    assert payload["session_mode"] == "local_profile"
+
+
+def test_session_inventory_api_persists_and_lists_diagnostics(monkeypatch, tmp_path) -> None:
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+        "steam.steamdb.enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        sync_response = client.get("/api/diagnostics/sessions?collectors=qimai")
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai")
+
+    assert sync_response.status_code == 200
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["summary"]["items"] == 1
+    assert inventory["summary"]["ready"] == 1
+    assert inventory["summary"]["session_modes"]["local_profile"] == 1
+    item = inventory["items"][0]
+    assert item["collector_id"] == "qimai"
+    assert item["session_mode"] == "local_profile"
+    assert item["worker_binding"] == "sticky"
+    assert item["health"] == "ready"
+    assert item["account_kind"] == "local_profile"
+
+
+def test_session_inventory_api_tracks_managed_state(monkeypatch, tmp_path) -> None:
+    storage_state = tmp_path / "qimai_storage_state.json"
+    storage_state.write_text("{}", encoding="utf-8")
+
+    values = {
+        "qimai.session_mode": "managed_state",
+        "qimai.storage_state_path": str(storage_state),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        sync_response = client.get("/api/diagnostics/sessions/qimai")
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai")
+
+    assert sync_response.status_code == 200
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["summary"]["items"] == 1
+    assert inventory["summary"]["ready"] == 1
+    assert inventory["summary"]["session_modes"]["managed_state"] == 1
+    item = inventory["items"][0]
+    assert item["session_mode"] == "managed_state"
+    assert item["worker_binding"] == "lease"
+    assert item["account_kind"] == "managed_state"
+    assert item["health"] == "ready"
+    assert item["session_lease"]["strategy"] == "exclusive_lease"
+
+
+def test_session_inventory_api_syncs_from_live_diagnostics(monkeypatch, tmp_path) -> None:
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+        "steam.steamdb.enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["summary"]["items"] == 1
+    item = inventory["items"][0]
+    assert item["collector_id"] == "qimai"
+    assert item["session_mode"] == "local_profile"
+
+
+def test_session_inventory_sync_preserves_existing_lease_state(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+        "steam.steamdb.enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    registry = InMemorySessionRegistry()
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    diagnostics = build_collector_session_diagnostics("qimai")
+
+    async def seed_registry() -> None:
+        await registry.bind_session(
+            diagnostics,
+            worker_id="sync-worker",
+            task_id="sync-task",
+        )
+
+    import asyncio
+
+    asyncio.run(seed_registry())
+
+    with TestClient(app) as client:
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["summary"]["claimed"] == 1
+    assert inventory["summary"]["lease_statuses"]["claimed"] == 1
+    assert inventory["items"][0]["lease_status"] == "claimed"
+    assert inventory["items"][0]["lease_worker_id"] == "sync-worker"
+    assert inventory["items"][0]["lease_task_id"] == "sync-task"
+
+
+def test_session_inventory_api_returns_persisted_entries_when_live_sync_fails(
+    monkeypatch, tmp_path
+) -> None:
+    import asyncio
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class FailingSyncRegistry(InMemorySessionRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail_sync = False
+
+        async def sync_from_diagnostics(self, diagnostics: dict):
+            if self.fail_sync:
+                raise RuntimeError("sync failed token=health-inventory-secret")
+            return await super().sync_from_diagnostics(diagnostics)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    registry = FailingSyncRegistry()
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+
+    diagnostics = build_collector_session_diagnostics("qimai")
+    asyncio.run(registry.sync_from_diagnostics(diagnostics))
+    registry.fail_sync = True
+
+    with TestClient(app) as client:
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["summary"]["items"] == 1
+    assert inventory["items"][0]["collector_id"] == "qimai"
+    assert inventory["items"][0]["session_mode"] == "local_profile"
+
+
+def test_get_task_service_rebuilds_after_scheduler_replaced(monkeypatch) -> None:
+    import src.web.app as app_module
+
+    class SchedulerA:
+        pass
+
+    class SchedulerB:
+        pass
+
+    original_scheduler = app_module.scheduler
+    original_task_service = app_module._task_service
+    try:
+        app_module.scheduler = SchedulerA()
+        app_module._task_service = None
+        first = app_module.get_task_service()
+
+        app_module.scheduler = SchedulerB()
+        app_module._task_service = None
+        second = app_module.get_task_service()
+    finally:
+        app_module.scheduler = original_scheduler
+        app_module._task_service = original_task_service
+
+    assert first is not second
+    assert first._scheduler.__class__ is SchedulerA
+    assert second._scheduler.__class__ is SchedulerB

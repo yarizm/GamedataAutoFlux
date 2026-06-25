@@ -728,3 +728,50 @@ async def test_gtrends_collect_batch_retries_returned_network_failure() -> None:
         "last_retry_error": "connection timeout",
         "last_retry_error_code": "network_unreachable",
     }
+
+
+@pytest.mark.asyncio
+async def test_gtrends_collect_batch_resumes_from_checkpoint() -> None:
+    collector = GoogleTrendsCollector(
+        {
+            "collector_name": "gtrends",
+            "recovery_checkpoint": {
+                "checkpoint_id": "checkpoint-1",
+                "recovery_level": "L1",
+                "collect": {
+                    "enabled": True,
+                    "next_target_index": 2,
+                    "target_order": ["A", "B", "C"],
+                },
+            },
+        }
+    )
+    collected_targets: list[str] = []
+
+    async def collect(target: CollectTarget) -> CollectResult:
+        collected_targets.append(target.name)
+        return CollectResult(
+            target=target,
+            data={"name": target.name},
+            metadata={"collector": "gtrends"},
+        )
+
+    collector.collect = collect
+
+    results = await collector.collect_batch(
+        [
+            CollectTarget(name="A"),
+            CollectTarget(name="B"),
+            CollectTarget(name="C"),
+        ]
+    )
+
+    assert collected_targets == ["C"]
+    assert [result.target.name for result in results] == ["C"]
+    assert results[0].metadata["resume"] == {
+        "resumed": True,
+        "checkpoint_id": "checkpoint-1",
+        "recovery_level": "L1",
+        "target_index": 2,
+        "target": "C",
+    }

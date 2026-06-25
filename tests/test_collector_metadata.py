@@ -1,10 +1,18 @@
 from fastapi.testclient import TestClient
 import pytest
 
-from src.core.collector_metadata import get_collector_metadata, list_collector_metadata
+from src.core.collector_metadata import (
+    collector_metadata_payload,
+    get_collector_metadata,
+    list_collector_metadata,
+    required_worker_capabilities,
+    resolve_session_mode,
+    worker_binding_mode,
+)
 from src.core.pipeline import Pipeline
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
 from src.core.scheduler import Scheduler
+from src.services.session_registry import InMemorySessionRegistry
 from src.services.task_service import TaskService
 from src.web.app import app
 
@@ -52,6 +60,9 @@ def test_task_precheck_uses_collector_metadata_for_required_fields() -> None:
     assert payload["collector_metadata"]["session_mode"] == "local_profile"
     assert payload["session_diagnostics"]["collector_id"] == "qimai"
     assert payload["session_diagnostics"]["session_mode"] == "local_profile"
+    assert payload["session_readiness"]["required"] is True
+    assert payload["session_readiness"]["mode"] == "local_profile"
+    assert payload["session_readiness"]["binding"] == "sticky"
     assert payload["recovery"]["recovery_level"] == "L0"
     assert payload["recovery"]["recommended_action"] == "rerun_task"
     assert any(issue["code"] == "missing_qimai_app_id" for issue in payload["issues"])
@@ -96,6 +107,402 @@ def test_task_precheck_reports_l1_checkpoint_recovery_for_gtrends() -> None:
     assert payload["collector_metadata"]["supports_checkpoint"] is True
     assert payload["recovery"]["recovery_level"] == "L1"
     assert payload["recovery"]["recommended_action"] == "record_checkpoint"
+
+
+def test_task_precheck_reports_l1_checkpoint_recovery_for_steam_discussions() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Steam Discussions task",
+                "pipeline_name": "steam_discussions_basic",
+                "targets": [
+                    {
+                        "name": "Example Game",
+                        "target_type": "game",
+                        "params": {"app_id": "730"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["can_submit"] is True
+    assert payload["collector_metadata"]["supports_checkpoint"] is True
+    assert payload["recovery"]["recovery_level"] == "L1"
+    assert payload["recovery"]["recommended_action"] == "record_checkpoint"
+
+
+def test_task_precheck_blocks_qimai_when_required_profile_is_missing(monkeypatch, tmp_path) -> None:
+    missing_profile = tmp_path / "missing_qimai_profile"
+
+    values = {
+        "qimai.user_data_dir": str(missing_profile),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Qimai task",
+                "pipeline_name": "qimai_basic",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["can_submit"] is False
+    assert payload["session_readiness"]["precheck_status"] == "error"
+    assert payload["session_readiness"]["recommended_action"] == "prepare_local_profile"
+    assert any(issue["code"] == "session_blocked" for issue in payload["issues"])
+
+
+def test_task_precheck_reports_managed_state_readiness(monkeypatch, tmp_path) -> None:
+    storage_state = tmp_path / "qimai_storage_state.json"
+    storage_state.write_text("{}", encoding="utf-8")
+
+    values = {
+        "qimai.session_mode": "managed_state",
+        "qimai.storage_state_path": str(storage_state),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Qimai managed task",
+                "pipeline_name": "qimai_basic",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["can_submit"] is True
+    assert payload["session_readiness"]["mode"] == "managed_state"
+    assert payload["session_readiness"]["status"] == "ready"
+    assert payload["session_readiness"]["precheck_status"] == "ok"
+    assert payload["session_readiness"]["recommended_action"] == "none"
+
+
+def test_task_precheck_syncs_session_inventory(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    registry = InMemorySessionRegistry()
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Qimai task",
+                "pipeline_name": "qimai_basic",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai")
+
+    assert response.status_code == 200
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["items"][0]["collector_id"] == "qimai"
+    assert inventory["items"][0]["session_mode"] == "local_profile"
+
+
+def test_task_precheck_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class BrokenRegistry:
+        async def sync_from_diagnostics(self, diagnostics):
+            raise RuntimeError("precheck sync failed token=broken-secret")
+
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: BrokenRegistry())
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Qimai task",
+                "pipeline_name": "qimai_basic",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["can_submit"] is True
+
+
+def test_task_precheck_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=precheck-lookup-secret")
+
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/precheck",
+            json={
+                "name": "Qimai task",
+                "pipeline_name": "qimai_basic",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["can_submit"] is True
+
+
+def test_task_create_syncs_session_inventory(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    registry = InMemorySessionRegistry()
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        pipeline_response = client.post(
+            "/api/pipelines",
+            json={
+                "name": "api_qimai_pipeline",
+                "steps": [{"type": "collector", "name": "qimai", "config": {}}],
+            },
+        )
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "Qimai create task",
+                "pipeline_name": "api_qimai_pipeline",
+                "collector_name": "qimai",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai")
+
+    assert pipeline_response.status_code == 200
+    assert response.status_code == 200
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["count"] == 1
+    assert inventory["items"][0]["collector_id"] == "qimai"
+    assert inventory["items"][0]["session_mode"] == "local_profile"
+
+
+def test_task_create_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    class BrokenRegistry:
+        async def sync_from_diagnostics(self, diagnostics):
+            raise RuntimeError("session registry sync failed token=broken-secret")
+
+    monkeypatch.setattr(app_module, "get_session_registry", lambda: BrokenRegistry())
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        pipeline_response = client.post(
+            "/api/pipelines",
+            json={
+                "name": "api_qimai_pipeline_sync_failure",
+                "steps": [{"type": "collector", "name": "qimai", "config": {}}],
+            },
+        )
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "Qimai create task with sync failure",
+                "pipeline_name": "api_qimai_pipeline_sync_failure",
+                "collector_name": "qimai",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert pipeline_response.status_code == 200
+    assert response.status_code == 200
+    assert response.json()["collector_name"] == "qimai"
+
+
+def test_task_create_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
+    import src.web.app as app_module
+
+    profile_dir = tmp_path / "qimai_profile"
+    profile_dir.mkdir()
+
+    values = {
+        "qimai.user_data_dir": str(profile_dir),
+        "qimai.cdp_enabled": False,
+    }
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    def broken_registry_provider():
+        raise RuntimeError("registry lookup failed token=create-lookup-secret")
+
+    monkeypatch.setattr(app_module, "get_session_registry", broken_registry_provider)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+
+    with TestClient(app) as client:
+        pipeline_response = client.post(
+            "/api/pipelines",
+            json={
+                "name": "api_qimai_pipeline_lookup_failure",
+                "steps": [{"type": "collector", "name": "qimai", "config": {}}],
+            },
+        )
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "Qimai create task with registry lookup failure",
+                "pipeline_name": "api_qimai_pipeline_lookup_failure",
+                "collector_name": "qimai",
+                "targets": [
+                    {
+                        "name": "Example App",
+                        "target_type": "app",
+                        "params": {"app_id": "123", "qimai_app_id": "123"},
+                    }
+                ],
+                "config": {},
+            },
+        )
+
+    assert pipeline_response.status_code == 200
+    assert response.status_code == 200
+    assert response.json()["pipeline_name"] == "api_qimai_pipeline_lookup_failure"
 
 
 def test_task_precheck_validates_collector_config_schema() -> None:
@@ -193,3 +600,29 @@ def test_components_metadata_endpoint_keeps_legacy_components_shape() -> None:
 
 def test_unknown_collector_metadata_returns_none() -> None:
     assert get_collector_metadata("missing") is None
+
+
+def test_local_profile_collectors_expose_required_worker_capabilities() -> None:
+    assert required_worker_capabilities("qimai") == {
+        "session_mode:local_profile",
+        "session:qimai_profile",
+    }
+    assert required_worker_capabilities("steam") == set()
+
+
+def test_qimai_session_mode_can_be_overridden_to_managed_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.core.collector_metadata.get_config",
+        lambda key, default=None: "managed_state" if key == "qimai.session_mode" else default,
+    )
+
+    assert resolve_session_mode("qimai") == "managed_state"
+    assert required_worker_capabilities("qimai") == {"session_mode:managed_state"}
+    assert worker_binding_mode("qimai") == "lease"
+
+    payload = collector_metadata_payload("qimai")
+    assert payload["default_session_mode"] == "local_profile"
+    assert payload["session_mode"] == "managed_state"
+    assert payload["configured_session_mode"] == "managed_state"
+    assert payload["session_mode_source"] == "config"
+    assert payload["session_mode_override_status"] == "applied"
