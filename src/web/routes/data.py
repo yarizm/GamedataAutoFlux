@@ -6,7 +6,6 @@ import contextlib
 import copy
 import json
 import uuid
-from collections import defaultdict
 from typing import Annotated, Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Path, Query, Body
@@ -15,6 +14,11 @@ from pydantic import BaseModel, Field
 
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskTarget
+from src.services.data_browser_service import DataBrowserService
+from src.services.data_management_service import (
+    DataManagementService,
+    export_record_payload,
+)
 from src.services._utils import (
     build_record_summary,
     compute_record_completeness,
@@ -36,6 +40,41 @@ from src.web.safety import require_explicit_confirmation
 router = APIRouter(tags=["data"])
 
 _SOURCE_FILTER_SCAN_PAGE_SIZE = 1000
+
+
+def _get_data_browser() -> DataBrowserService:
+    return DataBrowserService(
+        record_summary=lambda record: _record_summary(record),
+        record_source_match_kind=lambda record, source_filter: _record_source_match_kind(
+            record, source_filter
+        ),
+        extract_record_identity=extract_record_identity,
+        record_group=record_group,
+        normalize_key=normalize_key,
+        redact_text=redact_sensitive_text,
+        max_iso=max_iso,
+        filter_records_by_data_source=filter_records_by_data_source,
+        merge_app_id=_merge_app_id,
+        source_filter_scan_page_size=_SOURCE_FILTER_SCAN_PAGE_SIZE,
+    )
+
+
+def _get_data_management_service() -> DataManagementService:
+    return DataManagementService(
+        get_storage=get_storage,
+        load_source_records=_load_source_records,
+        load_record=_load_record,
+        record_summary=lambda record: _record_summary(record),
+        record_group=record_group,
+        task_matches_category=lambda task, task_ids, group_ids, group_names: _task_matches_category(
+            task, task_ids=task_ids, group_ids=group_ids, group_names=group_names
+        ),
+        data_group_matches=lambda value, group_ids, group_names: _data_group_matches(
+            value, group_ids=group_ids, group_names=group_names
+        ),
+        build_refresh_task=_build_refresh_task,
+        export_record_payload=export_record_payload,
+    )
 
 
 @contextlib.asynccontextmanager
@@ -149,62 +188,10 @@ async def list_data_games(
     limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
     records = await _load_source_records(limit=limit)
-    grouped: dict[str, dict[str, Any]] = {}
-
-    for record in records:
-        identity = extract_record_identity(record)
-        if not identity:
-            continue
-        group = record_group(record)
-        safe_game_name = redact_sensitive_text(identity["game_name"])
-        safe_app_id = redact_sensitive_text(identity.get("app_id") or "") or None
-        safe_game_key = f"name:{normalize_key(safe_game_name)}" if safe_game_name else f"app:{safe_app_id}"
-        safe_group_id = redact_sensitive_text(group.get("group_id", ""))
-        safe_group_name = redact_sensitive_text(group.get("group_name", ""))
-        grouped_key = f"group:{safe_group_id}" if safe_group_id else safe_game_key
-        game = grouped.setdefault(
-            grouped_key,
-            {
-                "game_key": grouped_key,
-                "game_name": safe_group_name or safe_game_name,
-                "app_id": safe_app_id,
-                "total_records": 0,
-                "latest_stored_at": None,
-                "group_id": safe_group_id,
-                "group_name": safe_group_name,
-                "sources": defaultdict(
-                    lambda: {"name": "", "collector": "", "count": 0, "latest_stored_at": None}
-                ),
-            },
-        )
-        game["total_records"] += 1
-        game["latest_stored_at"] = max_iso(game["latest_stored_at"], record.stored_at.isoformat())
-        if group.get("group_id"):
-            game["app_id"] = _merge_app_id(game.get("app_id"), safe_app_id)
-        elif safe_app_id and not game.get("app_id"):
-            game["app_id"] = safe_app_id
-
-        source_bucket = game["sources"][identity["data_source"]]
-        source_bucket["name"] = redact_sensitive_text(identity["data_source"])
-        source_bucket["collector"] = redact_sensitive_text(identity["collector"])
-        source_bucket["count"] += 1
-        source_bucket["latest_stored_at"] = max_iso(
-            source_bucket["latest_stored_at"], record.stored_at.isoformat()
-        )
-
     response: list[DataGameSummary] = []
-    for game in grouped.values():
-        sources = [
-            DataSourceSummary(**source)
-            for source in sorted(
-                game["sources"].values(),
-                key=lambda item: item.get("latest_stored_at") or "",
-                reverse=True,
-            )
-        ]
+    for game in _get_data_browser().list_games(records):
+        sources = [DataSourceSummary(**source) for source in game["sources"]]
         response.append(DataGameSummary(**{**game, "sources": sources}))
-
-    response.sort(key=lambda item: item.latest_stored_at or "", reverse=True)
     return response
 
 
@@ -212,31 +199,10 @@ async def list_data_games(
 async def list_data_groups(
     limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
-    groups: dict[str, dict[str, Any]] = {}
-    for record in await _load_source_records(limit=limit):
-        group = record_group(record)
-        if not group.get("group_id"):
-            continue
-        safe_group_id = redact_sensitive_text(group["group_id"])
-        safe_group_name = redact_sensitive_text(group.get("group_name") or group["group_id"])
-        bucket = groups.setdefault(
-            safe_group_id,
-            {
-                "group_id": safe_group_id,
-                "group_name": safe_group_name,
-                "count": 0,
-                "latest_stored_at": None,
-            },
-        )
-        bucket["count"] += 1
-        bucket["latest_stored_at"] = max_iso(
-            bucket["latest_stored_at"], record.stored_at.isoformat()
-        )
+    groups = _get_data_browser().list_groups(await _load_source_records(limit=limit))
     return [
         DataGroupSummary(**item)
-        for item in sorted(
-            groups.values(), key=lambda item: item.get("latest_stored_at") or "", reverse=True
-        )
+        for item in groups
     ]
 
 
@@ -257,7 +223,6 @@ async def list_data_records(
 ):
     source_filter = source.strip()
     query_text = q.strip() or "key:"
-    offset = (page - 1) * page_size
     store = get_storage()
     await store.initialize()
     try:
@@ -268,102 +233,24 @@ async def list_data_records(
             "group_id": group_id.strip(),
             "task_id": task_id.strip(),
         }
-        if source_filter:
-            return await _load_source_filtered_record_page(
-                store,
-                query_text=query_text,
-                source_filter=source_filter,
-                page=page,
-                page_size=page_size,
-                sort_order=sort_order,
-                filter_kwargs=filter_kwargs,
-            )
-
-        result = await store.query(
-            query_text,
-            limit=page_size,
-            offset=offset,
-            order=sort_order,
-            **filter_kwargs,
-        )
-
-        summaries = [summary for record in result.records if (summary := _record_summary(record))]
-        return DataRecordPage(
-            items=summaries,
-            total=result.total,
+        page_payload = await _get_data_browser().list_record_page(
+            store,
+            query_text=query_text,
+            source_filter=source_filter,
             page=page,
             page_size=page_size,
-            has_more=offset + len(result.records) < result.total,
+            sort_order=sort_order,
+            filter_kwargs=filter_kwargs,
+        )
+        return DataRecordPage(
+            items=page_payload["items"],
+            total=page_payload["total"],
+            page=page_payload["page"],
+            page_size=page_payload["page_size"],
+            has_more=page_payload["has_more"],
         )
     finally:
         await store.close()
-
-
-async def _load_source_filtered_record_page(
-    store: BaseStorage,
-    *,
-    query_text: str,
-    source_filter: str,
-    page: int,
-    page_size: int,
-    sort_order: str,
-    filter_kwargs: dict[str, str],
-) -> DataRecordPage:
-    """Scan storage pages so source filtering reports exact totals beyond one query page."""
-    offset = (page - 1) * page_size
-    exact_items: list[DataRecordSummary] = []
-    relaxed_items: list[DataRecordSummary] = []
-    exact_total = 0
-    relaxed_total = 0
-    scan_offset = 0
-    scan_limit = _SOURCE_FILTER_SCAN_PAGE_SIZE
-
-    while True:
-        result = await store.query(
-            query_text,
-            limit=scan_limit,
-            offset=scan_offset,
-            order=sort_order,
-            **filter_kwargs,
-        )
-        records = result.records
-        if not records:
-            break
-
-        for record in records:
-            match_kind = _record_source_match_kind(record, source_filter)
-            if not match_kind:
-                continue
-            summary = _record_summary(record)
-            if summary is None:
-                continue
-            if match_kind == "exact":
-                if exact_total >= offset and len(exact_items) < page_size:
-                    exact_items.append(summary)
-                exact_total += 1
-            else:
-                if relaxed_total >= offset and len(relaxed_items) < page_size:
-                    relaxed_items.append(summary)
-                relaxed_total += 1
-
-        scan_offset += len(records)
-        if scan_offset >= result.total:
-            break
-
-    if exact_total:
-        items = exact_items
-        total = exact_total
-    else:
-        items = relaxed_items
-        total = relaxed_total
-
-    return DataRecordPage(
-        items=items,
-        total=total,
-        page=page,
-        page_size=page_size,
-        has_more=offset + page_size < total,
-    )
 
 
 def _record_source_match_kind(record: StorageRecord, source_filter: str) -> str:
@@ -400,34 +287,7 @@ async def search_data_records(
     q: Annotated[str, Query(description="Search text for key, task id/name, game or group")],
     limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
 ):
-    needle = q.strip().lower()
-    if not needle:
-        return []
-    results: list[DataRecordSummary] = []
-    for record in await _load_source_records(limit=limit):
-        summary = _record_summary(record)
-        if not summary:
-            continue
-        haystack = " ".join(
-            str(value)
-            for value in (
-                summary.key,
-                summary.game_name,
-                summary.app_id,
-                summary.data_source,
-                summary.collector,
-                summary.group_id,
-                summary.group_name,
-                summary.task_id,
-                summary.task_name,
-                record.source,
-            )
-            if value
-        ).lower()
-        if needle in haystack:
-            results.append(summary)
-    results.sort(key=lambda item: item.stored_at, reverse=True)
-    return results
+    return _get_data_browser().search_records(await _load_source_records(limit=limit), q)
 
 
 @router.get("/data/games/{game_key}/records", response_model=DataRecordPage)
@@ -441,26 +301,20 @@ async def list_game_records(
     ] = "desc",
     limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 2000,
 ):
-    summaries: list[DataRecordSummary] = []
-    for record in await _load_source_records(limit=limit):
-        summary = _record_summary(record)
-        if not summary or summary.game_key != game_key:
-            continue
-        if source and not filter_records_by_data_source([record], source):
-            continue
-        summaries.append(summary)
-
-    reverse = sort_order == "desc"
-    summaries.sort(key=lambda item: item.stored_at, reverse=reverse)
-    total = len(summaries)
-    offset = (page - 1) * page_size
-    page_items = summaries[offset : offset + page_size]
-    return DataRecordPage(
-        items=page_items,
-        total=total,
+    page_payload = _get_data_browser().list_game_record_page(
+        await _load_source_records(limit=limit),
+        game_key=game_key,
+        source=source,
         page=page,
         page_size=page_size,
-        has_more=offset + page_size < total,
+        sort_order=sort_order,
+    )
+    return DataRecordPage(
+        items=page_payload["items"],
+        total=page_payload["total"],
+        page=page_payload["page"],
+        page_size=page_payload["page_size"],
+        has_more=page_payload["has_more"],
     )
 
 
@@ -489,35 +343,7 @@ async def update_data_record(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[UpdateRecordRequest, Body(description="Editable metadata fields")],
 ):
-    async with _local_store() as store:
-        record = await store.load(record_key)
-        if record is None:
-            raise HTTPException(404, f"Data record not found: {record_key}")
-        metadata = dict(record.metadata or {})
-        if req.group_id is not None:
-            metadata["group_id"] = req.group_id.strip()
-        if req.group_name is not None:
-            metadata["group_name"] = req.group_name.strip()
-        if req.display_name is not None:
-            metadata["display_name"] = req.display_name.strip()
-        if req.notes is not None:
-            metadata["notes"] = req.notes.strip()
-        if req.task_name is not None:
-            source_task = dict(metadata.get("source_task") or {})
-            source_task["task_name"] = req.task_name.strip()
-            metadata["source_task"] = source_task
-        tags = record.tags
-        if req.tags is not None:
-            tags = [str(tag).strip() for tag in req.tags if str(tag).strip()]
-        updated = StorageRecord(
-            key=record.key,
-            data=record.data,
-            metadata=metadata,
-            stored_at=record.stored_at,
-            source=record.source,
-            tags=tags,
-        )
-        await store.save(updated)
+    await _get_data_management_service().update_record_metadata(record_key, req)
     return await get_data_record(record_key)
 
 
@@ -527,212 +353,32 @@ async def delete_data_record(
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
     require_explicit_confirmation(confirm, "data record deletion")
-    async with _local_store() as store:
-        record = await store.load(record_key)
-        if record is None:
-            raise HTTPException(404, f"Data record not found: {record_key}")
-        await store.delete(record_key)
-    return {"message": f"Data record deleted: {record_key}"}
+    return await _get_data_management_service().delete_record(record_key)
 
 
 @router.post("/data/records/batch-delete")
 async def batch_delete_records(req: BatchRecordRequest):
     require_explicit_confirmation(req.confirm, "batch data record deletion")
-    deleted_keys: list[str] = []
-    failed_keys: list[dict[str, str]] = []
-    async with _local_store() as store:
-        for key in req.keys:
-            try:
-                await store.delete(key)
-                deleted_keys.append(key)
-            except Exception as e:
-                failed_keys.append({"key": key, "error": redact_sensitive_text(str(e))})
-    return {
-        "message": f"Deleted {len(deleted_keys)} records, {len(failed_keys)} failed",
-        "deleted_keys": deleted_keys,
-        "failed_keys": failed_keys,
-    }
+    return await _get_data_management_service().batch_delete_records(req.keys)
 
 
 @router.post("/data/records/batch-export")
 async def batch_export_records(req: BatchRecordRequest):
-    async with _local_store() as store:
-        records: list[dict[str, Any]] = []
-        for key in req.keys:
-            record = await store.load(key)
-            if record and record.data:
-                item: dict[str, Any] = {
-                    "key": record.key,
-                    "source": record.source,
-                    "stored_at": record.stored_at.isoformat() if record.stored_at else None,
-                }
-                if isinstance(record.data, dict):
-                    item["data"] = redact_sensitive(record.data)
-                else:
-                    item["data"] = redact_sensitive_text(str(record.data))
-                records.append(item)
-    return {"count": len(records), "records": records}
+    return await _get_data_management_service().batch_export_records(req.keys)
 
 
 async def _delete_data_category(
     *, game_key: str = "", group_id: str = ""
 ) -> DeleteDataCategoryResponse:
-    if not game_key and not group_id:
-        raise HTTPException(400, "Missing game_key or group_id")
+    from src.web.app import report_generator, scheduler
 
-    matched_records: list[StorageRecord] = []
-    matched_summaries: list[DataRecordSummary] = []
-    for record in await _load_source_records(limit=100000):
-        summary = _record_summary(record)
-        if not summary:
-            continue
-        if group_id and summary.group_id != group_id:
-            continue
-        if game_key and summary.game_key != game_key:
-            continue
-        matched_records.append(record)
-        matched_summaries.append(summary)
-
-    if not matched_records:
-        label = group_id or game_key
-        raise HTTPException(404, f"Data category not found: {label}")
-
-    record_keys = {record.key for record in matched_records}
-    task_ids = {summary.task_id for summary in matched_summaries if summary.task_id}
-    group_ids = {summary.group_id for summary in matched_summaries if summary.group_id}
-    group_names = {summary.group_name for summary in matched_summaries if summary.group_name}
-
-    await _ensure_related_tasks_are_not_running(
-        task_ids=task_ids, group_ids=group_ids, group_names=group_names
-    )
-
-    records_deleted = await _delete_local_records(record_keys)
-
-    tasks_deleted = await _delete_related_tasks(
-        task_ids=task_ids, group_ids=group_ids, group_names=group_names
-    )
-    cron_deleted = _delete_related_cron_jobs(group_ids=group_ids, group_names=group_names)
-    reports_deleted = await _delete_related_reports(
-        record_keys=record_keys,
-        task_ids=task_ids,
-        group_ids=group_ids,
-        group_names=group_names,
+    payload = await _get_data_management_service().delete_data_category(
+        scheduler=scheduler,
+        report_generator=report_generator,
         game_key=game_key,
+        group_id=group_id,
     )
-
-    return DeleteDataCategoryResponse(
-        message="Data category deleted",
-        game_key=game_key,
-        group_id=group_id or next(iter(group_ids), ""),
-        records_deleted=records_deleted,
-        tasks_deleted=tasks_deleted,
-        cron_jobs_deleted=cron_deleted,
-        reports_deleted=reports_deleted,
-    )
-
-
-async def _delete_local_records(record_keys: set[str]) -> int:
-    store = get_storage()
-    await store.initialize()
-    try:
-        deleted = 0
-        for key in record_keys:
-            if await store.delete(key):
-                deleted += 1
-        return deleted
-    finally:
-        await store.close()
-
-
-async def _ensure_related_tasks_are_not_running(
-    *,
-    task_ids: set[str],
-    group_ids: set[str],
-    group_names: set[str],
-) -> None:
-    from src.web.app import scheduler
-
-    running = [
-        task.id
-        for task in scheduler.get_all_tasks()
-        if _task_matches_category(
-            task, task_ids=task_ids, group_ids=group_ids, group_names=group_names
-        )
-        and not task.is_terminal
-    ]
-    if running:
-        raise HTTPException(
-            409, f"Cannot delete category while related tasks are running: {', '.join(running)}"
-        )
-
-
-async def _delete_related_tasks(
-    *,
-    task_ids: set[str],
-    group_ids: set[str],
-    group_names: set[str],
-) -> int:
-    from src.web.app import scheduler
-
-    related_ids = [
-        task.id
-        for task in scheduler.get_all_tasks()
-        if _task_matches_category(
-            task, task_ids=task_ids, group_ids=group_ids, group_names=group_names
-        )
-    ]
-    deleted = 0
-    for task_id in related_ids:
-        if await scheduler.delete_task(task_id):
-            deleted += 1
-    return deleted
-
-
-def _delete_related_cron_jobs(*, group_ids: set[str], group_names: set[str]) -> int:
-    from src.web.app import scheduler
-
-    deleted = 0
-    for job in scheduler.list_cron_jobs():
-        template = job.get("task_template", {}) if isinstance(job, dict) else {}
-        config = template.get("config", {}) if isinstance(template, dict) else {}
-        if _data_group_matches(
-            config.get("data_group", {}), group_ids=group_ids, group_names=group_names
-        ):
-            if scheduler.remove_cron_job(str(job.get("name") or job.get("id") or "")):
-                deleted += 1
-    return deleted
-
-
-async def _delete_related_reports(
-    *,
-    record_keys: set[str],
-    task_ids: set[str],
-    group_ids: set[str],
-    group_names: set[str],
-    game_key: str,
-) -> int:
-    from src.web.app import report_generator
-
-    deleted = 0
-    for summary in await report_generator.list_reports(limit=100000):
-        report = await report_generator.get_report(summary.id)
-        if report is None:
-            continue
-        metadata = report.metadata if isinstance(report.metadata, dict) else {}
-        selected_keys = metadata.get("selected_record_keys", [])
-        if not isinstance(selected_keys, list):
-            selected_keys = []
-        matches = (
-            bool(record_keys.intersection(str(key) for key in selected_keys))
-            or str(metadata.get("task_id") or "") in task_ids
-            or str(metadata.get("group_id") or "") in group_ids
-            or str(metadata.get("group_name") or "") in group_names
-            or (game_key and report.data_source == game_key)
-            or (report.data_source in group_ids)
-        )
-        if matches and await report_generator.delete_report(summary.id):
-            deleted += 1
-    return deleted
+    return DeleteDataCategoryResponse(**payload)
 
 
 def _record_matches_category(
@@ -787,15 +433,12 @@ async def refresh_data_record(
         RefreshRecordRequest, Body(description="Refresh options")
     ] = RefreshRecordRequest(),
 ):
-    from src.web.app import scheduler
-
-    record = await _load_record(record_key)
-    task = _build_refresh_task(record, refresh_kind="manual", rolling_window=req.rolling_window)
-    try:
-        await scheduler.submit(task, pipeline_name=task.pipeline_name)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(400, redact_sensitive_text(str(exc)))
-    return {"message": "Refresh task submitted", "task_id": task.id}
+    from src.web.app import get_task_service
+    return await _get_data_management_service().submit_refresh_task(
+        task_service=get_task_service(),
+        record_key=record_key,
+        rolling_window=req.rolling_window,
+    )
 
 
 @router.post("/data/records/{record_key}/refresh-schedules")
@@ -803,32 +446,14 @@ async def create_record_refresh_schedule(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[CreateRefreshScheduleRequest, Body(description="Refresh schedule")],
 ):
-    from src.web.app import scheduler
-
-    record = await _load_record(record_key)
-    job_id = req.name or f"refresh_{_safe_filename(record_key)}_{uuid.uuid4().hex[:6]}"
-    task = _build_refresh_task(
-        record,
-        refresh_kind="scheduled",
-        rolling_window=req.rolling_window,
-        scheduled_job_id=job_id,
+    from src.web.app import get_task_service, scheduler
+    return await _get_data_management_service().create_refresh_schedule(
+        scheduler=scheduler,
+        task_service=get_task_service(),
+        record_key=record_key,
+        req=req,
+        safe_filename=_safe_filename,
     )
-    task_template = {
-        "description": task.description,
-        "collector_name": task.collector_name,
-        "targets": [target.model_dump() for target in task.targets],
-        "config": task.config,
-    }
-    try:
-        scheduler.add_cron_job(
-            name=job_id,
-            pipeline_name=task.pipeline_name,
-            cron_expr=req.cron_expr,
-            task_template=task_template,
-        )
-    except ValueError as exc:
-        raise HTTPException(400, redact_sensitive_text(str(exc)))
-    return {"message": "Refresh schedule created", "job_id": job_id}
 
 
 @router.get("/data/records/{record_key}/download")

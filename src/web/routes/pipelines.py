@@ -8,7 +8,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
 
-from src.core.collector_metadata import fallback_collector_metadata, get_collector_metadata
+from src.core.collector_metadata import (
+    collector_metadata_payload,
+    fallback_collector_metadata,
+    get_collector_metadata,
+)
 from src.core.pipeline import Pipeline
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
@@ -59,7 +63,7 @@ async def list_component_metadata():
     collector_metadata = {}
     for collector_id in components.get("collector", []):
         metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
-        collector_metadata[collector_id] = metadata.model_dump(mode="json")
+        collector_metadata[collector_id] = collector_metadata_payload(metadata.collector_id)
     return {
         "components": components,
         "collectors": collector_metadata,

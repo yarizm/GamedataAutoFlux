@@ -63,6 +63,24 @@ _task_service = None
 _task_service_lock = threading.Lock()
 _worker_registry = None
 _worker_registry_lock = threading.Lock()
+_session_registry = None
+_session_registry_lock = threading.Lock()
+
+
+def _reset_runtime_singletons(
+    *,
+    reset_agent: bool = False,
+    reset_agent_session: bool = False,
+) -> None:
+    global _task_service, _worker_registry, _session_registry, _agent_service, _agent_session_service
+
+    _task_service = None
+    _worker_registry = None
+    _session_registry = None
+    if reset_agent:
+        _agent_service = None
+    if reset_agent_session:
+        _agent_session_service = None
 
 
 def get_task_service():
@@ -71,7 +89,10 @@ def get_task_service():
         with _task_service_lock:
             if _task_service is None:
                 from src.services.task_service import TaskService
-                _task_service = TaskService(scheduler=scheduler)
+                _task_service = TaskService(
+                    scheduler=scheduler,
+                    get_session_registry=lambda: get_session_registry(),
+                )
     return _task_service
 
 
@@ -90,6 +111,23 @@ def get_worker_registry():
 
                     _worker_registry = InMemoryWorkerRegistry()
     return _worker_registry
+
+
+def get_session_registry():
+    global _session_registry
+    if _session_registry is None:
+        with _session_registry_lock:
+            if _session_registry is None:
+                task_store = getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                if task_store is not None:
+                    from src.services.session_registry import StorageSessionRegistry
+
+                    _session_registry = StorageSessionRegistry(task_store)
+                else:
+                    from src.services.session_registry import InMemorySessionRegistry
+
+                    _session_registry = InMemorySessionRegistry()
+    return _session_registry
 
 
 # 模板引擎
@@ -139,11 +177,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
 
-    global scheduler, report_generator, _worker_registry
+    global scheduler, report_generator
     if scheduler is None:
         scheduler = Scheduler()
     if report_generator is None:
         report_generator = ReportGenerator()
+    _reset_runtime_singletons(reset_agent=True)
 
     # 发现并注册组件（需要在任何 get_storage() 等工厂函数调用前执行）
     _auto_discover_plugins()
@@ -197,7 +236,7 @@ async def lifespan(app: FastAPI):
     event_bus.on("task_event", WebSocketTaskEventHook(manager).handle)
 
     await scheduler.start()
-    _worker_registry = None
+    _reset_runtime_singletons(reset_agent=True)
     logger.info("GamedataAutoFlux 启动完成 ✓")
 
     yield
@@ -211,7 +250,7 @@ async def lifespan(app: FastAPI):
 
     event_bus.clear()
 
-    agent_svc = get_agent_service()
+    agent_svc = _agent_service
     mcp_manager = getattr(agent_svc, "_mcp_manager", None)
     if mcp_manager:
         await mcp_manager.stop()
@@ -219,7 +258,7 @@ async def lifespan(app: FastAPI):
     # 关闭全局存储并重置单例
     import src.storage.factory
 
-    _worker_registry = None
+    _reset_runtime_singletons(reset_agent=True, reset_agent_session=True)
 
     if hasattr(app.state, "storage") and app.state.storage:
         await app.state.storage.close()

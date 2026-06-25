@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Body
 from pydantic import BaseModel, Field
-
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task
 from src.schemas.tasks import (
@@ -19,6 +18,7 @@ from src.schemas.tasks import (
     TaskEventsResponse,
     TaskPrecheckResponse,
 )
+from src.services.session_inventory_sync import sync_session_inventory_via_provider_best_effort
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["tasks"])
@@ -74,6 +74,7 @@ class TaskDetailResponse(TaskResponse):
     result_summary: dict[str, Any] | None
     collector_metadata: dict[str, Any] = Field(default_factory=dict)
     session_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    session_readiness: dict[str, Any] = Field(default_factory=dict)
     recovery: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -100,13 +101,16 @@ async def precheck_task(
     """Validate task input before submitting it to the scheduler."""
     from src.web.app import get_task_service
 
-    return get_task_service().precheck(
+    precheck = get_task_service().precheck(
         name=req.name,
         pipeline_name=req.pipeline_name,
         collector_name=req.collector_name,
         targets=req.targets,
         config=req.config,
     )
+    if precheck.session_diagnostics:
+        await _sync_session_inventory_best_effort(precheck.session_diagnostics)
+    return precheck
 
 
 # run_task_precheck and its helpers moved to TaskService in src.services.task_service
@@ -145,10 +149,17 @@ async def get_task(task_id: Annotated[str, Path(description="任务 ID")]):
     recovery = await task_service.get_task_recovery_info(task_id)
     collector_metadata = task_service.get_task_collector_metadata(task_id)
     session_diagnostics = task_service.get_task_session_diagnostics(task_id)
+    session_readiness_getter = getattr(task_service, "get_task_session_readiness", None)
+    session_readiness = (
+        session_readiness_getter(task_id) if callable(session_readiness_getter) else {}
+    )
+    if session_diagnostics:
+        await _sync_session_inventory_best_effort(session_diagnostics)
     return _task_to_detail_response(
         task,
         collector_metadata=collector_metadata or {},
         session_diagnostics=session_diagnostics or {},
+        session_readiness=session_readiness or {},
         recovery=recovery or {},
     )
 
@@ -305,6 +316,7 @@ def _task_to_detail_response(
     *,
     collector_metadata: dict[str, Any] | None = None,
     session_diagnostics: dict[str, Any] | None = None,
+    session_readiness: dict[str, Any] | None = None,
     recovery: dict[str, Any] | None = None,
 ) -> TaskDetailResponse:
     base = _task_to_response(task)
@@ -319,6 +331,7 @@ def _task_to_detail_response(
         result_summary=task.result_summary,
         collector_metadata=collector_metadata or {},
         session_diagnostics=session_diagnostics or {},
+        session_readiness=session_readiness or {},
         recovery=recovery or {},
     )
 
@@ -384,4 +397,14 @@ def _checkpoint_to_response(checkpoint) -> TaskCheckpointResponse:
         artifacts=payload.get("artifacts", []),
         metadata=payload.get("metadata", {}),
         created_at=payload["created_at"],
+    )
+
+
+async def _sync_session_inventory_best_effort(session_diagnostics: dict[str, Any]) -> None:
+    from src.web.app import get_session_registry
+
+    await sync_session_inventory_via_provider_best_effort(
+        get_session_registry,
+        session_diagnostics,
+        context="task_route",
     )

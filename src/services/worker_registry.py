@@ -61,6 +61,19 @@ class WorkerRegistry(ABC):
         ...
 
     @abstractmethod
+    async def update_worker_state(
+        self,
+        worker_id: str,
+        *,
+        status: str | None = None,
+        current_task_ids: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        touch_heartbeat: bool = False,
+    ) -> WorkerState | None:
+        """Update worker state fields without requiring a heartbeat refresh."""
+        ...
+
+    @abstractmethod
     async def get_worker(self, worker_id: str) -> WorkerState | None:
         """Return a worker snapshot by id."""
         ...
@@ -133,6 +146,35 @@ class InMemoryWorkerRegistry(WorkerRegistry):
             self._workers[worker_id] = updated
             return updated
 
+    async def update_worker_state(
+        self,
+        worker_id: str,
+        *,
+        status: str | None = None,
+        current_task_ids: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        touch_heartbeat: bool = False,
+    ) -> WorkerState | None:
+        async with self._lock:
+            worker = self._workers.get(worker_id)
+            if worker is None:
+                return None
+            update = {
+                "status": _safe_status(status) if status is not None else worker.status,
+                "current_task_ids": _safe_list(
+                    current_task_ids,
+                    fallback=worker.current_task_ids,
+                ),
+                "metadata": redact_sensitive(metadata)
+                if metadata is not None
+                else worker.metadata,
+            }
+            if touch_heartbeat:
+                update["last_heartbeat_at"] = datetime.now(timezone.utc)
+            updated = worker.model_copy(update=update)
+            self._workers[worker_id] = updated
+            return updated
+
     async def get_worker(self, worker_id: str) -> WorkerState | None:
         async with self._lock:
             return self._workers.get(worker_id)
@@ -202,6 +244,35 @@ class StorageWorkerRegistry(WorkerRegistry):
                     "last_heartbeat_at": datetime.now(timezone.utc),
                 }
             )
+            await self._save(updated)
+            return updated
+
+    async def update_worker_state(
+        self,
+        worker_id: str,
+        *,
+        status: str | None = None,
+        current_task_ids: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        touch_heartbeat: bool = False,
+    ) -> WorkerState | None:
+        async with self._lock:
+            worker = await self.get_worker(worker_id)
+            if worker is None:
+                return None
+            update = {
+                "status": _safe_status(status) if status is not None else worker.status,
+                "current_task_ids": _safe_list(
+                    current_task_ids,
+                    fallback=worker.current_task_ids,
+                ),
+                "metadata": redact_sensitive(metadata)
+                if metadata is not None
+                else worker.metadata,
+            }
+            if touch_heartbeat:
+                update["last_heartbeat_at"] = datetime.now(timezone.utc)
+            updated = worker.model_copy(update=update)
             await self._save(updated)
             return updated
 
