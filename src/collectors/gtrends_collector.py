@@ -131,14 +131,20 @@ class GoogleTrendsCollector(BaseCollector):
 
     async def collect_batch(self, targets: list[CollectTarget]) -> list[CollectResult]:
         """批量采集，遇到 429 时进行指数退避等待，避免整个 batch 全军覆没"""
+        recovery = _resolve_gtrends_recovery(self.config)
         results = []
         consecutive_429 = 0
         collect_timeout = _resolve_collect_timeout(self)
         collect_retries = _resolve_collect_retries(self)
         collect_retry_delay = _resolve_collect_retry_delay(self)
         max_attempts = collect_retries + 1
-        
-        for target in targets:
+
+        targets = _apply_gtrends_recovery_targets(targets, recovery)
+        if not targets:
+            return []
+
+        for offset, target in enumerate(targets):
+            current_target_index = recovery["next_target_index"] + offset
             if consecutive_429 > 0:
                 # 若之前遇到过 429，在下一个目标前先强制等待
                 sleep_time = min(300, (2 ** consecutive_429) * 10)
@@ -156,6 +162,14 @@ class GoogleTrendsCollector(BaseCollector):
                         )
                     else:
                         result = await self.collect(target)
+                    result.metadata = {
+                        **(result.metadata or {}),
+                        **_gtrends_resume_metadata(
+                            recovery,
+                            target=target,
+                            target_index=current_target_index,
+                        ),
+                    }
                     result = _finalize_collect_result(
                         self,
                         result,
@@ -202,24 +216,31 @@ class GoogleTrendsCollector(BaseCollector):
                             error=error_msg,
                         )
                         continue
-                    results.append(
-                        CollectResult(
-                            target=target,
-                            success=False,
-                            error=error_msg,
-                            error_code=code.value,
-                            metadata=_build_failure_metadata(
-                                self,
-                                target,
-                                code.value,
-                                collect_timeout=collect_timeout,
-                                attempt=attempt,
-                                max_attempts=max_attempts,
-                                last_retry_error=last_retry_error,
-                                last_retry_error_code=last_retry_error_code,
-                            ),
-                        )
+                    failed = CollectResult(
+                        target=target,
+                        success=False,
+                        error=error_msg,
+                        error_code=code.value,
+                        metadata=_build_failure_metadata(
+                            self,
+                            target,
+                            code.value,
+                            collect_timeout=collect_timeout,
+                            attempt=attempt,
+                            max_attempts=max_attempts,
+                            last_retry_error=last_retry_error,
+                            last_retry_error_code=last_retry_error_code,
+                        ),
                     )
+                    failed.metadata = {
+                        **(failed.metadata or {}),
+                        **_gtrends_resume_metadata(
+                            recovery,
+                            target=target,
+                            target_index=current_target_index,
+                        ),
+                    }
+                    results.append(failed)
                     break
         return results
 
@@ -378,3 +399,70 @@ class GoogleTrendsCollector(BaseCollector):
                 "rising_related_count": len(rising_queries),
             },
         }
+
+
+def _resolve_gtrends_recovery(config: dict[str, Any] | None) -> dict[str, Any]:
+    payload = config.get("recovery_checkpoint") if isinstance(config, dict) else None
+    if not isinstance(payload, dict):
+        return {"next_target_index": 0, "target_order": [], "enabled": False}
+
+    collect = payload.get("collect")
+    if not isinstance(collect, dict) or not collect.get("enabled"):
+        return {"next_target_index": 0, "target_order": [], "enabled": False}
+
+    target_order = collect.get("target_order")
+    normalized_order = [
+        str(name).strip()
+        for name in target_order or []
+        if str(name or "").strip()
+    ]
+    next_target_index = _safe_resume_index(collect.get("next_target_index"))
+    return {
+        "enabled": True,
+        "next_target_index": next_target_index,
+        "target_order": normalized_order,
+        "checkpoint_id": str(payload.get("checkpoint_id") or "").strip(),
+        "recovery_level": str(payload.get("recovery_level") or "L0").strip().upper(),
+    }
+
+
+def _apply_gtrends_recovery_targets(
+    targets: list[CollectTarget],
+    recovery: dict[str, Any],
+) -> list[CollectTarget]:
+    if not recovery.get("enabled"):
+        return list(targets)
+
+    next_target_index = _safe_resume_index(recovery.get("next_target_index"))
+    if next_target_index <= 0:
+        return list(targets)
+    if next_target_index >= len(targets):
+        return []
+    return list(targets[next_target_index:])
+
+
+def _gtrends_resume_metadata(
+    recovery: dict[str, Any],
+    *,
+    target: CollectTarget,
+    target_index: int,
+) -> dict[str, Any]:
+    if not recovery.get("enabled"):
+        return {}
+    return {
+        "resume": {
+            "resumed": True,
+            "checkpoint_id": recovery.get("checkpoint_id", ""),
+            "recovery_level": recovery.get("recovery_level", "L0"),
+            "target_index": max(0, int(target_index)),
+            "target": redact_sensitive_text(target.name),
+        }
+    }
+
+
+def _safe_resume_index(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed >= 0 else 0

@@ -128,16 +128,22 @@ class SteamDiscussionsCollector(BaseCollector):
             ),
         )
 
+        # 解析恢复上下文
+        recovery = _resolve_steam_discussions_recovery(self.config)
+        resume_page = recovery.get("next_page", 1)
+        resume_collected_count = recovery.get("collected_count", 0)
+
         logger.info(
             f"[SteamDiscussions] Start collect: {_safe_log_text(target.name)} app_id={app_id} "
-            f"range={start_at}..{end_at} max_pages={max_pages}"
+            f"range={start_at}..{end_at} max_pages={max_pages} resume_page={resume_page}"
         )
 
         topics: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
         warnings: list[str] = []
 
-        for forum_page in range(1, max_pages + 1):
+        # 从恢复页开始采集
+        for forum_page in range(resume_page, max_pages + 1):
             listing_url = _with_query_param(forum_url, "fp", forum_page)
             listing_html = await self._fetch_text(listing_url)
             candidates = _parse_topic_links(listing_html, base_url=listing_url)
@@ -222,6 +228,16 @@ class SteamDiscussionsCollector(BaseCollector):
         }
         if warnings:
             metadata["warnings"] = warnings
+
+        # 添加恢复元数据
+        if recovery.get("enabled"):
+            metadata["resume"] = {
+                "resumed": True,
+                "checkpoint_id": recovery.get("checkpoint_id", ""),
+                "recovery_level": recovery.get("recovery_level", "L0"),
+                "resume_page": resume_page,
+                "resume_collected_count": resume_collected_count,
+            }
 
         return CollectResult(target=target, success=True, data=data, metadata=metadata)
 
@@ -616,3 +632,27 @@ def _optional_int(value: Any) -> int | None:
         return int(str(value).strip())
     except ValueError:
         return None
+
+
+def _resolve_steam_discussions_recovery(config: dict[str, Any] | None) -> dict[str, Any]:
+    """解析 Steam Discussions checkpoint 恢复上下文"""
+    payload = config.get("recovery_checkpoint") if isinstance(config, dict) else None
+    if not isinstance(payload, dict):
+        return {"next_page": 1, "collected_count": 0, "enabled": False}
+
+    collect = payload.get("collect")
+    if not isinstance(collect, dict) or not collect.get("enabled"):
+        return {"next_page": 1, "collected_count": 0, "enabled": False}
+
+    cursor = collect.get("cursor") or {}
+    next_page = max(1, int(cursor.get("next_page", 1)))
+    collected_count = max(0, int(cursor.get("collected_count", 0)))
+
+    return {
+        "enabled": True,
+        "next_page": next_page,
+        "collected_count": collected_count,
+        "checkpoint_id": str(payload.get("checkpoint_id") or "").strip(),
+        "recovery_level": str(payload.get("recovery_level") or "L0").strip().upper(),
+    }
+

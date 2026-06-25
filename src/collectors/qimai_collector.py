@@ -1,9 +1,9 @@
 """
 Qimai collector.
 
-The collector uses Playwright with a persistent browser profile because Qimai
-serves most useful data through dynamic `api.qimai.cn` requests that depend on
-its logged-in web session and request signing.
+The collector uses Playwright plus an authenticated browser session because
+Qimai serves most useful data through dynamic `api.qimai.cn` requests that
+depend on its logged-in web session and request signing.
 """
 
 from __future__ import annotations
@@ -87,9 +87,27 @@ class QimaiCollector(BaseCollector):
             self.config.get("scroll_delay", get_config("qimai.scroll_delay", 2.0))
         )
         _project_root = Path(__file__).resolve().parent.parent.parent
+        self._session_mode = (
+            str(
+                self.config.get(
+                    "session_mode",
+                    get_config("qimai.session_mode", "local_profile"),
+                )
+                or "local_profile"
+            )
+            .strip()
+            .lower()
+        )
         self._user_data_dir = self.config.get(
             "user_data_dir",
             get_config("qimai.user_data_dir", str(_project_root / "data" / "qimai_profile")),
+        )
+        self._storage_state_path = self.config.get(
+            "storage_state_path",
+            get_config(
+                "qimai.storage_state_path",
+                str(_project_root / "data" / "qimai_storage_state.json"),
+            ),
         )
         self._max_api_payloads = int(
             self.config.get("max_api_payloads", get_config("qimai.max_api_payloads", 80))
@@ -105,8 +123,10 @@ class QimaiCollector(BaseCollector):
     async def setup(self, config: dict[str, Any] | None = None) -> None:
         await super().setup(config)
         logger.info(
-            "[QimaiCollector] initialized user-data-dir={} delay={} jitter={} click_delay={} scroll_delay={}",
+            "[QimaiCollector] initialized session_mode={} user-data-dir={} storage_state_path={} delay={} jitter={} click_delay={} scroll_delay={}",
+            self._session_mode,
             self._user_data_dir,
+            self._storage_state_path,
             self._delay,
             self._jitter,
             self._click_delay,
@@ -205,8 +225,9 @@ class QimaiCollector(BaseCollector):
         async with async_playwright() as p:
             browser = None
             context = None
+            managed_browser = None
             is_cdp = False
-            if self._cdp_enabled:
+            if self._cdp_enabled and self._session_mode == "local_profile":
                 try:
                     browser = await p.chromium.connect_over_cdp(
                         f"http://127.0.0.1:{self._cdp_port}"
@@ -229,15 +250,7 @@ class QimaiCollector(BaseCollector):
                             f"CDP connection failed on port {self._cdp_port}: {exc}"
                         ) from exc
             if context is None:
-                context = await p.chromium.launch_persistent_context(
-                    self._user_data_dir,
-                    headless=self._headless,
-                    accept_downloads=True,
-                    args=["--disable-blink-features=AutomationControlled"],
-                    ignore_default_args=["--enable-automation"],
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=_desktop_user_agent(),
-                )
+                context, managed_browser = await self._new_managed_or_persistent_context_async(p)
             page = None
             on_response = None
             capture_tasks: list[asyncio.Task[Any]] = []
@@ -288,6 +301,11 @@ class QimaiCollector(BaseCollector):
                         await context.close()
                     except Exception:
                         pass
+                if managed_browser is not None:
+                    try:
+                        await managed_browser.close()
+                    except Exception:
+                        pass
                 if is_cdp and browser is not None:
                     try:
                         await browser.close()
@@ -307,8 +325,9 @@ class QimaiCollector(BaseCollector):
         with sync_playwright() as p:
             browser = None
             context = None
+            managed_browser = None
             is_cdp = False
-            if self._cdp_enabled:
+            if self._cdp_enabled and self._session_mode == "local_profile":
                 try:
                     browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{self._cdp_port}")
                     context = (
@@ -329,15 +348,7 @@ class QimaiCollector(BaseCollector):
                             f"CDP connection failed on port {self._cdp_port}: {exc}"
                         ) from exc
             if context is None:
-                context = p.chromium.launch_persistent_context(
-                    self._user_data_dir,
-                    headless=self._headless,
-                    accept_downloads=True,
-                    args=["--disable-blink-features=AutomationControlled"],
-                    ignore_default_args=["--enable-automation"],
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=_desktop_user_agent(),
-                )
+                context, managed_browser = self._new_managed_or_persistent_context_sync(p)
             try:
                 page = None
                 page = context.new_page()
@@ -373,6 +384,11 @@ class QimaiCollector(BaseCollector):
                         context.close()
                     except Exception:
                         pass
+                if managed_browser is not None:
+                    try:
+                        managed_browser.close()
+                    except Exception:
+                        pass
                 if is_cdp and browser is not None:
                     try:
                         browser.close()
@@ -380,6 +396,52 @@ class QimaiCollector(BaseCollector):
                         pass
 
         return state.build_result()
+
+    async def _new_managed_or_persistent_context_async(self, playwright: Any) -> tuple[Any, Any | None]:
+        if self._session_mode == "managed_state":
+            browser = await playwright.chromium.launch(
+                headless=self._headless,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            context = await browser.new_context(
+                accept_downloads=True,
+                storage_state=self._storage_state_path,
+                viewport={"width": 1920, "height": 1080},
+                user_agent=_desktop_user_agent(),
+            )
+            return context, browser
+        return await playwright.chromium.launch_persistent_context(
+            self._user_data_dir,
+            headless=self._headless,
+            accept_downloads=True,
+            args=["--disable-blink-features=AutomationControlled"],
+            ignore_default_args=["--enable-automation"],
+            viewport={"width": 1920, "height": 1080},
+            user_agent=_desktop_user_agent(),
+        ), None
+
+    def _new_managed_or_persistent_context_sync(self, playwright: Any) -> tuple[Any, Any | None]:
+        if self._session_mode == "managed_state":
+            browser = playwright.chromium.launch(
+                headless=self._headless,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            context = browser.new_context(
+                accept_downloads=True,
+                storage_state=self._storage_state_path,
+                viewport={"width": 1920, "height": 1080},
+                user_agent=_desktop_user_agent(),
+            )
+            return context, browser
+        return playwright.chromium.launch_persistent_context(
+            self._user_data_dir,
+            headless=self._headless,
+            accept_downloads=True,
+            args=["--disable-blink-features=AutomationControlled"],
+            ignore_default_args=["--enable-automation"],
+            viewport={"width": 1920, "height": 1080},
+            user_agent=_desktop_user_agent(),
+        ), None
 
     async def _configure_page_async(self, page: Any, page_name: str) -> None:
         if page_name == "rank":

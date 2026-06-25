@@ -135,21 +135,58 @@ def _export_structured_template(
     wb.remove(wb.active)
 
     template = get_report_template(template_id)
+    _write_template_summary_sheet(wb, title, template_id, template_validation)
+    _write_structured_template_content(
+        wb=wb,
+        data=data,
+        title=title,
+        template_id=template_id,
+        llm_content=llm_content,
+    )
+    _write_raw_appendices(wb, data.raw_sources)
+    _write_partial_template_warning(wb, template, template_validation)
+
+    wb.save(str(output_path))
+    logger.info(f"[ExcelExporter] 模板报告已生成: {output_path} ({len(wb.sheetnames)} sheets)")
+    return output_path
+
+
+def _write_structured_template_content(
+    *,
+    wb: Workbook,
+    data: ExtractedData,
+    title: str,
+    template_id: str,
+    llm_content: str | None,
+) -> None:
     if template_id == "general_game":
         _write_operations_monitor_sheet(wb, data)
-
-    _write_template_summary_sheet(wb, title, template_id, template_validation)
-
     if llm_content:
         _write_llm_sheet(wb, llm_content, title)
-
     if data.overview:
         _write_table_sheet(wb, "核心概览", data.overview)
+    _write_structured_template_game_sheets(wb, data, title=title, template_id=template_id)
+    _write_structured_template_review_sheets(wb, data.reviews)
+    if data.related_queries:
+        _write_related_queries_sheet(wb, data.related_queries)
+    if template_id in {"general_game", "steam_game"}:
+        _write_unified_trends_sheet(wb, data)
+    elif data.trends:
+        _write_trends_sheet(wb, data.trends)
 
-    if data.steam_player_peaks and template_id in {"general_game", "steam_game"}:
+
+def _write_structured_template_game_sheets(
+    wb: Workbook,
+    data: ExtractedData,
+    *,
+    title: str,
+    template_id: str,
+) -> None:
+    if template_id not in {"general_game", "steam_game"}:
+        return
+    if data.steam_player_peaks:
         _write_steam_peak_sheet(wb, data.steam_player_peaks, title)
-
-    if data.steam_monthly_peaks and template_id in {"general_game", "steam_game"}:
+    if data.steam_monthly_peaks:
         _write_line_series_sheet(
             wb,
             "Steam月峰值",
@@ -159,8 +196,7 @@ def _export_structured_template(
             chart_title="SteamDB 月峰值（1Y）",
             y_axis_title="Peak Players",
         )
-
-    if data.google_trends and template_id in {"general_game", "steam_game"}:
+    if data.google_trends:
         _write_line_series_sheet(
             wb,
             "Google趋势",
@@ -170,47 +206,37 @@ def _export_structured_template(
             chart_title="Google Trends 搜索热度趋势",
             y_axis_title="Trend Value",
         )
-
-    if data.monitor_metrics and template_id in {"general_game", "steam_game"}:
+    if data.monitor_metrics:
         _write_monitor_sheet(wb, data.monitor_metrics)
-
-    if data.events and template_id in {"general_game", "steam_game"}:
+    if data.events:
         _write_table_sheet(wb, "事件数据", data.events, max_width=80)
-
-    if data.community_discussions and template_id in {"general_game", "steam_game"}:
+    if data.community_discussions:
         _write_table_sheet(wb, "社区讨论", data.community_discussions, max_width=80)
 
-    taptap_reviews = [row for row in data.reviews if row.get("数据来源") == "TapTap"]
-    other_reviews = [row for row in data.reviews if row.get("数据来源") != "TapTap"]
+
+def _write_structured_template_review_sheets(wb: Workbook, reviews: list[dict[str, Any]]) -> None:
+    taptap_reviews = [row for row in reviews if row.get("数据来源") == "TapTap"]
+    other_reviews = [row for row in reviews if row.get("数据来源") != "TapTap"]
     if taptap_reviews:
         _write_table_sheet(wb, "TapTap评论", taptap_reviews, max_width=70)
     if other_reviews:
         _write_table_sheet(wb, "评论与讨论", other_reviews, max_width=70)
 
-    if data.related_queries:
-        _write_related_queries_sheet(wb, data.related_queries)
 
-    if template_id in {"general_game", "steam_game"}:
-        _write_unified_trends_sheet(wb, data)
-    elif data.trends:
-        _write_trends_sheet(wb, data.trends)
-
-    _write_raw_appendices(wb, data.raw_sources)
-
-    if template and template_validation.get("status") == "partial":
-        ws = wb["报告摘要"]
-        ws["D1"] = "缺失数据源提示"
-        ws["D1"].font = HEADER_FONT
-        ws["D1"].fill = HEADER_FILL
-        ws["D2"] = (
-            "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，请以附录中的原始 JSON 为准。"
-        )
-        ws["D2"].alignment = DATA_ALIGNMENT
-        ws.column_dimensions["D"].width = 52
-
-    wb.save(str(output_path))
-    logger.info(f"[ExcelExporter] 模板报告已生成: {output_path} ({len(wb.sheetnames)} sheets)")
-    return output_path
+def _write_partial_template_warning(
+    wb: Workbook,
+    template: Any,
+    template_validation: dict[str, Any],
+) -> None:
+    if not template or template_validation.get("status") != "partial":
+        return
+    ws = wb["报告摘要"]
+    ws["D1"] = "缺失数据源提示"
+    ws["D1"].font = HEADER_FONT
+    ws["D1"].fill = HEADER_FILL
+    ws["D2"] = "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，请以附录中的原始 JSON 为准。"
+    ws["D2"].alignment = DATA_ALIGNMENT
+    ws.column_dimensions["D"].width = 52
 
 
 def _write_template_summary_sheet(
@@ -668,55 +694,13 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
         ws["A1"] = "暂无 Steam 在线峰值数据"
         return
 
-    game_name = _first_non_empty(row.get("游戏名") for row in sorted_rows)
-    app_id = _first_non_empty(row.get("App ID") for row in sorted_rows)
-    data_source = _first_non_empty(row.get("数据源") for row in sorted_rows) or "SteamDB"
-    time_slice = _first_non_empty(row.get("时间粒度") for row in sorted_rows)
-    peak_values = [
-        int(row["在线峰值"]) for row in sorted_rows if isinstance(row.get("在线峰值"), (int, float))
-    ]
-    dates = [str(row.get("日期", "")) for row in sorted_rows if row.get("日期")]
-    max_peak = max(peak_values) if peak_values else ""
-    min_peak = min(peak_values) if peak_values else ""
-    avg_peak = round(sum(peak_values) / len(peak_values)) if peak_values else ""
-    max_date = next((row.get("日期") for row in sorted_rows if row.get("在线峰值") == max_peak), "")
-    min_date = next((row.get("日期") for row in sorted_rows if row.get("在线峰值") == min_peak), "")
+    summary = _steam_peak_summary(sorted_rows)
 
-    ws["A1"] = f"{game_name or report_title} SteamDB 近30天 Peak 在线人数"
+    ws["A1"] = f"{summary['game_name'] or report_title} SteamDB 近30天 Peak 在线人数"
     ws["A1"].font = Font(name="微软雅黑", bold=True, size=14, color="1F3864")
     ws.merge_cells("A1:F1")
 
-    summary_rows = [
-        (
-            "游戏",
-            game_name,
-            "App ID",
-            app_id,
-            "数据区间",
-            f"{dates[0]} 至 {dates[-1]}" if dates else "",
-        ),
-        ("最高Peak", max_peak, "最高日期", max_date, "平均Peak", avg_peak),
-        ("最低Peak", min_peak, "最低日期", min_date, "记录数", len(sorted_rows)),
-        (
-            "数据来源",
-            data_source,
-            "数据切片",
-            time_slice,
-            "生成时间",
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        ),
-    ]
-    for row_index, values in enumerate(summary_rows, start=2):
-        for col_index, value in enumerate(values, start=1):
-            cell = ws.cell(row=row_index, column=col_index, value=value)
-            cell.alignment = DATA_ALIGNMENT
-            if col_index in {1, 3, 5}:
-                cell.font = HEADER_FONT
-                cell.fill = HEADER_FILL
-            else:
-                cell.font = DATA_FONT
-                if row_index % 2 == 0:
-                    cell.fill = ALT_ROW_FILL
+    _write_steam_peak_summary_rows(ws, summary, row_count=len(sorted_rows))
 
     headers = ["日期", "Peak在线人数", "时间戳(UTC)", "较前日变化", "较前日变化率", "是否最高"]
     header_row = 8
@@ -743,7 +727,7 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
             row.get("时间戳(UTC)", ""),
             diff,
             rate,
-            "是" if value == max_peak else "",
+            "是" if value == summary["max_peak"] else "",
         ]
         for col_index, cell_value in enumerate(values, start=1):
             cell = ws.cell(row=row_index, column=col_index, value=cell_value)
@@ -764,22 +748,80 @@ def _write_steam_peak_sheet(wb: Workbook, rows: list[dict[str, Any]], report_tit
     ws.freeze_panes = "A9"
 
     if len(sorted_rows) >= 2:
-        chart = LineChart()
-        chart.title = "SteamDB Peak 在线人数趋势"
-        chart.y_axis.title = "Peak Players"
-        chart.x_axis.title = "日期"
-        chart.style = 10
-        chart.width = 28
-        chart.height = 14
-        data_ref = Reference(
-            ws, min_col=2, min_row=header_row, max_row=header_row + len(sorted_rows)
-        )
-        cats_ref = Reference(
-            ws, min_col=1, min_row=header_row + 1, max_row=header_row + len(sorted_rows)
-        )
-        chart.add_data(data_ref, titles_from_data=True)
-        chart.set_categories(cats_ref)
-        ws.add_chart(chart, "H2")
+        _add_steam_peak_chart(ws, header_row=header_row, row_count=len(sorted_rows))
+
+
+def _steam_peak_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    game_name = _first_non_empty(row.get("游戏名") for row in rows)
+    app_id = _first_non_empty(row.get("App ID") for row in rows)
+    data_source = _first_non_empty(row.get("数据源") for row in rows) or "SteamDB"
+    time_slice = _first_non_empty(row.get("时间粒度") for row in rows)
+    peak_values = [int(row["在线峰值"]) for row in rows if isinstance(row.get("在线峰值"), (int, float))]
+    dates = [str(row.get("日期", "")) for row in rows if row.get("日期")]
+    max_peak = max(peak_values) if peak_values else ""
+    min_peak = min(peak_values) if peak_values else ""
+    return {
+        "game_name": game_name,
+        "app_id": app_id,
+        "data_source": data_source,
+        "time_slice": time_slice,
+        "dates": dates,
+        "max_peak": max_peak,
+        "min_peak": min_peak,
+        "avg_peak": round(sum(peak_values) / len(peak_values)) if peak_values else "",
+        "max_date": next((row.get("日期") for row in rows if row.get("在线峰值") == max_peak), ""),
+        "min_date": next((row.get("日期") for row in rows if row.get("在线峰值") == min_peak), ""),
+    }
+
+
+def _write_steam_peak_summary_rows(ws, summary: dict[str, Any], *, row_count: int) -> None:
+    dates = summary["dates"]
+    summary_rows = [
+        (
+            "游戏",
+            summary["game_name"],
+            "App ID",
+            summary["app_id"],
+            "数据区间",
+            f"{dates[0]} 至 {dates[-1]}" if dates else "",
+        ),
+        ("最高Peak", summary["max_peak"], "最高日期", summary["max_date"], "平均Peak", summary["avg_peak"]),
+        ("最低Peak", summary["min_peak"], "最低日期", summary["min_date"], "记录数", row_count),
+        (
+            "数据来源",
+            summary["data_source"],
+            "数据切片",
+            summary["time_slice"],
+            "生成时间",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    ]
+    for row_index, values in enumerate(summary_rows, start=2):
+        for col_index, value in enumerate(values, start=1):
+            cell = ws.cell(row=row_index, column=col_index, value=value)
+            cell.alignment = DATA_ALIGNMENT
+            if col_index in {1, 3, 5}:
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+            else:
+                cell.font = DATA_FONT
+                if row_index % 2 == 0:
+                    cell.fill = ALT_ROW_FILL
+
+
+def _add_steam_peak_chart(ws, *, header_row: int, row_count: int) -> None:
+    chart = LineChart()
+    chart.title = "SteamDB Peak 在线人数趋势"
+    chart.y_axis.title = "Peak Players"
+    chart.x_axis.title = "日期"
+    chart.style = 10
+    chart.width = 28
+    chart.height = 14
+    data_ref = Reference(ws, min_col=2, min_row=header_row, max_row=header_row + row_count)
+    cats_ref = Reference(ws, min_col=1, min_row=header_row + 1, max_row=header_row + row_count)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+    ws.add_chart(chart, "H2")
 
 
 def _write_line_series_sheet(
@@ -973,120 +1015,8 @@ def _write_unified_trends_sheet(wb: Workbook, data: ExtractedData) -> None:
     A 在运营产品监测页的多个指标都会指向本 Sheet，因此这里按数据源拆成多个表：
     Steam 好评率、Steam CCU、Google Trends、Twitch Tracker、Qimai/AppStore。
     """
-    sections: list[tuple[str, list[dict[str, Any]], list[str], list[str]]] = []
-
-    steam_review_rows = [
-        {
-            "日期": row.get("日期", ""),
-            "好评率": row.get("热度值", ""),
-            "好评数/总数": row.get("标题", ""),
-            "游戏名": row.get("关键词", ""),
-        }
-        for row in data.trends
-        if row.get("类型") == "Steam好评率(90天)"
-    ]
-    if steam_review_rows:
-        sections.append(
-            (
-                "Steam好评率(90天)",
-                sorted(steam_review_rows, key=lambda row: _series_sort_key(row.get("日期"))),
-                ["日期", "好评率", "好评数/总数", "游戏名"],
-                ["好评率"],
-            )
-        )
-
-    if data.steam_player_peaks:
-        steam_ccu_rows = [
-            {
-                "日期": row.get("日期", ""),
-                "CCU Peak": row.get("在线峰值", ""),
-                "时间戳(UTC)": row.get("时间戳(UTC)", ""),
-                "游戏名": row.get("游戏名", ""),
-                "App ID": row.get("App ID", ""),
-            }
-            for row in data.steam_player_peaks
-        ]
-        sections.append(
-            (
-                "Steam CCU Peak趋势",
-                sorted(steam_ccu_rows, key=lambda row: _series_sort_key(row.get("日期"))),
-                ["日期", "CCU Peak", "时间戳(UTC)", "游戏名", "App ID"],
-                ["CCU Peak"],
-            )
-        )
-
-    if data.google_trends:
-        google_rows = [
-            {
-                "日期": row.get("日期", ""),
-                "热度值": row.get("热度值", ""),
-                "关键词": row.get("关键词", ""),
-                "地区": row.get("地区", ""),
-                "时间范围": row.get("时间范围", ""),
-            }
-            for row in data.google_trends
-        ]
-        sections.append(
-            (
-                "Google Trends搜索热度",
-                sorted(google_rows, key=lambda row: _series_sort_key(row.get("日期"))),
-                ["日期", "热度值", "关键词", "地区", "时间范围"],
-                ["热度值"],
-            )
-        )
-
-    if data.monitor_metrics:
-        twitch_rows = [
-            {
-                "日期": row.get("日期", ""),
-                "Twitch平均观看": row.get("Twitch平均观看", ""),
-                "Twitch峰值观看": row.get("Twitch峰值观看", ""),
-                "游戏名": row.get("游戏名", ""),
-                "App ID": row.get("App ID", ""),
-            }
-            for row in data.monitor_metrics
-            if row.get("Twitch平均观看") not in (None, "")
-            or row.get("Twitch峰值观看") not in (None, "")
-        ]
-        if twitch_rows:
-            sections.append(
-                (
-                    "Twitch Tracker观看趋势",
-                    sorted(twitch_rows, key=lambda row: _series_sort_key(row.get("日期"))),
-                    ["日期", "Twitch平均观看", "Twitch峰值观看", "游戏名", "App ID"],
-                    ["Twitch平均观看", "Twitch峰值观看"],
-                )
-            )
-
-    qimai_rows = [
-        {
-            "日期": row.get("日期", ""),
-            "指标": row.get("指标", ""),
-            "值": row.get("值", ""),
-            "游戏名": row.get("游戏名", ""),
-        }
-        for row in data.trends
-        if row.get("数据源") == "Qimai(AppStore)"
-    ]
-    if qimai_rows:
-        sections.append(
-            (
-                "Qimai/AppStore趋势",
-                sorted(
-                    qimai_rows,
-                    key=lambda row: (str(row.get("指标", "")), _series_sort_key(row.get("日期"))),
-                ),
-                ["日期", "指标", "值", "游戏名"],
-                ["值"],
-            )
-        )
-
-    other_trend_rows = [
-        row
-        for row in data.trends
-        if row.get("类型") not in {"Steam好评率(90天)", "搜索热度"}
-        and row.get("数据源") != "Qimai(AppStore)"
-    ]
+    sections = _build_unified_trend_sections(data)
+    other_trend_rows = _other_unified_trend_rows(data.trends)
     if other_trend_rows:
         sections.append(
             (
@@ -1118,6 +1048,151 @@ def _write_unified_trends_sheet(wb: Workbook, data: ExtractedData) -> None:
     ws.freeze_panes = "A3"
     max_header_count = max((len(headers) for _, _, headers, _ in sections), default=1)
     _auto_column_width(ws, [f"col_{index}" for index in range(max_header_count)], max_width=28)
+
+
+def _build_unified_trend_sections(
+    data: ExtractedData,
+) -> list[tuple[str, list[dict[str, Any]], list[str], list[str]]]:
+    sections: list[tuple[str, list[dict[str, Any]], list[str], list[str]]] = []
+    _append_unified_trend_section(
+        sections,
+        "Steam好评率(90天)",
+        _steam_review_trend_rows(data.trends),
+        ["日期", "好评率", "好评数/总数", "游戏名"],
+        ["好评率"],
+    )
+    _append_unified_trend_section(
+        sections,
+        "Steam CCU Peak趋势",
+        _steam_ccu_trend_rows(data.steam_player_peaks),
+        ["日期", "CCU Peak", "时间戳(UTC)", "游戏名", "App ID"],
+        ["CCU Peak"],
+    )
+    _append_unified_trend_section(
+        sections,
+        "Google Trends搜索热度",
+        _google_trend_rows(data.google_trends),
+        ["日期", "热度值", "关键词", "地区", "时间范围"],
+        ["热度值"],
+    )
+    _append_unified_trend_section(
+        sections,
+        "Twitch Tracker观看趋势",
+        _twitch_trend_rows(data.monitor_metrics),
+        ["日期", "Twitch平均观看", "Twitch峰值观看", "游戏名", "App ID"],
+        ["Twitch平均观看", "Twitch峰值观看"],
+    )
+    _append_unified_trend_section(
+        sections,
+        "Qimai/AppStore趋势",
+        _qimai_trend_rows(data.trends),
+        ["日期", "指标", "值", "游戏名"],
+        ["值"],
+    )
+    return sections
+
+
+def _append_unified_trend_section(
+    sections: list[tuple[str, list[dict[str, Any]], list[str], list[str]]],
+    title: str,
+    rows: list[dict[str, Any]],
+    headers: list[str],
+    numeric_headers: list[str],
+) -> None:
+    if not rows:
+        return
+    sections.append((title, rows, headers, numeric_headers))
+
+
+def _steam_review_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {
+                "日期": row.get("日期", ""),
+                "好评率": row.get("热度值", ""),
+                "好评数/总数": row.get("标题", ""),
+                "游戏名": row.get("关键词", ""),
+            }
+            for row in rows
+            if row.get("类型") == "Steam好评率(90天)"
+        ],
+        key=lambda row: _series_sort_key(row.get("日期")),
+    )
+
+
+def _steam_ccu_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {
+                "日期": row.get("日期", ""),
+                "CCU Peak": row.get("在线峰值", ""),
+                "时间戳(UTC)": row.get("时间戳(UTC)", ""),
+                "游戏名": row.get("游戏名", ""),
+                "App ID": row.get("App ID", ""),
+            }
+            for row in rows
+        ],
+        key=lambda row: _series_sort_key(row.get("日期")),
+    )
+
+
+def _google_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {
+                "日期": row.get("日期", ""),
+                "热度值": row.get("热度值", ""),
+                "关键词": row.get("关键词", ""),
+                "地区": row.get("地区", ""),
+                "时间范围": row.get("时间范围", ""),
+            }
+            for row in rows
+        ],
+        key=lambda row: _series_sort_key(row.get("日期")),
+    )
+
+
+def _twitch_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {
+                "日期": row.get("日期", ""),
+                "Twitch平均观看": row.get("Twitch平均观看", ""),
+                "Twitch峰值观看": row.get("Twitch峰值观看", ""),
+                "游戏名": row.get("游戏名", ""),
+                "App ID": row.get("App ID", ""),
+            }
+            for row in rows
+            if row.get("Twitch平均观看") not in (None, "")
+            or row.get("Twitch峰值观看") not in (None, "")
+        ],
+        key=lambda row: _series_sort_key(row.get("日期")),
+    )
+
+
+def _qimai_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {
+                "日期": row.get("日期", ""),
+                "指标": row.get("指标", ""),
+                "值": row.get("值", ""),
+                "游戏名": row.get("游戏名", ""),
+            }
+            for row in rows
+            if row.get("数据源") == "Qimai(AppStore)"
+        ],
+        key=lambda row: (str(row.get("指标", "")), _series_sort_key(row.get("日期"))),
+    )
+
+
+def _other_unified_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if row.get("类型") not in {"Steam好评率(90天)", "搜索热度"}
+        and row.get("数据源") != "Qimai(AppStore)"
+    ]
 
 
 def _write_trend_section(

@@ -12,6 +12,7 @@ import json
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ from src.core.config import get_root_dir
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.storage.base import StorageRecord
 from src.storage.factory import get_storage
-from src.reporting.data_extractor import extract_from_records
+from src.reporting.data_extractor import ExtractedData, extract_from_records
 from src.reporting.excel_exporter import export_to_excel
 from src.reporting.report_templates import get_report_template, validate_template_sources
 from src.services._utils import (
@@ -58,6 +59,29 @@ class GeneratedReport(ReportSummary):
 
     content: str
     excel_path: str | None = Field(default=None, description="Excel report file path")
+
+
+@dataclass(frozen=True)
+class _PreparedReportData:
+    records: list[StorageRecord]
+    metadata: dict[str, Any] | None
+    usable_records: list[StorageRecord]
+    extracted: ExtractedData
+    template_validation: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _LlmRequestConfig:
+    provider: str
+    provider_label: str
+    api_key: str
+    base_url: str
+    model: str
+    temperature: float
+    max_tokens: int
+    timeout: float
+    retry_count: int
+    retry_delay: float
 
 
 def get_reports_dir() -> Path:
@@ -98,10 +122,7 @@ class ReportGenerator:
         metadata: dict[str, Any] | None = None,
         custom_prompt: str = "",
     ) -> GeneratedReport:
-        if provider:
-            self._llm_provider = provider
-        else:
-            self._llm_provider = get_config("llm.provider", "stub")
+        self._select_llm_provider(provider)
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -112,34 +133,27 @@ class ReportGenerator:
             progress_id or "-",
         )
         await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
-        if records is None:
-            await _emit_report_progress(
-                progress_id, "loading_records", 0.12, "Loading report records"
-            )
-            records = await self._load_source_records(
-                prompt=prompt, data_source=data_source, params=params
-            )
-        else:
-            records, metadata = _prepare_explicit_source_records(records, metadata)
-        logger.info("[Report] records loaded count={} template={}", len(records), template)
-
-        usable_records = [r for r in records if r.data is not None]
-        raw_data_list = [r.data for r in usable_records]
-        extracted = extract_from_records(
-            raw_data_list,
-            record_keys=[r.key for r in usable_records],
-            metadata_list=[r.metadata for r in usable_records],
+        prepared = await self._prepare_report_data(
+            prompt=prompt,
+            data_source=data_source,
+            template=template,
+            params=params,
+            records=records,
+            metadata=metadata,
+            progress_id=progress_id,
         )
-        template_validation = validate_template_sources(template, extracted.source_coverage)
 
         await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
         content = await self._render_report(
             self._build_template_prompt(
-                prompt, template, template_validation, custom_prompt=custom_prompt
+                prompt,
+                template,
+                prepared.template_validation,
+                custom_prompt=custom_prompt,
             ),
             data_source,
             template,
-            records,
+            prepared.records,
         )
         await _emit_report_progress(progress_id, "llm_done", 0.76, "LLM analysis completed")
 
@@ -150,22 +164,14 @@ class ReportGenerator:
             data_source=data_source,
             template=template,
             generated_at=datetime.now(),
-            matched_records=len(records),
+            matched_records=len(prepared.records),
             content=content,
-            metadata=_build_report_metadata(
-                provider=self._llm_provider,
+            metadata=self._build_generated_report_metadata(
+                prompt=prompt,
+                data_source=data_source,
                 template=template,
-                source_query=data_source or prompt,
-                records=records,
-                usable_records=usable_records,
-                source_coverage=extracted.source_coverage,
-                template_validation=template_validation,
-                target_context=derive_collection_target_context(
-                    records,
-                    prompt=prompt,
-                    data_source=data_source,
-                ),
-                extra=metadata,
+                prepared=prepared,
+                extra=prepared.metadata,
                 report_format="markdown",
             ),
         )
@@ -198,10 +204,7 @@ class ReportGenerator:
         Flow: load records, extract structured fields, optionally ask the LLM,
         then write the .xlsx file.
         """
-        if provider:
-            self._llm_provider = provider
-        else:
-            self._llm_provider = get_config("llm.provider", "stub")
+        self._select_llm_provider(provider)
         params = params or {}
         progress_id = str(params.get("progress_id") or "")
         logger.info(
@@ -212,82 +215,41 @@ class ReportGenerator:
             progress_id or "-",
         )
         await _emit_report_progress(progress_id, "started", 0.05, "Report generation started")
-        if records is None:
-            await _emit_report_progress(
-                progress_id, "loading_records", 0.12, "Loading report records"
-            )
-            records = await self._load_source_records(
-                prompt=prompt, data_source=data_source, params=params
-            )
-        else:
-            records, metadata = _prepare_explicit_source_records(records, metadata)
-        logger.info("[Report] records loaded count={} template={}", len(records), template)
-
-        usable_records = [r for r in records if r.data is not None]
-        await _emit_report_progress(
-            progress_id, "extracting", 0.22, f"Parsing {len(usable_records)} records"
-        )
-        raw_data_list = [r.data for r in usable_records]
-        extracted = extract_from_records(
-            raw_data_list,
-            record_keys=[r.key for r in usable_records],
-            metadata_list=[r.metadata for r in usable_records],
-        )
-        template_validation = validate_template_sources(template, extracted.source_coverage)
-        logger.info(
-            "[Report] extracted coverage={} overview={} steam_peaks={} google={} monitor={} events={} discussions={}",
-            extracted.source_coverage,
-            len(extracted.overview),
-            len(extracted.steam_player_peaks),
-            len(extracted.google_trends),
-            len(extracted.monitor_metrics),
-            len(extracted.events),
-            len(extracted.community_discussions),
+        prepared = await self._prepare_report_data(
+            prompt=prompt,
+            data_source=data_source,
+            template=template,
+            params=params,
+            records=records,
+            metadata=metadata,
+            progress_id=progress_id,
+            emit_extract_progress=True,
         )
 
         # Optional LLM narrative.
-        llm_content = None
-        if params.get("include_llm_analysis", True):
-            try:
-                await _emit_report_progress(
-                    progress_id, "llm", 0.42, "Calling LLM for report analysis"
-                )
-                llm_content = await self._render_report(
-                    self._build_template_prompt(
-                        prompt, template, template_validation, custom_prompt=custom_prompt
-                    ),
-                    data_source,
-                    template,
-                    records,
-                )
-                await _emit_report_progress(progress_id, "llm_done", 0.68, "LLM analysis completed")
-            except Exception as exc:
-                safe_error = _safe_context_text(exc)
-                logger.warning(
-                    "[Report] LLM analysis failed, fallback to template report: {}",
-                    safe_error,
-                )
-                await _emit_report_progress(
-                    progress_id,
-                    "llm_failed",
-                    0.62,
-                    f"LLM failed; falling back to template report: {safe_error}",
-                )
+        llm_content = await self._render_optional_excel_llm_content(
+            prompt=prompt,
+            data_source=data_source,
+            template=template,
+            custom_prompt=custom_prompt,
+            prepared=prepared,
+            params=params,
+            progress_id=progress_id,
+        )
 
         # Write Excel output.
         await _emit_report_progress(progress_id, "exporting", 0.78, "Writing Excel report")
         report_id = uuid.uuid4().hex[:12]
         title = self._build_title(prompt, data_source, template)
-        excel_dir = get_reports_dir()
-        excel_path = excel_dir / f"report_{report_id}.xlsx"
+        excel_path = self._build_excel_report_path(report_id)
 
         export_to_excel(
-            data=extracted,
+            data=prepared.extracted,
             output_path=excel_path,
             title=title,
             llm_content=llm_content,
             template_id=template,
-            template_validation=template_validation,
+            template_validation=prepared.template_validation,
         )
 
         report = GeneratedReport(
@@ -297,37 +259,17 @@ class ReportGenerator:
             data_source=data_source,
             template=template,
             generated_at=datetime.now(),
-            matched_records=len(records),
+            matched_records=len(prepared.records),
             content=llm_content or "Report generated as an Excel file",
             excel_path=str(excel_path),
-            metadata=_build_report_metadata(
-                provider=self._llm_provider,
+            metadata=self._build_generated_report_metadata(
+                prompt=prompt,
+                data_source=data_source,
                 template=template,
-                source_query=data_source or prompt,
-                records=records,
-                usable_records=usable_records,
-                source_coverage=extracted.source_coverage,
-                template_validation=template_validation,
-                target_context=derive_collection_target_context(
-                    records,
-                    prompt=prompt,
-                    data_source=data_source,
-                ),
+                prepared=prepared,
                 extra={
-                    **(metadata or {}),
-                    "sheets": {
-                        "overview": len(extracted.overview),
-                        "reviews": len(extracted.reviews),
-                        "trends": len(extracted.trends),
-                        "related_queries": len(extracted.related_queries),
-                        "steam_player_peaks": len(extracted.steam_player_peaks),
-                        "steam_monthly_peaks": len(extracted.steam_monthly_peaks),
-                        "google_trends": len(extracted.google_trends),
-                        "monitor_metrics": len(extracted.monitor_metrics),
-                        "events": len(extracted.events),
-                        "community_discussions": len(extracted.community_discussions),
-                        "raw_appendices": len(extracted.raw_sources),
-                    },
+                    **(prepared.metadata or {}),
+                    "sheets": self._build_excel_sheet_counts(prepared.extracted),
                 },
                 report_format="excel",
             ),
@@ -437,6 +379,182 @@ class ReportGenerator:
             )
         finally:
             await store.close()
+
+    def _select_llm_provider(self, provider: str) -> None:
+        self._llm_provider = provider or get_config("llm.provider", "stub")
+
+    async def _prepare_report_data(
+        self,
+        *,
+        prompt: str,
+        data_source: str,
+        template: str,
+        params: dict[str, Any],
+        records: list[StorageRecord] | None,
+        metadata: dict[str, Any] | None,
+        progress_id: str,
+        emit_extract_progress: bool = False,
+    ) -> _PreparedReportData:
+        resolved_records, resolved_metadata = await self._resolve_report_records(
+            prompt=prompt,
+            data_source=data_source,
+            params=params,
+            records=records,
+            metadata=metadata,
+            progress_id=progress_id,
+        )
+        logger.info(
+            "[Report] records loaded count={} template={}",
+            len(resolved_records),
+            template,
+        )
+
+        usable_records = [record for record in resolved_records if record.data is not None]
+        if emit_extract_progress:
+            await _emit_report_progress(
+                progress_id,
+                "extracting",
+                0.22,
+                f"Parsing {len(usable_records)} records",
+            )
+        extracted = self._extract_report_data(usable_records)
+        template_validation = validate_template_sources(template, extracted.source_coverage)
+        self._log_extracted_report_data(extracted)
+        return _PreparedReportData(
+            records=resolved_records,
+            metadata=resolved_metadata,
+            usable_records=usable_records,
+            extracted=extracted,
+            template_validation=template_validation,
+        )
+
+    async def _resolve_report_records(
+        self,
+        *,
+        prompt: str,
+        data_source: str,
+        params: dict[str, Any],
+        records: list[StorageRecord] | None,
+        metadata: dict[str, Any] | None,
+        progress_id: str,
+    ) -> tuple[list[StorageRecord], dict[str, Any] | None]:
+        if records is not None:
+            return _prepare_explicit_source_records(records, metadata)
+
+        await _emit_report_progress(progress_id, "loading_records", 0.12, "Loading report records")
+        loaded_records = await self._load_source_records(
+            prompt=prompt,
+            data_source=data_source,
+            params=params,
+        )
+        return loaded_records, metadata
+
+    def _extract_report_data(self, usable_records: list[StorageRecord]) -> ExtractedData:
+        return extract_from_records(
+            [record.data for record in usable_records],
+            record_keys=[record.key for record in usable_records],
+            metadata_list=[record.metadata for record in usable_records],
+        )
+
+    def _log_extracted_report_data(self, extracted: ExtractedData) -> None:
+        logger.info(
+            "[Report] extracted coverage={} overview={} steam_peaks={} google={} monitor={} events={} discussions={}",
+            extracted.source_coverage,
+            len(extracted.overview),
+            len(extracted.steam_player_peaks),
+            len(extracted.google_trends),
+            len(extracted.monitor_metrics),
+            len(extracted.events),
+            len(extracted.community_discussions),
+        )
+
+    def _build_generated_report_metadata(
+        self,
+        *,
+        prompt: str,
+        data_source: str,
+        template: str,
+        prepared: _PreparedReportData,
+        extra: dict[str, Any] | None,
+        report_format: str,
+    ) -> dict[str, Any]:
+        return _build_report_metadata(
+            provider=self._llm_provider,
+            template=template,
+            source_query=data_source or prompt,
+            records=prepared.records,
+            usable_records=prepared.usable_records,
+            source_coverage=prepared.extracted.source_coverage,
+            template_validation=prepared.template_validation,
+            target_context=derive_collection_target_context(
+                prepared.records,
+                prompt=prompt,
+                data_source=data_source,
+            ),
+            extra=extra,
+            report_format=report_format,
+        )
+
+    async def _render_optional_excel_llm_content(
+        self,
+        *,
+        prompt: str,
+        data_source: str,
+        template: str,
+        custom_prompt: str,
+        prepared: _PreparedReportData,
+        params: dict[str, Any],
+        progress_id: str,
+    ) -> str | None:
+        if not params.get("include_llm_analysis", True):
+            return None
+
+        try:
+            await _emit_report_progress(progress_id, "llm", 0.42, "Calling LLM for report analysis")
+            llm_content = await self._render_report(
+                self._build_template_prompt(
+                    prompt,
+                    template,
+                    prepared.template_validation,
+                    custom_prompt=custom_prompt,
+                ),
+                data_source,
+                template,
+                prepared.records,
+            )
+            await _emit_report_progress(progress_id, "llm_done", 0.68, "LLM analysis completed")
+            return llm_content
+        except Exception as exc:
+            safe_error = _safe_context_text(exc)
+            logger.warning(
+                "[Report] LLM analysis failed, fallback to template report: {}",
+                safe_error,
+            )
+            await _emit_report_progress(
+                progress_id,
+                "llm_failed",
+                0.62,
+                f"LLM failed; falling back to template report: {safe_error}",
+            )
+            return None
+
+    def _build_excel_report_path(self, report_id: str) -> Path:
+        return get_reports_dir() / f"report_{report_id}.xlsx"
+
+    def _build_excel_sheet_counts(self, extracted: ExtractedData) -> dict[str, int]:
+        return {
+            "overview": len(extracted.overview),
+            "reviews": len(extracted.reviews),
+            "trends": len(extracted.trends),
+            "related_queries": len(extracted.related_queries),
+            "steam_player_peaks": len(extracted.steam_player_peaks),
+            "steam_monthly_peaks": len(extracted.steam_monthly_peaks),
+            "google_trends": len(extracted.google_trends),
+            "monitor_metrics": len(extracted.monitor_metrics),
+            "events": len(extracted.events),
+            "community_discussions": len(extracted.community_discussions),
+            "raw_appendices": len(extracted.raw_sources),
+        }
 
     async def _load_source_records(
         self,
@@ -642,6 +760,25 @@ class ReportGenerator:
         template: str,
         records: list[StorageRecord],
     ) -> str:
+        config = self._load_openai_compatible_request_config(provider)
+        payload, headers, request_stats = self._build_openai_compatible_request(
+            config=config,
+            prompt=prompt,
+            data_source=data_source,
+            template=template,
+            records=records,
+        )
+        data = await self._request_openai_compatible_completion(
+            config=config,
+            payload=payload,
+            headers=headers,
+            request_stats=request_stats,
+            record_count=len(records),
+            template=template,
+        )
+        return self._extract_openai_compatible_content(data, config.provider_label)
+
+    def _load_openai_compatible_request_config(self, provider: str) -> _LlmRequestConfig:
         provider_label = self.provider_label(provider)
         api_key = get_config(f"llm.{provider}.api_key", "")
         if provider == "local" and not api_key:
@@ -661,21 +798,38 @@ class ReportGenerator:
             "openai": "gpt-4o-mini",
             "local": "qwen2.5",
         }
-        default_base_url = default_base_urls.get(provider, "")
-        default_model = default_models.get(provider, "")
-        base_url = get_config(f"llm.{provider}.base_url", default_base_url).rstrip("/")
+        base_url = get_config(
+            f"llm.{provider}.base_url",
+            default_base_urls.get(provider, ""),
+        ).rstrip("/")
         if not base_url:
             raise ValueError(f"llm.{provider}.base_url is not configured")
-        model = get_config(f"llm.{provider}.model", default_model)
+        model = get_config(f"llm.{provider}.model", default_models.get(provider, ""))
         if not model:
             raise ValueError(f"llm.{provider}.model is not configured")
-        temperature = float(get_config(f"llm.{provider}.temperature", 0.3))
-        max_tokens = int(get_config(f"llm.{provider}.max_tokens", 2000))
-        timeout = float(get_config(f"llm.{provider}.timeout", 180 if provider == "qwen" else 90))
-        retry_count = int(get_config(f"llm.{provider}.retry_count", 2))
-        retry_delay = float(get_config(f"llm.{provider}.retry_delay", 2.0))
+        return _LlmRequestConfig(
+            provider=provider,
+            provider_label=provider_label,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=float(get_config(f"llm.{provider}.temperature", 0.3)),
+            max_tokens=int(get_config(f"llm.{provider}.max_tokens", 2000)),
+            timeout=float(get_config(f"llm.{provider}.timeout", 180 if provider == "qwen" else 90)),
+            retry_count=int(get_config(f"llm.{provider}.retry_count", 2)),
+            retry_delay=float(get_config(f"llm.{provider}.retry_delay", 2.0)),
+        )
 
-        context = self._build_record_context(records, provider=provider)
+    def _build_openai_compatible_request(
+        self,
+        *,
+        config: _LlmRequestConfig,
+        prompt: str,
+        data_source: str,
+        template: str,
+        records: list[StorageRecord],
+    ) -> tuple[dict[str, Any], dict[str, str], str]:
+        context = self._build_record_context(records, provider=config.provider)
         system_prompt = self._build_report_system_prompt(template=template)
         user_prompt = (
             f"User request: {prompt}\n"
@@ -685,52 +839,68 @@ class ReportGenerator:
             "gap explicitly and do not invent data.\n\n"
             f"{context}"
         )
-
         payload = {
-            "model": model,
+            "model": config.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
             "stream": False,
         }
-
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
             "Connection": "close",
         }
-
         request_stats = f"context_chars={len(context)}, user_prompt_chars={len(user_prompt)}"
-        attempts = max(1, retry_count + 1)
+        return payload, headers, request_stats
+
+    async def _request_openai_compatible_completion(
+        self,
+        *,
+        config: _LlmRequestConfig,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        request_stats: str,
+        record_count: int,
+        template: str,
+    ) -> dict[str, Any]:
+        attempts = max(1, config.retry_count + 1)
         logger.info(
             "[Report][LLM] request provider={} model={} template={} records={} {} attempts={}",
-            provider_label,
-            model,
+            config.provider_label,
+            config.model,
             template,
-            len(records),
+            record_count,
             request_stats,
             attempts,
         )
-        data = None
+        data: dict[str, Any] | None = None
         last_error: Exception | None = None
         limits = httpx.Limits(max_connections=5, max_keepalive_connections=0)
         for attempt in range(1, attempts + 1):
+            attempt_started_at = time.monotonic()
             try:
                 logger.info(
                     "[Report][LLM] attempt {}/{} provider={} model={}",
                     attempt,
                     attempts,
-                    provider_label,
-                    model,
+                    config.provider_label,
+                    config.model,
                 )
-                attempt_started_at = time.monotonic()
-                request_timeout = httpx.Timeout(connect=20.0, read=timeout, write=60.0, pool=20.0)
+                request_timeout = httpx.Timeout(
+                    connect=20.0,
+                    read=config.timeout,
+                    write=60.0,
+                    pool=20.0,
+                )
                 async with httpx.AsyncClient(timeout=request_timeout, limits=limits) as client:
                     response = await client.post(
-                        f"{base_url}/chat/completions", headers=headers, json=payload
+                        f"{config.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
                     )
                 elapsed = time.monotonic() - attempt_started_at
                 if response.is_error:
@@ -746,27 +916,23 @@ class ReportGenerator:
                             attempts,
                             request_stats,
                         )
-                        await asyncio.sleep(retry_delay * attempt)
+                        await asyncio.sleep(config.retry_delay * attempt)
                         continue
                     raise ValueError(
-                        f"{provider_label} report request failed: status={response.status_code}, "
+                        f"{config.provider_label} report request failed: status={response.status_code}, "
                         f"{request_stats}, body={redact_sensitive(error_payload)}"
                     )
                 data = response.json()
                 logger.info(
                     "[Report][LLM] response received provider={} attempt={} elapsed={:.2f}s",
-                    provider_label,
+                    config.provider_label,
                     attempt,
                     elapsed,
                 )
                 break
             except httpx.TransportError as exc:
                 last_error = exc
-                elapsed = (
-                    time.monotonic() - attempt_started_at
-                    if "attempt_started_at" in locals()
-                    else 0.0
-                )
+                elapsed = time.monotonic() - attempt_started_at
                 if attempt < attempts:
                     logger.warning(
                         "[Report][LLM] transport error attempt={}/{} type={} repr={} elapsed={:.2f}s read_timeout={} {}",
@@ -775,24 +941,30 @@ class ReportGenerator:
                         exc.__class__.__name__,
                         _safe_context_text(repr(exc)),
                         elapsed,
-                        timeout,
+                        config.timeout,
                         request_stats,
                     )
-                    await asyncio.sleep(retry_delay * attempt)
+                    await asyncio.sleep(config.retry_delay * attempt)
                     continue
                 raise ValueError(
-                    f"{provider_label} report request failed after {attempt} attempts: "
+                    f"{config.provider_label} report request failed after {attempt} attempts: "
                     f"{exc.__class__.__name__}: {_safe_context_text(repr(exc))}; "
                     f"elapsed={elapsed:.2f}s; "
-                    f"read_timeout={timeout}; {request_stats}"
+                    f"read_timeout={config.timeout}; {request_stats}"
                 ) from exc
 
         if data is None:
             raise ValueError(
-                f"{provider_label} report request failed: {_safe_context_text(last_error)}; "
+                f"{config.provider_label} report request failed: {_safe_context_text(last_error)}; "
                 f"{request_stats}"
             )
+        return data
 
+    def _extract_openai_compatible_content(
+        self,
+        data: dict[str, Any],
+        provider_label: str,
+    ) -> str:
         choices = data.get("choices") or []
         if not choices:
             raise ValueError(f"{provider_label} returned empty choices")
