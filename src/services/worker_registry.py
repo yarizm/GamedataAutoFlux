@@ -165,9 +165,7 @@ class InMemoryWorkerRegistry(WorkerRegistry):
                     current_task_ids,
                     fallback=worker.current_task_ids,
                 ),
-                "metadata": redact_sensitive(metadata)
-                if metadata is not None
-                else worker.metadata,
+                "metadata": redact_sensitive(metadata) if metadata is not None else worker.metadata,
             }
             if touch_heartbeat:
                 update["last_heartbeat_at"] = datetime.now(timezone.utc)
@@ -266,9 +264,7 @@ class StorageWorkerRegistry(WorkerRegistry):
                     current_task_ids,
                     fallback=worker.current_task_ids,
                 ),
-                "metadata": redact_sensitive(metadata)
-                if metadata is not None
-                else worker.metadata,
+                "metadata": redact_sensitive(metadata) if metadata is not None else worker.metadata,
             }
             if touch_heartbeat:
                 update["last_heartbeat_at"] = datetime.now(timezone.utc)

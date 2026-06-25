@@ -66,9 +66,7 @@ class TaskPrecheckService:
         errors = [issue for issue in precheck.issues if issue.level == "error"]
         if not errors:
             return "Task input is not submittable."
-        return "; ".join(
-            f"{issue.code} at {issue.field}: {issue.message}" for issue in errors
-        )
+        return "; ".join(f"{issue.code} at {issue.field}: {issue.message}" for issue in errors)
 
     def _build_precheck_context(
         self,
@@ -90,7 +88,9 @@ class TaskPrecheckService:
             "resolved_collector": resolved_collector,
             "collector_metadata": collector_metadata,
             "collector_metadata_payload": (
-                collector_metadata_payload(resolved_collector) if collector_metadata is not None else {}
+                collector_metadata_payload(resolved_collector)
+                if collector_metadata is not None
+                else {}
             ),
             "session_diagnostics": session_diagnostics,
             "session_readiness": session_readiness,
@@ -255,8 +255,7 @@ class TaskPrecheckService:
                 (
                     step
                     for step in pipeline.steps
-                    if step.step_type.value == "collector"
-                    and step.component_name == collector_name
+                    if step.step_type.value == "collector" and step.component_name == collector_name
                 ),
                 None,
             )
@@ -423,7 +422,9 @@ class TaskPrecheckService:
 
     @staticmethod
     def _target_rule_passes(target: dict[str, Any], rule: TargetValidationRule) -> bool:
-        present = [TaskPrecheckService._target_field_present(target, field) for field in rule.fields]
+        present = [
+            TaskPrecheckService._target_field_present(target, field) for field in rule.fields
+        ]
         if rule.mode == "all":
             return all(present)
         return any(present)
@@ -669,9 +670,11 @@ class TaskPrecheckService:
                     )
                 )
 
-        if "steamdb_optional_browser_session" in profiles and bool(
-            get_config("steam.steamdb.enabled", False)
-        ) and bool(get_config("steam.steamdb.cdp_enabled", False)):
+        if (
+            "steamdb_optional_browser_session" in profiles
+            and bool(get_config("steam.steamdb.enabled", False))
+            and bool(get_config("steam.steamdb.cdp_enabled", False))
+        ):
             credential_status["steam.steamdb.browser_session"] = "requires_login_session"
             issues.append(
                 TaskPrecheckIssue(

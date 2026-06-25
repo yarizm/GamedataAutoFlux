@@ -28,7 +28,9 @@ async def test_smart_mode_uses_llm_verification():
     mock_llm = AsyncMock()
     mock_llm.model_name = "test-model"
     mock_response = AsyncMock()
-    mock_response.content = json.dumps({"matched_index": 0, "confidence": 0.95, "reason": "Exact match"})
+    mock_response.content = json.dumps(
+        {"matched_index": 0, "confidence": 0.95, "reason": "Exact match"}
+    )
     mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
     candidates = [
@@ -49,7 +51,9 @@ async def test_smart_mode_low_confidence_returns_none():
     mock_llm = AsyncMock()
     mock_llm.model_name = "test-model"
     mock_response = AsyncMock()
-    mock_response.content = json.dumps({"matched_index": 0, "confidence": 0.2, "reason": "Uncertain"})
+    mock_response.content = json.dumps(
+        {"matched_index": 0, "confidence": 0.2, "reason": "Uncertain"}
+    )
     mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
     candidates = [
@@ -58,7 +62,11 @@ async def test_smart_mode_low_confidence_returns_none():
 
     with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await _choose_best_sully_siteurl(
-            candidates, ["Delta Force"], mode="smart", game_name="Delta Force", app_id=2507950,
+            candidates,
+            ["Delta Force"],
+            mode="smart",
+            game_name="Delta Force",
+            app_id=2507950,
             confidence_threshold=0.5,
         )
 

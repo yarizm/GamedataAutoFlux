@@ -224,7 +224,9 @@ class WorkerAgent:
         try:
             result = await pipeline.execute(
                 task,
-                recovery_checkpoint=latest_checkpoint if isinstance(latest_checkpoint, dict) else None,
+                recovery_checkpoint=latest_checkpoint
+                if isinstance(latest_checkpoint, dict)
+                else None,
             )
             payload = self._serialize_pipeline_result(result)
             if result.success:
@@ -279,7 +281,9 @@ class WorkerAgent:
             }
             return
 
-        status = str(payload.get("claim_status") or ("claimed" if payload.get("task_id") else "no_task"))
+        status = str(
+            payload.get("claim_status") or ("claimed" if payload.get("task_id") else "no_task")
+        )
         reason = str(payload.get("claim_reason") or "")
         blocked_sessions = payload.get("blocked_sessions")
         if not isinstance(blocked_sessions, list):
@@ -361,10 +365,14 @@ class WorkerAgent:
 
     @staticmethod
     def _result_error_message(result: PipelineResult) -> str:
-        safe_errors = [redact_sensitive_text(str(item)) for item in result.errors if str(item or "").strip()]
+        safe_errors = [
+            redact_sensitive_text(str(item)) for item in result.errors if str(item or "").strip()
+        ]
         return "; ".join(safe_errors) if safe_errors else "Worker task failed"
 
-    async def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request(
+        self, method: str, path: str, *, json: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if self._client is None:
             raise RuntimeError("WorkerAgent has not been started")
         response = await self._client.request(method, path, json=json)
@@ -421,9 +429,9 @@ def _normalize_worker_capabilities(capabilities: list[str] | None) -> list[str]:
     ]
     for collector_id in declared_collectors:
         diagnostics = build_collector_session_diagnostics(collector_id)
-        session_health = str(
-            (diagnostics.get("session_state") or {}).get("health") or ""
-        ).strip().lower()
+        session_health = (
+            str((diagnostics.get("session_state") or {}).get("health") or "").strip().lower()
+        )
         derived = sorted(required_worker_capabilities(collector_id))
         if session_health == "ready":
             for capability in derived:

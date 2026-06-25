@@ -185,7 +185,9 @@ class BatchRecordRequest(BaseModel):
 
 @router.get("/data/games", response_model=list[DataGameSummary])
 async def list_data_games(
-    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
+    limit: Annotated[
+        int, Query(ge=1, le=5000, description="Maximum source records to scan")
+    ] = 1000,
 ):
     records = await _load_source_records(limit=limit)
     response: list[DataGameSummary] = []
@@ -197,13 +199,12 @@ async def list_data_games(
 
 @router.get("/data/groups", response_model=list[DataGroupSummary])
 async def list_data_groups(
-    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
+    limit: Annotated[
+        int, Query(ge=1, le=5000, description="Maximum source records to scan")
+    ] = 1000,
 ):
     groups = _get_data_browser().list_groups(await _load_source_records(limit=limit))
-    return [
-        DataGroupSummary(**item)
-        for item in groups
-    ]
+    return [DataGroupSummary(**item) for item in groups]
 
 
 @router.get("/data/records", response_model=DataRecordPage)
@@ -285,7 +286,9 @@ async def delete_data_group(
 @router.get("/data/search", response_model=list[DataRecordSummary])
 async def search_data_records(
     q: Annotated[str, Query(description="Search text for key, task id/name, game or group")],
-    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
+    limit: Annotated[
+        int, Query(ge=1, le=5000, description="Maximum source records to scan")
+    ] = 1000,
 ):
     return _get_data_browser().search_records(await _load_source_records(limit=limit), q)
 
@@ -299,7 +302,9 @@ async def list_game_records(
     sort_order: Annotated[
         str, Query(pattern="^(asc|desc)$", description="stored_at order")
     ] = "desc",
-    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 2000,
+    limit: Annotated[
+        int, Query(ge=1, le=5000, description="Maximum source records to scan")
+    ] = 2000,
 ):
     page_payload = _get_data_browser().list_game_record_page(
         await _load_source_records(limit=limit),
@@ -434,6 +439,7 @@ async def refresh_data_record(
     ] = RefreshRecordRequest(),
 ):
     from src.web.app import get_task_service
+
     return await _get_data_management_service().submit_refresh_task(
         task_service=get_task_service(),
         record_key=record_key,
@@ -447,6 +453,7 @@ async def create_record_refresh_schedule(
     req: Annotated[CreateRefreshScheduleRequest, Body(description="Refresh schedule")],
 ):
     from src.web.app import get_task_service, scheduler
+
     return await _get_data_management_service().create_refresh_schedule(
         scheduler=scheduler,
         task_service=get_task_service(),

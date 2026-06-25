@@ -165,6 +165,8 @@ def _validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
 
 
 _MISSING = object()
+
+
 def get(key: str, default: Any = None) -> Any:
     """
     获取嵌套配置项，使用点号分隔路径。
@@ -187,7 +189,7 @@ def get(key: str, default: Any = None) -> Any:
     # 键存在但值为 YAML null → 返回 None（而非 default）
     if value is None:
         return None
-    
+
     if value is not None and default is not None:
         if isinstance(default, bool) and not isinstance(value, bool):
             if isinstance(value, str):

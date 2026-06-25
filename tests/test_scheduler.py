@@ -166,9 +166,12 @@ async def test_execute_task_final_failure_keeps_pipeline_result_summary() -> Non
     assert summary is not None
     assert summary["collection_summary"]["status"] == "failed"
     assert summary["collection_summary"]["failed_targets_count"] == 1
-    assert payload["result_summary"]["collection_summary"]["failed_targets"][0]["retry"][
-        "retry_attempts"
-    ] == 2
+    assert (
+        payload["result_summary"]["collection_summary"]["failed_targets"][0]["retry"][
+            "retry_attempts"
+        ]
+        == 2
+    )
     assert payload["result_summary"]["errors"] == ["collect failed api_key=result-secret"]
     assert public_payload["result_summary"]["errors"] == ["collect failed api_key=[REDACTED]"]
     assert event_bus.completed_events[-1].result is result
@@ -317,7 +320,10 @@ async def test_execute_task_uses_latest_checkpoint_to_resume_pipeline() -> None:
         },
     }
     assert [item.target.name for item in returned.collect_results] == ["C"]
-    assert returned.collect_results[0].metadata["resume_checkpoint_id"] == latest_checkpoint.checkpoint_id
+    assert (
+        returned.collect_results[0].metadata["resume_checkpoint_id"]
+        == latest_checkpoint.checkpoint_id
+    )
     assert returned.output_records[0].key == (
         "scheduler-resume:scheduler_resume_test_processor:2:2"
     )
@@ -370,7 +376,9 @@ async def test_execute_task_without_event_bus_emits_failure_alert(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_execute_task_without_event_bus_generates_report_inline(tmp_path, monkeypatch) -> None:
+async def test_execute_task_without_event_bus_generates_report_inline(
+    tmp_path, monkeypatch
+) -> None:
     scheduler = Scheduler(
         max_concurrent=1,
         default_retries=0,
@@ -415,7 +423,10 @@ async def test_execute_task_without_event_bus_generates_report_inline(tmp_path, 
     assert returned is result
     assert task.status == TaskStatus.SUCCESS
     assert result.generated_report_id == "inline-report-1"
-    assert any(log.step_name == "report:auto" and log.status == TaskStatus.SUCCESS for log in task.step_logs)
+    assert any(
+        log.step_name == "report:auto" and log.status == TaskStatus.SUCCESS
+        for log in task.step_logs
+    )
 
 
 def test_retry_suppression_reason_only_for_stored_partial_collection() -> None:

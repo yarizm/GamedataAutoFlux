@@ -109,9 +109,7 @@ class DataManagementService:
                     await store.delete(key)
                     deleted_keys.append(key)
                 except Exception as exc:
-                    failed_keys.append(
-                        {"key": key, "error": redact_sensitive_text(str(exc))}
-                    )
+                    failed_keys.append({"key": key, "error": redact_sensitive_text(str(exc))})
         finally:
             await store.close()
         return {
@@ -263,7 +261,10 @@ class DataManagementService:
                 400,
                 redact_sensitive_text(TaskPrecheckService.format_errors(precheck)),
             )
-        if getattr(task_service, "sync_from_diagnostics", None) is not None and precheck.session_diagnostics:
+        if (
+            getattr(task_service, "sync_from_diagnostics", None) is not None
+            and precheck.session_diagnostics
+        ):
             await sync_session_inventory_best_effort(
                 registry=task_service,
                 diagnostics=precheck.session_diagnostics,

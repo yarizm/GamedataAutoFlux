@@ -66,7 +66,9 @@ class AgentConfig(_FlexibleModel):
 
 class SteamDBConfig(_FlexibleModel):
     enabled: bool = False
-    session_mode: str | None = Field(default=None, pattern="^(api_only|local_profile|managed_state)$")
+    session_mode: str | None = Field(
+        default=None, pattern="^(api_only|local_profile|managed_state)$"
+    )
     cdp_enabled: bool = False
     cdp_port: int = Field(default=9222, ge=1, le=65535)
     cdp_profile_dir: str = "data/steamdb_profile"
@@ -102,7 +104,9 @@ class RequestCollectorConfig(_FlexibleModel):
     collect_timeout: float = Field(default=0, ge=0)
     collect_retries: int = Field(default=0, ge=0)
     collect_retry_delay: float = Field(default=1.0, ge=0)
-    session_mode: str | None = Field(default=None, pattern="^(api_only|local_profile|managed_state)$")
+    session_mode: str | None = Field(
+        default=None, pattern="^(api_only|local_profile|managed_state)$"
+    )
     timeout: float | None = Field(default=None, ge=0)
     request_retries: int | None = Field(default=None, ge=0)
     headless: bool | None = None

@@ -102,9 +102,7 @@ async def test_verify_game_identifier_redacts_exception_text(monkeypatch) -> Non
 
     monkeypatch.setattr("src.services.game_resolver.GameIdentifierResolver", FakeResolver)
 
-    payload = json.loads(
-        await VerifyGameIdentifierTool()._arun("steam", "730", "Counter-Strike 2")
-    )
+    payload = json.loads(await VerifyGameIdentifierTool()._arun("steam", "730", "Counter-Strike 2"))
 
     assert payload["valid"] is False
     assert "identifier-secret" not in payload["error"]

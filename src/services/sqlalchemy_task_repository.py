@@ -48,7 +48,7 @@ class SQLAlchemyTaskRepository(TaskRepository):
                     "task_status": stmt.excluded.task_status,
                     "metadata": stmt.excluded.metadata,
                     "updated_at": utcnow(),
-                }
+                },
             )
             await session.execute(stmt)
 

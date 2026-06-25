@@ -34,9 +34,7 @@ async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> lis
     try:
         await resolver.setup()
     except (NotImplementedError, RuntimeError, OSError) as e:
-        logger.warning(
-            f"标识符自动填充跳过 (Playwright/浏览器不可用): {_safe_error_text(e)}"
-        )
+        logger.warning(f"标识符自动填充跳过 (Playwright/浏览器不可用): {_safe_error_text(e)}")
         return targets
 
     try:

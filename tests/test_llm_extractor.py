@@ -53,12 +53,24 @@ def _make_mock_llm(response_content: str) -> AsyncMock:
 
 @pytest.mark.asyncio
 async def test_extract_items_from_html_success():
-    mock_llm = _make_mock_llm(json.dumps([
-        {"title": "Patch 1.2", "date": "2026-05-01", "url": "/news/1", "category": "patch", "summary": "Big update"}
-    ]))
+    mock_llm = _make_mock_llm(
+        json.dumps(
+            [
+                {
+                    "title": "Patch 1.2",
+                    "date": "2026-05-01",
+                    "url": "/news/1",
+                    "category": "patch",
+                    "summary": "Big update",
+                }
+            ]
+        )
+    )
 
     with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
-        items = await extract_items_from_html("<html><body>test</body></html>", "https://example.com")
+        items = await extract_items_from_html(
+            "<html><body>test</body></html>", "https://example.com"
+        )
 
     assert len(items) == 1
     assert items[0]["title"] == "Patch 1.2"
@@ -70,7 +82,9 @@ async def test_extract_items_from_html_llm_returns_invalid():
     mock_llm = _make_mock_llm("I can't extract that")
 
     with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
-        items = await extract_items_from_html("<html><body>test</body></html>", "https://example.com")
+        items = await extract_items_from_html(
+            "<html><body>test</body></html>", "https://example.com"
+        )
 
     assert items == []
 
@@ -79,12 +93,26 @@ async def test_extract_items_from_html_llm_returns_invalid():
 async def test_extract_items_from_html_fallback_on_truncation():
     """主模型返回截断 JSON 时应自动回退到下一个模型。"""
     mock_bad = _make_mock_llm('[{"title": "Truncated')
-    mock_good = _make_mock_llm(json.dumps([
-        {"title": "Fallback Result", "date": "2026-01-01", "url": "/x", "category": "news", "summary": "ok"}
-    ]))
+    mock_good = _make_mock_llm(
+        json.dumps(
+            [
+                {
+                    "title": "Fallback Result",
+                    "date": "2026-01-01",
+                    "url": "/x",
+                    "category": "news",
+                    "summary": "ok",
+                }
+            ]
+        )
+    )
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_bad, mock_good]):
-        items = await extract_items_from_html("<html><body>test</body></html>", "https://example.com")
+    with patch(
+        "src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_bad, mock_good]
+    ):
+        items = await extract_items_from_html(
+            "<html><body>test</body></html>", "https://example.com"
+        )
 
     assert len(items) == 1
     assert items[0]["title"] == "Fallback Result"
@@ -94,7 +122,9 @@ async def test_extract_items_from_html_fallback_on_truncation():
 
 @pytest.mark.asyncio
 async def test_verify_game_candidate_match():
-    mock_llm = _make_mock_llm(json.dumps({"matched_index": 1, "confidence": 0.9, "reason": "App ID matches"}))
+    mock_llm = _make_mock_llm(
+        json.dumps({"matched_index": 1, "confidence": 0.9, "reason": "App ID matches"})
+    )
 
     candidates = [
         {"displaytext": "Counter-Strike 2", "siteurl": "counter-strike_2"},
@@ -110,7 +140,9 @@ async def test_verify_game_candidate_match():
 
 @pytest.mark.asyncio
 async def test_verify_game_candidate_no_match():
-    mock_llm = _make_mock_llm(json.dumps({"matched_index": -1, "confidence": 0.0, "reason": "No match found"}))
+    mock_llm = _make_mock_llm(
+        json.dumps({"matched_index": -1, "confidence": 0.0, "reason": "No match found"})
+    )
 
     with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await verify_game_candidate([], "Unknown Game", 999999, None)

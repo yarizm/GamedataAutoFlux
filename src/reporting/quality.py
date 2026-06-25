@@ -42,11 +42,7 @@ def build_report_quality_summary(
             include_follow_up_actions=include_follow_up_actions,
         )
     )
-    return {
-        key: value
-        for key, value in fields.items()
-        if value not in (None, "", {}, [])
-    }
+    return {key: value for key, value in fields.items() if value not in (None, "", {}, [])}
 
 
 def assess_report_quality(
@@ -80,9 +76,7 @@ def assess_report_quality(
     max_age_days = _quality_int(source_freshness.get("max_age_days"), default=-1)
     freshness_warning_days = _quality_int(source_freshness.get("warning_days"), default=30)
     is_stale = (
-        max_age_days >= 0
-        and freshness_warning_days > 0
-        and max_age_days > freshness_warning_days
+        max_age_days >= 0 and freshness_warning_days > 0 and max_age_days > freshness_warning_days
     )
 
     risks: list[str] = []
@@ -92,9 +86,7 @@ def assess_report_quality(
         risks.append("No usable source records were available for report generation.")
     if missing_collectors:
         risks.append(
-            "Template coverage is missing required sources: "
-            + ", ".join(missing_labels)
-            + "."
+            "Template coverage is missing required sources: " + ", ".join(missing_labels) + "."
         )
     if empty_record_count:
         risks.append(f"{empty_record_count} selected records had no usable data.")

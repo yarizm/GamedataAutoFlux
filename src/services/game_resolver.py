@@ -78,7 +78,8 @@ def _save_cache() -> None:
         try:
             GAME_RESOLVER_CACHE.parent.mkdir(parents=True, exist_ok=True)
             raw = {
-                key: (ts, result.model_dump(mode="json")) for key, (ts, result) in _names_cache.items()
+                key: (ts, result.model_dump(mode="json"))
+                for key, (ts, result) in _names_cache.items()
             }
             GAME_RESOLVER_CACHE.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
         except Exception:

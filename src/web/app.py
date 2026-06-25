@@ -36,12 +36,13 @@ _agent_session_service = None  # 在 lifespan 中初始化
 
 _agent_service_lock = threading.Lock()
 
+
 def get_agent_service():
     """获取 Agent 服务实例，未启用时返回 None"""
     global _agent_service
     if not get_config("agent.enabled", True):
         return None
-    
+
     if _agent_service is None:
         with _agent_service_lock:
             if _agent_service is None:
@@ -50,6 +51,7 @@ def get_agent_service():
                     return None
                 try:
                     from src.agent.agent import AgentService
+
                     _agent_service = AgentService(session_service=_agent_session_service)
                     logger.info("Agent 服务已初始化")
                 except Exception as e:
@@ -72,7 +74,12 @@ def _reset_runtime_singletons(
     reset_agent: bool = False,
     reset_agent_session: bool = False,
 ) -> None:
-    global _task_service, _worker_registry, _session_registry, _agent_service, _agent_session_service
+    global \
+        _task_service, \
+        _worker_registry, \
+        _session_registry, \
+        _agent_service, \
+        _agent_session_service
 
     _task_service = None
     _worker_registry = None
@@ -89,6 +96,7 @@ def get_task_service():
         with _task_service_lock:
             if _task_service is None:
                 from src.services.task_service import TaskService
+
                 _task_service = TaskService(
                     scheduler=scheduler,
                     get_session_registry=lambda: get_session_registry(),
@@ -101,7 +109,9 @@ def get_worker_registry():
     if _worker_registry is None:
         with _worker_registry_lock:
             if _worker_registry is None:
-                task_store = getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                task_store = (
+                    getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                )
                 if task_store is not None:
                     from src.services.worker_registry import StorageWorkerRegistry
 
@@ -118,7 +128,9 @@ def get_session_registry():
     if _session_registry is None:
         with _session_registry_lock:
             if _session_registry is None:
-                task_store = getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                task_store = (
+                    getattr(scheduler, "_task_store", None) if scheduler is not None else None
+                )
                 if task_store is not None:
                     from src.services.session_registry import StorageSessionRegistry
 
@@ -194,7 +206,7 @@ async def lifespan(app: FastAPI):
 
     # 初始化全局存储
     from src.storage.factory import get_storage
-    
+
     app.state.storage = get_storage()
     await app.state.storage.initialize()
 
@@ -207,7 +219,6 @@ async def lifespan(app: FastAPI):
         session_timeout=get_config("agent.session_timeout_minutes", 60) * 60,
         max_sessions=50,
     )
-
 
     # 注入 repositories 到 scheduler
     from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
@@ -230,7 +241,9 @@ async def lifespan(app: FastAPI):
     from src.web.routes.ws import manager
 
     scheduler._event_bus = event_bus
-    event_bus.on("task_completed", ReportGenerationHook(report_generator, scheduler=scheduler).handle)
+    event_bus.on(
+        "task_completed", ReportGenerationHook(report_generator, scheduler=scheduler).handle
+    )
     event_bus.on("task_completed", AlertHook(AlertService.get_instance()).handle)
     event_bus.on("task_updated", WebSocketBroadcastHook(manager).handle)
     event_bus.on("task_event", WebSocketTaskEventHook(manager).handle)
@@ -282,13 +295,13 @@ def create_app() -> FastAPI:
     )
 
     from fastapi.middleware.cors import CORSMiddleware
-    
+
     cors_origins = get_config(
         "server.cors_origins", ["http://localhost:8000", "http://127.0.0.1:8000"]
     )
     if isinstance(cors_origins, str):
         cors_origins = [cors_origins]
-        
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,

@@ -371,9 +371,7 @@ def _pipeline_checkpoint_stats(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _build_pipeline_checkpoint_state(task: Task, payload: dict[str, Any]) -> dict[str, Any]:
     targets = [
-        str(target.name or "").strip()
-        for target in task.targets
-        if str(target.name or "").strip()
+        str(target.name or "").strip() for target in task.targets if str(target.name or "").strip()
     ]
     success_count = _safe_int(payload.get("success_count"))
     failed_count = _safe_int(payload.get("failed_count"))

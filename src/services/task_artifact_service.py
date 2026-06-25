@@ -183,7 +183,9 @@ class StorageTaskArtifactService(TaskArtifactService):
         result = await self._storage.query(f"key:{_artifact_prefix(task_id)}", limit=5000)
         artifacts = [_artifact_from_record(record) for record in result.records]
         artifacts = [artifact for artifact in artifacts if artifact is not None]
-        artifacts.sort(key=lambda artifact: (artifact.seq, artifact.created_at, artifact.artifact_id))
+        artifacts.sort(
+            key=lambda artifact: (artifact.seq, artifact.created_at, artifact.artifact_id)
+        )
         return _slice_artifacts(artifacts, limit=limit, offset=offset)
 
     async def delete_artifacts(self, task_id: str) -> None:

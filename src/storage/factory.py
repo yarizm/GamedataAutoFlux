@@ -48,8 +48,7 @@ def get_storage(name: str | None = None) -> BaseStorage:
         _global_storage = store_cls(db_config)
         if name:
             logger.debug(
-                f"get_storage(name={name!r}) → 返回全局默认存储 ({provider})，"
-                f"当前架构共享同一实例"
+                f"get_storage(name={name!r}) → 返回全局默认存储 ({provider})，当前架构共享同一实例"
             )
     return _global_storage
 

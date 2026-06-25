@@ -159,9 +159,7 @@ class CreateDynamicPipelineTool(BaseTool):
         try:
             validate_dynamic_playwright_config(collector_config)
         except Exception as e:
-            return _format_result(
-                "error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}"
-            )
+            return _format_result("error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}")
 
         pipeline = (
             Pipeline(pipeline_name)

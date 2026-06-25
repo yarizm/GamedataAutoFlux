@@ -380,9 +380,7 @@ def _artifact_to_response(artifact) -> TaskArtifactResponse:
 
 def _checkpoint_to_response(checkpoint) -> TaskCheckpointResponse:
     payload = (
-        checkpoint.to_public_payload()
-        if hasattr(checkpoint, "to_public_payload")
-        else checkpoint
+        checkpoint.to_public_payload() if hasattr(checkpoint, "to_public_payload") else checkpoint
     )
     return TaskCheckpointResponse(
         checkpoint_id=payload["checkpoint_id"],

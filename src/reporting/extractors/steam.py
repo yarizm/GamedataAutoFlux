@@ -314,7 +314,9 @@ def extract_steam_monthly_rows(
     return rows
 
 
-def append_steam_review_trend(result: Any, game_name: str, trend_rows: list[dict[str, Any]]) -> None:
+def append_steam_review_trend(
+    result: Any, game_name: str, trend_rows: list[dict[str, Any]]
+) -> None:
     if not isinstance(trend_rows, list):
         return
     for point in trend_rows:
@@ -593,7 +595,9 @@ def series_gain_last_days(series: list[Any], days: int) -> int | float | None:
         if not isinstance(item, dict):
             continue
         dt = parse_datetime_value(item.get("timestamp") or item.get("date") or item.get("month"))
-        value = first_number(item, "peak_players", "value", "followers", "wishlist", "players", "peak")
+        value = first_number(
+            item, "peak_players", "value", "followers", "wishlist", "players", "peak"
+        )
         if dt is not None and value is not None:
             points.append((dt, value))
     if len(points) < 2:
@@ -705,7 +709,10 @@ def format_event_time(value: Any) -> str:
 
 def classify_event_title(title: str) -> str:
     lowered = title.lower()
-    if any(keyword in lowered for keyword in ("update", "patch", "bug", "fix", "optimization", "hotfix")):
+    if any(
+        keyword in lowered
+        for keyword in ("update", "patch", "bug", "fix", "optimization", "hotfix")
+    ):
         return "版本更新"
     if any(keyword in lowered for keyword in ("event", "season", "activity", "festival")):
         return "活动"

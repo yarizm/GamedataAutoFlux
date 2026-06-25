@@ -219,8 +219,10 @@ async def verify_game_candidate(
 ) -> dict[str, Any]:
     """验证 SullyGnome 搜索候选，返回匹配结果。"""
     candidates_text = json.dumps(
-        [{"index": i, "displaytext": c.get("displaytext", ""), "siteurl": c.get("siteurl", "")}
-         for i, c in enumerate(candidates)],
+        [
+            {"index": i, "displaytext": c.get("displaytext", ""), "siteurl": c.get("siteurl", "")}
+            for i, c in enumerate(candidates)
+        ],
         ensure_ascii=False,
     )
 

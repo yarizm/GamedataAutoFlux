@@ -213,7 +213,7 @@ class TaskExecutionCoordinator:
                 task.name,
                 error_msg,
             )
-            return True, min(60, 2 ** task.retry_count)
+            return True, min(60, 2**task.retry_count)
 
         if retry_suppression_reason:
             task.add_step_log(
@@ -281,7 +281,7 @@ class TaskExecutionCoordinator:
                 task.name,
                 error_msg,
             )
-            return True, min(60, 2 ** task.retry_count), None
+            return True, min(60, 2**task.retry_count), None
 
         await self._persist_task(task)
         await self._emit_task_event(

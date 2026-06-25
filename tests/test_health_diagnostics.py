@@ -489,7 +489,9 @@ def test_session_inventory_api_syncs_from_live_diagnostics(monkeypatch, tmp_path
     monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
 
     with TestClient(app) as client:
-        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+        inventory_response = client.get(
+            "/api/diagnostics/sessions-inventory?collectors=qimai&sync=true"
+        )
 
     assert inventory_response.status_code == 200
     inventory = inventory_response.json()
@@ -536,7 +538,9 @@ def test_session_inventory_sync_preserves_existing_lease_state(monkeypatch, tmp_
     asyncio.run(seed_registry())
 
     with TestClient(app) as client:
-        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+        inventory_response = client.get(
+            "/api/diagnostics/sessions-inventory?collectors=qimai&sync=true"
+        )
 
     assert inventory_response.status_code == 200
     inventory = inventory_response.json()
@@ -587,7 +591,9 @@ def test_session_inventory_api_returns_persisted_entries_when_live_sync_fails(
     registry.fail_sync = True
 
     with TestClient(app) as client:
-        inventory_response = client.get("/api/diagnostics/sessions-inventory?collectors=qimai&sync=true")
+        inventory_response = client.get(
+            "/api/diagnostics/sessions-inventory?collectors=qimai&sync=true"
+        )
 
     assert inventory_response.status_code == 200
     inventory = inventory_response.json()

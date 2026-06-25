@@ -65,6 +65,7 @@ class InMemoryCronRepository(CronRepository):
         if not job:
             return None
         import copy
+
         return copy.deepcopy(job)
 
     async def delete(self, name: str) -> bool:
@@ -72,4 +73,5 @@ class InMemoryCronRepository(CronRepository):
 
     async def list_all(self) -> list[CronJobConfig]:
         import copy
+
         return [copy.deepcopy(job) for job in self._jobs.values()]

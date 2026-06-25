@@ -150,19 +150,19 @@ Additional Rules:
         """自定义解析错误处理，记录连续错误次数，防止无限循环"""
         if not hasattr(self, "_parsing_error_count"):
             self._parsing_error_count = 0
-            
+
         self._parsing_error_count += 1
         logger.warning(
             "Agent JSON 解析错误 (次数: {}): {}",
             self._parsing_error_count,
             redact_sensitive_text(str(error)),
         )
-        
+
         if self._parsing_error_count >= 3:
             # 超过 3 次错误，熔断
             self._parsing_error_count = 0
             return "Action failed because the action format was incorrect 3 times in a row. Stop using tools and ask the user for clarification."
-            
+
         safe_error = _redact_stream_text(str(error))
         return (
             "Check your json formatting. It must be valid json with 'action' and "
@@ -234,29 +234,29 @@ Additional Rules:
             if not self._histories_loaded:
                 await self._load_histories()
                 self._histories_loaded = True
-    
+
             if not self._initialized:
                 self._ensure_initialized()
-    
+
             # MCP 重连逻辑：独立于 _initialized 检查。
             # 当 MCP 进程崩溃后（_is_running=False），下次 ainvoke 会尝试重新启动。
             if get_config("agent.playwright_mcp.enabled", False):
                 if not self._mcp_manager:
                     self._mcp_manager = self._create_mcp_manager()
-    
+
                 mcp_restarted = False
                 if not self._mcp_manager._is_running:
                     logger.info("MCP 未运行，尝试启动/重连 Playwright MCP Server...")
                     await self._mcp_manager.start()
                     mcp_restarted = True
-    
+
                 # 如果 MCP 有工具且尚未注入（或需要重建），重建 AgentExecutor
                 mcp_tools = self._mcp_manager.get_langchain_tools()
                 current_tool_names = {
                     t.name for t in (self._agent_executor.tools if self._agent_executor else [])
                 }
                 mcp_tool_names = {t.name for t in mcp_tools}
-    
+
                 if mcp_tools and (mcp_restarted or not mcp_tool_names.issubset(current_tool_names)):
                     all_tools = list(ALL_TOOLS) + list(mcp_tools)
                     agent_type = get_config("agent.agent_type", "openai_tools")
@@ -363,7 +363,7 @@ Additional Rules:
                                     ak.get("reasoning_content")
                                     or ak.get("thinking")
                                     or ak.get("thoughts")
-                        )
+                                )
                         if reasoning:
                             yield _redact_stream_event(
                                 {"type": "thinking", "content": str(reasoning)}
@@ -485,10 +485,7 @@ Additional Rules:
         """Persist a snapshot of session state without holding the Agent lock."""
         async with self._lock:
             capped_sessions = self._cap_sessions_locked()
-            histories = {
-                sid: list(messages)
-                for sid, messages in self._histories.items()
-            }
+            histories = {sid: list(messages) for sid, messages in self._histories.items()}
             timestamps = dict(self._sessions_timestamps)
             last_save_time = self._last_save_time
 
@@ -740,11 +737,7 @@ def _summarize_session_metrics(
         for sid, ts in timestamps.items()
         if sid in histories and isinstance(ts, (int, float))
     ]
-    stale_count = (
-        sum(1 for age in ages if age > timeout_seconds)
-        if timeout_seconds > 0
-        else 0
-    )
+    stale_count = sum(1 for age in ages if age > timeout_seconds) if timeout_seconds > 0 else 0
     return {
         "history_message_count": message_count,
         "average_messages_per_session": round(message_count / len(histories), 2)

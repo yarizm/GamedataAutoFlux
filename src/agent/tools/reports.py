@@ -207,9 +207,7 @@ def _report_quality_fields(report) -> dict[str, object]:
         else {}
     )
     empty_record_keys = [
-        str(key)
-        for key in metadata.get("empty_record_keys", [])
-        if str(key or "").strip()
+        str(key) for key in metadata.get("empty_record_keys", []) if str(key or "").strip()
     ]
     missing_collectors = [
         str(collector)
@@ -219,16 +217,19 @@ def _report_quality_fields(report) -> dict[str, object]:
     warnings = []
     if missing_collectors:
         warnings.append(
-            "Report template is missing source coverage: "
-            + ", ".join(missing_collectors)
+            "Report template is missing source coverage: " + ", ".join(missing_collectors)
         )
     if empty_record_keys:
         warnings.append(f"{len(empty_record_keys)} selected records had no usable data.")
 
     fields: dict[str, object] = {
         "matched_records": getattr(report, "matched_records", 0),
-        "source_record_count": metadata.get("source_record_count", getattr(report, "matched_records", 0)),
-        "usable_record_count": metadata.get("usable_record_count", getattr(report, "matched_records", 0)),
+        "source_record_count": metadata.get(
+            "source_record_count", getattr(report, "matched_records", 0)
+        ),
+        "usable_record_count": metadata.get(
+            "usable_record_count", getattr(report, "matched_records", 0)
+        ),
         "source_coverage": metadata.get("source_coverage", {}),
         "record_completeness": metadata.get("record_completeness", {}),
         "source_freshness": metadata.get("source_freshness", {}),
@@ -241,11 +242,7 @@ def _report_quality_fields(report) -> dict[str, object]:
         if len(empty_record_keys) > 20:
             fields["empty_record_keys_truncated"] = True
     for key in ("selected_record_keys", "excluded_report_record_keys"):
-        values = [
-            str(value)
-            for value in metadata.get(key, [])
-            if str(value or "").strip()
-        ]
+        values = [str(value) for value in metadata.get(key, []) if str(value or "").strip()]
         if values:
             fields[key] = values[:50]
             if len(values) > 50:
@@ -299,11 +296,7 @@ def _report_summary_quality_fields(report) -> dict[str, object]:
         "empty_record_count": fields.get("empty_record_count"),
         "quality_warnings": fields.get("quality_warnings"),
     }
-    return {
-        key: value
-        for key, value in summary.items()
-        if value not in (None, "", {}, [])
-    }
+    return {key: value for key, value in summary.items() if value not in (None, "", {}, [])}
 
 
 def _report_summary_payload(report) -> dict[str, object]:
@@ -339,7 +332,9 @@ def _report_download_url(report) -> str:
     return f"/api/reports/{quote(report_id, safe='')}/download"
 
 
-def _report_source_tokens(report, metadata: dict[str, object], quality: dict[str, object]) -> set[str]:
+def _report_source_tokens(
+    report, metadata: dict[str, object], quality: dict[str, object]
+) -> set[str]:
     values: list[object] = [
         getattr(report, "data_source", ""),
         metadata.get("source_query", ""),
@@ -359,11 +354,7 @@ def _report_source_tokens(report, metadata: dict[str, object], quality: dict[str
     for value in list(values):
         if value:
             values.append(source_label(str(value)))
-    return {
-        normalize_source_token(str(value))
-        for value in values
-        if str(value or "").strip()
-    }
+    return {normalize_source_token(str(value)) for value in values if str(value or "").strip()}
 
 
 def _report_matches_filters(
@@ -588,8 +579,7 @@ def _report_precheck_guidance(
         suffix = f" Missing sources: {', '.join(missing_labels)}." if missing_labels else ""
         return (
             "Current source data is partial data. Ask whether to collect missing sources first, "
-            "or generate now with an explicit coverage caveat."
-            + suffix
+            "or generate now with an explicit coverage caveat." + suffix
         )
     suffix = f" Prioritize: {', '.join(missing_labels)}." if missing_labels else ""
     return "Collect or select source data records before generating a report." + suffix
@@ -685,9 +675,7 @@ def _suggest_collection_actions(
             data_source=data_source,
         )
     subject = str(
-        target_context.get("target_name")
-        if isinstance(target_context, dict)
-        else ""
+        target_context.get("target_name") if isinstance(target_context, dict) else ""
     ).strip() or _collection_target_subject(prompt=prompt, data_source=data_source)
     actions = []
     for raw_collector in missing:
@@ -792,25 +780,41 @@ def _collector_missing_params(collector: str, params: dict[str, str]) -> list[st
     if collector == "steam":
         return [] if _has_param(params, "app_id") else ["app_id"]
     if collector == "steam_discussions":
-        return [] if (_has_param(params, "app_id") or _has_param(params, "forum_url")) else [
-            "app_id",
-            "forum_url",
-        ]
+        return (
+            []
+            if (_has_param(params, "app_id") or _has_param(params, "forum_url"))
+            else [
+                "app_id",
+                "forum_url",
+            ]
+        )
     if collector == "taptap":
-        return [] if (_has_param(params, "app_id") or _has_param(params, "url")) else [
-            "app_id",
-            "url",
-        ]
+        return (
+            []
+            if (_has_param(params, "app_id") or _has_param(params, "url"))
+            else [
+                "app_id",
+                "url",
+            ]
+        )
     if collector == "monitor":
-        return [] if (_has_param(params, "app_id") or _has_param(params, "siteurl")) else [
-            "app_id",
-            "siteurl",
-        ]
+        return (
+            []
+            if (_has_param(params, "app_id") or _has_param(params, "siteurl"))
+            else [
+                "app_id",
+                "siteurl",
+            ]
+        )
     if collector == "qimai":
-        return [] if (_has_param(params, "app_id") or _has_param(params, "qimai_app_id")) else [
-            "app_id",
-            "qimai_app_id",
-        ]
+        return (
+            []
+            if (_has_param(params, "app_id") or _has_param(params, "qimai_app_id"))
+            else [
+                "app_id",
+                "qimai_app_id",
+            ]
+        )
     if collector in {"official_site", "events"}:
         return [] if _has_param(params, "official_url") else ["official_url"]
     return []
@@ -877,7 +881,9 @@ def _record_keyword_score(record, keywords: list[str]) -> int:
     return score
 
 
-async def _load_candidate_records(store, keywords: list[str], *, fallback_limit: int = 2000) -> list:
+async def _load_candidate_records(
+    store, keywords: list[str], *, fallback_limit: int = 2000
+) -> list:
     """Collect candidate records from multiple keyword queries with key-based fallback."""
     records_by_key = {}
     for keyword in keywords[:5]:
@@ -1058,7 +1064,9 @@ class GenerateReportTool(BaseTool):
                     record = await store.load(key)
                     if record is None:
                         safe_key = _redact_report_text(str(key))
-                        return _safe_json({"success": False, "error": f"数据记录不存在: {safe_key}"})
+                        return _safe_json(
+                            {"success": False, "error": f"数据记录不存在: {safe_key}"}
+                        )
                     if is_report_history_record(record):
                         excluded_report_keys.append(record.key)
                         continue

@@ -221,9 +221,10 @@ async def test_get_task_detail_guides_successful_task_to_report_precheck(monkeyp
 
     assert payload["status"] == "ok"
     assert "Run report precheck" in data["agent_guidance"]
-    assert [
-        action["recommended_tool"] for action in data["recommended_actions"]
-    ] == ["precheck_report", "generate_report"]
+    assert [action["recommended_tool"] for action in data["recommended_actions"]] == [
+        "precheck_report",
+        "generate_report",
+    ]
     assert "precheck_report -> generate_report" in payload["suggestion"]
 
 

@@ -70,7 +70,9 @@ def _session_account_summary(collector_id: str) -> dict[str, Any]:
 
     if collector_id == "steam":
         enabled = bool(get_config("steam.steamdb.enabled", False))
-        profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "data/steamdb_profile").strip()
+        profile_dir = str(
+            get_config("steam.steamdb.cdp_profile_dir", "") or "data/steamdb_profile"
+        ).strip()
         return {
             "account_id": "local:steamdb_profile" if enabled else "",
             "account_kind": "local_profile" if enabled else "not_required",
@@ -95,8 +97,7 @@ def _session_state_summary(
 ) -> dict[str, Any]:
     profile_check_name = f"session:{collector_id}_profile"
     profile_ready = any(
-        check.get("name") == profile_check_name and check.get("status") == "ok"
-        for check in checks
+        check.get("name") == profile_check_name and check.get("status") == "ok" for check in checks
     )
     profile_missing = any(
         check.get("name") == profile_check_name and check.get("status") in {"warning", "error"}

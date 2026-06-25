@@ -221,8 +221,9 @@ class MonitorCollector(BaseCollector):
     ) -> dict[str, Any]:
         mode = _resolve_mode(self.config)
         confidence_threshold = float(
-            self.config.get("confidence_threshold",
-                           get_config("smart_collector.confidence_threshold", 0.5))
+            self.config.get(
+                "confidence_threshold", get_config("smart_collector.confidence_threshold", 0.5)
+            )
         )
 
         resolved_siteurl = siteurl or _resolve_sully_siteurl_override(
@@ -236,18 +237,26 @@ class MonitorCollector(BaseCollector):
                 raise ValueError(f'No SullyGnome result found for "{target_name}"')
 
             resolved_siteurl = await _choose_best_sully_siteurl(
-                candidates, search_names,
-                mode=mode, game_name=target_name, app_id=app_id,
-                twitch_name=twitch_name, confidence_threshold=confidence_threshold,
+                candidates,
+                search_names,
+                mode=mode,
+                game_name=target_name,
+                app_id=app_id,
+                twitch_name=twitch_name,
+                confidence_threshold=confidence_threshold,
             )
 
             # auto 模式：fast 失败时降级到 smart
             if resolved_siteurl is None and mode == "auto":
                 logger.info(f"[Monitor] fast mode failed for {target_name}, trying smart")
                 resolved_siteurl = await _choose_best_sully_siteurl(
-                    candidates, search_names,
-                    mode="smart", game_name=target_name, app_id=app_id,
-                    twitch_name=twitch_name, confidence_threshold=confidence_threshold,
+                    candidates,
+                    search_names,
+                    mode="smart",
+                    game_name=target_name,
+                    app_id=app_id,
+                    twitch_name=twitch_name,
+                    confidence_threshold=confidence_threshold,
                 )
 
             if not resolved_siteurl:

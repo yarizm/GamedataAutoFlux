@@ -339,7 +339,12 @@ class TapTapCollector(BaseCollector):
         return CollectResult(target=target, success=True, data=data, metadata=metadata)
 
     async def _fetch_http_pages(
-        self, *, detail_url: str, review_url: str, all_info_url: str, headers: dict[str, str] | None = None
+        self,
+        *,
+        detail_url: str,
+        review_url: str,
+        all_info_url: str,
+        headers: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         if self._client is None:
             raise RuntimeError("TapTap collector client is not initialized")
@@ -348,7 +353,9 @@ class TapTapCollector(BaseCollector):
         all_info_response = await self._fetch_with_retry(all_info_url, headers=headers)
         return detail_response.text, review_response.text, all_info_response.text
 
-    async def _fetch_with_retry(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
+    async def _fetch_with_retry(
+        self, url: str, headers: dict[str, str] | None = None
+    ) -> httpx.Response:
         retries = max(1, int(self.config.get("request_retries", 2)))
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):

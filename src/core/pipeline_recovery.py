@@ -71,7 +71,9 @@ def build_collect_resume_context(
     completed_targets = state.get("completed_targets")
     completed_names = []
     if isinstance(completed_targets, list):
-        completed_names = [str(name).strip() for name in completed_targets if str(name or "").strip()]
+        completed_names = [
+            str(name).strip() for name in completed_targets if str(name or "").strip()
+        ]
 
     return {
         "enabled": True,
@@ -147,9 +149,7 @@ def build_pipeline_resume_state(
     output_records: list[StorageRecord],
 ) -> dict[str, Any]:
     target_order = [
-        str(target.name or "").strip()
-        for target in task.targets
-        if str(target.name or "").strip()
+        str(target.name or "").strip() for target in task.targets if str(target.name or "").strip()
     ]
     collect_context = recovery_context.get("collect", {})
     base_index = non_negative_int(collect_context.get("next_target_index"))

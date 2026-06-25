@@ -229,7 +229,6 @@ class AgentSessionService:
                             )
                         )
 
-
                 await session.commit()
             return now
         except Exception as exc:

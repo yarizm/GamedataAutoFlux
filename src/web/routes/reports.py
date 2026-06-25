@@ -244,7 +244,9 @@ async def upload_report_json(
         for index, file in enumerate(files, start=1):
             raw = await file.read(size=20_971_520 + 1)
             if len(raw) > 20_971_520:
-                raise HTTPException(status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit")
+                raise HTTPException(
+                    status_code=413, detail=f"JSON file {file.filename} exceeds 20 MB limit"
+                )
             try:
                 payload = json.loads(raw.decode("utf-8-sig"))
             except Exception as exc:
@@ -303,7 +305,9 @@ async def list_reports(limit: Annotated[int, Query(ge=1, le=200, description="è¿
 async def list_group_records_for_report(
     group_id: Annotated[str, Query(description="Data group id")],
     source: Annotated[str | None, Query(description="Optional data source label")] = None,
-    limit: Annotated[int, Query(ge=1, le=5000, description="Maximum source records to scan")] = 1000,
+    limit: Annotated[
+        int, Query(ge=1, le=5000, description="Maximum source records to scan")
+    ] = 1000,
 ):
     from src.web.routes.data import _load_source_records, _record_summary
 

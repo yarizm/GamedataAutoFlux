@@ -670,13 +670,9 @@ def build_session_registry_entry(diagnostics: dict[str, Any]) -> SessionRegistry
         locator_label=redact_sensitive_text(
             str((session_account or {}).get("locator_label") or "")
         ),
-        worker_binding=redact_sensitive_text(
-            str(diagnostics.get("worker_binding") or "flexible")
-        ),
+        worker_binding=redact_sensitive_text(str(diagnostics.get("worker_binding") or "flexible")),
         health=redact_sensitive_text(str((session_state or {}).get("health") or "unknown")),
-        diagnostics_status=redact_sensitive_text(
-            str(diagnostics.get("status") or "unknown")
-        ),
+        diagnostics_status=redact_sensitive_text(str(diagnostics.get("status") or "unknown")),
         required_worker_capabilities=[
             redact_sensitive_text(str(item))
             for item in diagnostics.get("required_worker_capabilities", []) or []
@@ -839,9 +835,7 @@ def _filter_and_sort_entries(
     collector_ids: list[str] | None,
 ) -> list[SessionRegistryEntry]:
     allowed = {str(item).strip() for item in collector_ids or [] if str(item or "").strip()}
-    filtered = [
-        entry for entry in entries if not allowed or entry.collector_id in allowed
-    ]
+    filtered = [entry for entry in entries if not allowed or entry.collector_id in allowed]
     filtered.sort(
         key=lambda entry: (
             entry.observed_at,

@@ -96,7 +96,9 @@ class Scheduler:
         self._owns_task_artifact_service = task_artifact_service is None
         self._owns_task_checkpoint_service = task_checkpoint_service is None
         self._execution_backend = _normalize_execution_backend(
-            execution_backend if execution_backend is not None else get_config(
+            execution_backend
+            if execution_backend is not None
+            else get_config(
                 "scheduler.execution_backend",
                 "in_process",
             )
@@ -152,6 +154,7 @@ class Scheduler:
         )
 
         import threading
+
         # IMPORTANT: threading.Lock 仅用于保护同步 dict 操作（self._tasks,
         # self._running_futures）。锁保护区域内**绝对不能包含 await**，
         # 否则在多线程或 future asyncio.Lock 迁移时会导致死锁。
@@ -399,7 +402,6 @@ class Scheduler:
             future.cancel()
             return True
 
-
         if task and not task.is_terminal:
             task.cancel()
             await self._persist_task(task)
@@ -426,7 +428,7 @@ class Scheduler:
                 return False
 
             del self._tasks[task_id]
-        
+
         if self._task_repo is not None:
             await self._task_repo.delete(task_id)
         elif self._task_store is not None:
@@ -836,7 +838,9 @@ class Scheduler:
         with self._lock:
             tasks_values = list(self._tasks.values())
             running_futures_len = len(self._running_futures)
-            running_status_count = sum(1 for task in tasks_values if task.status == TaskStatus.RUNNING)
+            running_status_count = sum(
+                1 for task in tasks_values if task.status == TaskStatus.RUNNING
+            )
 
         for task in tasks_values:
             status = task.status.value
@@ -859,6 +863,7 @@ class Scheduler:
         """Persist a pipeline snapshot."""
         await self._state_service.persist_pipeline(pipeline)
 
+
 def _safe_error_messages(errors: list[str]) -> list[str]:
     return [redact_sensitive_text(str(error or "")) for error in errors if str(error or "")]
 
@@ -870,4 +875,3 @@ def _join_safe_error_messages(errors: list[str]) -> str:
 def _normalize_execution_backend(value: str) -> str:
     backend = str(value or "in_process").strip().lower()
     return backend if backend in {"in_process", "worker_claim"} else "in_process"
-

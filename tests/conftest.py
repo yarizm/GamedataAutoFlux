@@ -20,12 +20,15 @@ def isolated_db_config(tmp_path, monkeypatch):
     load_settings()
 
     from src.web.app import _auto_discover_plugins
+
     _auto_discover_plugins()
-    
+
     import src.storage.factory
+
     src.storage.factory._global_storage = None
-    
+
     import src.storage.session_factory
+
     src.storage.session_factory._engine = None
     src.storage.session_factory._session_factory = None
 

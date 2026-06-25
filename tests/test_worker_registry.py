@@ -517,7 +517,10 @@ async def test_scheduler_reconcile_stale_worker_recovers_sticky_retry_task() -> 
     )
     qimai_caps = ["qimai", "session_mode:local_profile", "session:qimai_profile"]
 
-    assert await scheduler.claim_task_for_worker("stale-retry-worker", capabilities=qimai_caps) is not None
+    assert (
+        await scheduler.claim_task_for_worker("stale-retry-worker", capabilities=qimai_caps)
+        is not None
+    )
     retrying = await scheduler.fail_worker_task(
         "stale-retry-worker",
         task_id,
@@ -694,7 +697,9 @@ def test_worker_api_reconcile_stale_tasks(monkeypatch) -> None:
     ]
 
 
-def test_worker_api_reconcile_clears_stale_worker_task_ids_without_scheduler_tasks(monkeypatch) -> None:
+def test_worker_api_reconcile_clears_stale_worker_task_ids_without_scheduler_tasks(
+    monkeypatch,
+) -> None:
     import src.web.app as app_module
 
     registry = InMemoryWorkerRegistry()
@@ -919,7 +924,11 @@ def test_worker_api_claim_blocks_session_task_when_session_registry_lookup_fails
                 "/api/workers/register",
                 json={
                     "worker_id": "api-claim-session-lookup-fail-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             created = client.post(
@@ -929,7 +938,11 @@ def test_worker_api_claim_blocks_session_task_when_session_registry_lookup_fails
                     "pipeline_name": "api_worker_session_lookup_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1343,7 +1356,11 @@ def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(mo
                 "/api/workers/register",
                 json={
                     "worker_id": "api-qimai-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             created = client.post(
@@ -1353,7 +1370,11 @@ def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(mo
                     "pipeline_name": "api_qimai_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1402,14 +1423,22 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> 
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-owner-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-other-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             first_created = client.post(
@@ -1419,7 +1448,11 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> 
                     "pipeline_name": "lease_guard_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1432,7 +1465,11 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> 
                     "pipeline_name": "lease_guard_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App 2", "target_type": "app", "params": {"app_id": "654321"}}
+                        {
+                            "name": "Example App 2",
+                            "target_type": "app",
+                            "params": {"app_id": "654321"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1452,7 +1489,10 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch) -> 
     assert second_claimed.json()["claim_reason"] == "session_claimed"
     assert second_claimed.json()["blocked_sessions"][0]["collector_id"] == "qimai"
     assert second_claimed.json()["blocked_sessions"][0]["lease_worker_id"] == "lease-owner-worker"
-    assert second_claimed.json()["blocked_sessions"][0]["lease_task_id"] == first_claimed.json()["task_id"]
+    assert (
+        second_claimed.json()["blocked_sessions"][0]["lease_task_id"]
+        == first_claimed.json()["task_id"]
+    )
     assert second_task.status_code == 200
     assert second_task.json()["status"] == "pending"
     inventory = inventory_response.json()
@@ -1492,14 +1532,22 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-sync-owner-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-sync-other-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -1509,7 +1557,11 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
                     "pipeline_name": "lease_guard_sync_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1522,7 +1574,11 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
                     "pipeline_name": "lease_guard_sync_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App 2", "target_type": "app", "params": {"app_id": "654321"}}
+                        {
+                            "name": "Example App 2",
+                            "target_type": "app",
+                            "params": {"app_id": "654321"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1539,8 +1595,13 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(mon
     assert second_claimed.json()["task_id"] is None
     assert second_claimed.json()["claim_status"] == "blocked"
     assert second_claimed.json()["claim_reason"] == "session_claimed"
-    assert second_claimed.json()["blocked_sessions"][0]["lease_worker_id"] == "lease-sync-owner-worker"
-    assert second_claimed.json()["blocked_sessions"][0]["lease_task_id"] == first_claimed.json()["task_id"]
+    assert (
+        second_claimed.json()["blocked_sessions"][0]["lease_worker_id"] == "lease-sync-owner-worker"
+    )
+    assert (
+        second_claimed.json()["blocked_sessions"][0]["lease_task_id"]
+        == first_claimed.json()["task_id"]
+    )
     assert second_task.status_code == 200
     assert second_task.json()["status"] == "pending"
 
@@ -1566,7 +1627,11 @@ def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(monkeypatc
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-reuse-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -1576,7 +1641,11 @@ def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(monkeypatc
                     "pipeline_name": "lease_guard_same_worker_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1588,7 +1657,11 @@ def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(monkeypatc
                     "pipeline_name": "lease_guard_same_worker_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App 2", "target_type": "app", "params": {"app_id": "654321"}}
+                        {
+                            "name": "Example App 2",
+                            "target_type": "app",
+                            "params": {"app_id": "654321"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1671,7 +1744,11 @@ def test_worker_api_complete_releases_session_lease(monkeypatch) -> None:
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-complete-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -1681,7 +1758,11 @@ def test_worker_api_complete_releases_session_lease(monkeypatch) -> None:
                     "pipeline_name": "lease_complete_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1734,7 +1815,11 @@ def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(monkeyp
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-complete-lookup-fail-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -1744,7 +1829,11 @@ def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(monkeyp
                     "pipeline_name": "lease_complete_lookup_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1789,14 +1878,22 @@ def test_worker_api_retrying_local_profile_task_retains_session_lease(monkeypatc
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-retry-owner",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-retry-other",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             first_created = client.post(
@@ -1806,7 +1903,11 @@ def test_worker_api_retrying_local_profile_task_retains_session_lease(monkeypatc
                     "pipeline_name": "lease_retry_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1823,7 +1924,11 @@ def test_worker_api_retrying_local_profile_task_retains_session_lease(monkeypatc
                     "pipeline_name": "lease_retry_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App 2", "target_type": "app", "params": {"app_id": "654321"}}
+                        {
+                            "name": "Example App 2",
+                            "target_type": "app",
+                            "params": {"app_id": "654321"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1848,7 +1953,9 @@ def test_worker_api_retrying_local_profile_task_retains_session_lease(monkeypatc
     assert inventory["items"][0]["lease_task_id"] == first_claimed.json()["task_id"]
 
 
-def test_worker_api_retrying_managed_state_task_releases_session_lease(monkeypatch, tmp_path) -> None:
+def test_worker_api_retrying_managed_state_task_releases_session_lease(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     storage_state = tmp_path / "qimai_storage_state.json"
@@ -1895,7 +2002,11 @@ def test_worker_api_retrying_managed_state_task_releases_session_lease(monkeypat
                     "pipeline_name": "lease_retry_managed_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -1973,7 +2084,11 @@ def test_worker_api_fail_succeeds_when_session_registry_lookup_fails(monkeypatch
                     "pipeline_name": "lease_retry_lookup_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2069,7 +2184,11 @@ def test_task_cancel_releases_retrying_worker_claim_session_lease(monkeypatch) -
                     "pipeline_name": "cancel_retrying_worker_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2078,7 +2197,11 @@ def test_task_cancel_releases_retrying_worker_claim_session_lease(monkeypatch) -
                 "/api/workers/register",
                 json={
                     "worker_id": "cancel-retrying-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             claimed = client.post("/api/workers/cancel-retrying-worker/claim-task", json={})
@@ -2106,7 +2229,9 @@ def test_task_cancel_releases_retrying_worker_claim_session_lease(monkeypatch) -
     assert inventory["items"][0]["last_worker_id"] == "cancel-retrying-worker"
 
 
-def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes(monkeypatch, tmp_path) -> None:
+def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     profile_dir = tmp_path / "qimai_profile"
@@ -2145,7 +2270,11 @@ def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-mode-change-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -2155,7 +2284,11 @@ def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes
                     "pipeline_name": "lease_mode_change_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2227,7 +2360,11 @@ def test_task_detail_keeps_claimed_session_snapshot_after_runtime_mode_changes(
                     "pipeline_name": "task_detail_mode_snapshot_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2236,7 +2373,11 @@ def test_task_detail_keeps_claimed_session_snapshot_after_runtime_mode_changes(
                 "/api/workers/register",
                 json={
                     "worker_id": "task-detail-mode-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             claimed = client.post("/api/workers/task-detail-mode-worker/claim-task", json={})
@@ -2301,7 +2442,11 @@ def test_worker_api_complete_releases_snapshot_session_when_registry_entry_missi
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-missing-registry-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -2311,16 +2456,18 @@ def test_worker_api_complete_releases_snapshot_session_when_registry_entry_missi
                     "pipeline_name": "lease_missing_registry_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
             )
             claimed = client.post("/api/workers/lease-missing-registry-worker/claim-task", json={})
             task_id = claimed.json()["task_id"]
-            asyncio.run(
-                registry.delete_session("qimai:local_profile:local:qimai_profile")
-            )
+            asyncio.run(registry.delete_session("qimai:local_profile:local:qimai_profile"))
 
             values["qimai.session_mode"] = "managed_state"
             completed = client.post(
@@ -2362,7 +2509,11 @@ def test_worker_api_reconcile_marks_session_interrupted(monkeypatch) -> None:
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-interrupt-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -2372,7 +2523,11 @@ def test_worker_api_reconcile_marks_session_interrupted(monkeypatch) -> None:
                     "pipeline_name": "lease_interrupt_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2494,7 +2649,11 @@ def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(monkey
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-interrupt-lookup-fail-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             created = client.post(
@@ -2504,7 +2663,11 @@ def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(monkey
                     "pipeline_name": "lease_interrupt_lookup_fail_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },
@@ -2554,7 +2717,11 @@ def test_worker_api_reconcile_recovers_retrying_sticky_task_and_releases_lease(m
                 "/api/workers/register",
                 json={
                     "worker_id": "lease-retry-reconcile-worker",
-                    "capabilities": ["qimai", "session_mode:local_profile", "session:qimai_profile"],
+                    "capabilities": [
+                        "qimai",
+                        "session_mode:local_profile",
+                        "session:qimai_profile",
+                    ],
                 },
             )
             client.post(
@@ -2564,7 +2731,11 @@ def test_worker_api_reconcile_recovers_retrying_sticky_task_and_releases_lease(m
                     "pipeline_name": "lease_retry_reconcile_pipeline",
                     "collector_name": "qimai",
                     "targets": [
-                        {"name": "Example App", "target_type": "app", "params": {"app_id": "123456"}}
+                        {
+                            "name": "Example App",
+                            "target_type": "app",
+                            "params": {"app_id": "123456"},
+                        }
                     ],
                     "config": {},
                 },

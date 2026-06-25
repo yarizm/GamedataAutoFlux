@@ -228,10 +228,14 @@ def test_websocket_router_not_protected_by_admin(monkeypatch) -> None:
 
     # 检查 ws_router 是否被注入了 require_admin 依赖
     test_app = create_app()
-    ws_routes = [r for r in test_app.routes if hasattr(r, "path") and "/ws/" in getattr(r, "path", "")]
+    ws_routes = [
+        r for r in test_app.routes if hasattr(r, "path") and "/ws/" in getattr(r, "path", "")
+    ]
     for route in ws_routes:
-        dep_names = [d.dependency.__name__ if hasattr(d.dependency, "__name__") else str(d.dependency)
-                     for d in getattr(route, "dependencies", [])]
+        dep_names = [
+            d.dependency.__name__ if hasattr(d.dependency, "__name__") else str(d.dependency)
+            for d in getattr(route, "dependencies", [])
+        ]
         assert "require_admin" not in dep_names, (
             f"WS route {route.path} has require_admin dependency — "
             "browser WebSocket cannot set custom headers"

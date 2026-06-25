@@ -147,7 +147,7 @@ class GoogleTrendsCollector(BaseCollector):
             current_target_index = recovery["next_target_index"] + offset
             if consecutive_429 > 0:
                 # 若之前遇到过 429，在下一个目标前先强制等待
-                sleep_time = min(300, (2 ** consecutive_429) * 10)
+                sleep_time = min(300, (2**consecutive_429) * 10)
                 logger.warning(f"[GTrends] 主动退避 {sleep_time} 秒以应对 429 限流...")
                 await asyncio.sleep(sleep_time)
 
@@ -411,11 +411,7 @@ def _resolve_gtrends_recovery(config: dict[str, Any] | None) -> dict[str, Any]:
         return {"next_target_index": 0, "target_order": [], "enabled": False}
 
     target_order = collect.get("target_order")
-    normalized_order = [
-        str(name).strip()
-        for name in target_order or []
-        if str(name or "").strip()
-    ]
+    normalized_order = [str(name).strip() for name in target_order or [] if str(name or "").strip()]
     next_target_index = _safe_resume_index(collect.get("next_target_index"))
     return {
         "enabled": True,

@@ -146,7 +146,9 @@ async def release_task_session_claim_via_provider_best_effort(
     task_id: str = "",
 ):
     """Resolve the registry lazily, then release a task-bound session claim best-effort."""
-    claim = task.config.get("worker_claim") if isinstance(getattr(task, "config", None), dict) else None
+    claim = (
+        task.config.get("worker_claim") if isinstance(getattr(task, "config", None), dict) else None
+    )
     collector_id = ""
     if isinstance(claim, dict):
         session_diagnostics = claim.get("session_diagnostics")
@@ -184,16 +186,16 @@ async def release_task_session_claim_best_effort(
     task_id: str = "",
 ):
     """Release a task-bound session claim without failing the caller."""
-    claim = task.config.get("worker_claim") if isinstance(getattr(task, "config", None), dict) else None
+    claim = (
+        task.config.get("worker_claim") if isinstance(getattr(task, "config", None), dict) else None
+    )
     snapshot_diagnostics = None
     if isinstance(claim, dict):
         session_diagnostics = claim.get("session_diagnostics")
         if isinstance(session_diagnostics, dict) and session_diagnostics:
             snapshot_diagnostics = session_diagnostics
 
-    safe_worker_id = redact_sensitive_text(
-        worker_id or str((claim or {}).get("worker_id") or "")
-    )
+    safe_worker_id = redact_sensitive_text(worker_id or str((claim or {}).get("worker_id") or ""))
     safe_task_id = redact_sensitive_text(task_id or str(getattr(task, "id", "") or ""))
 
     if snapshot_diagnostics:

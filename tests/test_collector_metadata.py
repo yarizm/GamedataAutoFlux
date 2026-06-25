@@ -547,9 +547,7 @@ def test_task_precheck_requires_dynamic_playwright_url_config() -> None:
 
 def test_task_precheck_rejects_dynamic_playwright_private_url_config() -> None:
     scheduler = Scheduler()
-    scheduler._pipelines["unsafe_dynamic_config"] = Pipeline(
-        "unsafe_dynamic_config"
-    ).add_collector(
+    scheduler._pipelines["unsafe_dynamic_config"] = Pipeline("unsafe_dynamic_config").add_collector(
         "dynamic_playwright",
         {"url": "http://127.0.0.1:8000/private", "fields": {}},
     )

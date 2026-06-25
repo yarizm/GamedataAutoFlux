@@ -155,7 +155,9 @@ def filter_records_by_data_source(records: list[Any], data_source: str) -> list[
         }
         if needle in candidate_tokens:
             exact_matches.append(record)
-        elif len(needle) >= 6 and any(needle in token or token in needle for token in candidate_tokens):
+        elif len(needle) >= 6 and any(
+            needle in token or token in needle for token in candidate_tokens
+        ):
             relaxed_matches.append(record)
 
     return exact_matches or relaxed_matches
@@ -539,10 +541,9 @@ def _context_str(*values: Any) -> str:
 
 
 def _normalize_context_collector(value: str) -> str:
-    token = "".join(
-        ch.lower() if ch.isalnum() else "_"
-        for ch in str(value or "").strip()
-    ).strip("_")
+    token = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or "").strip()).strip(
+        "_"
+    )
     while "__" in token:
         token = token.replace("__", "_")
     return _COLLECTOR_CONTEXT_ALIASES.get(token, token)

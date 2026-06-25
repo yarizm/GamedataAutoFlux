@@ -104,4 +104,6 @@ class WebSocketTaskEventHook:
         try:
             await self._manager.broadcast({"type": "task_event", "event": event.event})
         except Exception as exc:
-            logger.debug(f"WebSocket task event broadcast failed: {redact_sensitive_text(str(exc))}")
+            logger.debug(
+                f"WebSocket task event broadcast failed: {redact_sensitive_text(str(exc))}"
+            )

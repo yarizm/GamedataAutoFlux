@@ -547,8 +547,7 @@ async def test_precheck_report_tool_returns_readiness_guidance(monkeypatch) -> N
     ]
     assert suggested_actions["steam_discussions"]["recommended_sequence"] == ["create_task"]
     assert (
-        suggested_actions["steam_discussions"]["identifier_status"]
-        == "ready_from_selected_records"
+        suggested_actions["steam_discussions"]["identifier_status"] == "ready_from_selected_records"
     )
     assert suggested_actions["events"]["recommended_sequence"] == [
         "search_game_identifiers",
@@ -905,8 +904,7 @@ async def test_generate_report_tool_filters_report_history_record_keys(monkeypat
     assert payload["regeneration_recommended"] is True
     assert any("Google Trends" in risk for risk in payload["coverage_risks"])
     assert any(
-        action["type"] == "collect_missing_sources"
-        and action["missing_collectors"] == ["gtrends"]
+        action["type"] == "collect_missing_sources" and action["missing_collectors"] == ["gtrends"]
         for action in payload["follow_up_actions"]
     )
     assert payload["target_context"]["target_name"] == "Counter-Strike 2"

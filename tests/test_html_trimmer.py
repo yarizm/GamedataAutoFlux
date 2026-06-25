@@ -10,7 +10,9 @@ def test_removes_script_and_style():
 
 
 def test_removes_nav_footer_header():
-    html = "<html><body><nav>Nav</nav><main><p>Content</p></main><footer>Foot</footer></body></html>"
+    html = (
+        "<html><body><nav>Nav</nav><main><p>Content</p></main><footer>Foot</footer></body></html>"
+    )
     result = trim_html(html)
     assert "Nav" not in result
     assert "Foot" not in result

@@ -300,9 +300,7 @@ def _build_failure_metadata(
         "max_attempts": max_attempts if max_attempts > 1 else None,
         "retry_attempts": max(0, attempt - 1) if max_attempts > 1 else None,
         "last_retry_error": (
-            redact_sensitive_text(last_retry_error)
-            if attempt > 1 and last_retry_error
-            else None
+            redact_sensitive_text(last_retry_error) if attempt > 1 and last_retry_error else None
         ),
         "last_retry_error_code": (
             last_retry_error_code if attempt > 1 and last_retry_error_code else None
@@ -372,9 +370,7 @@ def _collect_retry_summary(metadata: dict[str, Any]) -> dict[str, Any]:
     if last_retry_error_code:
         summary["last_retry_error_code"] = last_retry_error_code
     return {
-        key: value
-        for key, value in summary.items()
-        if not isinstance(value, int) or value >= 0
+        key: value for key, value in summary.items() if not isinstance(value, int) or value >= 0
     }
 
 

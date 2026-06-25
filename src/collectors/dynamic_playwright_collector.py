@@ -180,6 +180,7 @@ class DynamicPlaywrightCollector(BaseCollector):
                 page = await self._context.new_page()
                 try:
                     from src.web.safety import validate_url_runtime
+
                     validate_url_runtime(url)
                     logger.info(f"[dynamic_playwright] Navigating to: {_safe_log_text(url)}")
                     await page.goto(

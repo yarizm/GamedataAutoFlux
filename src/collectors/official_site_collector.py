@@ -124,6 +124,7 @@ class OfficialSiteCollector(BaseCollector):
         if self.playwright_enabled:
             try:
                 from playwright.async_api import async_playwright
+
                 self._pw_mgr = async_playwright()
                 self._pw = await self._pw_mgr.start()
                 self._browser = await self._pw.chromium.launch(headless=self.headless)
@@ -488,11 +489,15 @@ class OfficialSiteCollector(BaseCollector):
         self, url: str, *, use_playwright: str = "auto", wait_for_networkidle: bool = False
     ) -> FetchResult:
         if use_playwright == "always":
-            result = await self._fetch_with_playwright(url, wait_for_networkidle=wait_for_networkidle)
+            result = await self._fetch_with_playwright(
+                url, wait_for_networkidle=wait_for_networkidle
+            )
             if result.status_code == 404:
                 retry_url = _slash_retry_url(url)
                 if retry_url:
-                    retry = await self._fetch_with_playwright(retry_url, wait_for_networkidle=wait_for_networkidle)
+                    retry = await self._fetch_with_playwright(
+                        retry_url, wait_for_networkidle=wait_for_networkidle
+                    )
                     if retry.status_code < 400 and retry.html:
                         return retry
             return result
@@ -507,7 +512,9 @@ class OfficialSiteCollector(BaseCollector):
         if use_playwright == "never" or not self.playwright_enabled:
             return result
         if _needs_playwright_fallback(result):
-            fallback = await self._fetch_with_playwright(url, wait_for_networkidle=wait_for_networkidle)
+            fallback = await self._fetch_with_playwright(
+                url, wait_for_networkidle=wait_for_networkidle
+            )
             if fallback.status_code == 404:
                 retry_url = _slash_retry_url(url)
                 if retry_url:

@@ -37,8 +37,24 @@ def trim_html(html: str, max_tokens: int = 4000) -> str:
 
 _STRIP_TAGS = {"script", "style", "nav", "footer", "header", "noscript", "svg", "iframe"}
 _CONTENT_TAGS = {
-    "article", "main", "section", "div", "p", "h1", "h2", "h3", "h4", "h5", "h6",
-    "li", "td", "th", "pre", "blockquote", "figcaption", "summary",
+    "article",
+    "main",
+    "section",
+    "div",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "td",
+    "th",
+    "pre",
+    "blockquote",
+    "figcaption",
+    "summary",
 }
 
 

@@ -41,7 +41,7 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
                     "state_type": stmt.excluded.state_type,
                     "data": stmt.excluded.data,
                     "metadata": stmt.excluded.metadata,
-                }
+                },
             )
             await session.execute(stmt)
 

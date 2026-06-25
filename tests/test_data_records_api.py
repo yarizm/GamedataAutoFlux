@@ -446,7 +446,9 @@ def test_refresh_routes_use_management_service(monkeypatch) -> None:
     ]
 
 
-def test_refresh_route_uses_task_service_precheck_for_invalid_source_task(tmp_path, monkeypatch) -> None:
+def test_refresh_route_uses_task_service_precheck_for_invalid_source_task(
+    tmp_path, monkeypatch
+) -> None:
     _save_record(
         StorageRecord(
             key="record:dynamic-refresh",
@@ -572,7 +574,9 @@ def test_refresh_schedule_succeeds_when_session_inventory_sync_fails(monkeypatch
     assert payload["job_id"]
 
 
-def test_refresh_schedule_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
+def test_refresh_schedule_succeeds_when_session_registry_lookup_fails(
+    monkeypatch, tmp_path
+) -> None:
     import src.web.app as app_module
 
     profile_dir = tmp_path / "qimai_profile"

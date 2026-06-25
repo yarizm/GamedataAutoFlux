@@ -716,9 +716,7 @@ class SteamDBScraper:
                 break
             except Exception as e:
                 navigation_error = _safe_log_text(e)
-                logger.debug(
-                    f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}"
-                )
+                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}")
                 await page.wait_for_timeout(3000)
         if navigation_error:
             rows = await page.query_selector_all("table tbody tr")
@@ -1007,9 +1005,7 @@ class SteamDBScraper:
                 break
             except Exception as e:
                 navigation_error = _safe_log_text(e)
-                logger.debug(
-                    f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}"
-                )
+                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}")
                 page.wait_for_timeout(3000)
         if navigation_error:
             rows = page.query_selector_all("table tbody tr")

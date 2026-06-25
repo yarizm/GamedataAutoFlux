@@ -295,11 +295,15 @@ async def test_worker_complete_pipeline_result_supports_report_hook(tmp_path) ->
 def test_worker_agent_config_defaults_from_script(monkeypatch) -> None:
     import scripts.worker_agent as worker_script
 
-    monkeypatch.setattr(worker_script, "get_config", lambda key, default=None: {
-        "server.host": "127.0.0.1",
-        "server.port": 8011,
-        "worker.capabilities": ["steam", "gtrends"],
-    }.get(key, default))
+    monkeypatch.setattr(
+        worker_script,
+        "get_config",
+        lambda key, default=None: {
+            "server.host": "127.0.0.1",
+            "server.port": 8011,
+            "worker.capabilities": ["steam", "gtrends"],
+        }.get(key, default),
+    )
 
     assert worker_script._resolve_base_url("") == "http://127.0.0.1:8011"
     assert worker_script._resolve_capabilities(None) == ["steam", "gtrends"]
@@ -326,7 +330,9 @@ def test_worker_agent_normalizes_session_capabilities(monkeypatch, tmp_path) -> 
     assert agent.capabilities == ["qimai"]
 
 
-def test_worker_agent_derives_session_capabilities_when_runtime_ready(monkeypatch, tmp_path) -> None:
+def test_worker_agent_derives_session_capabilities_when_runtime_ready(
+    monkeypatch, tmp_path
+) -> None:
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
 
@@ -354,7 +360,9 @@ def test_worker_agent_derives_session_capabilities_when_runtime_ready(monkeypatc
     ]
 
 
-def test_worker_agent_derives_managed_state_capability_without_profile(monkeypatch, tmp_path) -> None:
+def test_worker_agent_derives_managed_state_capability_without_profile(
+    monkeypatch, tmp_path
+) -> None:
     storage_state = tmp_path / "qimai_storage_state.json"
     storage_state.write_text("{}", encoding="utf-8")
 
@@ -518,7 +526,9 @@ async def test_worker_agent_reports_invalid_claim_payload_as_failed_task() -> No
     finally:
         await agent.stop()
 
-    fail_requests = [item for item in requests if item["path"].endswith("/tasks/broken-claim-task/fail")]
+    fail_requests = [
+        item for item in requests if item["path"].endswith("/tasks/broken-claim-task/fail")
+    ]
     assert fail_requests
     fail_payload = fail_requests[-1]["payload"]
     assert fail_payload["result"]["invalid_claim"] is True

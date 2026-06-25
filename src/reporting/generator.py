@@ -592,7 +592,9 @@ class ReportGenerator:
                     return source_records
 
             scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
-            return filter_source_data_records((await store.query("key:", limit=scan_limit)).records)[:limit]
+            return filter_source_data_records(
+                (await store.query("key:", limit=scan_limit)).records
+            )[:limit]
         finally:
             await store.close()
 
@@ -1276,21 +1278,20 @@ def _build_context_overview(records: list[StorageRecord]) -> str:
 
         summary = build_record_summary(record.data)
         if summary and len(key_summaries) < 8:
-            short_summary = ", ".join(
-                f"{key}={value}" for key, value in list(summary.items())[:4]
-            )
+            short_summary = ", ".join(f"{key}={value}" for key, value in list(summary.items())[:4])
             key_summaries.append(f"- {_safe_context_text(record.key)}: {short_summary}")
 
     game_lines = [
         f"- {name}: {', '.join(sorted(sources))}"
         for name, sources in list(sorted(games.items()))[:8]
     ]
-    source_line = ", ".join(
-        f"{name}={count}" for name, count in sorted(source_counts.items())
-    ) or "unknown"
-    completeness_line = ", ".join(
-        f"{name}={count}" for name, count in sorted(completeness_counts.items())
-    ) or "unknown"
+    source_line = (
+        ", ".join(f"{name}={count}" for name, count in sorted(source_counts.items())) or "unknown"
+    )
+    completeness_line = (
+        ", ".join(f"{name}={count}" for name, count in sorted(completeness_counts.items()))
+        or "unknown"
+    )
 
     return "\n".join(
         [
@@ -1452,7 +1453,9 @@ def _safe_context_text(value: Any) -> str:
 
 
 def _safe_json(value: Any, *, max_chars: int) -> str:
-    text = json.dumps(redact_sensitive(value), ensure_ascii=False, default=str, separators=(",", ":"))
+    text = json.dumps(
+        redact_sensitive(value), ensure_ascii=False, default=str, separators=(",", ":")
+    )
     return _truncate_text(text, max_chars)
 
 

@@ -32,15 +32,24 @@ async def test_smart_mode_uses_llm_extraction():
     mock_llm = AsyncMock()
     mock_llm.model_name = "test-model"
     mock_response = AsyncMock()
-    mock_response.content = json.dumps([
-        {"title": "Patch 2.0", "date": "2026-06-01", "url": "/patch/2.0", "category": "patch", "summary": "Big update"}
-    ])
+    mock_response.content = json.dumps(
+        [
+            {
+                "title": "Patch 2.0",
+                "date": "2026-06-01",
+                "url": "/patch/2.0",
+                "category": "patch",
+                "summary": "Big update",
+            }
+        ]
+    )
     mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
     html = "<html><body><article><h1>Patch 2.0</h1><p>2026-06-01</p></article></body></html>"
 
     with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         from src.collectors.llm_extractor import extract_items_from_html
+
         items = await extract_items_from_html(html, "https://example.com")
 
     assert len(items) == 1

@@ -97,7 +97,10 @@ async def test_in_memory_session_registry_upsert_and_filter() -> None:
             "collector_id": "qimai",
             "display_name": "Qimai",
             "session_mode": "local_profile",
-            "session_account": {"account_id": "local:qimai_profile", "account_kind": "local_profile"},
+            "session_account": {
+                "account_id": "local:qimai_profile",
+                "account_kind": "local_profile",
+            },
             "session_state": {"health": "ready"},
         }
     )
@@ -556,7 +559,10 @@ async def test_in_memory_session_registry_returns_latest_ready_entry_for_collect
             "session_mode": "local_profile",
             "requires_session": True,
             "status": "error",
-            "session_account": {"account_id": "local:qimai_profile", "account_kind": "local_profile"},
+            "session_account": {
+                "account_id": "local:qimai_profile",
+                "account_kind": "local_profile",
+            },
             "session_state": {"health": "blocked"},
         }
     )
@@ -567,7 +573,10 @@ async def test_in_memory_session_registry_returns_latest_ready_entry_for_collect
             "session_mode": "managed_state",
             "requires_session": True,
             "status": "ok",
-            "session_account": {"account_id": "managed:qimai_storage_state", "account_kind": "managed_state"},
+            "session_account": {
+                "account_id": "managed:qimai_storage_state",
+                "account_kind": "managed_state",
+            },
             "session_state": {"health": "ready"},
         }
     )
@@ -671,7 +680,9 @@ async def test_release_task_session_claim_best_effort_prefers_snapshot_release_b
     assert stored.last_task_id == "task-1"
 
 
-async def test_release_task_session_claim_best_effort_recreates_snapshot_entry_when_missing() -> None:
+async def test_release_task_session_claim_best_effort_recreates_snapshot_entry_when_missing() -> (
+    None
+):
     registry = InMemorySessionRegistry()
     diagnostics = _qimai_session_diagnostics()
     claimed = await registry.try_claim_session(

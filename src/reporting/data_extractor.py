@@ -57,6 +57,7 @@ class ExtractedData:
         self.raw_sources: list[dict[str, Any]] = []  # 原始 JSON 附录
         self.source_coverage: dict[str, int] = {}  # collector -> record count
 
+
 def extract_from_records(
     records: list[dict[str, Any]],
     record_keys: list[str] | None = None,
@@ -701,7 +702,9 @@ def _legacy_extract_gtrends(data: dict[str, Any], result: ExtractedData) -> None
         timeframe=timeframe,
         trend_history=trend_history,
     )
-    _append_gtrends_related_queries(result, keyword=keyword, related=data.get("related_queries", {}))
+    _append_gtrends_related_queries(
+        result, keyword=keyword, related=data.get("related_queries", {})
+    )
 
 
 def _build_gtrends_overview_row(
@@ -724,7 +727,9 @@ def _build_gtrends_overview_row(
         "最新热度": _safe_int(snapshot_data.get("latest_trend_value")) if snapshot_data else "",
         "Google Trends（3个月趋势图）": f"{trend_count} points" if trend_count else "",
         "热门相关词数": _safe_int(snapshot_data.get("top_related_count")) if snapshot_data else "",
-        "上升相关词数": _safe_int(snapshot_data.get("rising_related_count")) if snapshot_data else "",
+        "上升相关词数": _safe_int(snapshot_data.get("rising_related_count"))
+        if snapshot_data
+        else "",
         "采集时间": _extract_time(data),
     }
 
@@ -772,7 +777,9 @@ def _append_gtrends_related_queries(
 ) -> None:
     if not isinstance(related, dict):
         return
-    _append_gtrends_query_rows(result, keyword=keyword, query_type="热门", items=related.get("top", []))
+    _append_gtrends_query_rows(
+        result, keyword=keyword, query_type="热门", items=related.get("top", [])
+    )
     _append_gtrends_query_rows(
         result,
         keyword=keyword,
@@ -1020,5 +1027,3 @@ def _extract_game_name(data: dict[str, Any]) -> str:
         or data.get("keyword")
         or ""
     )
-
-

@@ -311,9 +311,7 @@ async def test_generate_records_data_quality_metadata(monkeypatch):
     assert report.metadata["selected_record_keys"] == ["record:steam", "record:empty"]
     assert report.metadata["target_context"]["target_name"] == "Counter-Strike 2"
     assert report.metadata["target_context"]["steam_app_id"] == "730"
-    assert report.metadata["target_context"]["params_by_collector"]["monitor"] == {
-        "app_id": "730"
-    }
+    assert report.metadata["target_context"]["params_by_collector"]["monitor"] == {"app_id": "730"}
     assert captured["report"] == report
 
 
@@ -350,9 +348,7 @@ async def test_generate_redacts_sensitive_report_metadata_keys(monkeypatch):
     assert "url-secret" not in rendered
     assert report.metadata["source_record_keys"] == ["record:api_key=[REDACTED]"]
     assert report.metadata["selected_record_keys"] == ["record:api_key=[REDACTED]"]
-    assert report.metadata["target_context"]["source_record_keys"] == [
-        "record:api_key=[REDACTED]"
-    ]
+    assert report.metadata["target_context"]["source_record_keys"] == ["record:api_key=[REDACTED]"]
     assert (
         report.metadata["target_context"]["official_url"]
         == "https://example.test/news?api_key=[REDACTED]"
@@ -398,9 +394,7 @@ async def test_generate_excel_records_data_quality_metadata(tmp_path, monkeypatc
     assert report.metadata["source_freshness"]["newest_record_at"].startswith("2026-01-01")
     assert report.metadata["sheets"]["overview"] >= 1
     assert report.metadata["target_context"]["target_name"] == "Counter-Strike 2"
-    assert report.metadata["target_context"]["params_by_collector"]["monitor"] == {
-        "app_id": "730"
-    }
+    assert report.metadata["target_context"]["params_by_collector"]["monitor"] == {"app_id": "730"}
     assert captured["export"]["output_path"].parent == tmp_path
     assert captured["report"] == report
 

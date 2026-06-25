@@ -80,20 +80,14 @@ def _failed_retry_targets_payload(task: Any) -> list[dict[str, Any]]:
         return []
 
     failed_keys = {
-        _retry_target_match_key(item)
-        for item in failed_targets
-        if isinstance(item, dict)
+        _retry_target_match_key(item) for item in failed_targets if isinstance(item, dict)
     }
     failed_keys.discard(None)
     if not failed_keys:
         return []
 
     targets = _task_targets_payload(task)
-    selected = [
-        target
-        for target in targets
-        if _retry_target_match_key(target) in failed_keys
-    ]
+    selected = [target for target in targets if _retry_target_match_key(target) in failed_keys]
     if selected:
         return selected
 
@@ -102,11 +96,7 @@ def _failed_retry_targets_payload(task: Any) -> list[dict[str, Any]]:
         for item in failed_targets
         if isinstance(item, dict) and str(item.get("target") or "").strip()
     }
-    return [
-        target
-        for target in targets
-        if str(target.get("name") or "").strip() in failed_names
-    ]
+    return [target for target in targets if str(target.get("name") or "").strip() in failed_names]
 
 
 def _redacted_retry_target_labels(targets: list[dict[str, Any]]) -> list[str]:
@@ -179,9 +169,7 @@ def _collection_failure_issues(
             attempts = _safe_int(retry.get("attempts"), default=1)
             max_attempts = _safe_int(retry.get("max_attempts"), default=attempts)
             if retry_attempts > 0:
-                retry_note = (
-                    f" Attempts {attempts}/{max_attempts}, retries {retry_attempts}."
-                )
+                retry_note = f" Attempts {attempts}/{max_attempts}, retries {retry_attempts}."
             retry_note += _last_retry_failure_note(retry)
         suggestion = str(item.get("suggestion") or "").strip()
         suggestion_note = f" Suggestion: {suggestion}" if suggestion else ""
@@ -210,9 +198,7 @@ def _collection_failure_issues(
 
 def _last_retry_failure_note(retry: dict[str, Any]) -> str:
     last_retry_error = _safe_error_text(retry.get("last_retry_error") or "").strip()
-    last_retry_error_code = _safe_error_text(
-        retry.get("last_retry_error_code") or ""
-    ).strip()
+    last_retry_error_code = _safe_error_text(retry.get("last_retry_error_code") or "").strip()
     if last_retry_error and last_retry_error_code:
         return f" Last retry failed with [{last_retry_error_code}] {last_retry_error}."
     if last_retry_error:
@@ -230,14 +216,16 @@ def _safe_int(value: Any, *, default: int = 0) -> int:
     return parsed if parsed >= 0 else default
 
 
-async def _create_review_retry_task(
-    task_service: Any, task: Any
-) -> tuple[Any | None, str, str]:
+async def _create_review_retry_task(task_service: Any, task: Any) -> tuple[Any | None, str, str]:
     retry_targets = _failed_retry_targets_payload(task)
     targeted_retry = bool(retry_targets)
     targets = retry_targets or _task_targets_payload(task)
     if not getattr(task, "pipeline_name", ""):
-        return None, "Cannot auto retry because the original task has no pipeline_name.", "retry_failed"
+        return (
+            None,
+            "Cannot auto retry because the original task has no pipeline_name.",
+            "retry_failed",
+        )
     if not targets:
         return None, "Cannot auto retry because the original task has no targets.", "retry_failed"
 

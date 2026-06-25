@@ -97,9 +97,13 @@ class Task(BaseModel):
     cron_expr: str | None = Field(default=None, description="定时调度 cron 表达式")
 
     # 时间戳
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="创建时间")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="创建时间"
+    )
     started_at: datetime | None = Field(default=None, description="开始执行时间（每次重试重置）")
-    first_started_at: datetime | None = Field(default=None, description="首次开始执行时间（跨重试保留）")
+    first_started_at: datetime | None = Field(
+        default=None, description="首次开始执行时间（跨重试保留）"
+    )
     completed_at: datetime | None = Field(default=None, description="完成时间")
 
     @field_validator("created_at", mode="before")

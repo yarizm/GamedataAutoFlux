@@ -397,7 +397,9 @@ class QimaiCollector(BaseCollector):
 
         return state.build_result()
 
-    async def _new_managed_or_persistent_context_async(self, playwright: Any) -> tuple[Any, Any | None]:
+    async def _new_managed_or_persistent_context_async(
+        self, playwright: Any
+    ) -> tuple[Any, Any | None]:
         if self._session_mode == "managed_state":
             browser = await playwright.chromium.launch(
                 headless=self._headless,

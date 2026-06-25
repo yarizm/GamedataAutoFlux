@@ -6,6 +6,7 @@ from src.core.config import get_settings
 class AlertService:
     _instance = None
     import threading
+
     _lock = threading.Lock()
 
     @classmethod

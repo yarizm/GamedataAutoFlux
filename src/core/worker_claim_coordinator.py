@@ -1,4 +1,4 @@
-﻿"""Worker-claim execution coordination extracted from Scheduler."""
+"""Worker-claim execution coordination extracted from Scheduler."""
 
 from __future__ import annotations
 
@@ -168,9 +168,7 @@ class WorkerClaimCoordinator:
             "collector_metadata": (
                 collector_metadata_payload(collector_name) if collector_metadata is not None else {}
             ),
-            "session_diagnostics": (
-                selected_session_diagnostics if collector_name else {}
-            ),
+            "session_diagnostics": (selected_session_diagnostics if collector_name else {}),
             "session_reserved": session_reserved,
             "recovery": build_collector_recovery_info(
                 collector_name,
@@ -308,7 +306,6 @@ class WorkerClaimCoordinator:
         )
         return list(reconciled["interrupted_tasks"])
 
-
     async def reconcile_stale_worker_tasks(
         self,
         worker_id: str,
@@ -396,7 +393,8 @@ class WorkerClaimCoordinator:
         level: str = "info",
         message: str = "",
         payload: dict[str, Any] | None = None,
-        maybe_record_checkpoint: Callable[[Task, str, dict[str, Any] | None], Awaitable[None]] | None = None,
+        maybe_record_checkpoint: Callable[[Task, str, dict[str, Any] | None], Awaitable[None]]
+        | None = None,
     ):
         """Append an event for a worker-claimed task."""
         next_payload = {
@@ -770,4 +768,3 @@ def _mark_task_interrupted(
     )
     task.cancel()
     task.error = reason
-

@@ -234,7 +234,9 @@ def _write_partial_template_warning(
     ws["D1"] = "缺失数据源提示"
     ws["D1"].font = HEADER_FONT
     ws["D1"].fill = HEADER_FILL
-    ws["D2"] = "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，请以附录中的原始 JSON 为准。"
+    ws["D2"] = (
+        "本报告允许在数据源不完整时生成。缺失部分会影响结论置信度，请以附录中的原始 JSON 为准。"
+    )
     ws["D2"].alignment = DATA_ALIGNMENT
     ws.column_dimensions["D"].width = 52
 
@@ -756,7 +758,9 @@ def _steam_peak_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     app_id = _first_non_empty(row.get("App ID") for row in rows)
     data_source = _first_non_empty(row.get("数据源") for row in rows) or "SteamDB"
     time_slice = _first_non_empty(row.get("时间粒度") for row in rows)
-    peak_values = [int(row["在线峰值"]) for row in rows if isinstance(row.get("在线峰值"), (int, float))]
+    peak_values = [
+        int(row["在线峰值"]) for row in rows if isinstance(row.get("在线峰值"), (int, float))
+    ]
     dates = [str(row.get("日期", "")) for row in rows if row.get("日期")]
     max_peak = max(peak_values) if peak_values else ""
     min_peak = min(peak_values) if peak_values else ""
@@ -785,7 +789,14 @@ def _write_steam_peak_summary_rows(ws, summary: dict[str, Any], *, row_count: in
             "数据区间",
             f"{dates[0]} 至 {dates[-1]}" if dates else "",
         ),
-        ("最高Peak", summary["max_peak"], "最高日期", summary["max_date"], "平均Peak", summary["avg_peak"]),
+        (
+            "最高Peak",
+            summary["max_peak"],
+            "最高日期",
+            summary["max_date"],
+            "平均Peak",
+            summary["avg_peak"],
+        ),
         ("最低Peak", summary["min_peak"], "最低日期", summary["min_date"], "记录数", row_count),
         (
             "数据来源",

@@ -122,9 +122,11 @@ class SQLAlchemySchedulerStorage(BaseStorage):
                     "state_type": stmt.excluded.state_type,
                     "data": stmt.excluded.data,
                     "metadata": stmt.excluded.metadata,
-                    "task_status": stmt.excluded.task_status if task_status is not None else SchedulerStateModel.task_status,
+                    "task_status": stmt.excluded.task_status
+                    if task_status is not None
+                    else SchedulerStateModel.task_status,
                     "updated_at": utcnow(),
-                }
+                },
             )
             await session.execute(stmt)
             await session.commit()
@@ -164,7 +166,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
                 key_prefix = query[4:].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 stmt = stmt.where(SchedulerStateModel.key.like(f"{key_prefix}%", escape="\\"))
             elif query.strip():
-                escaped_query = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                escaped_query = (
+                    query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                )
                 stmt = stmt.where(SchedulerStateModel.key.like(f"%{escaped_query}%", escape="\\"))
 
             # Count total
@@ -248,7 +252,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
         async with self._session_factory() as session:
             stmt = select(SchedulerStateModel.key)
             if prefix:
-                escaped_prefix = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                escaped_prefix = (
+                    prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                )
                 stmt = stmt.where(SchedulerStateModel.key.like(f"{escaped_prefix}%", escape="\\"))
             stmt = stmt.limit(limit)
 

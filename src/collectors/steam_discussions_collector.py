@@ -301,9 +301,7 @@ class SteamDiscussionsCollector(BaseCollector):
                     _safe_log_text(repr(exc)),
                 )
                 await asyncio.sleep(float(self.config.get("request_delay", 2)) * attempt)
-        raise last_error or RuntimeError(
-            f"SteamDiscussions fetch failed: {_safe_log_text(url)}"
-        )
+        raise last_error or RuntimeError(f"SteamDiscussions fetch failed: {_safe_log_text(url)}")
 
     def validate_config(self, config: dict[str, Any] | None = None) -> bool:
         return True
@@ -655,4 +653,3 @@ def _resolve_steam_discussions_recovery(config: dict[str, Any] | None) -> dict[s
         "checkpoint_id": str(payload.get("checkpoint_id") or "").strip(),
         "recovery_level": str(payload.get("recovery_level") or "L0").strip().upper(),
     }
-

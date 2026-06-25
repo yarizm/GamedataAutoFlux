@@ -79,7 +79,9 @@ async def test_scheduler_registers_checkpoint_and_emits_event() -> None:
         task_event_service=event_service,
         task_checkpoint_service=checkpoint_service,
     )
-    task = Task(id="checkpoint-task", name="Checkpoint Task", pipeline_name="p", collector_name="steam")
+    task = Task(
+        id="checkpoint-task", name="Checkpoint Task", pipeline_name="p", collector_name="steam"
+    )
 
     checkpoint = await scheduler.register_task_checkpoint(
         task,
@@ -326,7 +328,9 @@ def test_task_detail_api_succeeds_when_session_inventory_sync_fails(monkeypatch)
             }
 
         def get_task_session_readiness(self, task_id: str):
-            return {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+            return (
+                {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+            )
 
     class BrokenRegistry:
         async def sync_from_diagnostics(self, diagnostics):
@@ -375,7 +379,9 @@ def test_task_detail_api_succeeds_when_session_registry_lookup_fails(monkeypatch
             }
 
         def get_task_session_readiness(self, task_id: str):
-            return {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+            return (
+                {"status": "not_required", "precheck_status": "ok"} if task_id == task.id else None
+            )
 
     def broken_registry_provider():
         raise RuntimeError("registry lookup failed token=detail-lookup-secret")

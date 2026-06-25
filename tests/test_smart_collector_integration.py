@@ -22,7 +22,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_smart_mode_extracts_from_lol_news():
@@ -40,7 +39,9 @@ async def test_smart_mode_extracts_from_lol_news():
     items = await extract_items_from_html(html, url)
     print(f"\n[LLM 提取结果] 从 {url} 提取到 {len(items)} 条:")
     for i, item in enumerate(items[:5]):
-        print(f"  {i+1}. [{item.get('category', '?')}] {item.get('title', '?')} ({item.get('date', '?')})")
+        print(
+            f"  {i + 1}. [{item.get('category', '?')}] {item.get('title', '?')} ({item.get('date', '?')})"
+        )
 
     assert len(items) > 0, "LLM 应至少提取到 1 条新闻"
 
@@ -61,7 +62,9 @@ async def test_smart_mode_extracts_from_game_official_site():
         result = await collector.collect(target)
         meta = result.data.get("source_meta", {}) if result.success else {}
         print(f"\n[原神官网] success={result.success}")
-        print(f"  pages_discovered={meta.get('pages_discovered')}, pages_crawled={meta.get('pages_crawled')}")
+        print(
+            f"  pages_discovered={meta.get('pages_discovered')}, pages_crawled={meta.get('pages_crawled')}"
+        )
         if result.success:
             data = result.data
             news = data.get("news", {}).get("items", [])

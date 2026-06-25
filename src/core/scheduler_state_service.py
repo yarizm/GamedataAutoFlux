@@ -230,7 +230,9 @@ class SchedulerStateService:
     def _normalize_restored_task(task: Task) -> None:
         if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.RETRYING):
             task.cancel()
-            task.error = "Recovered from a previous session without a live worker; marked cancelled."
+            task.error = (
+                "Recovered from a previous session without a live worker; marked cancelled."
+            )
 
 
 def _cron_job_from_record(record: Any) -> CronJobConfig | None:

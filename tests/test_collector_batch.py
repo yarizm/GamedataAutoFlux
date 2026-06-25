@@ -273,9 +273,7 @@ async def test_collect_batch_retries_returned_retryable_failure() -> None:
         }
     )
 
-    results = await collector.collect_batch(
-        [CollectTarget(name="limited", params={"failures": 1})]
-    )
+    results = await collector.collect_batch([CollectTarget(name="limited", params={"failures": 1})])
 
     assert collector.attempts == 2
     assert results[0].success is True
@@ -586,7 +584,9 @@ async def test_gtrends_collect_batch_enriches_failed_results() -> None:
 
     collector.collect = failed_result
 
-    results = await collector.collect_batch([CollectTarget(name="empty", params={"token": "secret"})])
+    results = await collector.collect_batch(
+        [CollectTarget(name="empty", params={"token": "secret"})]
+    )
 
     assert results[0].success is False
     assert results[0].error == "missing keyword token=[REDACTED]"

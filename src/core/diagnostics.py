@@ -87,7 +87,9 @@ def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
     if "local_browser_profile" in profiles and effective_mode == "local_profile":
         checks.extend(_local_profile_session_checks(metadata.collector_id))
     if metadata.collector_id == "qimai" and effective_mode == "managed_state":
-        checks.append(_storage_state_check("session:qimai_storage_state", "qimai.storage_state_path"))
+        checks.append(
+            _storage_state_check("session:qimai_storage_state", "qimai.storage_state_path")
+        )
     if (
         "local_browser_profile" in profiles
         and effective_mode != "local_profile"
@@ -167,10 +169,24 @@ def build_session_readiness_summary(diagnostics: dict[str, Any]) -> dict[str, An
     mode = str(diagnostics.get("session_mode") or "api_only").strip() or "api_only"
     binding = str(diagnostics.get("worker_binding") or "flexible").strip() or "flexible"
     diagnostics_status = str(diagnostics.get("status") or "unknown").strip().lower() or "unknown"
-    account = diagnostics.get("session_account", {}) if isinstance(diagnostics.get("session_account"), dict) else {}
-    lease = diagnostics.get("session_lease", {}) if isinstance(diagnostics.get("session_lease"), dict) else {}
-    state = diagnostics.get("session_state", {}) if isinstance(diagnostics.get("session_state"), dict) else {}
-    health = str(state.get("health") or ("ready" if not requires_session else "unknown")).strip().lower()
+    account = (
+        diagnostics.get("session_account", {})
+        if isinstance(diagnostics.get("session_account"), dict)
+        else {}
+    )
+    lease = (
+        diagnostics.get("session_lease", {})
+        if isinstance(diagnostics.get("session_lease"), dict)
+        else {}
+    )
+    state = (
+        diagnostics.get("session_state", {})
+        if isinstance(diagnostics.get("session_state"), dict)
+        else {}
+    )
+    health = (
+        str(state.get("health") or ("ready" if not requires_session else "unknown")).strip().lower()
+    )
     status = "not_required" if not requires_session else health or "unknown"
     relevant_checks = _session_attention_checks(diagnostics)
     precheck_status = _session_precheck_status(
@@ -199,7 +215,9 @@ def build_session_readiness_summary(diagnostics: dict[str, Any]) -> dict[str, An
         "binding": binding,
         "summary": summary,
         "recommended_action": recommended_action,
-        "required_worker_capabilities": list(diagnostics.get("required_worker_capabilities", []) or []),
+        "required_worker_capabilities": list(
+            diagnostics.get("required_worker_capabilities", []) or []
+        ),
         "account_kind": str(account.get("account_kind") or "not_required"),
         "account_id": str(account.get("account_id") or ""),
         "locator": str(account.get("locator") or ""),
@@ -575,7 +593,11 @@ def _session_precheck_status(
         return "error"
     if requires_session and mode == "local_profile" and not bool(state.get("local_profile_ready")):
         return "error"
-    if requires_session and mode == "local_profile" and str(state.get("cdp_status") or "") == "error":
+    if (
+        requires_session
+        and mode == "local_profile"
+        and str(state.get("cdp_status") or "") == "error"
+    ):
         return "error"
     if diagnostics_status == "warning":
         return "warning"

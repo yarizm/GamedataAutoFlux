@@ -591,7 +591,9 @@ def _blocked_session_fallback_entry(diagnostics: dict[str, Any]):
                 str(diagnostics.get("session_mode") or "") if isinstance(diagnostics, dict) else ""
             ),
             "worker_binding": redact_sensitive_text(
-                str(diagnostics.get("worker_binding") or "") if isinstance(diagnostics, dict) else ""
+                str(diagnostics.get("worker_binding") or "")
+                if isinstance(diagnostics, dict)
+                else ""
             ),
             "lease_worker_id": "",
             "lease_task_id": "",

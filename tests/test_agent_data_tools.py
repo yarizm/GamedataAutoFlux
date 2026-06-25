@@ -120,9 +120,7 @@ async def test_get_data_record_content_missing_key_does_not_echo_secret(monkeypa
     fake_store = _FakeDataStore({})
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
-    payload = json.loads(
-        await GetDataRecordContentTool()._arun("missing:api_key=secret-value")
-    )
+    payload = json.loads(await GetDataRecordContentTool()._arun("missing:api_key=secret-value"))
 
     assert payload["status"] == "error"
     assert "secret-value" not in payload["summary"]
@@ -135,9 +133,7 @@ async def test_review_collection_results_does_not_retry_without_flag(monkeypatch
     fake_service = _FakeTaskService(task)
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
     assert payload["completeness"] == "partial"
     assert payload["record_count"] == 1
@@ -157,9 +153,7 @@ async def test_review_collection_results_auto_retry_creates_task(monkeypatch) ->
     fake_service = _FakeTaskService(task)
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
 
     assert payload["retry_created"] is True
     assert payload["retry_task_id"] == "retry-task"
@@ -229,9 +223,7 @@ async def test_review_collection_results_auto_retry_targets_failed_collects_only
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
 
     assert payload["retry_created"] is True
     assert payload["retry_task_name"] == "Targeted Review Task (targeted review retry)"
@@ -309,9 +301,7 @@ async def test_review_collection_results_auto_retry_distinguishes_same_named_tar
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
 
     assert payload["retry_created"] is True
     assert fake_service.created[0]["targets"] == [
@@ -381,9 +371,7 @@ async def test_review_collection_results_auto_retry_blocks_redacted_target_param
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
     rendered = json.dumps(payload, ensure_ascii=False)
 
     assert payload["retry_created"] is False
@@ -391,9 +379,7 @@ async def test_review_collection_results_auto_retry_blocks_redacted_target_param
         "Cannot auto retry because selected target params contain redacted"
     )
     assert "retry_task_id" not in payload
-    assert "retry_blocked_redacted_params" in {
-        issue["category"] for issue in payload["issues"]
-    }
+    assert "retry_blocked_redacted_params" in {issue["category"] for issue in payload["issues"]}
     assert fake_service.created == []
     assert payload["collection_summary"]["failed_targets"][0]["target_params"] == {
         "app_id": "200",
@@ -410,9 +396,7 @@ async def test_review_collection_results_auto_retry_redacts_creation_error(monke
     fake_service.create_error = RuntimeError("retry failed: api_key=secret-key")
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
     rendered = json.dumps(payload, ensure_ascii=False)
 
     assert payload["retry_created"] is False
@@ -435,9 +419,7 @@ async def test_review_collection_results_matches_task_id_metadata(monkeypatch) -
     fake_service = _FakeTaskService(task)
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
     assert payload["record_count"] == 1
     assert payload["source_coverage"] == {"steam": 1}
@@ -486,9 +468,7 @@ async def test_review_collection_results_excludes_report_history_records(monkeyp
     fake_service = _FakeTaskService(task)
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
     assert payload["record_count"] == 1
     assert payload["source_coverage"] == {"steam": 1}
@@ -527,19 +507,14 @@ async def test_review_collection_results_includes_collector_failure_summary(monk
     monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
-    payload = json.loads(
-        await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False)
-    )
+    payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
     rendered = json.dumps(payload, ensure_ascii=False)
 
     assert payload["collection_summary"]["status"] == "failed"
     assert payload["collection_summary"]["failed_targets_count"] == 1
     assert payload["collection_summary"]["failed_targets"][0]["retry"]["retry_attempts"] == 2
     issue_messages = "\n".join(issue["message"] for issue in payload["issues"])
-    assert (
-        "Last retry failed with [rate_limited] HTTP 429 password=[REDACTED]."
-        in issue_messages
-    )
+    assert "Last retry failed with [rate_limited] HTTP 429 password=[REDACTED]." in issue_messages
     assert "collector_failure" in {issue["category"] for issue in payload["issues"]}
     assert "empty_result" in {issue["category"] for issue in payload["issues"]}
     assert "api_key=[REDACTED]" in rendered

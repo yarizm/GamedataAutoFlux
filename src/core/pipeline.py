@@ -293,7 +293,6 @@ class Pipeline:
     def _get_storages(self) -> list[PipelineStep]:
         return [s for s in self.steps if s.step_type == StepType.STORAGE]
 
-
     async def execute(
         self,
         task: Task,
@@ -413,9 +412,7 @@ class Pipeline:
 
                 success_count = sum(1 for item in collect_results if item.success)
                 failed_results = [item for item in collect_results if not item.success]
-                failed_error = "; ".join(
-                    _collect_failure_message(item) for item in failed_results
-                )
+                failed_error = "; ".join(_collect_failure_message(item) for item in failed_results)
                 task.add_step_log(
                     step_name,
                     TaskStatus.SUCCESS if not failed_results else TaskStatus.FAILED,

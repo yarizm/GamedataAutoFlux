@@ -172,9 +172,7 @@ class TaskService:
             config=config,
         )
         if not precheck.can_submit:
-            raise ValueError(
-                f"Task precheck failed: {TaskPrecheckService.format_errors(precheck)}"
-            )
+            raise ValueError(f"Task precheck failed: {TaskPrecheckService.format_errors(precheck)}")
 
         resolved_collector = precheck.collector_name or collector_name
 
@@ -280,7 +278,9 @@ class TaskService:
             return None
         return build_session_readiness_summary(diagnostics)
 
-    def list_session_diagnostics(self, collector_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    def list_session_diagnostics(
+        self, collector_ids: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         ids = collector_ids or list_session_sensitive_collectors()
         return [build_collector_session_diagnostics(collector_id) for collector_id in ids]
 
@@ -291,7 +291,9 @@ class TaskService:
             self._get_session_registry,
             diagnostics,
             context="task_service_sync",
-            collector_id=str(diagnostics.get("collector_id") or "") if isinstance(diagnostics, dict) else "",
+            collector_id=str(diagnostics.get("collector_id") or "")
+            if isinstance(diagnostics, dict)
+            else "",
         )
 
     def _task_session_snapshot(self, task: Task) -> dict[str, Any]:
@@ -309,7 +311,9 @@ class TaskService:
         if not snapshot:
             return payload
 
-        payload["requires_session"] = bool(snapshot.get("requires_session", payload.get("requires_session")))
+        payload["requires_session"] = bool(
+            snapshot.get("requires_session", payload.get("requires_session"))
+        )
 
         for field in (
             "session_mode",

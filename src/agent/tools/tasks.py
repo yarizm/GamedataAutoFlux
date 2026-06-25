@@ -21,7 +21,9 @@ def _identifier_changes(before: list[dict], after: list[dict]) -> list[dict[str,
     changes: list[dict[str, Any]] = []
     for index, target in enumerate(after):
         previous = before[index] if index < len(before) and isinstance(before[index], dict) else {}
-        previous_params = previous.get("params", {}) if isinstance(previous.get("params"), dict) else {}
+        previous_params = (
+            previous.get("params", {}) if isinstance(previous.get("params"), dict) else {}
+        )
         params = target.get("params", {}) if isinstance(target.get("params"), dict) else {}
         added = {
             key: value

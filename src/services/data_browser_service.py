@@ -58,7 +58,9 @@ class DataBrowserService:
             safe_game_name = self._redact_text(identity["game_name"])
             safe_app_id = self._redact_text(identity.get("app_id") or "") or None
             safe_game_key = (
-                f"name:{self._normalize_key(safe_game_name)}" if safe_game_name else f"app:{safe_app_id}"
+                f"name:{self._normalize_key(safe_game_name)}"
+                if safe_game_name
+                else f"app:{safe_app_id}"
             )
             safe_group_id = self._redact_text(group.get("group_id", ""))
             safe_group_name = self._redact_text(group.get("group_name", ""))
@@ -119,9 +121,13 @@ class DataBrowserService:
                 games[name] = []
             if source not in games[name]:
                 games[name].append(source)
-        return [{"game": game, "sources": sources} for game, sources in sorted(games.items())[:limit]]
+        return [
+            {"game": game, "sources": sources} for game, sources in sorted(games.items())[:limit]
+        ]
 
-    def search_record_overview(self, records: list[Any], *, query: str, limit: int) -> dict[str, Any]:
+    def search_record_overview(
+        self, records: list[Any], *, query: str, limit: int
+    ) -> dict[str, Any]:
         needle = query.strip().lower()
         if not needle:
             return {"items": [], "total": 0}

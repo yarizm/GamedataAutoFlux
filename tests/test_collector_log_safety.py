@@ -53,8 +53,7 @@ from src.core.sensitive import redact_sensitive_text
 
 def test_redact_sensitive_text_handles_compound_query_keys() -> None:
     safe = redact_sensitive_text(
-        "https://example.com/path?access_token=secret-token"
-        "&firecrawl_api_key=secret-key&ok=1"
+        "https://example.com/path?access_token=secret-token&firecrawl_api_key=secret-key&ok=1"
     )
 
     assert "secret-token" not in safe
@@ -108,9 +107,7 @@ async def test_taptap_retry_log_redacts_url_and_error(monkeypatch) -> None:
     collector._client = FailingClient()
 
     with pytest.raises(httpx.HTTPError):
-        await collector._fetch_with_retry(
-            "https://example.com/app/1?access_token=url-secret"
-        )
+        await collector._fetch_with_retry("https://example.com/app/1?access_token=url-secret")
 
     rendered = " ".join(captured)
     assert "url-secret" not in rendered
@@ -174,9 +171,7 @@ async def test_official_site_httpx_log_and_error_are_redacted(monkeypatch) -> No
     monkeypatch.setattr("src.collectors.official_site_collector.httpx.AsyncClient", FailingClient)
 
     collector = OfficialSiteCollector({"playwright_enabled": False})
-    result = await collector._fetch_with_httpx(
-        "https://example.com/news?access_token=url-secret"
-    )
+    result = await collector._fetch_with_httpx("https://example.com/news?access_token=url-secret")
 
     rendered = " ".join(captured)
     assert result.error == "connect failed token=[REDACTED]"
