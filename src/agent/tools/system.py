@@ -39,14 +39,19 @@ class GetAgentStatusTool(BaseTool):
         agent_service = get_agent_service()
         if not agent_service:
             return _format_result("error", "Agent 服务未启用")
+        await agent_service.ensure_histories_loaded()
         status = agent_service.get_status_summary()
         tool_count = status.get("active_tool_count", 0)
         mcp_state = "运行中" if status.get("mcp_running") else "未运行"
+        warnings = list(status.get("status_warnings", []) or [])
+        result_status = "warning" if status.get("status_health") == "warning" else "ok"
+        summary_suffix = f"，存在 {len(warnings)} 条告警" if warnings else ""
         return _format_result(
-            "ok",
-            f"Agent 当前使用 {status.get('provider')} / {status.get('model')}，可用工具 {tool_count} 个，MCP {mcp_state}",
+            result_status,
+            f"Agent 当前使用 {status.get('provider')} / {status.get('model')}，可用工具 {tool_count} 个，MCP {mcp_state}{summary_suffix}",
             status,
             record_count=tool_count,
+            warnings=warnings or None,
             suggestion="如需切换模型，请在 Agent 设置中选择 provider；如需网页探索，请先确保 MCP 工具运行。",
             max_data_length=8000,
         )

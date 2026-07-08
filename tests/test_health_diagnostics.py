@@ -30,6 +30,7 @@ def test_build_config_diagnostics_shape() -> None:
     assert diagnostics["paths"]["root_dir"]
     assert any(check["name"] == "llm.provider" for check in diagnostics["checks"])
     assert any(check["name"] == "settings_schema" for check in diagnostics["checks"])
+    assert any(check["name"] == "agent.runtime_compatibility" for check in diagnostics["checks"])
 
 
 def test_build_collector_session_diagnostics_for_qimai_profile(monkeypatch, tmp_path) -> None:
@@ -159,6 +160,94 @@ def test_settings_schema_accepts_batch_concurrency() -> None:
     assert validation["normalized"]["gtrends"]["collect_retries"] == 1
 
 
+def test_settings_schema_accepts_agent_runtime_controls() -> None:
+    validation = validate_settings_payload(
+        {
+            "agent": {
+                "runtime_backend": "langgraph_agent",
+                "agent_type": "openai_tools",
+                "langgraph_checkpointer": {"backend": "file", "file_path": "data/agent_checkpoints.json"},
+                "playwright_mcp": {
+                    "enabled": True,
+                    "command": "npx",
+                    "args": ["-y", "@playwright/mcp"],
+                    "headless": True,
+                    "max_exploration_steps": 12,
+                },
+            }
+        }
+    )
+
+    assert validation["valid"] is True
+    assert validation["warnings"] == []
+    assert validation["normalized"]["agent"]["runtime_backend"] == "langgraph_agent"
+    assert validation["normalized"]["agent"]["agent_type"] == "openai_tools"
+    assert validation["normalized"]["agent"]["langgraph_checkpointer"]["backend"] == "file"
+    assert (
+        validation["normalized"]["agent"]["langgraph_checkpointer"]["file_path"]
+        == "data/agent_checkpoints.json"
+    )
+    assert validation["normalized"]["agent"]["playwright_mcp"]["enabled"] is True
+    assert validation["normalized"]["agent"]["playwright_mcp"]["max_exploration_steps"] == 12
+
+
+def test_settings_schema_defaults_to_langgraph_runtime_backend() -> None:
+    validation = validate_settings_payload({"agent": {}})
+
+    assert validation["valid"] is True
+    assert validation["normalized"]["agent"]["runtime_backend"] == "langgraph_agent"
+    assert validation["normalized"]["agent"]["agent_type"] == "openai_tools"
+
+
+def test_settings_schema_warns_on_langgraph_react_combo() -> None:
+    validation = validate_settings_payload(
+        {
+            "agent": {
+                "runtime_backend": "langgraph_agent",
+                "agent_type": "react",
+            }
+        }
+    )
+
+    assert validation["valid"] is True
+    assert validation["issues"] == []
+    assert validation["warnings"] == [
+        {
+            "path": "agent.agent_type",
+            "message": (
+                "agent.agent_type=react is ignored when "
+                "agent.runtime_backend=langgraph_agent; the effective mode is openai_tools."
+            ),
+            "type": "compatibility_warning",
+        }
+    ]
+
+
+def test_build_config_diagnostics_warns_on_langgraph_react_combo(monkeypatch) -> None:
+    def fake_get_config(key: str, default=None):
+        if key == "agent.runtime_backend":
+            return "langgraph_agent"
+        if key == "agent.agent_type":
+            return "react"
+        return get_config(key, default)
+
+    monkeypatch.setattr(
+        "src.core.diagnostics.get_settings_validation",
+        lambda: {"valid": True, "issues": [], "warnings": [], "normalized": {}},
+    )
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+
+    diagnostics = build_config_diagnostics()
+    check = next(
+        item for item in diagnostics["checks"] if item["name"] == "agent.runtime_compatibility"
+    )
+
+    assert check["status"] == "warning"
+    assert check["details"]["runtime_backend"] == "langgraph_agent"
+    assert check["details"]["configured_agent_type"] == "react"
+    assert check["details"]["effective_agent_type"] == "openai_tools"
+
+
 def test_settings_schema_reports_invalid_values() -> None:
     validation = validate_settings_payload(
         {
@@ -171,6 +260,27 @@ def test_settings_schema_reports_invalid_values() -> None:
     assert {issue["path"] for issue in validation["issues"]} == {
         "server.port",
         "scheduler.max_concurrent_tasks",
+    }
+
+
+def test_settings_schema_rejects_invalid_agent_runtime_controls() -> None:
+    validation = validate_settings_payload(
+        {
+            "agent": {
+                "runtime_backend": "legacy",
+                "agent_type": "xml",
+                "langgraph_checkpointer": {"backend": "redis", "file_path": ""},
+                "playwright_mcp": {"max_exploration_steps": 0},
+            }
+        }
+    )
+
+    assert validation["valid"] is False
+    assert {issue["path"] for issue in validation["issues"]} == {
+        "agent.runtime_backend",
+        "agent.agent_type",
+        "agent.langgraph_checkpointer.backend",
+        "agent.playwright_mcp.max_exploration_steps",
     }
 
 

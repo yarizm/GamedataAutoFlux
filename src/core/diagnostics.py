@@ -24,6 +24,7 @@ def build_health_report(scheduler_stats: dict[str, Any] | None = None) -> dict[s
         _dependency_check("uvicorn", required=True),
         _dependency_check("playwright", required=True),
         _llm_provider_check(),
+        _agent_runtime_compatibility_check(),
     ]
     status = _overall_status(checks)
     return {
@@ -48,6 +49,7 @@ def build_config_diagnostics() -> dict[str, Any]:
         _dependency_check("playwright", required=True),
         _dependency_check("langchain-openai", import_name="langchain_openai", required=False),
         _llm_provider_check(),
+        _agent_runtime_compatibility_check(),
         _steam_config_check(),
         _steamdb_config_check(),
         _scheduler_config_check(),
@@ -240,13 +242,48 @@ def _settings_file_check() -> dict[str, Any]:
 def _settings_schema_check() -> dict[str, Any]:
     validation = get_settings_validation()
     issues = validation.get("issues", [])
+    warnings = validation.get("warnings", [])
     if validation.get("valid", False):
+        if warnings:
+            return _check(
+                "settings_schema",
+                "warning",
+                "settings.yaml schema validation passed with compatibility warnings",
+                warnings=warnings,
+            )
         return _check("settings_schema", "ok", "settings.yaml schema validation passed")
     return _check(
         "settings_schema",
         "error",
         "settings.yaml contains invalid values",
         issues=issues,
+    )
+
+
+def _agent_runtime_compatibility_check() -> dict[str, Any]:
+    runtime_backend = str(get_config("agent.runtime_backend", "langchain_classic") or "").strip()
+    configured_agent_type = str(get_config("agent.agent_type", "openai_tools") or "").strip()
+    effective_agent_type = (
+        "openai_tools"
+        if runtime_backend == "langgraph_agent"
+        else (configured_agent_type or "openai_tools")
+    )
+    if runtime_backend == "langgraph_agent" and configured_agent_type == "react":
+        return _check(
+            "agent.runtime_compatibility",
+            "warning",
+            "langgraph_agent ignores the legacy react text protocol and uses openai_tools semantics.",
+            runtime_backend=runtime_backend,
+            configured_agent_type=configured_agent_type,
+            effective_agent_type=effective_agent_type,
+        )
+    return _check(
+        "agent.runtime_compatibility",
+        "ok",
+        "Agent runtime and agent_type configuration are compatible.",
+        runtime_backend=runtime_backend or "langchain_classic",
+        configured_agent_type=configured_agent_type or "openai_tools",
+        effective_agent_type=effective_agent_type,
     )
 
 

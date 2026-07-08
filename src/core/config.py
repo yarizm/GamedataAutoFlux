@@ -143,7 +143,12 @@ def get_settings_validation() -> dict[str, Any]:
     global _settings_validation
     if _settings_validation is None:
         load_settings()
-    return _settings_validation or {"valid": True, "issues": [], "normalized": {}}
+    return _settings_validation or {
+        "valid": True,
+        "issues": [],
+        "warnings": [],
+        "normalized": {},
+    }
 
 
 def _validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
@@ -159,6 +164,7 @@ def _validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
                     "type": "schema_import_error",
                 }
             ],
+            "warnings": [],
             "normalized": {},
         }
     return validate_settings_payload(settings)

@@ -26,6 +26,14 @@ def _safe_provider_api_key(value: str) -> tuple[str, bool]:
     return "", True
 
 
+def _resolve_thread_id(
+    *,
+    session_id: str | None = None,
+    thread_id: str | None = None,
+) -> str:
+    return str(thread_id or session_id or "default")
+
+
 @router.post("/agent/chat")
 async def agent_chat(req: ChatRequest):
     """与 AI 助手对话（SSE 流式响应）"""
@@ -38,7 +46,7 @@ async def agent_chat(req: ChatRequest):
     async def event_stream():
         try:
             async with asyncio.timeout(_TIMEOUT_SECONDS):
-                async for event in agent_service.ainvoke(req.message, req.session_id):
+                async for event in agent_service.ainvoke(req.message, req.thread_id):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'type': 'error', 'content': '响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
@@ -58,19 +66,25 @@ async def agent_chat(req: ChatRequest):
 
 
 @router.get("/agent/history")
-async def get_agent_history(session_id: str = "default"):
+async def get_agent_history(session_id: str | None = None, thread_id: str | None = None):
     """获取指定会话的消息历史"""
     from src.web.app import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
         raise HTTPException(503, "Agent 服务未启用")
-    messages = agent_service.get_session_history(session_id)
-    return {"session_id": session_id, "messages": messages}
+    await agent_service.ensure_histories_loaded()
+    resolved_thread_id = _resolve_thread_id(session_id=session_id, thread_id=thread_id)
+    messages = agent_service.get_thread_history(resolved_thread_id)
+    return {
+        "session_id": resolved_thread_id,
+        "thread_id": resolved_thread_id,
+        "messages": messages,
+    }
 
 
 @router.delete("/agent/history")
-async def clear_agent_history(session_id: str = "default"):
+async def clear_agent_history(session_id: str | None = None, thread_id: str | None = None):
     """清除指定会话的对话历史"""
     from src.web.app import get_agent_service
 
@@ -78,8 +92,13 @@ async def clear_agent_history(session_id: str = "default"):
     if not agent_service:
         raise HTTPException(503, "Agent 服务未启用")
 
-    await agent_service.clear_history(session_id)
-    return {"message": "对话历史已清空"}
+    resolved_thread_id = _resolve_thread_id(session_id=session_id, thread_id=thread_id)
+    await agent_service.clear_thread(resolved_thread_id)
+    return {
+        "message": "对话历史已清空",
+        "session_id": resolved_thread_id,
+        "thread_id": resolved_thread_id,
+    }
 
 
 @router.get("/agent/sessions")
@@ -90,7 +109,9 @@ async def list_agent_sessions():
     agent_service = get_agent_service()
     if not agent_service:
         raise HTTPException(503, "Agent 服务未启用")
-    return {"sessions": agent_service.list_sessions()}
+    await agent_service.ensure_histories_loaded()
+    thread_ids = agent_service.list_thread_ids()
+    return {"sessions": thread_ids, "threads": thread_ids}
 
 
 @router.get("/agent/status")
@@ -101,6 +122,7 @@ async def get_agent_status():
     agent_service = get_agent_service()
     if not agent_service:
         raise HTTPException(503, "Agent 服务未启用")
+    await agent_service.ensure_histories_loaded()
     return agent_service.get_status_summary()
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 
 class ListTasksInput(BaseModel):
@@ -173,7 +173,15 @@ class ChatRequest(BaseModel):
     """Agent 聊天请求"""
 
     message: str = Field(..., description="用户消息")
-    session_id: str = Field(default="default", description="会话 ID")
+    session_id: str = Field(
+        default="default",
+        description="会话 ID（兼容 thread_id）",
+        validation_alias=AliasChoices("session_id", "thread_id"),
+    )
+
+    @property
+    def thread_id(self) -> str:
+        return self.session_id
 
 
 class ProviderConfigItem(BaseModel):

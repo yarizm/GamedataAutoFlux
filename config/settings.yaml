@@ -65,9 +65,13 @@ llm:
     max_input_chars: 18000
 agent:
   enabled: true
+  runtime_backend: langgraph_agent
   agent_type: openai_tools
   max_iterations: 40
   session_timeout_minutes: 60
+  langgraph_checkpointer:
+    backend: disabled
+    file_path: data/agent_checkpoints.json
   playwright_mcp:
     enabled: true
     command: "npx"

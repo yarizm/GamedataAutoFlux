@@ -115,6 +115,7 @@ export default {
 
     this._renderSessions();
     this._restoreMessages();
+    this._syncServerSessions();
     this._initProviderSelector();
     this._refreshStatus();
   },
@@ -187,7 +188,7 @@ export default {
     sessions = sessions.filter(s => s.id !== id);
     saveSessions(sessions);
     localStorage.removeItem('agent_msgs_' + id);
-    fetch(`/api/agent/history?session_id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/agent/history?thread_id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
     if (id === agentSessionId) this._switchSession(sessions[0].id);
     this._renderSessions();
   },
@@ -201,7 +202,7 @@ export default {
 
   async _syncServerHistory() {
     try {
-      const data = await api(`/agent/history?session_id=${encodeURIComponent(agentSessionId)}`);
+      const data = await api(`/agent/history?thread_id=${encodeURIComponent(agentSessionId)}`);
       if (data.messages?.length > 0) {
         const cached = loadSessionMessages(agentSessionId);
         if (cached.length < data.messages.length) {
@@ -216,6 +217,57 @@ export default {
         }
       }
     } catch { /* server history not available, use localStorage */ }
+  },
+
+  async _syncServerSessions() {
+    try {
+      const data = await api('/agent/sessions');
+      const serverIds = Array.isArray(data.threads)
+        ? data.threads
+        : Array.isArray(data.sessions)
+          ? data.sessions
+          : [];
+      if (serverIds.length === 0) return;
+
+      const localSessions = loadSessions();
+      const localById = new Map(localSessions.map(session => [session.id, session]));
+      const merged = [];
+      const seen = new Set();
+
+      serverIds.forEach((id) => {
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const existing = localById.get(id);
+        if (existing) {
+          merged.push(existing);
+        } else {
+          merged.push({ id, name: id, created_at: new Date().toISOString() });
+        }
+      });
+
+      localSessions.forEach((session) => {
+        if (!session?.id || seen.has(session.id)) return;
+        seen.add(session.id);
+        merged.push(session);
+      });
+
+      const unchanged = merged.length === localSessions.length
+        && merged.every((session, index) => {
+          const local = localSessions[index];
+          return local && local.id === session.id && local.name === session.name;
+        });
+      if (unchanged) return;
+
+      saveSessions(merged);
+      if (!merged.some(session => session.id === agentSessionId)) {
+        agentSessionId = merged[0]?.id || 'default';
+        localStorage.setItem('agent_active_session', agentSessionId);
+        this._restoreMessages();
+        return;
+      }
+
+      this._renderSessions();
+    } catch { /* keep local session list when server sync is unavailable */ }
   },
 
   // ── Provider ──
@@ -247,11 +299,21 @@ export default {
       const model = status.model || status.provider || 'unknown';
       const toolCount = status.active_tool_count ?? 0;
       const mcp = status.mcp_running ? 'MCP on' : status.mcp_enabled ? 'MCP idle' : 'MCP off';
-      text.textContent = `${model} · ${toolCount} tools · ${mcp}`;
-      if (wrap) wrap.title = `Provider: ${status.provider || '-'}\nAgent: ${status.agent_type || '-'}\nSessions: ${status.session_count ?? 0}`;
+      const statusWarnings = status.status_warnings || [];
+      const warningNote = statusWarnings.length ? ' · warning' : '';
+      text.textContent = `${model} · ${toolCount} tools · ${mcp}${warningNote}`;
+      if (wrap) {
+        const warningText = statusWarnings.join('\n') || '-';
+        wrap.title = `Provider: ${status.provider || '-'}\nAgent: ${status.agent_type || '-'}\nSessions: ${status.session_count ?? 0}\nHistory loaded: ${status.histories_loaded ? 'yes' : 'no'}\nWarnings: ${warningText}`;
+      }
       if (dot) {
-        dot.style.backgroundColor = status.initialized ? '#34d399' : '#a78bfa';
-        dot.style.boxShadow = status.mcp_running ? '0 0 8px rgba(52,211,153,0.8)' : '0 0 5px rgba(139,92,246,0.8)';
+        if (status.status_health === 'warning') {
+          dot.style.backgroundColor = '#f59e0b';
+          dot.style.boxShadow = '0 0 8px rgba(245,158,11,0.8)';
+        } else {
+          dot.style.backgroundColor = status.initialized ? '#34d399' : '#a78bfa';
+          dot.style.boxShadow = status.mcp_running ? '0 0 8px rgba(52,211,153,0.8)' : '0 0 5px rgba(139,92,246,0.8)';
+        }
       }
     } catch {
       text.textContent = 'Agent unavailable';
@@ -692,7 +754,7 @@ export default {
   },
 
   async _clearHistory() {
-    fetch(`/api/agent/history?session_id=${encodeURIComponent(agentSessionId)}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/agent/history?thread_id=${encodeURIComponent(agentSessionId)}`, { method: 'DELETE' }).catch(() => {});
     localStorage.removeItem('agent_msgs_' + agentSessionId);
     const container = this._getLayer(agentSessionId);
     if (container) { container.innerHTML = ''; this._appendMessage('assistant', t('agent.cleared'), container); }
@@ -726,7 +788,7 @@ export default {
     try {
       const response = await fetch('/api/agent/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, session_id: agentSessionId }),
+        body: JSON.stringify({ message, thread_id: agentSessionId }),
         signal: abortController.signal,
       });
       if (!response.ok) {

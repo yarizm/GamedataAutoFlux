@@ -57,10 +57,32 @@ class LLMConfig(_FlexibleModel):
     provider: str = "stub"
 
 
+class PlaywrightMcpConfig(_FlexibleModel):
+    enabled: bool = False
+    command: str = "npx"
+    args: list[str] = Field(default_factory=lambda: ["-y", "@playwright/mcp"])
+    headless: bool = True
+    max_exploration_steps: int = Field(default=20, ge=1)
+
+
+class LangGraphCheckpointerConfig(_FlexibleModel):
+    backend: str = Field(default="disabled", pattern="^(disabled|memory|file)$")
+    file_path: str = "data/agent_checkpoints.json"
+
+
 class AgentConfig(_FlexibleModel):
     enabled: bool = True
+    runtime_backend: str = Field(
+        default="langgraph_agent",
+        pattern="^(langchain_classic|langgraph_agent)$",
+    )
+    agent_type: str = Field(default="openai_tools", pattern="^(openai_tools|react)$")
     max_iterations: int = Field(default=10, ge=1)
     session_timeout_minutes: int = Field(default=60, ge=1)
+    playwright_mcp: PlaywrightMcpConfig = Field(default_factory=PlaywrightMcpConfig)
+    langgraph_checkpointer: LangGraphCheckpointerConfig = Field(
+        default_factory=LangGraphCheckpointerConfig
+    )
     system_prompt: str = ""
 
 
@@ -218,14 +240,35 @@ def validate_settings_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "valid": False,
             "issues": [_format_validation_error(error) for error in exc.errors()],
+            "warnings": [],
             "normalized": {},
         }
 
     return {
         "valid": True,
         "issues": [],
+        "warnings": _build_settings_warnings(model),
         "normalized": model.model_dump(mode="json"),
     }
+
+
+def _build_settings_warnings(model: SettingsModel) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    if (
+        model.agent.runtime_backend == "langgraph_agent"
+        and model.agent.agent_type == "react"
+    ):
+        warnings.append(
+            {
+                "path": "agent.agent_type",
+                "message": (
+                    "agent.agent_type=react is ignored when "
+                    "agent.runtime_backend=langgraph_agent; the effective mode is openai_tools."
+                ),
+                "type": "compatibility_warning",
+            }
+        )
+    return warnings
 
 
 def _format_validation_error(error: dict[str, Any]) -> dict[str, Any]:
