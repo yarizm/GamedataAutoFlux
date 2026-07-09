@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.agent.agent_history_state import summarize_session_metrics
+
 
 def build_history_recovery_warnings(
     *,
@@ -149,6 +151,69 @@ def build_agent_status_summary(
         "mcp_tool_count": len(mcp_tool_list),
         "mcp_tools": mcp_tool_list,
     }
+
+
+def summarize_agent_runtime_status(
+    *,
+    provider: str,
+    model: str,
+    available_providers: Sequence[Mapping[str, Any]],
+    runtime: Any,
+    base_tools: Sequence[Any],
+    mcp_manager: Any | None,
+    histories: Mapping[str, list[Any]],
+    timestamps: Mapping[str, float],
+    session_timeout_seconds: int,
+    max_iterations: int,
+    histories_loaded: bool,
+    history_load_failed: bool,
+    pending_history_recovery_thread_count: int,
+    mcp_enabled: bool,
+    initialized: bool,
+) -> dict[str, Any]:
+    executor_tools = runtime.get_active_tools(list(base_tools))
+    base_tool_names = [tool.name for tool in base_tools]
+    active_tool_names = [tool.name for tool in executor_tools] or base_tool_names
+    mcp_running = bool(mcp_manager and getattr(mcp_manager, "_is_running", False))
+    mcp_tools = mcp_manager.get_langchain_tools() if mcp_running else []
+    mcp_tool_names = [tool.name for tool in mcp_tools]
+    history_recovery_warnings = build_history_recovery_warnings(
+        history_load_failed=history_load_failed,
+        pending_recovery_thread_count=pending_history_recovery_thread_count,
+    )
+    session_metrics = summarize_session_metrics(
+        histories,
+        timestamps,
+        timeout_seconds=session_timeout_seconds,
+    )
+
+    return build_agent_status_summary(
+        provider=provider,
+        model=model,
+        available_providers=available_providers,
+        effective_agent_type=runtime.effective_agent_type(),
+        configured_agent_type=runtime.configured_agent_type(),
+        legacy_react_parser_enabled=runtime.uses_legacy_react_parser(),
+        compatibility_warnings=runtime.compatibility_warnings(),
+        history_recovery_warnings=history_recovery_warnings,
+        initialized=initialized,
+        runtime_backend=getattr(runtime, "backend_name", "unknown"),
+        thread_checkpoint_backend=getattr(runtime, "thread_checkpoint_backend", "disabled"),
+        thread_checkpoint_storage_path=getattr(runtime, "thread_checkpoint_storage_path", None),
+        max_iterations=max_iterations,
+        session_timeout_seconds=session_timeout_seconds,
+        histories_loaded=histories_loaded,
+        history_load_failed=history_load_failed,
+        pending_history_recovery_thread_count=pending_history_recovery_thread_count,
+        session_count=len(histories),
+        thread_count=len(histories),
+        session_metrics=session_metrics,
+        base_tool_names=base_tool_names,
+        active_tool_names=active_tool_names,
+        mcp_enabled=mcp_enabled,
+        mcp_running=mcp_running,
+        mcp_tool_names=mcp_tool_names,
+    )
 
 
 def _tool_group_name(tool_name: str) -> str:

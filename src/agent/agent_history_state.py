@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 import time
 from typing import Any
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 
 from src.agent.thread_store import AgentThreadSnapshot
 
@@ -120,6 +120,37 @@ def cap_thread_histories(
             timestamps.pop(thread_id, None)
             removed_thread_ids.append(thread_id)
     return removed_thread_ids
+
+
+def drop_thread_state(
+    histories: MutableMapping[str, list[BaseMessage]],
+    timestamps: MutableMapping[str, float],
+    thread_id: str,
+) -> None:
+    histories.pop(thread_id, None)
+    timestamps.pop(thread_id, None)
+
+
+def list_active_thread_ids(histories: Mapping[str, list[BaseMessage]]) -> list[str]:
+    return list(histories.keys())
+
+
+def render_thread_history(
+    histories: Mapping[str, list[BaseMessage]],
+    *,
+    thread_id: str,
+    redact_message_content: Callable[[Any], str],
+) -> list[dict[str, str]]:
+    rendered_history: list[dict[str, str]] = []
+    for message in histories.get(thread_id, []):
+        role = "user" if isinstance(message, HumanMessage) else "assistant"
+        rendered_history.append(
+            {
+                "role": role,
+                "content": redact_message_content(message.content),
+            }
+        )
+    return rendered_history
 
 
 def summarize_session_metrics(
