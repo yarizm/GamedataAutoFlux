@@ -14,6 +14,7 @@ from src.core.collector_metadata import (
     get_collector_metadata,
 )
 from src.core.pipeline import Pipeline
+from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
 from src.web.safety import require_explicit_confirmation, validate_dynamic_playwright_config
@@ -26,6 +27,12 @@ def _get_scheduler():
     from src.web.app import scheduler
 
     return scheduler
+
+
+def _get_dag_repo():
+    from src.web.app import get_dag_repository
+
+    return get_dag_repository()
 
 
 class PipelineStepConfig(BaseModel):
@@ -41,6 +48,42 @@ class CreatePipelineRequest(BaseModel):
 
     name: str = Field(..., description="Pipeline name")
     steps: list[PipelineStepConfig] = Field(..., description="Step list")
+
+
+class PortSpecConfig(BaseModel):
+    name: str
+    required: bool = True
+    type_hint: str = ""
+
+
+class NodeSpecConfig(BaseModel):
+    id: str
+    type: str
+    component: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+    ports_in: list[PortSpecConfig] = Field(default_factory=list)
+    ports_out: list[PortSpecConfig] = Field(default_factory=list)
+    is_param_port: list[str] = Field(default_factory=list)
+    subgraph_name: str | None = None
+
+
+class EdgeConfig(BaseModel):
+    from_node: str = Field(..., alias="from")
+    from_port: str = Field(..., alias="out")
+    to_node: str = Field(..., alias="to")
+    to_port: str = Field(..., alias="in")
+    condition: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class CreateDagRequest(BaseModel):
+    """Create DAG request."""
+
+    name: str
+    nodes: list[NodeSpecConfig]
+    edges: list[EdgeConfig] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
 
 
 class CronJobRequest(BaseModel):
@@ -82,7 +125,26 @@ async def list_pipelines():
     pipelines = {}
     for pipeline in scheduler.get_all_pipelines():
         pipelines[pipeline.name] = pipeline.to_config()
+    # 合并 DAG 图定义
+    try:
+        dag_repo = _get_dag_repo()
+        for dag in await dag_repo.list_all():
+            if dag.name not in pipelines:
+                pipelines[dag.name] = dag.to_storage()
+    except Exception:
+        pass
     return pipelines
+
+
+@router.get("/dags/{name}")
+async def get_dag(
+    name: Annotated[str, Path(description="DAG name")],
+):
+    dag_repo = _get_dag_repo()
+    dag = await dag_repo.load(name)
+    if dag is None:
+        raise HTTPException(404, f"DAG not found: {name}")
+    return dag.to_storage()
 
 
 @router.post("/pipelines")
@@ -111,6 +173,39 @@ async def create_pipeline(
 
     await scheduler.save_pipeline(pipeline)
     return {"message": f"Pipeline created: {req.name}", "config": pipeline.to_config()}
+
+
+@router.post("/dags")
+async def create_dag(
+    req: Annotated[CreateDagRequest, Body(description="DAG configuration")],
+):
+    dag = _build_dag_from_request(req)
+    await _get_dag_repo().save(dag)
+    return {"message": f"DAG created: {req.name}", "config": dag.to_storage()}
+
+
+def _build_dag_from_request(req: CreateDagRequest) -> DAG:
+    nodes = [
+        NodeSpec(
+            id=n.id,
+            type=n.type,
+            component=n.component,
+            config=n.config,
+            ports_in=[PortSpec(name=p.name, required=p.required, type_hint=p.type_hint) for p in n.ports_in],
+            ports_out=[PortSpec(name=p.name, required=p.required, type_hint=p.type_hint) for p in n.ports_out],
+            is_param_port=set(n.is_param_port),
+            subgraph_name=n.subgraph_name,
+        )
+        for n in req.nodes
+    ]
+    edges = [
+        DagEdge(
+            from_node=e.from_node, from_port=e.from_port,
+            to_node=e.to_node, to_port=e.to_port, condition=e.condition,
+        )
+        for e in req.edges
+    ]
+    return DAG(name=req.name, nodes=nodes, edges=edges)
 
 
 @router.delete("/pipelines/{name}")

@@ -79,11 +79,13 @@ def _reset_runtime_singletons(
         _worker_registry, \
         _session_registry, \
         _agent_service, \
-        _agent_session_service
+        _agent_session_service, \
+        _dag_repo
 
     _task_service = None
     _worker_registry = None
     _session_registry = None
+    _dag_repo = None
     if reset_agent:
         _agent_service = None
     if reset_agent_session:
@@ -140,6 +142,23 @@ def get_session_registry():
 
                     _session_registry = InMemorySessionRegistry()
     return _session_registry
+
+
+_dag_repo = None
+_dag_repo_lock = threading.Lock()
+
+
+def get_dag_repository():
+    """获取 DAG 仓储单例（lazy init，复用共享 session factory）。"""
+    global _dag_repo
+    if _dag_repo is None:
+        with _dag_repo_lock:
+            if _dag_repo is None:
+                from src.services.sqlalchemy_dag_repository import SQLAlchemyDAGRepository
+                from src.storage.session_factory import get_session_factory
+
+                _dag_repo = SQLAlchemyDAGRepository(get_session_factory())
+    return _dag_repo
 
 
 # 模板引擎
@@ -263,6 +282,18 @@ async def lifespan(app: FastAPI):
     )
 
     await scheduler.start()
+    # 自动迁移检测：旧 pipeline 快照转 graph，只转不删
+    try:
+        from scripts.migrate_pipelines_to_dag import migrate_pipelines_to_dag
+
+        migration = await migrate_pipelines_to_dag(session_factory)
+        if migration["migrated"]:
+            logger.info(f"自动迁移 {len(migration['migrated'])} 个 pipeline 到 DAG: {migration['migrated']}")
+        if migration["failed"]:
+            logger.warning(f"自动迁移失败的 pipeline: {migration['failed']}")
+    except Exception as exc:
+        logger.warning(f"自动迁移检测失败（不阻断启动）: {exc}")
+
     _reset_runtime_singletons(reset_agent=True)
     logger.info("GamedataAutoFlux 启动完成 ✓")
 

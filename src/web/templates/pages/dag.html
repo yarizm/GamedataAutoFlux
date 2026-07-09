@@ -1,0 +1,32 @@
+<section class="tab-content" id="tab-dag">
+            <div class="section-header">
+                <h1>DAG 编辑器</h1>
+                <div class="flex items-center gap-2">
+                    <input id="dag-name-input" type="text" placeholder="DAG 名称" class="input h-9 w-40 text-sm" />
+                    <button class="btn btn-primary" onclick="dagSaveGraph()" id="btn-save-dag">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        保存 DAG
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-12 gap-4">
+                <div class="col-span-3 card bg-zinc-900 border-white/5 rounded-2xl p-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-sm uppercase mb-3">节点库</h2>
+                    <div id="dag-palette" class="space-y-2">
+                        <p class="text-zinc-600 text-xs">加载中...</p>
+                    </div>
+                </div>
+
+                <div class="col-span-9 card bg-zinc-900 border-white/5 rounded-2xl p-0 overflow-hidden">
+                    <div class="card-header px-4 pt-4 pb-2 border-b border-white/5 flex items-center justify-between">
+                        <h2 class="text-zinc-100 font-bold tracking-tight text-sm uppercase">画布</h2>
+                        <span class="text-zinc-600 text-[10px]">点击节点库添加 · 拖拽节点端口连线</span>
+                    </div>
+                    <div id="dag-canvas-wrap" class="relative" style="height: 60vh;">
+                        <svg id="dag-edges-svg" class="absolute inset-0 w-full h-full pointer-events-none"></svg>
+                        <div id="dag-canvas" class="absolute inset-0 w-full h-full"></div>
+                    </div>
+                </div>
+            </div>
+        </section>

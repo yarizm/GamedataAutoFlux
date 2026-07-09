@@ -67,3 +67,105 @@ def test_create_pipeline_missing_steps():
     with TestClient(app) as client:
         resp = client.post("/api/pipelines", json={"name": "bad_pipeline"})
         assert resp.status_code == 422  # validation error
+
+
+def test_create_and_get_dag():
+    dag_name = "__test_dag_api__"
+    payload = {
+        "name": dag_name,
+        "nodes": [
+            {
+                "id": "src",
+                "type": "collector",
+                "component": "steam",
+                "ports_out": [{"name": "records"}],
+            },
+            {
+                "id": "store",
+                "type": "storage",
+                "component": "sqlalchemy",
+                "ports_in": [{"name": "records"}],
+            },
+        ],
+        "edges": [
+            {"from": "src", "out": "records", "to": "store", "in": "records"},
+        ],
+    }
+    with TestClient(app) as client:
+        resp = client.post("/api/dags", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert dag_name in body.get("message", "")
+        assert body["config"]["name"] == dag_name
+        assert body["config"]["kind"] == "dag"
+        assert len(body["config"]["nodes"]) == 2
+        assert len(body["config"]["edges"]) == 1
+
+        got = client.get(f"/api/dags/{dag_name}")
+        assert got.status_code == 200
+        data = got.json()
+        assert data["name"] == dag_name
+        assert data["kind"] == "dag"
+        assert any(n["id"] == "src" for n in data["nodes"])
+
+        listed = client.get("/api/pipelines")
+        assert listed.status_code == 200
+        assert dag_name in listed.json()
+
+
+def test_get_missing_dag_returns_404():
+    with TestClient(app) as client:
+        resp = client.get("/api/dags/__nonexistent_dag__")
+        assert resp.status_code == 404
+
+
+def test_create_dag_with_condition_edge():
+    dag_name = "__test_dag_condition__"
+    payload = {
+        "name": dag_name,
+        "nodes": [
+            {
+                "id": "primary",
+                "type": "collector",
+                "component": "steam",
+                "ports_out": [{"name": "records"}],
+            },
+            {
+                "id": "fallback",
+                "type": "collector",
+                "component": "taptap",
+                "ports_out": [{"name": "records"}],
+            },
+            {
+                "id": "store",
+                "type": "storage",
+                "component": "sqlalchemy",
+                "ports_in": [{"name": "records"}],
+            },
+        ],
+        "edges": [
+            {
+                "from": "primary",
+                "out": "records",
+                "to": "store",
+                "in": "records",
+                "condition": "on_success",
+            },
+            {
+                "from": "fallback",
+                "out": "records",
+                "to": "store",
+                "in": "records",
+                "condition": "on_failure",
+            },
+        ],
+        "conditions": ["on_success", "on_failure"],
+    }
+    with TestClient(app) as client:
+        resp = client.post("/api/dags", json=payload)
+        assert resp.status_code == 200
+        got = client.get(f"/api/dags/{dag_name}")
+        assert got.status_code == 200
+        edges = got.json()["edges"]
+        assert any(e.get("condition") == "on_success" for e in edges)
+        assert any(e.get("condition") == "on_failure" for e in edges)

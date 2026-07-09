@@ -23,6 +23,7 @@ const pages = {
   data: () => import('./pages/data/index.js'),
   reports: () => import('./pages/reports/index.js'),
   cron: () => import('./pages/cron/index.js'),
+  dag: () => import('./pages/dag/index.js'),
   agent: () => import('./pages/agent/index.js'),
   system: () => import('./pages/system/index.js'),
 };

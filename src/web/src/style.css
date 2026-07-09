@@ -469,3 +469,22 @@
   .provider-config-delete:hover {
     @apply bg-rose-500/10 border-rose-500/30 text-rose-400;
   }
+
+  /* DAG 编辑器 */
+  .dag-port {
+    @apply w-3 h-3 rounded-full border-2 border-zinc-500 bg-zinc-700 cursor-pointer transition-all;
+  }
+  .dag-port:hover {
+    @apply border-sky-400 bg-sky-500/30 scale-125;
+  }
+  .dag-port-in { @apply -ml-1.5; }
+  .dag-port-out { @apply -mr-1.5; }
+  .dag-node-card {
+    @apply transition-shadow;
+  }
+  .dag-node-card:hover {
+    @apply shadow-[0_0_20px_rgba(56,189,248,0.15)];
+  }
+  .dag-palette-item {
+    @apply cursor-pointer;
+  }

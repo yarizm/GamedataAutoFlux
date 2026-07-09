@@ -130,6 +130,14 @@ class ComponentRegistry:
         """清除所有注册（测试用）"""
         self._registry.clear()
 
+    def snapshot(self) -> dict[str, dict[str, Type]]:
+        """快照当前注册表（测试用，配合 restore 做隔离）。"""
+        return {t: dict(names) for t, names in self._registry.items()}
+
+    def restore(self, snapshot: dict[str, dict[str, Type]]) -> None:
+        """从快照恢复注册表（测试用）。"""
+        self._registry = {t: dict(names) for t, names in snapshot.items()}
+
 
 # 全局注册中心实例
 registry = ComponentRegistry()

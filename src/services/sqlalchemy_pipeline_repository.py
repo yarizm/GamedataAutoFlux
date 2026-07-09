@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.pipeline import Pipeline
+from src.core.dag import DAG, pipeline_to_dag
 from src.services.pipeline_repository import PipelineRepository
 from src.storage.models import SchedulerStateModel
 
@@ -88,3 +89,27 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
                         logger.warning(f"Skipping malformed pipeline record {r.key}: {exc}")
                         continue
             return pipelines
+
+    async def load_as_dag(self, name: str) -> DAG | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(SchedulerStateModel).where(SchedulerStateModel.key == f"graph:{name}")
+            )
+            rec = result.scalars().first()
+            if rec is not None and isinstance(rec.data, dict):
+                try:
+                    return DAG.from_storage(rec.data)
+                except Exception as exc:
+                    logger.warning(f"Failed to load graph {name}: {exc}")
+            result = await session.execute(
+                select(SchedulerStateModel).where(SchedulerStateModel.key == f"pipeline:{name}")
+            )
+            rec = result.scalars().first()
+            if rec is None or not isinstance(rec.data, dict):
+                return None
+            try:
+                pipeline = Pipeline.from_config(rec.data)
+                return pipeline_to_dag(pipeline)
+            except Exception as exc:
+                logger.warning(f"Failed to convert legacy pipeline {name}: {exc}")
+                return None

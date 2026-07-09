@@ -49,6 +49,8 @@ class WorkerClaimTaskResponse(BaseModel):
     blocked_sessions: list[dict[str, Any]] = Field(default_factory=list)
     task: dict[str, Any] | None = None
     pipeline: dict[str, Any] | None = None
+    graph: dict[str, Any] | None = None
+    payload_version: str = "1"
     latest_checkpoint: dict[str, Any] | None = None
     collector_metadata: dict[str, Any] = Field(default_factory=dict)
     session_diagnostics: dict[str, Any] = Field(default_factory=dict)

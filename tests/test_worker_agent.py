@@ -448,6 +448,190 @@ async def test_worker_agent_reports_blocked_claim_status_in_heartbeat() -> None:
 
 
 @pytest.mark.asyncio
+async def test_claim_payload_includes_graph_and_payload_version() -> None:
+    """worker_claim 响应应带 graph 快照与 payload_version=2。"""
+    scheduler = Scheduler(
+        max_concurrent=1,
+        task_repo=InMemoryTaskRepository(),
+        task_event_service=InMemoryTaskEventService(),
+        task_checkpoint_service=InMemoryTaskCheckpointService(),
+        execution_backend="worker_claim",
+    )
+    scheduler._started = True
+    scheduler._pipelines["graph_claim_pipeline"] = (
+        Pipeline("graph_claim_pipeline")
+        .add_collector("worker_agent_test")
+        .add_storage("sqlalchemy")
+    )
+    await scheduler.submit(
+        Task(
+            id="claim-graph-payload",
+            name="Claim Graph Payload",
+            pipeline_name="graph_claim_pipeline",
+            collector_name="worker_agent_test",
+            targets=[TaskTarget(name="GameX")],
+        ),
+        pipeline_name="graph_claim_pipeline",
+    )
+
+    claim = await scheduler.claim_task_for_worker(
+        "worker-graph-claim",
+        capabilities=["worker_agent_test"],
+    )
+    assert claim is not None
+    assert claim["payload_version"] == "2"
+    assert isinstance(claim["graph"], dict)
+    assert claim["graph"].get("kind") == "dag"
+    assert claim["graph"].get("name") == "graph_claim_pipeline"
+    assert any(n.get("type") == "collector" for n in claim["graph"].get("nodes", []))
+    # 旧 pipeline 字段仍保留兼容
+    assert isinstance(claim.get("pipeline"), dict)
+
+
+@pytest.mark.asyncio
+async def test_worker_executes_graph_payload_without_pipeline(isolated_db_config) -> None:
+    """Worker 仅有 graph payload（无 pipeline 字段）时走 DAGExecutor 并 complete。"""
+    from src.core.dag import pipeline_to_dag
+
+    pipeline = (
+        Pipeline("graph_only_wp")
+        .add_collector("worker_agent_test")
+        .add_storage("sqlalchemy")
+    )
+    dag = pipeline_to_dag(pipeline)
+    task = Task(
+        id="graph-only-task",
+        name="Graph Only Task",
+        targets=[TaskTarget(name="GameGraph")],
+    )
+    claim = {
+        "task_id": task.id,
+        "payload_version": "2",
+        "task": task.to_storage_payload(),
+        "graph": dag.to_storage(),
+        # 故意不带 pipeline
+    }
+
+    completed: list[dict] = []
+    failed: list[dict] = []
+
+    async def fake_request(method: str, path: str, **kwargs):
+        body = kwargs.get("json") or {}
+        if path.endswith("/complete"):
+            completed.append(body)
+            return {"ok": True}
+        if path.endswith("/fail"):
+            failed.append(body)
+            return {"ok": True}
+        return {"ok": True}
+
+    agent = WorkerAgent(
+        WorkerAgentConfig(
+            base_url="http://testserver",
+            worker_id="worker-graph-exec",
+            capabilities=["worker_agent_test"],
+        )
+    )
+    agent._request = fake_request  # type: ignore[method-assign]
+
+    await agent._execute_claim(claim)
+
+    assert not failed, f"unexpected fail: {failed}"
+    assert len(completed) == 1
+    result = completed[0]["result"]
+    assert result["success"] is True
+    assert result.get("storage_count", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_worker_falls_back_to_legacy_pipeline_payload(isolated_db_config) -> None:
+    """无 graph 时回退 pipeline 字段执行。"""
+    pipeline = (
+        Pipeline("legacy_wp")
+        .add_collector("worker_agent_test")
+        .add_storage("sqlalchemy")
+    )
+    task = Task(
+        id="legacy-pipeline-task",
+        name="Legacy Pipeline Task",
+        targets=[TaskTarget(name="GameLegacy")],
+    )
+    claim = {
+        "task_id": task.id,
+        "payload_version": "1",
+        "task": task.to_storage_payload(),
+        "pipeline": pipeline.to_config(),
+        # 无 graph
+    }
+
+    completed: list[dict] = []
+    failed: list[dict] = []
+
+    async def fake_request(method: str, path: str, **kwargs):
+        body = kwargs.get("json") or {}
+        if path.endswith("/complete"):
+            completed.append(body)
+            return {"ok": True}
+        if path.endswith("/fail"):
+            failed.append(body)
+            return {"ok": True}
+        return {"ok": True}
+
+    agent = WorkerAgent(
+        WorkerAgentConfig(
+            base_url="http://testserver",
+            worker_id="worker-legacy-exec",
+            capabilities=["worker_agent_test"],
+        )
+    )
+    agent._request = fake_request  # type: ignore[method-assign]
+
+    await agent._execute_claim(claim)
+
+    assert not failed, f"unexpected fail: {failed}"
+    assert len(completed) == 1
+    assert completed[0]["result"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_claim_missing_graph_and_pipeline() -> None:
+    """graph 与 pipeline 皆缺失时应 fail 上报。"""
+    task = Task(id="missing-payload-task", name="Missing Payload", targets=[])
+    claim = {
+        "task_id": task.id,
+        "task": task.to_storage_payload(),
+    }
+
+    invalid: list[dict] = []
+    failed: list[dict] = []
+
+    async def fake_request(method: str, path: str, **kwargs):
+        body = kwargs.get("json") or {}
+        if path.endswith("/fail"):
+            failed.append(body)
+            return {"ok": True}
+        if "complete" in path:
+            return {"ok": True}
+        return {"ok": True}
+
+    agent = WorkerAgent(
+        WorkerAgentConfig(
+            base_url="http://testserver",
+            worker_id="worker-missing-payload",
+        )
+    )
+    agent._request = fake_request  # type: ignore[method-assign]
+
+    # _report_invalid_claim 最终走 fail 路径
+    await agent._execute_claim(claim)
+
+    assert failed
+    assert "graph" in failed[0].get("error", "").lower() or "pipeline" in failed[0].get(
+        "error", ""
+    ).lower() or "missing" in failed[0].get("error", "").lower()
+
+
+@pytest.mark.asyncio
 async def test_worker_agent_heartbeat_loop_recovers_after_transient_failure() -> None:
     heartbeat_attempts = 0
     recovered = asyncio.Event()

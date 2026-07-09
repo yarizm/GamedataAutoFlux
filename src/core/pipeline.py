@@ -299,7 +299,141 @@ class Pipeline:
         *,
         recovery_checkpoint: dict[str, Any] | None = None,
     ) -> PipelineResult:
-        """Execute the configured pipeline for one task."""
+        """Execute the configured pipeline for one task.
+
+        默认委托 DAGExecutor 执行（pipeline_to_dag 转换后跑通用 DAG 引擎）。
+        若 DAG 执行抛出异常，回退到原三段式逻辑以保证健壮性。
+        """
+        if self._should_use_dag_execution():
+            try:
+                return await self._execute_via_dag(task, recovery_checkpoint=recovery_checkpoint)
+            except Exception as exc:
+                logger.warning(
+                    f"Pipeline [{self.name}] DAG execution failed, falling back to legacy path: {exc}"
+                )
+        return await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
+
+    def _should_use_dag_execution(self) -> bool:
+        """是否走 DAG 委托路径。受配置开关控制，默认开启。"""
+        from src.core.config import get as get_config
+
+        return bool(get_config("pipeline.use_dag_execution", True))
+
+    async def _execute_via_dag(
+        self,
+        task: Task,
+        *,
+        recovery_checkpoint: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        """委托 DAGExecutor 执行，结果映射回 PipelineResult。"""
+        from src.core.dag import pipeline_to_dag
+        from src.core.dag_executor import DAGExecutor
+
+        dag = pipeline_to_dag(self)
+        executor = DAGExecutor()
+        node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
+
+        async def _on_event(task_id, node_spec, phase, *, out=None, error=None):
+            event_type = node_type_to_event.get(node_spec.type, node_spec.type)
+            if phase == "start":
+                payload: dict[str, Any] = {
+                    "status": "started",
+                    "component": node_spec.component,
+                }
+                if node_spec.type == "collector":
+                    payload["targets_count"] = len(task.targets)
+                await self._emit_event(task_id, event_type, f"{event_type} started", payload=payload)
+            elif phase == "complete":
+                records = (out or {}).get("records", []) if node_spec.type != "storage" else []
+                if node_spec.type == "collector":
+                    success_count = sum(1 for r in records if getattr(r, "success", False))
+                    failed_count = len(records) - success_count
+                    payload = {
+                        "status": "succeeded" if not failed_count else "failed",
+                        "component": node_spec.component,
+                        "targets_count": len(records),
+                        "success_count": success_count,
+                        "failed_count": failed_count,
+                        "error": None,
+                    }
+                    level = "warning" if failed_count else "info"
+                    await self._emit_event(
+                        task_id, event_type,
+                        f"Collect complete: {success_count}/{len(records)} succeeded",
+                        level=level, payload=payload,
+                    )
+                elif node_spec.type == "processor":
+                    await self._emit_event(
+                        task_id, event_type, "Process complete",
+                        payload={"status": "succeeded", "component": node_spec.component},
+                    )
+                elif node_spec.type == "storage":
+                    await self._emit_event(
+                        task_id, event_type, "Storage complete",
+                        payload={
+                            "status": "succeeded",
+                            "component": node_spec.component,
+                            "stored_count": (out or {}).get("_stored", 0),
+                        },
+                    )
+            elif phase == "error":
+                await self._emit_event(
+                    task_id, event_type, f"{event_type} failed: {error}",
+                    level="error",
+                    payload={"status": "failed", "component": node_spec.component, "error": error},
+                )
+
+        dag_result = await executor.execute(
+            task,
+            dag,
+            recovery_checkpoint=recovery_checkpoint,
+            on_progress=self._report_progress,
+            on_event=_on_event,
+        )
+        result = self._map_dag_result_to_pipeline_result(dag_result)
+        # 发 pipeline 总结事件（复刻 _finalize_success 的契约）
+        await self._emit_event(
+            task.id,
+            "pipeline",
+            f"Pipeline {'succeeded' if result.success else 'partially failed'}",
+            level="info" if result.success else "warning",
+            payload={
+                "status": "succeeded" if result.success else "failed",
+                "collect_count": len(result.collect_results),
+                "storage_count": result.storage_count,
+                "duration_seconds": result.duration_seconds,
+                "resume_state": result.resume_state,
+            },
+        )
+        await self._report_progress(task.id, 1.0, "Pipeline completed")
+        return result
+
+    def _map_dag_result_to_pipeline_result(self, dag_result: Any) -> PipelineResult:
+        """逐字段把 DAGResult 映射回 PipelineResult。"""
+        return PipelineResult(
+            pipeline_name=dag_result.pipeline_name,
+            task_id=dag_result.task_id,
+            success=dag_result.success,
+            collect_results=list(dag_result.collect_results),
+            process_results=list(dag_result.process_results),
+            output_records=list(dag_result.output_records),
+            storage_count=dag_result.storage_count,
+            resume_state=dag_result.resume_state,
+            generated_report_id=dag_result.generated_report_id,
+            generated_report_title=dag_result.generated_report_title,
+            generated_report_matched_records=dag_result.generated_report_matched_records,
+            started_at=dag_result.started_at,
+            completed_at=dag_result.completed_at,
+            errors=list(dag_result.errors),
+        )
+
+    async def _execute_legacy(
+        self,
+        task: Task,
+        *,
+        recovery_checkpoint: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        """原三段式执行逻辑（DAG 委托失败时的回退路径）。"""
         result = PipelineResult(pipeline_name=self.name, task_id=task.id)
         collector_steps = self._get_collectors()
         processor_steps = self._get_processors()

@@ -14,6 +14,7 @@ from src.core.collector_metadata import (
 )
 from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.pipeline import Pipeline, PipelineResult
+from src.core.dag import pipeline_to_dag
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.storage.base import StorageRecord
@@ -164,6 +165,8 @@ class WorkerClaimCoordinator:
             "blocked_sessions": blocked_sessions,
             "task": task.to_storage_payload(),
             "pipeline": pipeline.to_config(),
+            "graph": pipeline_to_dag(pipeline).to_storage() if pipeline is not None else None,
+            "payload_version": "2",
             "latest_checkpoint": latest_checkpoint_payload,
             "collector_metadata": (
                 collector_metadata_payload(collector_name) if collector_metadata is not None else {}

@@ -195,16 +195,36 @@ class WorkerAgent:
     async def _execute_claim(self, claim: dict[str, Any]) -> None:
         claim_task_id = redact_sensitive_text(str(claim.get("task_id") or "")).strip()
         task_payload = claim.get("task")
+
+        # 优先 graph payload，回退 pipeline
+        graph_payload = claim.get("graph")
         pipeline_payload = claim.get("pipeline")
-        if not isinstance(task_payload, dict) or not isinstance(pipeline_payload, dict):
-            safe_error = "Invalid claim payload: missing task or pipeline snapshot"
+        if not isinstance(task_payload, dict):
+            safe_error = "Invalid claim payload: missing task"
+            logger.warning("Worker {} received invalid claim payload", self.worker_id)
+            await self._report_invalid_claim(claim_task_id, safe_error)
+            return
+
+        from src.core.dag import DAG, pipeline_to_dag
+        from src.core.dag_executor import DAGExecutor
+
+        if isinstance(graph_payload, dict):
+            dag = DAG.from_storage(graph_payload)
+            use_graph = True
+        elif isinstance(pipeline_payload, dict):
+            dag = pipeline_to_dag(Pipeline.from_config(pipeline_payload))
+            use_graph = False
+        else:
+            safe_error = "Invalid claim payload: missing graph or pipeline snapshot"
             logger.warning("Worker {} received invalid claim payload", self.worker_id)
             await self._report_invalid_claim(claim_task_id, safe_error)
             return
 
         try:
             task = Task.from_storage_payload(task_payload)
-            pipeline = Pipeline.from_config(pipeline_payload)
+            if not use_graph:
+                pipeline = Pipeline.from_config(pipeline_payload)
+                self._bind_pipeline_callbacks(pipeline, task.id)
         except Exception as exc:
             safe_error = f"Invalid claim payload: {redact_sensitive_text(str(exc))}"
             logger.error(
@@ -216,18 +236,25 @@ class WorkerAgent:
             await self._report_invalid_claim(claim_task_id, safe_error)
             return
 
-        self._bind_pipeline_callbacks(pipeline, task.id)
         self._current_task_id = task.id
-        result: PipelineResult | None = None
+        result: Any = None
         latest_checkpoint = claim.get("latest_checkpoint")
 
         try:
-            result = await pipeline.execute(
-                task,
-                recovery_checkpoint=latest_checkpoint
-                if isinstance(latest_checkpoint, dict)
-                else None,
-            )
+            if use_graph:
+                executor = DAGExecutor()
+                on_progress, on_event = self._build_dag_callbacks(task.id)
+                result = await executor.execute(
+                    task, dag,
+                    recovery_checkpoint=latest_checkpoint if isinstance(latest_checkpoint, dict) else None,
+                    on_progress=on_progress,
+                    on_event=on_event,
+                )
+            else:
+                result = await pipeline.execute(
+                    task,
+                    recovery_checkpoint=latest_checkpoint if isinstance(latest_checkpoint, dict) else None,
+                )
             payload = self._serialize_pipeline_result(result)
             if result.success:
                 await self._request(
@@ -298,6 +325,11 @@ class WorkerAgent:
         )
 
     def _bind_pipeline_callbacks(self, pipeline: Pipeline, task_id: str) -> None:
+        on_progress, on_event = self._build_pipeline_callbacks(task_id)
+        pipeline.on_progress(on_progress)
+        pipeline.on_event(on_event)
+
+    def _build_pipeline_callbacks(self, task_id: str):
         async def on_progress(_task_id: str, progress: float, message: str) -> None:
             await self._append_event(
                 task_id,
@@ -321,8 +353,43 @@ class WorkerAgent:
                 payload=payload or {},
             )
 
-        pipeline.on_progress(on_progress)
-        pipeline.on_event(on_event)
+        return on_progress, on_event
+
+    def _build_dag_callbacks(self, task_id: str):
+        """DAGExecutor 回调：on_progress + on_event(node 通知翻译成 pipeline 契约事件)。"""
+        node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
+
+        async def on_progress(_task_id: str, progress: float, message: str) -> None:
+            await self._append_event(
+                task_id,
+                event_type="progress",
+                message=message or "Worker progress update",
+                payload={"progress": progress},
+            )
+
+        async def on_event(_task_id, node_spec, phase, *, out=None, error=None) -> None:
+            node_id = getattr(node_spec, "id", str(node_spec))
+            node_type = getattr(node_spec, "type", "node")
+            event_type = node_type_to_event.get(node_type, "node")
+            status = {"start": "started", "complete": "succeeded", "error": "failed"}.get(phase, phase)
+            level = "error" if phase == "error" else "info"
+            payload: dict[str, Any] = {
+                "node_id": node_id, "node_type": node_type,
+                "status": status, "component": getattr(node_spec, "component", ""),
+            }
+            if phase == "complete" and out is not None:
+                if node_type == "storage":
+                    payload["stored_count"] = out.get("_stored", 0)
+                else:
+                    payload["count"] = len(out.get("records", []))
+            if error is not None:
+                payload["error"] = error
+            await self._append_event(
+                task_id, event_type=event_type, level=level,
+                message=f"{event_type} {status}: {node_id}", payload=payload,
+            )
+
+        return on_progress, on_event
 
     async def _append_event(
         self,
