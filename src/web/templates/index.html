@@ -200,6 +200,24 @@
                     </div>
                 </div>
 
+                <div id="task-youtube-profiles-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-yt-profiles-txt">上传 TXT 文件（每行一个 YouTube 频道链接）</label>
+                        <input type="file" id="task-yt-profiles-txt" accept=".txt" onchange="importYouTubeTargets('youtube_profiles', 'youtube_channel')">
+                        <small class="text-muted block mt-1">支持格式：/channel/UCxxx、/ @handle、/user/name。跳过 # 注释行和空行。</small>
+                    </div>
+                    <div id="task-yt-profiles-preview" class="hidden mt-3 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                </div>
+
+                <div id="task-youtube-comments-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-yt-comments-txt">上传 TXT 文件（每行一个 YouTube 视频链接）</label>
+                        <input type="file" id="task-yt-comments-txt" accept=".txt" onchange="importYouTubeTargets('youtube_comments', 'youtube_video')">
+                        <small class="text-muted block mt-1">支持格式：youtube.com/watch?v=、youtu.be/、/shorts/。跳过 # 注释行和空行。</small>
+                    </div>
+                    <div id="task-yt-comments-preview" class="hidden mt-3 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                </div>
+
                 </div>
 
                 <!-- Step 3: Report options + submit -->

@@ -299,7 +299,7 @@ export default {
     } catch (err) { if (preview) preview.textContent = `Load failed: ${err.message}`; }
   },
 
-  _download(key) { window.open(`/api/data/records/${encodeURIComponent(key)}/download`, '_blank'); },
+  _download(key) { window.open(`/api/data/records/download?key=${encodeURIComponent(key)}`, '_blank'); },
 
   async _edit(key) {
     const record = currentDataRecords.find(r => r.key === key) || {};
@@ -359,7 +359,7 @@ export default {
 
   async _refresh(key) {
     try {
-      const resp = await api(`/data/records/${encodeURIComponent(key)}/refresh`, { method: 'POST', body: JSON.stringify({ rolling_window: true }) });
+      const resp = await api(`/data/records/refresh?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify({ rolling_window: true }) });
       toast(`Refresh task submitted: ${resp.task_id}`, 'success');
       window.activateTab && window.activateTab('tasks', this.store);
       window.loadTasks && window.loadTasks();
@@ -372,7 +372,7 @@ export default {
     const name = prompt('Schedule name', `refresh_${key.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48)}`);
     if (!name) return;
     try {
-      await api(`/data/records/${encodeURIComponent(key)}/refresh-schedules`, { method: 'POST', body: JSON.stringify({ name, cron_expr: cronExpr, rolling_window: true }) });
+      await api(`/data/records/refresh-schedules?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify({ name, cron_expr: cronExpr, rolling_window: true }) });
       toast('Refresh schedule created', 'success');
       window.loadCronJobs && window.loadCronJobs();
     } catch (err) { toast(`Schedule failed: ${err.message}`, 'error'); }
@@ -428,6 +428,42 @@ export default {
       toast(`Exported ${result.count} records`, 'success');
     } catch (err) { toast(`Batch export failed: ${err.message}`, 'error'); }
   },
+
+  async _batchExportXlsx() {
+    if (selectedDataRecordKeys.size === 0) return;
+    const taskIds = new Set();
+    const collectors = new Set();
+    for (const key of selectedDataRecordKeys) {
+      const record = currentDataRecords.find(r => r.key === key);
+      if (record?.task_id) taskIds.add(record.task_id);
+      else {
+        // Fallback for legacy records: key format is task_id:source:index.
+        const parts = key.split(':');
+        if (parts.length >= 1) taskIds.add(parts[0]);
+      }
+      if (record?.collector) collectors.add(record.collector);
+    }
+    if (collectors.size !== 1) { toast('请选择同一种 YouTube 数据源导出', 'error'); return; }
+    const collector = Array.from(collectors)[0] || '';
+    if (!['youtube_profiles', 'youtube_comments'].includes(collector)) {
+      toast('XLSX 导出仅支持 YouTube 博主信息和评论数据', 'error');
+      return;
+    }
+    try {
+      const resp = await api('/data/export/youtube', {
+        method: 'POST',
+        body: JSON.stringify({
+          collector: collector,
+          task_ids: Array.from(taskIds),
+          format: 'xlsx',
+        }),
+      });
+      if (resp.download_url) {
+        window.open(resp.download_url, '_blank');
+        toast(`已导出 ${resp.record_count} 条记录`, 'success');
+      }
+    } catch (err) { toast(`XLSX 导出失败: ${err.message}`, 'error'); }
+  },
 };
 
 // Global exports
@@ -452,3 +488,4 @@ window.changePageSize = function (s) { if (window._dataPage) window._dataPage._c
 window.batchDeleteSelected = function () { if (window._dataPage) window._dataPage._batchDelete(); };
 window.batchAddToReport = function () { if (window._dataPage) window._dataPage._batchAddToReport(); };
 window.batchExportSelected = function () { if (window._dataPage) window._dataPage._batchExport(); };
+window.batchExportXlsx = function () { if (window._dataPage) window._dataPage._batchExportXlsx(); };

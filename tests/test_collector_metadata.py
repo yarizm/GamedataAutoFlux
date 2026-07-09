@@ -39,6 +39,20 @@ def test_collector_metadata_covers_pipeline_template_collectors() -> None:
     ]
 
 
+def test_youtube_collectors_define_targets_and_api_key_credentials() -> None:
+    profiles = get_collector_metadata("youtube_profiles")
+    comments = get_collector_metadata("youtube_comments")
+
+    assert profiles is not None
+    assert comments is not None
+    assert profiles.credential_profiles == ["youtube_api_key"]
+    assert comments.credential_profiles == ["youtube_api_key"]
+    assert profiles.target_schema.required_fields == [
+        "target.params.channel_url or target.params.channel_id or target.params.handle"
+    ]
+    assert comments.target_schema.required_fields == ["target.params.video_url"]
+
+
 def test_task_precheck_uses_collector_metadata_for_required_fields() -> None:
     with TestClient(app) as client:
         response = client.post(
@@ -86,6 +100,73 @@ def test_task_precheck_preserves_steam_app_id_warning() -> None:
     assert payload["can_submit"] is True
     assert payload["collector_metadata"]["collector_id"] == "steam"
     assert any(issue["code"] == "missing_steam_app_id" for issue in payload["issues"])
+
+
+def test_task_precheck_blocks_youtube_when_api_keys_are_missing(monkeypatch) -> None:
+    def fake_get_config(key: str, default=None):
+        if key == "youtube.api_keys":
+            return ["${YOUTUBE_API_KEY_1}", ""]
+        return default
+
+    monkeypatch.setattr("src.services.task_precheck_service.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+
+    scheduler = Scheduler()
+    scheduler._pipelines["youtube_profiles_test"] = Pipeline(
+        "youtube_profiles_test"
+    ).add_collector("youtube_profiles")
+    service = TaskService(scheduler)
+
+    precheck = service.precheck(
+        name="YouTube profiles",
+        pipeline_name="youtube_profiles_test",
+        targets=[
+            {
+                "name": "Example Channel",
+                "target_type": "youtube_channel",
+                "params": {"channel_url": "https://www.youtube.com/@example"},
+            }
+        ],
+    )
+
+    assert precheck.status == "error"
+    assert precheck.can_submit is False
+    assert precheck.collector_name == "youtube_profiles"
+    assert precheck.credential_status["youtube.api_keys"] == "missing"
+    assert any(issue.code == "missing_youtube_api_key" for issue in precheck.issues)
+
+
+def test_task_precheck_validates_youtube_comment_targets(monkeypatch) -> None:
+    def fake_get_config(key: str, default=None):
+        if key == "youtube.api_keys":
+            return ["configured-key"]
+        return default
+
+    monkeypatch.setattr("src.services.task_precheck_service.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+
+    scheduler = Scheduler()
+    scheduler._pipelines["youtube_comments_test"] = Pipeline(
+        "youtube_comments_test"
+    ).add_collector("youtube_comments")
+    service = TaskService(scheduler)
+
+    precheck = service.precheck(
+        name="YouTube comments",
+        pipeline_name="youtube_comments_test",
+        targets=[
+            {
+                "name": "Missing Video",
+                "target_type": "youtube_video",
+                "params": {},
+            }
+        ],
+    )
+
+    assert precheck.status == "error"
+    assert precheck.required_fields == ["target.params.video_url"]
+    assert precheck.credential_status["youtube.api_keys"] == "configured"
+    assert any(issue.code == "missing_youtube_video_url" for issue in precheck.issues)
 
 
 def test_task_precheck_reports_l1_checkpoint_recovery_for_gtrends() -> None:

@@ -81,6 +81,8 @@ function updateTaskTargetFields() {
     const monitorFields = document.getElementById("task-monitor-fields");
     const qimaiFields = document.getElementById("task-qimai-fields");
     const officialSiteFields = document.getElementById("task-official-site-fields");
+    const youtubeProfilesFields = document.getElementById("task-youtube-profiles-fields");
+    const youtubeCommentsFields = document.getElementById("task-youtube-comments-fields");
     const helper = document.getElementById("task-target-helper");
 
     if (steamFields) {
@@ -101,6 +103,12 @@ function updateTaskTargetFields() {
     if (officialSiteFields) {
         officialSiteFields.style.display = collector === "official_site" ? "block" : "none";
     }
+    if (youtubeProfilesFields) {
+        youtubeProfilesFields.style.display = collector === "youtube_profiles" ? "block" : "none";
+    }
+    if (youtubeCommentsFields) {
+        youtubeCommentsFields.style.display = collector === "youtube_comments" ? "block" : "none";
+    }
     if (helper) {
         if (collector === "taptap") {
             helper.textContent = "TapTap v1 expects a public mainland page URL or app ID.";
@@ -112,6 +120,10 @@ function updateTaskTargetFields() {
             helper.textContent = "Qimai tasks use qimai_app_id (App Store ID or Package Name).";
         } else if (collector === "official_site") {
             helper.textContent = "Official site tasks use target name plus official_url, or advanced JSON targets.";
+        } else if (collector === "youtube_profiles") {
+            helper.textContent = "YouTube profile tasks use an imported TXT list of channel URLs, IDs, or handles.";
+        } else if (collector === "youtube_comments") {
+            helper.textContent = "YouTube comment tasks use an imported TXT list of video URLs.";
         } else {
             helper.textContent = "Steam tasks use target name + app id, or advanced JSON targets.";
         }
@@ -246,6 +258,10 @@ function buildTaskTargetsFromForm(formState) {
                 },
             },
         ];
+    }
+
+    if (collector === "youtube_profiles" || collector === "youtube_comments") {
+        return window._importedYouTubeTargetsByCollector?.[collector] || [];
     }
 
     if (!targetName && !appId) {
@@ -590,5 +606,55 @@ async function viewTaskDetail(id) {
         `;
     } catch (err) {
         container.innerHTML = `<p style="color: var(--danger);">Load failed: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
+window._importedYouTubeTargets = window._importedYouTubeTargets || [];
+
+async function importYouTubeTargets(collector, targetType) {
+    const inputId = collector === "youtube_profiles" ? "task-yt-profiles-txt" : "task-yt-comments-txt";
+    const previewId = collector === "youtube_profiles" ? "task-yt-profiles-preview" : "task-yt-comments-preview";
+    const input = document.getElementById(inputId);
+    const preview = document.getElementById(previewId);
+    if (!input?.files?.length) return;
+
+    const formData = new FormData();
+    formData.append("file", input.files[0]);
+    formData.append("collector_name", collector);
+    formData.append("target_type", targetType);
+
+    try {
+        const response = await fetch("/api/tasks/import-targets", {
+            method: "POST",
+            body: formData,
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+        const resp = await response.json();
+        const targets = resp.targets || [];
+        window._importedYouTubeTargetsByCollector[collector] = targets;
+        window._importedYouTubeTargets = targets;
+        if (preview) {
+            const skipped = resp.skipped > 0 ? `, skipped ${resp.skipped} lines` : "";
+            const reasons = resp.skipped_reasons?.length
+                ? `<br><span class="text-muted">${resp.skipped_reasons.slice(0, 3).map(escapeHtml).join("<br>")}</span>`
+                : "";
+            preview.style.display = "block";
+            preview.className = "mt-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300";
+            preview.innerHTML = `Imported <strong>${resp.total}</strong> targets${skipped}${reasons}`;
+        }
+        toast(`Imported ${resp.total} YouTube targets`, "success");
+    } catch (err) {
+        window._importedYouTubeTargetsByCollector[collector] = [];
+        window._importedYouTubeTargets = [];
+        if (preview) {
+            preview.style.display = "block";
+            preview.className = "mt-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300";
+            preview.textContent = `Import failed: ${err.message || "unknown error"}`;
+        }
+        toast(`YouTube targets import failed: ${err.message}`, "error");
     }
 }

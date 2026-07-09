@@ -112,6 +112,8 @@ export default {
       monitor: 'task-monitor-fields',
       qimai: 'task-qimai-fields',
       official_site: 'task-official-site-fields',
+      youtube_profiles: 'task-youtube-profiles-fields',
+      youtube_comments: 'task-youtube-comments-fields',
     };
     Object.entries(fields).forEach(([c, id]) => {
       const el = document.getElementById(id);
@@ -126,6 +128,8 @@ export default {
         monitor: 'Monitor tasks use app id and optional Twitch/SullyGnome hints.',
         qimai: 'Qimai tasks use qimai_app_id (App Store ID or Package Name).',
         official_site: 'Official site tasks use target name plus official_url, or advanced JSON targets.',
+        youtube_profiles: 'YouTube profile tasks use an imported TXT list of channel URLs, IDs, or handles.',
+        youtube_comments: 'YouTube comment tasks use an imported TXT list of video URLs.',
       };
       helper.textContent = tips[collector] || 'Steam tasks use target name + app id, or advanced JSON targets.';
     }
@@ -194,6 +198,9 @@ export default {
         name: targetName || officialSiteUrl, target_type: 'game',
         params: { official_url: officialSiteUrl, use_playwright: 'auto' },
       }];
+    }
+    if (collector === 'youtube_profiles' || collector === 'youtube_comments') {
+      return window._importedYouTubeTargetsByCollector?.[collector] || [];
     }
     if (!targetName && !appId) return [];
     return [{
@@ -657,3 +664,37 @@ window.viewTaskLogs = function (id) { if (window._tasksPage) window._tasksPage._
 window.viewTaskDetail = function (id) { if (window._tasksPage) window._tasksPage._viewDetail(id); };
 window.getCollectorForPipeline = function (n) { if (window._tasksPage) return window._tasksPage._getCollector(n); };
 window.hasStorageStep = function () { return false; };
+
+// ── YouTube TXT import ──
+window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
+window._importedYouTubeTargets = window._importedYouTubeTargets || [];
+window.importYouTubeTargets = async function (collector, targetType) {
+  const inputId = collector === 'youtube_profiles' ? 'task-yt-profiles-txt' : 'task-yt-comments-txt';
+  const previewId = collector === 'youtube_profiles' ? 'task-yt-profiles-preview' : 'task-yt-comments-preview';
+  const input = document.getElementById(inputId);
+  const preview = document.getElementById(previewId);
+  if (!input?.files?.length) return;
+  const file = input.files[0];
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('collector_name', collector);
+  formData.append('target_type', targetType);
+  try {
+    const resp = await api('/tasks/import-targets', { method: 'POST', body: formData, isFormData: true });
+    const targets = resp.targets || [];
+    window._importedYouTubeTargetsByCollector[collector] = targets;
+    window._importedYouTubeTargets = targets;
+    const skipped = resp.skipped > 0 ? `, 跳过 ${resp.skipped} 行` : '';
+    preview.style.display = 'block';
+    preview.className = 'mt-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300';
+    preview.innerHTML = `已解析 <strong>${resp.total}</strong> 个目标${skipped}<br>` +
+      (resp.skipped_reasons?.length ? `<span class="text-amber-400">${resp.skipped_reasons.slice(0, 3).join('<br>')}</span>` : '');
+    if (typeof toast === 'function') toast(`已导入 ${resp.total} 个采集目标`, 'success');
+  } catch (err) {
+    window._importedYouTubeTargetsByCollector[collector] = [];
+    window._importedYouTubeTargets = [];
+    preview.style.display = 'block';
+    preview.className = 'mt-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300';
+    preview.innerHTML = `导入失败：${err.message || '未知错误'}`;
+  }
+};

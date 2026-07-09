@@ -248,6 +248,20 @@ async def lifespan(app: FastAPI):
     event_bus.on("task_updated", WebSocketBroadcastHook(manager).handle)
     event_bus.on("task_event", WebSocketTaskEventHook(manager).handle)
 
+    # ── YouTube Pipeline 模板 ──
+    from src.core.pipeline import Pipeline
+
+    scheduler.register_pipeline(
+        Pipeline("youtube_profiles_pipeline")
+        .add_collector("youtube_profiles")
+        .add_storage("sqlalchemy")
+    )
+    scheduler.register_pipeline(
+        Pipeline("youtube_comments_pipeline")
+        .add_collector("youtube_comments")
+        .add_storage("sqlalchemy")
+    )
+
     await scheduler.start()
     _reset_runtime_singletons(reset_agent=True)
     logger.info("GamedataAutoFlux 启动完成 ✓")
@@ -319,6 +333,8 @@ def create_app() -> FastAPI:
     from src.web.routes.agent import router as agent_router
     from src.web.routes.health import router as health_router
     from src.web.routes.workers import router as workers_router
+    from src.web.routes.targets import router as targets_router
+    from src.web.routes.youtube_export import router as youtube_export_router
     from src.web.safety import require_admin
 
     admin_dependencies = [Depends(require_admin)]
@@ -329,6 +345,8 @@ def create_app() -> FastAPI:
     app.include_router(ws_router, prefix="/api")
     app.include_router(agent_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(workers_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(targets_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(youtube_export_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(health_router, prefix="/api")
 
     # 注册页面路由
@@ -340,6 +358,11 @@ def create_app() -> FastAPI:
     static_dir = _WEB_DIR / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # YouTube export files
+    tmp_dir = Path(__file__).parent.parent.parent / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/api/files/export", StaticFiles(directory=str(tmp_dir)), name="export_files")
 
     return app
 

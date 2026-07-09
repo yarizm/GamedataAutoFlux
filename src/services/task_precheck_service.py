@@ -685,6 +685,31 @@ class TaskPrecheckService:
                 )
             )
 
+        if "youtube_api_key" in profiles:
+            raw_keys = get_config("youtube.api_keys", []) or []
+            if isinstance(raw_keys, str):
+                raw_keys = [raw_keys]
+            youtube_keys = [
+                str(key).strip()
+                for key in raw_keys
+                if str(key).strip() and not str(key).strip().startswith("${")
+            ]
+            credential_status["youtube.api_keys"] = (
+                "configured" if youtube_keys else "missing"
+            )
+            if not youtube_keys:
+                issues.append(
+                    TaskPrecheckIssue(
+                        level="error",
+                        code="missing_youtube_api_key",
+                        field="youtube.api_keys",
+                        message=(
+                            "YouTube API keys are missing; configure youtube.api_keys "
+                            "before running YouTube collectors."
+                        ),
+                    )
+                )
+
         if "playwright_runtime" in profiles:
             playwright_available = importlib.util.find_spec("playwright") is not None
             credential_status["playwright"] = "available" if playwright_available else "missing"

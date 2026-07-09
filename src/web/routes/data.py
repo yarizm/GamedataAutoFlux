@@ -332,7 +332,21 @@ async def delete_data_game(
     return await _delete_data_category(game_key=game_key.strip())
 
 
-@router.get("/data/records/{record_key}", response_model=DataRecordDetail)
+@router.get("/data/records/download")
+async def download_data_record_by_key(
+    key: Annotated[str, Query(description="Storage record key")],
+):
+    return await _download_data_record_response(key)
+
+
+@router.get("/data/records/{record_key:path}/download")
+async def download_data_record_by_path(
+    record_key: Annotated[str, Path(description="Storage record key")],
+):
+    return await _download_data_record_response(record_key)
+
+
+@router.get("/data/records/{record_key:path}", response_model=DataRecordDetail)
 async def get_data_record(record_key: Annotated[str, Path(description="Storage record key")]):
     record = await _load_record(record_key)
     summary = _record_summary(record)
@@ -343,7 +357,7 @@ async def get_data_record(record_key: Annotated[str, Path(description="Storage r
     return _record_detail_response(record, summary)
 
 
-@router.patch("/data/records/{record_key}", response_model=DataRecordDetail)
+@router.patch("/data/records/{record_key:path}", response_model=DataRecordDetail)
 async def update_data_record(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[UpdateRecordRequest, Body(description="Editable metadata fields")],
@@ -352,7 +366,7 @@ async def update_data_record(
     return await get_data_record(record_key)
 
 
-@router.delete("/data/records/{record_key}")
+@router.delete("/data/records/{record_key:path}")
 async def delete_data_record(
     record_key: Annotated[str, Path(description="Storage record key")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
@@ -431,13 +445,27 @@ def _data_group_matches(value: Any, *, group_ids: set[str], group_names: set[str
     )
 
 
-@router.post("/data/records/{record_key}/refresh")
-async def refresh_data_record(
+@router.post("/data/records/refresh")
+async def refresh_data_record_by_key(
+    key: Annotated[str, Query(description="Storage record key")],
+    req: Annotated[
+        RefreshRecordRequest, Body(description="Refresh options")
+    ] = RefreshRecordRequest(),
+):
+    return await _refresh_data_record_response(key, req)
+
+
+@router.post("/data/records/{record_key:path}/refresh")
+async def refresh_data_record_by_path(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[
         RefreshRecordRequest, Body(description="Refresh options")
     ] = RefreshRecordRequest(),
 ):
+    return await _refresh_data_record_response(record_key, req)
+
+
+async def _refresh_data_record_response(record_key: str, req: RefreshRecordRequest):
     from src.web.app import get_task_service
 
     return await _get_data_management_service().submit_refresh_task(
@@ -447,10 +475,25 @@ async def refresh_data_record(
     )
 
 
-@router.post("/data/records/{record_key}/refresh-schedules")
-async def create_record_refresh_schedule(
+@router.post("/data/records/refresh-schedules")
+async def create_record_refresh_schedule_by_key(
+    key: Annotated[str, Query(description="Storage record key")],
+    req: Annotated[CreateRefreshScheduleRequest, Body(description="Refresh schedule")],
+):
+    return await _create_record_refresh_schedule_response(key, req)
+
+
+@router.post("/data/records/{record_key:path}/refresh-schedules")
+async def create_record_refresh_schedule_by_path(
     record_key: Annotated[str, Path(description="Storage record key")],
     req: Annotated[CreateRefreshScheduleRequest, Body(description="Refresh schedule")],
+):
+    return await _create_record_refresh_schedule_response(record_key, req)
+
+
+async def _create_record_refresh_schedule_response(
+    record_key: str,
+    req: CreateRefreshScheduleRequest,
 ):
     from src.web.app import get_task_service, scheduler
 
@@ -463,9 +506,8 @@ async def create_record_refresh_schedule(
     )
 
 
-@router.get("/data/records/{record_key}/download")
-async def download_data_record(record_key: Annotated[str, Path(description="Storage record key")]):
-    record = await _load_record(record_key)
+async def _download_data_record_response(key: str) -> Response:
+    record = await _load_record(key)
     payload = {
         "key": record.key,
         "source": record.source,

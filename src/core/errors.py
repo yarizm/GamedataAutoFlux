@@ -19,6 +19,7 @@ class ErrorCode(str, Enum):
     site_structure_changed = "site_structure_changed"
     empty_data = "empty_data"
     rate_limited = "rate_limited"
+    invalid_params = "invalid_params"
     unknown = "unknown"
 
     @property
@@ -31,6 +32,7 @@ class ErrorCode(str, Enum):
             ErrorCode.site_structure_changed: "站点结构变化",
             ErrorCode.empty_data: "空数据",
             ErrorCode.rate_limited: "频率限制",
+            ErrorCode.invalid_params: "参数无效",
             ErrorCode.unknown: "未知错误",
         }
         return _labels.get(self, "未知错误")
@@ -45,6 +47,7 @@ class ErrorCode(str, Enum):
             ErrorCode.site_structure_changed: "目标站点可能改版，需检查并更新采集规则",
             ErrorCode.empty_data: "该时间段目标可能无数据，尝试扩大时间范围或检查数据源状态",
             ErrorCode.rate_limited: "降低采集频率，增加请求间隔或等待冷却时间",
+            ErrorCode.invalid_params: "检查目标配置中的 URL 或参数格式是否正确",
             ErrorCode.unknown: "查看详细日志排查原因",
         }
         return _suggestions.get(self, "查看详细日志排查原因")
@@ -59,6 +62,7 @@ class ErrorCode(str, Enum):
             ErrorCode.site_structure_changed: "error",
             ErrorCode.empty_data: "warning",
             ErrorCode.rate_limited: "warning",
+            ErrorCode.invalid_params: "error",
             ErrorCode.unknown: "error",
         }
         return _severity.get(self, "error")

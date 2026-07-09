@@ -647,6 +647,47 @@ async function batchExportSelected() {
     }
 }
 
+async function batchExportXlsx() {
+    if (selectedDataRecordKeys.size === 0) return;
+    const taskIds = new Set();
+    const collectors = new Set();
+    for (const key of selectedDataRecordKeys) {
+        const record = currentDataRecords.find((item) => item.key === key);
+        if (record?.task_id) {
+            taskIds.add(record.task_id);
+        } else {
+            const parts = key.split(":");
+            if (parts.length >= 1) taskIds.add(parts[0]);
+        }
+        if (record?.collector) collectors.add(record.collector);
+    }
+    if (collectors.size !== 1) {
+        toast("Please select records from one YouTube collector", "error");
+        return;
+    }
+    const collector = Array.from(collectors)[0] || "";
+    if (!["youtube_profiles", "youtube_comments"].includes(collector)) {
+        toast("XLSX export only supports YouTube profile and comment data", "error");
+        return;
+    }
+    try {
+        const resp = await api("/data/export/youtube", {
+            method: "POST",
+            body: JSON.stringify({
+                collector,
+                task_ids: Array.from(taskIds),
+                format: "xlsx",
+            }),
+        });
+        if (resp.download_url) {
+            window.open(resp.download_url, "_blank");
+            toast(`Exported ${resp.record_count} records`, "success");
+        }
+    } catch (err) {
+        toast(`XLSX export failed: ${err.message}`, "error");
+    }
+}
+
 function renderPagination(result) {
     let container = document.getElementById("data-pagination");
     if (!container) {
@@ -734,7 +775,7 @@ async function previewDataRecord(key) {
 }
 
 function downloadDataRecord(key) {
-    window.open(`/api/data/records/${encodeURIComponent(key)}/download`, "_blank");
+    window.open(`/api/data/records/download?key=${encodeURIComponent(key)}`, "_blank");
 }
 
 async function editDataRecord(key) {
@@ -808,7 +849,7 @@ async function deleteDataGame(event, gameKey) {
 
 async function refreshDataRecord(key) {
     try {
-        const resp = await api(`/data/records/${encodeURIComponent(key)}/refresh`, {
+        const resp = await api(`/data/records/refresh?key=${encodeURIComponent(key)}`, {
             method: "POST",
             body: JSON.stringify({ rolling_window: true }),
         });
@@ -826,7 +867,7 @@ async function scheduleDataRecordRefresh(key) {
     const name = prompt("Schedule name", `refresh_${key.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 48)}`);
     if (!name) return;
     try {
-        await api(`/data/records/${encodeURIComponent(key)}/refresh-schedules`, {
+        await api(`/data/records/refresh-schedules?key=${encodeURIComponent(key)}`, {
             method: "POST",
             body: JSON.stringify({ name, cron_expr: cronExpr, rolling_window: true }),
         });

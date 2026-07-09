@@ -82,6 +82,8 @@ def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
 
     if "playwright_runtime" in profiles:
         checks.append(_dependency_check("playwright", required=True))
+    if "youtube_api_key" in profiles:
+        checks.append(_youtube_api_keys_check())
     if "steamdb_optional_browser_session" in profiles:
         checks.append(_steamdb_session_check(optional=True))
     if "local_browser_profile" in profiles and effective_mode == "local_profile":
@@ -335,6 +337,30 @@ def _steam_config_check() -> dict[str, Any]:
         "steam.api_key",
         "warning",
         "Steam API Key is not configured; some official Steam APIs may be unavailable",
+    )
+
+
+def _youtube_api_keys_check() -> dict[str, Any]:
+    raw_keys = get_config("youtube.api_keys", []) or []
+    if isinstance(raw_keys, str):
+        raw_keys = [raw_keys]
+    api_keys = [
+        str(key).strip()
+        for key in raw_keys
+        if str(key).strip() and not str(key).strip().startswith("${")
+    ]
+    if api_keys:
+        return _check(
+            "youtube.api_keys",
+            "ok",
+            "YouTube API keys are configured",
+            configured_count=len(api_keys),
+        )
+    return _check(
+        "youtube.api_keys",
+        "error",
+        "YouTube API keys are not configured",
+        configured_count=0,
     )
 
 

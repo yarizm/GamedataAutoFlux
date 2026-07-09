@@ -188,7 +188,11 @@ def test_data_record_detail_download_and_export_redact_sensitive_content(
 
     with TestClient(app) as client:
         detail = client.get("/api/data/records/record:sensitive-detail")
-        download = client.get("/api/data/records/record:sensitive-detail/download")
+        download = client.get(
+            "/api/data/records/download",
+            params={"key": "record:sensitive-detail"},
+        )
+        legacy_download = client.get("/api/data/records/record:sensitive-detail/download")
         exported = client.post(
             "/api/data/records/batch-export",
             json={"keys": ["record:sensitive-detail"]},
@@ -204,14 +208,38 @@ def test_data_record_detail_download_and_export_redact_sensitive_content(
     assert detail_payload["summary"]["price"] == "token=[REDACTED]"
 
     assert download.status_code == 200
+    assert legacy_download.status_code == 200
     assert exported.status_code == 200
-    rendered = detail.text + download.text + exported.text
+    rendered = detail.text + download.text + legacy_download.text + exported.text
     assert "data-secret" not in rendered
     assert "metadata-secret" not in rendered
     assert "summary-secret" not in rendered
     assert "nested-secret" not in rendered
     assert "display-secret" not in rendered
     assert "task-secret" not in rendered
+
+
+def test_data_record_download_query_handles_url_like_keys() -> None:
+    key = "8a49f1c40413:https://www.youtube.com/@doudoureviews/videos:3"
+    _save_record(
+        StorageRecord(
+            key=key,
+            source="youtube_profiles",
+            data={
+                "collector": "youtube_profiles",
+                "channel_url": "https://www.youtube.com/@doudoureviews/videos",
+            },
+            stored_at=datetime(2026, 1, 1, 12, 0, 0),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/data/records/download", params={"key": key})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["key"] == key
+    assert payload["data"]["channel_url"] == "https://www.youtube.com/@doudoureviews/videos"
 
 
 def test_data_records_api_closes_storage_after_listing(monkeypatch) -> None:

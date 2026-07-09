@@ -239,6 +239,60 @@ _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
             ],
         ),
     ),
+    "youtube_profiles": CollectorMetadata(
+        collector_id="youtube_profiles",
+        display_name="YouTube Profiles",
+        capabilities=["youtube_channel_metadata", "youtube_data_api"],
+        requires_session=False,
+        session_mode="api_only",
+        supports_checkpoint=False,
+        recovery_level="L0",
+        credential_profiles=["youtube_api_key"],
+        target_schema=CollectorTargetSchema(
+            required_fields=[
+                "target.params.channel_url or target.params.channel_id or target.params.handle"
+            ],
+            rules=[
+                TargetValidationRule(
+                    mode="any",
+                    fields=[
+                        "target.params.channel_url",
+                        "target.params.channel_id",
+                        "target.params.handle",
+                    ],
+                    code="missing_youtube_channel_target",
+                    field="targets[{index}]",
+                    message=(
+                        "YouTube profiles target needs channel_url, channel_id, or handle."
+                    ),
+                    skip_if_error=False,
+                )
+            ],
+        ),
+    ),
+    "youtube_comments": CollectorMetadata(
+        collector_id="youtube_comments",
+        display_name="YouTube Comments",
+        capabilities=["youtube_video_comments", "youtube_data_api"],
+        requires_session=False,
+        session_mode="api_only",
+        supports_checkpoint=False,
+        recovery_level="L0",
+        credential_profiles=["youtube_api_key"],
+        target_schema=CollectorTargetSchema(
+            required_fields=["target.params.video_url"],
+            rules=[
+                TargetValidationRule(
+                    mode="any",
+                    fields=["target.params.video_url"],
+                    code="missing_youtube_video_url",
+                    field="targets[{index}]",
+                    message="YouTube comments target needs video_url.",
+                    skip_if_error=False,
+                )
+            ],
+        ),
+    ),
     "dynamic_playwright": CollectorMetadata(
         collector_id="dynamic_playwright",
         display_name="Dynamic Playwright",

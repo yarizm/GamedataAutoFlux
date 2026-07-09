@@ -409,3 +409,15 @@ logging:
   log_dir: "logs"
   rotation: "10 MB"
   retention: "30 days"
+
+# YouTube Data API
+youtube:
+  api_keys:
+    - "${YOUTUBE_API_KEY_1}"
+    - "${YOUTUBE_API_KEY_2}"
+  api_base_url: "https://youtube.googleapis.com/youtube/v3"
+  request_delay: 0.1
+  request_timeout: 30
+  video_type_workers: 2
+  top_comment_limit: 100
+  scan_comment_limit: 500
