@@ -1,6 +1,17 @@
 import { api, toast, escapeHtml, formatTime } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
-import { populatePipelineSelect } from '../../core/pipelines.js';
+import {
+  getCollectorForPipeline,
+  loadAvailablePipelines,
+  populatePipelineSelect,
+} from '../../core/pipelines.js';
+import {
+  applyTargetToForm,
+  buildTargets,
+  parseAdvancedTargetsJson,
+  readTargetFormState,
+  updateTargetFieldPanels,
+} from '../../core/targetForm.js';
 
 export default {
   init(container, store) {
@@ -177,17 +188,37 @@ export default {
     return { mode: 'preset', preset, timezone };
   },
 
+  async _updateTargetFields() {
+    const pipelineName = document.getElementById('cron-pipeline')?.value || '';
+    try {
+      await loadAvailablePipelines();
+    } catch {
+      /* ignore — badge still updates */
+    }
+    const collector = getCollectorForPipeline(pipelineName);
+    updateTargetFieldPanels('cron', collector);
+    return collector;
+  },
+
   _buildTaskTemplate() {
+    const pipelineName = document.getElementById('cron-pipeline')?.value || '';
+    const collector = getCollectorForPipeline(pipelineName);
+    const formState = readTargetFormState('cron', collector);
+    let targets = buildTargets(formState);
+
     const targetsRaw = document.getElementById('cron-targets')?.value.trim() || '';
-    let targets = [];
     if (targetsRaw) {
       try {
-        const parsed = JSON.parse(targetsRaw);
-        targets = Array.isArray(parsed) ? parsed : [parsed];
+        const parsed = parseAdvancedTargetsJson(
+          targetsRaw,
+          formState.targetName || 'Target',
+        );
+        if (parsed) targets = parsed;
       } catch {
-        throw new Error('Targets JSON 无效');
+        throw new Error('高级 JSON Targets 无效');
       }
     }
+
     const config = {};
     if (document.getElementById('cron-rolling-window')?.checked) {
       config.refresh = { rolling_window: true };
@@ -200,11 +231,27 @@ export default {
       config.data_group = { id: dataGroup, name: dataGroup };
     }
     const template = {};
+    if (collector) template.collector_name = collector;
     if (targets.length) template.targets = targets;
     if (Object.keys(config).length) template.config = config;
     const description = document.getElementById('cron-description')?.value.trim() || '';
     if (description) template.description = description;
     return template;
+  },
+
+  _clearTargetFields() {
+    [
+      'cron-target-name', 'cron-app-id', 'cron-taptap-url', 'cron-taptap-app-id',
+      'cron-steam-discussions-app-id', 'cron-steam-discussions-forum-url',
+      'cron-steam-discussions-start', 'cron-steam-discussions-end',
+      'cron-monitor-app-id', 'cron-monitor-twitch-name', 'cron-monitor-siteurl',
+      'cron-qimai-app-id', 'cron-official-site-url', 'cron-targets',
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const skip = document.getElementById('cron-skip-steamdb');
+    if (skip) skip.checked = true;
   },
 
   async _previewSchedule(forceToast = false) {
@@ -239,7 +286,6 @@ export default {
     document.getElementById('cron-name').value = '';
     document.getElementById('cron-name').disabled = false;
     document.getElementById('cron-description').value = '';
-    document.getElementById('cron-targets').value = '';
     document.getElementById('cron-data-group').value = '';
     document.getElementById('cron-rolling-window').checked = false;
     document.getElementById('cron-report-enabled').checked = false;
@@ -248,7 +294,9 @@ export default {
     document.getElementById('cron-expr').value = '0 8 * * *';
     document.getElementById('cron-preset-type').value = 'daily';
     document.getElementById('cron-preset-time').value = '08:00';
+    this._clearTargetFields();
     await populatePipelineSelect('cron-pipeline');
+    await this._updateTargetFields();
     this._setScheduleMode('preset');
     window.openModal && window.openModal('modal-create-cron');
     this._previewSchedule();
@@ -272,12 +320,32 @@ export default {
       document.getElementById('cron-enabled').checked = job.enabled !== false;
       document.getElementById('cron-expr').value = job.cron_expr || '';
       const template = job.task_template || {};
-      document.getElementById('cron-targets').value = template.targets
-        ? JSON.stringify(template.targets, null, 2)
-        : '';
+      this._clearTargetFields();
       document.getElementById('cron-rolling-window').checked = !!(template.config?.refresh?.rolling_window);
       document.getElementById('cron-report-enabled').checked = !!(template.config?.report?.enabled);
       document.getElementById('cron-data-group').value = template.config?.data_group?.id || template.config?.data_group?.name || '';
+
+      const collector = await this._updateTargetFields();
+      const targets = Array.isArray(template.targets) ? template.targets : [];
+      if (collector === 'youtube_profiles' || collector === 'youtube_comments') {
+        window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
+        window._importedYouTubeTargetsByCollector[collector] = targets;
+        if (targets.length > 1) {
+          document.getElementById('cron-targets').value = JSON.stringify(targets, null, 2);
+        }
+        const previewId = collector === 'youtube_profiles' ? 'cron-yt-profiles-preview' : 'cron-yt-comments-preview';
+        const preview = document.getElementById(previewId);
+        if (preview && targets.length) {
+          preview.style.display = 'block';
+          preview.className = 'mt-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300';
+          preview.innerHTML = `已加载 <strong>${targets.length}</strong> 个目标`;
+        }
+      } else if (targets.length === 1) {
+        applyTargetToForm('cron', collector, targets[0]);
+      } else if (targets.length > 1) {
+        // multi-target: keep JSON advanced override so nothing is lost
+        document.getElementById('cron-targets').value = JSON.stringify(targets, null, 2);
+      }
 
       const meta = job.schedule_meta || {};
       if (meta.mode === 'preset' && meta.preset) {
@@ -399,3 +467,6 @@ window.loadCronJobs = function () { if (window._cronPage) window._cronPage.refre
 window.showCreateCronModal = function () { if (window._cronPage) window._cronPage._showCreateModal(); };
 window.createCronJob = function () { if (window._cronPage) window._cronPage._createJob(); };
 window.deleteCronJob = function (name) { if (window._cronPage) window._cronPage._deleteJob(name); };
+window.updateCronTargetFields = function () {
+  if (window._cronPage) return window._cronPage._updateTargetFields();
+};

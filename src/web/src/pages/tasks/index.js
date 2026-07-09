@@ -8,6 +8,11 @@ import {
   loadPipelineTemplates,
   populatePipelineSelect,
 } from '../../core/pipelines.js';
+import {
+  buildTargets as buildTargetsShared,
+  parseAdvancedTargetsJson,
+  updateTargetFieldPanels,
+} from '../../core/targetForm.js';
 
 function safeArtifactDownloadUrl(value) {
   const url = String(value || '').trim();
@@ -104,35 +109,7 @@ export default {
   _updateTargetFields() {
     const pipelineName = document.getElementById('task-pipeline')?.value || '';
     const collector = this._getCollector(pipelineName);
-
-    const fields = {
-      steam: 'task-steam-fields',
-      steam_discussions: 'task-steam-discussions-fields',
-      taptap: 'task-taptap-fields',
-      monitor: 'task-monitor-fields',
-      qimai: 'task-qimai-fields',
-      official_site: 'task-official-site-fields',
-      youtube_profiles: 'task-youtube-profiles-fields',
-      youtube_comments: 'task-youtube-comments-fields',
-    };
-    Object.entries(fields).forEach(([c, id]) => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = collector === c ? 'block' : 'none';
-    });
-
-    const helper = document.getElementById('task-target-helper');
-    if (helper) {
-      const tips = {
-        taptap: 'TapTap v1 expects a public mainland page URL or app ID.',
-        steam_discussions: 'Steam Community tasks use app id or forum URL plus optional start/end dates.',
-        monitor: 'Monitor tasks use app id and optional Twitch/SullyGnome hints.',
-        qimai: 'Qimai tasks use qimai_app_id (App Store ID or Package Name).',
-        official_site: 'Official site tasks use target name plus official_url, or advanced JSON targets.',
-        youtube_profiles: 'YouTube profile tasks use an imported TXT list of channel URLs, IDs, or handles.',
-        youtube_comments: 'YouTube comment tasks use an imported TXT list of video URLs.',
-      };
-      helper.textContent = tips[collector] || 'Steam tasks use target name + app id, or advanced JSON targets.';
-    }
+    updateTargetFieldPanels('task', collector);
 
     const autoReport = document.getElementById('task-enable-report');
     if (autoReport && ['steam_full_report', 'taptap_full_report', 'steam_discussions_full_report'].includes(pipelineName)) {
@@ -141,72 +118,7 @@ export default {
   },
 
   _buildTargets(formState) {
-    const { collector, targetName, appId, skipSteamdb, steamdbTimeSlice,
-      steamDiscussionsForumUrl, steamDiscussionsStart, steamDiscussionsEnd,
-      steamDiscussionsMaxPages, steamDiscussionsMaxTopics, steamDiscussionsIncludeReplies,
-      taptapUrl, taptapReviewsPages, taptapReviewsLimit, monitorDays, monitorTwitchName,
-      monitorSiteurl, qimaiAppId, officialSiteUrl } = formState;
-
-    if (collector === 'steam_discussions') {
-      if (!targetName && !appId && !steamDiscussionsForumUrl) return [];
-      return [{
-        name: targetName || appId || steamDiscussionsForumUrl, target_type: 'game',
-        params: {
-          ...(appId ? { app_id: appId } : {}),
-          ...(steamDiscussionsForumUrl ? { forum_url: steamDiscussionsForumUrl } : {}),
-          ...(steamDiscussionsStart ? { start_time: steamDiscussionsStart } : {}),
-          ...(steamDiscussionsEnd ? { end_time: steamDiscussionsEnd } : {}),
-          max_pages: Number(steamDiscussionsMaxPages || 50),
-          max_topics: Number(steamDiscussionsMaxTopics || 1000),
-          include_replies: Boolean(steamDiscussionsIncludeReplies),
-        },
-      }];
-    }
-    if (collector === 'taptap') {
-      if (!targetName && !taptapUrl && !appId) return [];
-      return [{
-        name: targetName || appId || taptapUrl, target_type: 'game',
-        params: {
-          region: 'cn', metrics: ['details', 'reviews', 'updates'],
-          reviews_pages: Number(taptapReviewsPages || 1),
-          reviews_limit: Number(taptapReviewsLimit || 20),
-          use_playwright: 'auto',
-          ...(taptapUrl ? { page_url: taptapUrl } : {}),
-          ...(appId ? { app_id: appId } : {}),
-        },
-      }];
-    }
-    if (collector === 'monitor') {
-      if (!targetName && !appId) return [];
-      return [{
-        name: targetName || appId, target_type: 'game',
-        params: {
-          app_id: appId, days: Number(monitorDays || 30),
-          metrics: ['twitch_viewer_trend'],
-          ...(monitorTwitchName ? { twitch_name: monitorTwitchName } : {}),
-          ...(monitorSiteurl ? { siteurl: monitorSiteurl } : {}),
-        },
-      }];
-    }
-    if (collector === 'qimai') {
-      if (!targetName && !qimaiAppId) return [];
-      return [{ name: targetName || qimaiAppId, target_type: 'game', params: { qimai_app_id: qimaiAppId } }];
-    }
-    if (collector === 'official_site') {
-      if (!officialSiteUrl) return [];
-      return [{
-        name: targetName || officialSiteUrl, target_type: 'game',
-        params: { official_url: officialSiteUrl, use_playwright: 'auto' },
-      }];
-    }
-    if (collector === 'youtube_profiles' || collector === 'youtube_comments') {
-      return window._importedYouTubeTargetsByCollector?.[collector] || [];
-    }
-    if (!targetName && !appId) return [];
-    return [{
-      name: targetName || appId, target_type: 'game',
-      params: { ...(appId ? { app_id: appId } : {}), ...(!skipSteamdb && steamdbTimeSlice ? { steamdb_time_slice: steamdbTimeSlice } : {}), ...(skipSteamdb ? { skip_steamdb: true } : {}) },
-    }];
+    return buildTargetsShared(formState);
   },
 
   // ── Wizard UI ──
@@ -292,15 +204,8 @@ export default {
 
     if (targetsRaw) {
       try {
-        let parsed = JSON.parse(targetsRaw);
-        if (!Array.isArray(parsed)) {
-          if (typeof parsed === 'object' && parsed !== null) {
-            parsed = [{ name: targetName || 'Target', target_type: 'game', params: parsed }];
-          } else {
-            throw new Error('Invalid targets JSON');
-          }
-        }
-        targets = parsed;
+        const parsed = parseAdvancedTargetsJson(targetsRaw, targetName || 'Target');
+        if (parsed) targets = parsed;
       } catch {
         toast(t('message.targetsJsonInvalid'), 'error');
         return;
@@ -718,9 +623,10 @@ window.hasStorageStep = function () { return false; };
 // ── YouTube TXT import ──
 window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
 window._importedYouTubeTargets = window._importedYouTubeTargets || [];
-window.importYouTubeTargets = async function (collector, targetType) {
-  const inputId = collector === 'youtube_profiles' ? 'task-yt-profiles-txt' : 'task-yt-comments-txt';
-  const previewId = collector === 'youtube_profiles' ? 'task-yt-profiles-preview' : 'task-yt-comments-preview';
+window.importYouTubeTargets = async function (collector, targetType, prefix = 'task') {
+  const p = prefix || 'task';
+  const inputId = collector === 'youtube_profiles' ? `${p}-yt-profiles-txt` : `${p}-yt-comments-txt`;
+  const previewId = collector === 'youtube_profiles' ? `${p}-yt-profiles-preview` : `${p}-yt-comments-preview`;
   const input = document.getElementById(inputId);
   const preview = document.getElementById(previewId);
   if (!input?.files?.length) return;

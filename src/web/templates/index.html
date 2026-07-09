@@ -328,7 +328,7 @@
                     </div>
                     <div class="form-group">
                         <label for="cron-pipeline">Pipeline</label>
-                        <select id="cron-pipeline">
+                        <select id="cron-pipeline" onchange="window.updateCronTargetFields && window.updateCronTargetFields()">
                             <option value="">-- 选择 Pipeline --</option>
                         </select>
                     </div>
@@ -418,12 +418,149 @@
                 </div>
 
                 <div class="rounded-xl border border-white/5 bg-zinc-950/60 p-4 space-y-3">
-                    <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">采集参数</div>
-                    <div class="form-group">
-                        <label for="cron-targets">Targets（JSON 数组）</label>
-                        <textarea id="cron-targets" rows="5" class="font-mono text-xs" placeholder='[{"name":"游戏名","target_type":"game","params":{"app_id":"12345"}}]'></textarea>
-                        <small class="text-muted">与手动创建任务相同结构；可留空（链式 from_upstream pipeline）</small>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">采集参数</div>
+                        <span id="cron-collector-badge" class="text-[10px] font-mono uppercase tracking-widest text-amber-400/80">采集器: —</span>
                     </div>
+                    <p class="text-xs text-zinc-500" id="cron-target-helper">请先选择 Pipeline，将显示对应采集参数。</p>
+
+                    <div id="cron-target-common">
+                        <div class="form-group">
+                            <label for="cron-target-name">目标名称</label>
+                            <input type="text" id="cron-target-name" placeholder="Counter-Strike 2 / 游戏名 / 关键词">
+                        </div>
+                    </div>
+
+                    <div id="cron-steam-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-app-id">Steam App ID</label>
+                            <input type="text" id="cron-app-id" placeholder="730">
+                        </div>
+                        <div class="form-group checkbox-row">
+                            <label><input type="checkbox" id="cron-skip-steamdb" checked> 跳过 SteamDB，仅用官方 API</label>
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-steamdb-time-slice">SteamDB 在线历史切片</label>
+                            <select id="cron-steamdb-time-slice">
+                                <option value="monthly_peak_1y">月峰值（12 个月）</option>
+                                <option value="daily_precise_30d">日精确值（30 天）</option>
+                                <option value="daily_precise_90d">日精确值（90 天）</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="cron-steam-discussions-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-steam-discussions-app-id">Steam App ID</label>
+                            <input type="text" id="cron-steam-discussions-app-id" placeholder="730">
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-steam-discussions-forum-url">论坛 URL（可选）</label>
+                            <input type="text" id="cron-steam-discussions-forum-url" placeholder="https://steamcommunity.com/app/730/discussions/">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="form-group">
+                                <label for="cron-steam-discussions-start">开始日期（可选）</label>
+                                <input type="date" id="cron-steam-discussions-start">
+                            </div>
+                            <div class="form-group">
+                                <label for="cron-steam-discussions-end">结束日期（可选）</label>
+                                <input type="date" id="cron-steam-discussions-end">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="form-group">
+                                <label for="cron-steam-discussions-max-pages">最大页数</label>
+                                <input type="number" id="cron-steam-discussions-max-pages" min="1" max="500" value="50">
+                            </div>
+                            <div class="form-group">
+                                <label for="cron-steam-discussions-max-topics">最大主题数</label>
+                                <input type="number" id="cron-steam-discussions-max-topics" min="1" max="5000" value="1000">
+                            </div>
+                        </div>
+                        <div class="form-group checkbox-row">
+                            <label><input type="checkbox" id="cron-steam-discussions-include-replies" checked> 包含回复</label>
+                        </div>
+                    </div>
+
+                    <div id="cron-taptap-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-taptap-url">TapTap 国内公开页 URL</label>
+                            <input type="text" id="cron-taptap-url" placeholder="https://www.taptap.cn/app/57532">
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-taptap-app-id">TapTap App ID（可选）</label>
+                            <input type="text" id="cron-taptap-app-id" placeholder="236079">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="form-group">
+                                <label for="cron-taptap-reviews-pages">评论页数</label>
+                                <input type="number" id="cron-taptap-reviews-pages" min="1" max="5" value="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="cron-taptap-reviews-limit">每页条数</label>
+                                <input type="number" id="cron-taptap-reviews-limit" min="1" max="100" value="20">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="cron-monitor-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-monitor-app-id">Monitor App ID</label>
+                            <input type="text" id="cron-monitor-app-id" placeholder="730">
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-monitor-days">趋势天数</label>
+                            <input type="number" id="cron-monitor-days" min="7" max="90" value="30">
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-monitor-twitch-name">Twitch Name（可选）</label>
+                            <input type="text" id="cron-monitor-twitch-name" placeholder="Counter-Strike">
+                        </div>
+                        <div class="form-group">
+                            <label for="cron-monitor-siteurl">SullyGnome Siteurl（可选）</label>
+                            <input type="text" id="cron-monitor-siteurl" placeholder="counter-strike_global_offensive">
+                        </div>
+                    </div>
+
+                    <div id="cron-qimai-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-qimai-app-id">七麦 / App Store ID</label>
+                            <input type="text" id="cron-qimai-app-id" placeholder="123456789 或 com.example.app">
+                        </div>
+                    </div>
+
+                    <div id="cron-official-site-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-official-site-url">官网 URL</label>
+                            <input type="url" id="cron-official-site-url" placeholder="https://example-game.com">
+                        </div>
+                    </div>
+
+                    <div id="cron-youtube-profiles-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-yt-profiles-txt">上传 TXT（每行一个频道链接）</label>
+                            <input type="file" id="cron-yt-profiles-txt" accept=".txt" onchange="importYouTubeTargets('youtube_profiles', 'youtube_channel', 'cron')">
+                        </div>
+                        <div id="cron-yt-profiles-preview" class="hidden mt-2 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                    </div>
+
+                    <div id="cron-youtube-comments-fields" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-yt-comments-txt">上传 TXT（每行一个视频链接）</label>
+                            <input type="file" id="cron-yt-comments-txt" accept=".txt" onchange="importYouTubeTargets('youtube_comments', 'youtube_video', 'cron')">
+                        </div>
+                        <div id="cron-yt-comments-preview" class="hidden mt-2 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                    </div>
+
+                    <details class="rounded-lg border border-white/5 bg-zinc-900/50 p-3">
+                        <summary class="cursor-pointer text-xs font-bold text-zinc-400 uppercase tracking-widest">高级：JSON Targets（可选覆盖）</summary>
+                        <div class="form-group mt-3 mb-0">
+                            <textarea id="cron-targets" rows="4" class="font-mono text-xs" placeholder='[{"name":"游戏名","target_type":"game","params":{"app_id":"12345"}}]'></textarea>
+                            <small class="text-muted">填写后将覆盖上方结构化字段；链式 from_upstream 可留空</small>
+                        </div>
+                    </details>
+
                     <div class="flex flex-wrap gap-4 text-sm text-zinc-300">
                         <label class="inline-flex items-center gap-2">
                             <input type="checkbox" id="cron-rolling-window"> 滚动时间窗口（自动刷新 start/end）
