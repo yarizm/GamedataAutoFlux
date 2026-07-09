@@ -1,7 +1,10 @@
 <section class="tab-content" id="tab-system">
             <div class="section-header">
                 <h1>系统状态检查</h1>
-                <button class="btn btn-ghost" onclick="loadSystemDiagnostics()" id="btn-refresh-system">刷新诊断</button>
+                <div class="flex items-center gap-2">
+                    <button class="btn btn-ghost" onclick="window._runDeepProbes && window._runDeepProbes()" id="btn-deep-probes">深度检查</button>
+                    <button class="btn btn-ghost" onclick="loadSystemDiagnostics()" id="btn-refresh-system">刷新诊断</button>
+                </div>
             </div>
 
             <div class="stats-grid mb-8" id="system-status-grid">
@@ -54,6 +57,16 @@
                 </div>
                 <div class="card-body px-6 pb-6" id="system-workers-list">
                     <p class="text-zinc-600 text-sm px-2">尚未加载 Worker 信息</p>
+                </div>
+            </div>
+
+            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between gap-4">
+                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Deep Probes</h2>
+                    <span class="text-[10px] text-zinc-500 uppercase tracking-widest">opt-in network / API</span>
+                </div>
+                <div class="card-body px-6 pb-6" id="system-probes-list">
+                    <p class="text-zinc-600 text-sm px-2">尚未运行深度检查。点击「深度检查」探测 API / 网络 / Session 资产。</p>
                 </div>
             </div>
 

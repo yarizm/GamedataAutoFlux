@@ -398,6 +398,14 @@ scheduler:
     json_dir: "scheduler_tasks"
   cron_jobs: []
 
+# Task / system precheck (deep probes are opt-in)
+precheck:
+  deep_default: false
+  probe_timeout_seconds: 5
+  probe_cache_ttl_seconds: 120
+  # Collector ids whose deep probe errors block can_submit (empty = warn only)
+  blocking_probes: []
+
 collector:
   request_timeout: 30
   request_delay: 2

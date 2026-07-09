@@ -34,12 +34,66 @@ export default {
       this._renderWorkers(workers || []);
       this._renderSessions(sessionDiagnostics || {});
       this._renderSessionInventory(sessionInventory || {});
+      window._runDeepProbes = () => this._runDeepProbes();
     } catch (err) {
       if (!silent) {
         const list = this.container.querySelector('#system-checks-list');
         if (list) list.innerHTML = `<p class="text-muted">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`;
       }
     }
+  },
+
+  async _runDeepProbes() {
+    const list = this.container.querySelector('#system-probes-list');
+    if (list) {
+      list.innerHTML = `<p class="text-zinc-500 text-sm px-2">Running deep probes…</p>`;
+    }
+    try {
+      const report = await api('/diagnostics/probes', { method: 'POST' });
+      this._renderProbes(report || {});
+      toast(`深度检查完成: ${report.status || 'ok'}`, report.status === 'error' ? 'error' : 'success');
+    } catch (err) {
+      if (list) {
+        list.innerHTML = `<p class="text-rose-400 text-sm px-2">${escapeHtml(err.message || 'Deep probe failed')}</p>`;
+      }
+      toast(err.message || 'Deep probe failed', 'error');
+    }
+  },
+
+  _renderProbes(report) {
+    const list = this.container.querySelector('#system-probes-list');
+    if (!list) return;
+    const probes = report.probes || [];
+    const summary = report.summary || {};
+    if (!probes.length) {
+      list.innerHTML = `<p class="text-zinc-600 text-sm px-2">No probe results.</p>`;
+      return;
+    }
+    const summaryHtml = `<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      ${['total','ok','warning','error','skipped'].map((key) => `
+        <div class="rounded-lg bg-zinc-950 border border-white/5 px-3 py-2">
+          <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">${key}</div>
+          <div class="text-lg font-bold text-zinc-100 mt-1">${summary[key] ?? 0}</div>
+        </div>`).join('')}
+    </div>`;
+    list.innerHTML = summaryHtml + probes.map((probe) => {
+      const status = probe.status || 'unknown';
+      const tone = status === 'ok' ? 'text-emerald-400' :
+        status === 'error' ? 'text-rose-400' :
+        status === 'skipped' ? 'text-zinc-500' : 'text-amber-400';
+      const details = probe.details && Object.keys(probe.details).length
+        ? `<pre class="mt-2 text-[11px] text-zinc-500 overflow-x-auto">${escapeHtml(JSON.stringify(probe.details))}</pre>`
+        : '';
+      return `<div class="rounded-xl border border-white/5 bg-zinc-950 px-4 py-3 mb-2">
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-sm font-bold text-zinc-100">${escapeHtml(probe.collector_id || '')} · ${escapeHtml(probe.name || '')}</div>
+          <span class="text-[10px] font-mono uppercase ${tone}">${escapeHtml(status)} · ${probe.latency_ms || 0}ms</span>
+        </div>
+        <div class="text-xs text-zinc-500 mt-1">${escapeHtml(probe.message || '')}</div>
+        ${probe.error_code ? `<div class="text-[10px] text-zinc-600 mt-1">code: ${escapeHtml(probe.error_code)}</div>` : ''}
+        ${details}
+      </div>`;
+    }).join('');
   },
 
   _renderStatus(health, diagnostics) {

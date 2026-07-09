@@ -20,6 +20,8 @@ def build_health_report(scheduler_stats: dict[str, Any] | None = None) -> dict[s
         _settings_file_check(),
         _settings_schema_check(),
         _data_dir_check(),
+        _database_config_check(),
+        _execution_backend_check(),
         _dependency_check("fastapi", required=True),
         _dependency_check("uvicorn", required=True),
         _dependency_check("playwright", required=True),
@@ -44,6 +46,8 @@ def build_config_diagnostics() -> dict[str, Any]:
         _settings_file_check(),
         _settings_schema_check(),
         _data_dir_check(),
+        _database_config_check(),
+        _execution_backend_check(),
         _dependency_check("pyyaml", import_name="yaml", required=True),
         _dependency_check("python-dotenv", import_name="dotenv", required=False),
         _dependency_check("playwright", required=True),
@@ -597,6 +601,59 @@ def _scheduler_config_check() -> dict[str, Any]:
         "ok",
         "Scheduler concurrency configuration is valid",
         max_concurrent=max_concurrent_int,
+    )
+
+
+def _database_config_check() -> dict[str, Any]:
+    """Static check: database provider / URL are configured (no live connection)."""
+    provider = str(get_config("database.provider", "") or "").strip() or "sqlalchemy"
+    raw_url = str(get_config("database.sqlalchemy_url", "") or "").strip()
+    env_url = str(os.environ.get("DATABASE_URL", "") or "").strip()
+    # Unresolved ${VAR} placeholders count as missing.
+    effective = env_url or raw_url
+    unresolved = effective.startswith("${") and effective.endswith("}")
+    if unresolved or not effective:
+        return _check(
+            "database.config",
+            "warning",
+            "Database URL is missing or still an unresolved placeholder; "
+            "set DATABASE_URL before relying on persistence.",
+            provider=provider,
+            has_env_url=bool(env_url),
+            has_settings_url=bool(raw_url) and not unresolved,
+        )
+    return _check(
+        "database.config",
+        "ok",
+        "Database URL is configured",
+        provider=provider,
+        has_env_url=bool(env_url),
+        has_settings_url=bool(raw_url),
+    )
+
+
+def _execution_backend_check() -> dict[str, Any]:
+    backend = str(get_config("scheduler.execution_backend", "in_process") or "in_process")
+    backend = backend.strip().lower() or "in_process"
+    if backend not in {"in_process", "worker_claim"}:
+        return _check(
+            "scheduler.execution_backend",
+            "error",
+            f"Unknown execution backend: {backend}",
+            execution_backend=backend,
+        )
+    if backend == "worker_claim":
+        return _check(
+            "scheduler.execution_backend",
+            "warning",
+            "Execution backend is worker_claim; tasks need online workers with matching capabilities.",
+            execution_backend=backend,
+        )
+    return _check(
+        "scheduler.execution_backend",
+        "ok",
+        "Execution backend is in_process",
+        execution_backend=backend,
     )
 
 

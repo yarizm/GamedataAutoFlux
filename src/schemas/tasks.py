@@ -10,6 +10,23 @@ class TaskPrecheckIssue(BaseModel):
     code: str
     field: str
     message: str
+    collector_id: str = ""
+    category: str = ""  # config | target | credential | session | graph | probe | runtime
+    suggested_action: str = ""
+
+
+class CollectorReadiness(BaseModel):
+    """Per-collector readiness summary for multi-collector pipelines."""
+
+    collector_id: str
+    status: str = "ok"  # ok | warning | error
+    requires_session: bool = False
+    session_precheck_status: str = "ok"
+    is_root: bool = True  # False when targets come from from_upstream
+    from_upstream: bool = False
+    issue_count: int = 0
+    error_count: int = 0
+    warning_count: int = 0
 
 
 class TaskPrecheckResponse(BaseModel):
@@ -17,14 +34,20 @@ class TaskPrecheckResponse(BaseModel):
     can_submit: bool
     pipeline_name: str
     collector_name: str = ""
+    collectors: list[str] = Field(default_factory=list)
+    collectors_readiness: list[CollectorReadiness] = Field(default_factory=list)
     required_fields: list[str] = Field(default_factory=list)
     issues: list[TaskPrecheckIssue] = Field(default_factory=list)
     credential_status: dict[str, str] = Field(default_factory=dict)
     data_source_status: dict[str, str] = Field(default_factory=dict)
     collector_metadata: dict[str, Any] = Field(default_factory=dict)
     session_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    session_diagnostics_by_collector: dict[str, Any] = Field(default_factory=dict)
     session_readiness: dict[str, Any] = Field(default_factory=dict)
+    session_readiness_by_collector: dict[str, Any] = Field(default_factory=dict)
     recovery: dict[str, Any] = Field(default_factory=dict)
+    deep: bool = False
+    probe_report: dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskEventResponse(BaseModel):

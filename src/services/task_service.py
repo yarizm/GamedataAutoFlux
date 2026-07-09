@@ -225,6 +225,8 @@ class TaskService:
         collector_name: str = "",
         targets: list[dict[str, Any]] | None = None,
         config: dict[str, Any] | None = None,
+        *,
+        deep: bool = False,
     ):
         return self._precheck_service.precheck(
             name=name,
@@ -232,6 +234,26 @@ class TaskService:
             collector_name=collector_name,
             targets=targets,
             config=config,
+            deep=deep,
+        )
+
+    async def precheck_async(
+        self,
+        name: str,
+        pipeline_name: str,
+        collector_name: str = "",
+        targets: list[dict[str, Any]] | None = None,
+        config: dict[str, Any] | None = None,
+        *,
+        deep: bool | None = None,
+    ):
+        return await self._precheck_service.precheck_async(
+            name=name,
+            pipeline_name=pipeline_name,
+            collector_name=collector_name,
+            targets=targets,
+            config=config,
+            deep=deep,
         )
 
     # ------------------------------------------------------------------

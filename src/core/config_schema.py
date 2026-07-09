@@ -185,6 +185,14 @@ class SchedulerConfig(_FlexibleModel):
     default_retry_delay: float = Field(default=60, ge=0)
     persistence: SchedulerPersistenceConfig = Field(default_factory=SchedulerPersistenceConfig)
     cron_jobs: list[Any] = Field(default_factory=list)
+    execution_backend: str = Field(default="in_process", pattern="^(in_process|worker_claim)$")
+
+
+class PrecheckConfig(_FlexibleModel):
+    deep_default: bool = False
+    probe_timeout_seconds: float = Field(default=5, ge=1)
+    probe_cache_ttl_seconds: float = Field(default=120, ge=0)
+    blocking_probes: list[str] = Field(default_factory=list)
 
 
 class CollectorConfig(_FlexibleModel):
@@ -228,6 +236,7 @@ class SettingsModel(_FlexibleModel):
     smart_collector: SmartCollectorConfig = Field(default_factory=SmartCollectorConfig)
     gtrends: GTrendsConfig = Field(default_factory=GTrendsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    precheck: PrecheckConfig = Field(default_factory=PrecheckConfig)
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 

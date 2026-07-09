@@ -20,6 +20,8 @@ def test_build_health_report_shape() -> None:
     assert isinstance(report["checks"], list)
     assert report["summary"]["scheduler"]["started"] is True
     assert all({"name", "status", "message", "details"} <= set(check) for check in report["checks"])
+    assert any(check["name"] == "database.config" for check in report["checks"])
+    assert any(check["name"] == "scheduler.execution_backend" for check in report["checks"])
 
 
 def test_build_config_diagnostics_shape() -> None:

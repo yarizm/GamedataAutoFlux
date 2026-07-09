@@ -109,6 +109,22 @@ async def launch_steamdb_browser():
             raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/diagnostics/probes", dependencies=[Depends(require_admin)])
+async def run_deep_probes(
+    collectors: Annotated[
+        list[str] | None,
+        Query(description="Collector ids to probe; default = session-sensitive set"),
+    ] = None,
+):
+    """Run optional deep probes (network / API validity). Not used on default precheck."""
+    from src.core.collector_metadata import list_session_sensitive_collectors
+    from src.core.collector_probes import build_probe_report, run_collector_probes
+
+    collector_ids = collectors or list_session_sensitive_collectors()
+    results = await run_collector_probes(collector_ids, targets=[])
+    return build_probe_report(results)
+
+
 async def _sync_session_inventory_best_effort(get_registry, diagnostics: dict) -> None:
     await sync_session_inventory_via_provider_best_effort(
         get_registry,

@@ -36,6 +36,10 @@ class CreateTaskRequest(BaseModel):
     collector_name: str = Field(default="", description="采集器名称")
     targets: list[dict[str, Any]] = Field(default_factory=list, description="采集目标")
     config: dict[str, Any] = Field(default_factory=dict, description="运行时配置")
+    deep: bool = Field(
+        default=False,
+        description="Precheck only: run optional deep probes (network/API). Ignored on create.",
+    )
 
 
 class TaskResponse(BaseModel):
@@ -97,6 +101,10 @@ async def list_tasks(status: Annotated[str | None, Query(description="按状态�
 @router.post("/tasks/precheck", response_model=TaskPrecheckResponse)
 async def precheck_task(
     req: Annotated[CreateTaskRequest, Body(description="Task creation precheck")],
+    deep: Annotated[
+        bool | None,
+        Query(description="Run deep probes (overrides body.deep when set)"),
+    ] = None,
 ):
     """Validate task input before submitting it to the scheduler."""
     from src.web.app import get_task_service, scheduler
@@ -105,15 +113,20 @@ async def precheck_task(
     if scheduler is not None and hasattr(scheduler, "resolve_pipeline"):
         await scheduler.resolve_pipeline(req.pipeline_name)
 
-    precheck = get_task_service().precheck(
+    use_deep = req.deep if deep is None else deep
+    precheck = await get_task_service().precheck_async(
         name=req.name,
         pipeline_name=req.pipeline_name,
         collector_name=req.collector_name,
         targets=req.targets,
         config=req.config,
+        deep=use_deep,
     )
     if precheck.session_diagnostics:
         await _sync_session_inventory_best_effort(precheck.session_diagnostics)
+    for _cid, diag in (precheck.session_diagnostics_by_collector or {}).items():
+        if isinstance(diag, dict) and diag:
+            await _sync_session_inventory_best_effort(diag)
     return precheck
 
 

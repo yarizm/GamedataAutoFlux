@@ -350,18 +350,68 @@ export default {
     const dataSources = precheck.data_source_status || {};
     const required = precheck.required_fields || [];
     const session = precheck.session_readiness || {};
+    const collectors = precheck.collectors || (precheck.collector_name ? [precheck.collector_name] : []);
+    const readiness = precheck.collectors_readiness || [];
     container.style.display = 'block';
     container.className = `task-precheck task-precheck-${precheck.status || 'ok'}`;
     container.innerHTML = `
       <div class="task-precheck-title">${t('tasks.precheck')}: ${escapeHtml(precheck.status || 'ok')}</div>
       <div class="task-precheck-grid">
-        <span>${t('tasks.collector')}</span><strong>${escapeHtml(precheck.collector_name || '-')}</strong>
+        <span>${t('tasks.collector')}</span><strong>${escapeHtml(collectors.join(', ') || precheck.collector_name || '-')}</strong>
         <span>${t('tasks.required')}</span><strong>${escapeHtml(required.join(' / ') || '-')}</strong>
         <span>${t('tasks.credentials')}</span><strong>${escapeHtml(Object.entries(credentials).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
         <span>${t('tasks.dataSource')}</span><strong>${escapeHtml(Object.entries(dataSources).map(([k,v]) => `${k}: ${v}`).join(' / ') || '-')}</strong>
       </div>
+      ${this._renderCollectorsReadiness(readiness)}
       ${this._renderPrecheckSessionReadiness(session)}
-      ${issues.length ? `<ul>${issues.map(i => `<li class="task-precheck-${escapeHtml(i.level)}">${escapeHtml(i.field)}: ${escapeHtml(i.message)}</li>`).join('')}</ul>` : ''}`;
+      ${this._renderPrecheckIssues(issues)}
+      ${precheck.deep && precheck.probe_report ? this._renderProbeSummary(precheck.probe_report) : ''}`;
+  },
+
+  _renderPrecheckIssues(issues) {
+    if (!issues.length) return '';
+    const groups = {};
+    for (const issue of issues) {
+      const cat = issue.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(issue);
+    }
+    const order = ['config', 'target', 'credential', 'session', 'graph', 'probe', 'runtime', 'other'];
+    const cats = [...order.filter((c) => groups[c]), ...Object.keys(groups).filter((c) => !order.includes(c))];
+    return cats.map((cat) => `
+      <div class="mt-3">
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">${escapeHtml(cat)}</div>
+        <ul class="space-y-1">${groups[cat].map((i) => {
+          const cid = i.collector_id ? `${escapeHtml(i.collector_id)} · ` : '';
+          const action = i.suggested_action
+            ? `<div class="text-[11px] text-zinc-500 mt-0.5">${escapeHtml(i.suggested_action)}</div>`
+            : '';
+          return `<li class="task-precheck-${escapeHtml(i.level)} text-sm">${cid}<strong>${escapeHtml(i.code || '')}</strong> ${escapeHtml(i.field)}: ${escapeHtml(i.message)}${action}</li>`;
+        }).join('')}</ul>
+      </div>`).join('');
+  },
+
+  _renderProbeSummary(report) {
+    if (!report || !report.summary) return '';
+    const s = report.summary;
+    return `<div class="mt-3 rounded-lg border border-white/5 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
+      Deep probes: total=${s.total ?? 0} ok=${s.ok ?? 0} warn=${s.warning ?? 0} err=${s.error ?? 0} skip=${s.skipped ?? 0}
+    </div>`;
+  },
+
+  _renderCollectorsReadiness(readiness) {
+    if (!Array.isArray(readiness) || !readiness.length) return '';
+    if (readiness.length === 1 && !readiness[0].from_upstream) return '';
+    return `
+      <div class="mt-3 flex flex-wrap gap-2">
+        ${readiness.map((item) => {
+          const tone = this._precheckTone(item.status || 'ok');
+          const role = item.from_upstream ? 'upstream' : 'root';
+          return `<span class="rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}" title="errors=${item.error_count || 0} warnings=${item.warning_count || 0}">
+            ${escapeHtml(item.collector_id || '?')} · ${escapeHtml(role)} · ${escapeHtml(item.status || 'ok')}
+          </span>`;
+        }).join('')}
+      </div>`;
   },
 
   _renderPrecheckSessionReadiness(session) {

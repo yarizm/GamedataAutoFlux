@@ -74,11 +74,33 @@ def classify_exception(exc: Exception) -> ErrorCode:
 
     # 按优先级匹配
     if any(
-        kw in msg for kw in ("api key", "apikey", "credentials", "unauthorized", "token", "未配置")
+        kw in msg
+        for kw in (
+            "api key",
+            "apikey",
+            "api_key",
+            "credentials",
+            "unauthorized",
+            "token",
+            "未配置",
+            "invalid key",
+            "key invalid",
+            "key was rejected",
+        )
     ):
         return ErrorCode.missing_credentials
     if any(
-        kw in msg for kw in ("login", "cookie", "session expired", "not authenticated", "sign in")
+        kw in msg
+        for kw in (
+            "login",
+            "cookie",
+            "session expired",
+            "not authenticated",
+            "sign in",
+            "storage_state",
+            "login required",
+            "需要登录",
+        )
     ):
         return ErrorCode.login_required
     if any(
@@ -86,7 +108,18 @@ def classify_exception(exc: Exception) -> ErrorCode:
         for kw in ("captcha", "cloudflare", "bot", "blocked", "forbidden", "access denied", "403")
     ):
         return ErrorCode.anti_bot_blocked
-    if any(kw in msg for kw in ("rate limit", "too many requests", "429", "throttle")):
+    if any(
+        kw in msg
+        for kw in (
+            "rate limit",
+            "too many requests",
+            "429",
+            "throttle",
+            "quota",
+            "quotaexceeded",
+            "dailylimitexceeded",
+        )
+    ):
         return ErrorCode.rate_limited
     if any(
         kw in msg

@@ -88,22 +88,51 @@ def _task_detail_guidance(payload: dict[str, Any]) -> tuple[str, list[dict[str, 
         )
 
     if collection_status == "failed" or status == "failed":
+        actions = [
+            {
+                "type": "review_collection_results",
+                "recommended_tool": "review_collection_results",
+                "args": {"task_id": task_id, "auto_retry": False},
+                "why": "Use structured failure details before deciding whether to retry.",
+            },
+            {
+                "type": "deep_precheck",
+                "recommended_tool": "create_task",
+                "args": {
+                    "hint": "re-run /api/tasks/precheck with deep=true for the same pipeline/targets"
+                },
+                "why": (
+                    "Run deep precheck (API keys, network, session assets) before retrying "
+                    "to catch credential/login/environment issues."
+                ),
+            },
+            {
+                "type": "create_task",
+                "recommended_tool": "create_task",
+                "why": "Create a corrected follow-up task after fixing identifiers or parameters.",
+            },
+        ]
+        session = payload.get("session_readiness")
+        if isinstance(session, dict) and str(session.get("precheck_status") or "") in {
+            "error",
+            "warning",
+        }:
+            actions.insert(
+                1,
+                {
+                    "type": "session_fix",
+                    "recommended_tool": "get_task_detail",
+                    "why": (
+                        "Session readiness is not OK; fix login/profile/CDP "
+                        f"({session.get('summary') or 'see session_readiness'})."
+                    ),
+                },
+            )
         return (
             "Task failed before producing enough usable source data. Review collection results "
-            "and identifiers before creating a retry or replacement task." + recovery_note,
-            [
-                {
-                    "type": "review_collection_results",
-                    "recommended_tool": "review_collection_results",
-                    "args": {"task_id": task_id, "auto_retry": False},
-                    "why": "Use structured failure details before deciding whether to retry.",
-                },
-                {
-                    "type": "create_task",
-                    "recommended_tool": "create_task",
-                    "why": "Create a corrected follow-up task after fixing identifiers or parameters.",
-                },
-            ],
+            "and identifiers; consider deep precheck for credentials/session/network before retry."
+            + recovery_note,
+            actions,
         )
 
     if status == "success" or stored_count > 0:
