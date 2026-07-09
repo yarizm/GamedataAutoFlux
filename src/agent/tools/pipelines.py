@@ -165,7 +165,7 @@ class CreateDynamicPipelineTool(BaseTool):
             Pipeline(pipeline_name)
             .add_collector("dynamic_playwright", config=collector_config)
             .add_processor("cleaner")
-            .add_storage("local")
+            .add_storage("sqlalchemy")
             .add_storage("vector")
         )
 
@@ -174,7 +174,7 @@ class CreateDynamicPipelineTool(BaseTool):
             return _format_result(
                 "ok",
                 f"动态 Pipeline '{pipeline_name}' 已成功创建并保存！\n"
-                f"流程配置: Playwright 采集器 -> cleaner 处理器 -> local/vector 存储。\n"
+                f"流程配置: Playwright 采集器 -> cleaner 处理器 -> sqlalchemy/vector 存储。\n"
                 f"你可以直接使用 create_task 创建任务，将 pipeline_name 设置为 '{pipeline_name}' 来执行采集。",
                 {"pipeline_name": pipeline_name, "steps_count": 4},
                 record_count=1,

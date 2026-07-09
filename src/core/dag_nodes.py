@@ -82,12 +82,29 @@ class CollectorNode:
     async def run(self, ctx: NodeContext) -> dict[str, Any]:
         assert self._collector is not None
         await self._collector.setup(self.spec.config)
-        targets = _build_collect_targets(self._task)
-        collect_ctx = (self._recovery_context or {}).get("collect", {})
-        if collect_ctx:
-            from src.core.pipeline_recovery import apply_collect_resume_context
 
-            targets = apply_collect_resume_context(targets, collect_ctx)
+        from src.core.dag_upstream import resolve_collector_targets
+
+        node_config = {**(self.spec.config or {}), **(ctx.config or {})}
+        upstream_records = _flatten_records(ctx.inputs.get("records"))
+        task_targets = _build_collect_targets(self._task)
+        targets = resolve_collector_targets(
+            task_targets=task_targets,
+            upstream_records=upstream_records,
+            node_config=node_config,
+        )
+
+        # 仅根 collector（无 from_upstream）消费 pipeline 级 resume
+        if not node_config.get("from_upstream"):
+            collect_ctx = (self._recovery_context or {}).get("collect", {})
+            if collect_ctx:
+                from src.core.pipeline_recovery import apply_collect_resume_context
+
+                targets = apply_collect_resume_context(targets, collect_ctx)
+
+        if not targets:
+            return {"records": []}
+
         results = await self._collector.collect_batch(targets)
         return {"records": results}
 
@@ -151,9 +168,10 @@ class StorageNode:
         self._storage = None
 
     async def setup(self) -> None:
-        from src.storage.factory import get_storage
+        from src.storage.factory import get_storage, normalize_storage_name
 
-        storage_name = self.spec.component if self.spec.component != "storage" else None
+        raw = self.spec.component if self.spec.component != "storage" else None
+        storage_name = normalize_storage_name(raw) if raw else None
         self._storage = get_storage(storage_name)
         await self._storage.initialize()
 

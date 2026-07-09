@@ -72,31 +72,31 @@ PIPELINES: dict[str, Pipeline] = {
     "autoflux_official_site_basic": Pipeline("autoflux_official_site_basic")
     .add_collector("official_site", {})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_steam_basic": Pipeline("autoflux_steam_basic")
     .add_collector("steam", {"request_delay": 0.5})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_steam_discussions_basic": Pipeline("autoflux_steam_discussions_basic")
     .add_collector("steam_discussions", {"request_delay": 1.0, "max_pages": 1, "max_topics": 20, "include_replies": False})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_gtrends_basic": Pipeline("autoflux_gtrends_basic")
     .add_collector("gtrends", {})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_monitor_basic": Pipeline("autoflux_monitor_basic")
     .add_collector("monitor", {})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_taptap_basic": Pipeline("autoflux_taptap_basic")
     .add_collector("taptap", {})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
     "autoflux_qimai_basic": Pipeline("autoflux_qimai_basic")
     .add_collector("qimai", {})
     .add_processor("cleaner", {})
-    .add_storage("local", {}),
+    .add_storage("sqlalchemy", {}),
 }
 
 

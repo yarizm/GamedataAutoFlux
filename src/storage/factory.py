@@ -18,6 +18,21 @@ from src.storage.base import BaseStorage
 _global_storage: BaseStorage | None = None
 _global_storage_lock = threading.Lock()
 
+# 历史别名：旧模板/流水线写 local，统一到 sqlalchemy 实现
+STORAGE_NAME_ALIASES: dict[str, str] = {
+    "local": "sqlalchemy",
+}
+
+DEFAULT_STORAGE_NAME = "sqlalchemy"
+
+
+def normalize_storage_name(name: str | None) -> str:
+    """把存储组件名归一为规范名（local → sqlalchemy）。"""
+    if name is None or str(name).strip() == "":
+        return DEFAULT_STORAGE_NAME
+    key = str(name).strip()
+    return STORAGE_NAME_ALIASES.get(key, key)
+
 
 def get_storage(name: str | None = None) -> BaseStorage:
     """获取全局共享的存储引擎实例（单例）。
@@ -28,11 +43,14 @@ def get_storage(name: str | None = None) -> BaseStorage:
     Args:
         name: 存储名称。当前架构下仅用于日志追踪，不影响返回的实例。
               未来可用于区分不同的存储后端（如 "vector"、"cache" 等）。
+              历史名 ``local`` 会归一为 ``sqlalchemy``。
 
     Returns:
         全局共享的 BaseStorage 实例
     """
     global _global_storage
+    normalized = normalize_storage_name(name) if name else None
+
     if _global_storage is not None:
         return _global_storage
 
@@ -42,13 +60,13 @@ def get_storage(name: str | None = None) -> BaseStorage:
 
         settings = get_settings()
         db_config = settings.get("database", {})
-        provider = db_config.get("provider", "sqlalchemy")
+        provider = normalize_storage_name(db_config.get("provider", DEFAULT_STORAGE_NAME))
 
         store_cls = registry.get("storage", provider)
         _global_storage = store_cls(db_config)
-        if name:
+        if normalized:
             logger.debug(
-                f"get_storage(name={name!r}) → 返回全局默认存储 ({provider})，当前架构共享同一实例"
+                f"get_storage(name={name!r}→{normalized!r}) → 返回全局默认存储 ({provider})，当前架构共享同一实例"
             )
     return _global_storage
 

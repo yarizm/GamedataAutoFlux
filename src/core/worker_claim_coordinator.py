@@ -158,14 +158,31 @@ class WorkerClaimCoordinator:
         )
         collector_name = selected_collector_name
         collector_metadata = get_collector_metadata(collector_name)
+        graph_payload = None
+        if pipeline is not None:
+            # 优先持久化真图（条件边/拓扑），回退 pipeline_to_dag 投影
+            try:
+                from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
+                from src.storage.session_factory import get_session_factory
+
+                stored = await SQLAlchemyPipelineRepository(get_session_factory()).load_as_dag(
+                    pipeline.name
+                )
+                if stored is not None:
+                    graph_payload = stored.to_storage()
+            except Exception:
+                graph_payload = None
+            if graph_payload is None:
+                graph_payload = pipeline_to_dag(pipeline).to_storage()
+
         return {
             "task_id": task.id,
             "claim_status": "claimed",
             "claim_reason": "",
             "blocked_sessions": blocked_sessions,
             "task": task.to_storage_payload(),
-            "pipeline": pipeline.to_config(),
-            "graph": pipeline_to_dag(pipeline).to_storage() if pipeline is not None else None,
+            "pipeline": pipeline.to_config() if pipeline is not None else None,
+            "graph": graph_payload,
             "payload_version": "2",
             "latest_checkpoint": latest_checkpoint_payload,
             "collector_metadata": (

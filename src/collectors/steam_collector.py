@@ -13,7 +13,7 @@ Steam 数据采集器 — 主入口
         Pipeline("steam_monitor")
         .add_collector("steam", {"request_delay": 1.5})
         .add_processor("cleaner")
-        .add_storage("local")
+        .add_storage("sqlalchemy")
     )
 """
 

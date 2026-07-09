@@ -248,7 +248,7 @@ function applyPipelineTemplate() {
     setValue("pipeline-collector", template.steps.find((step) => step.type === "collector")?.name || "");
     setChecked("pipeline-processor-cleaner", template.steps.some((step) => step.type === "processor" && step.name === "cleaner"));
     setChecked("pipeline-processor-embedding", template.steps.some((step) => step.type === "processor" && step.name === "embedding"));
-    setChecked("pipeline-storage-local", template.steps.some((step) => step.type === "storage" && step.name === "local"));
+    setChecked("pipeline-storage-sqlalchemy", template.steps.some((step) => step.type === "storage" && (step.name === "sqlalchemy" || step.name === "local")));
     setChecked("pipeline-storage-vector", template.steps.some((step) => step.type === "storage" && step.name === "vector"));
     setValue("pipeline-steps", JSON.stringify(template.steps, null, 2));
 }
@@ -266,8 +266,8 @@ function buildPipelineStepsFromForm() {
     if (document.getElementById("pipeline-processor-embedding")?.checked) {
         steps.push({ type: "processor", name: "embedding", config: {} });
     }
-    if (document.getElementById("pipeline-storage-local")?.checked) {
-        steps.push({ type: "storage", name: "local", config: {} });
+    if (document.getElementById("pipeline-storage-sqlalchemy")?.checked) {
+        steps.push({ type: "storage", name: "sqlalchemy", config: {} });
     }
     if (document.getElementById("pipeline-storage-vector")?.checked) {
         steps.push({ type: "storage", name: "vector", config: {} });

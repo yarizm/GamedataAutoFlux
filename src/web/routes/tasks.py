@@ -99,7 +99,11 @@ async def precheck_task(
     req: Annotated[CreateTaskRequest, Body(description="Task creation precheck")],
 ):
     """Validate task input before submitting it to the scheduler."""
-    from src.web.app import get_task_service
+    from src.web.app import get_task_service, scheduler
+
+    # DAG-only 图：先投影到 scheduler，precheck 才能识别
+    if scheduler is not None and hasattr(scheduler, "resolve_pipeline"):
+        await scheduler.resolve_pipeline(req.pipeline_name)
 
     precheck = get_task_service().precheck(
         name=req.name,

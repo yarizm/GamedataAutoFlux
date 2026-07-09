@@ -14,7 +14,7 @@ from src.core.collector_metadata import (
     get_collector_metadata,
 )
 from src.core.pipeline import Pipeline
-from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec
+from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec, dag_to_pipeline
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
 from src.web.safety import require_explicit_confirmation, validate_dynamic_playwright_config
@@ -65,6 +65,8 @@ class NodeSpecConfig(BaseModel):
     ports_out: list[PortSpecConfig] = Field(default_factory=list)
     is_param_port: list[str] = Field(default_factory=list)
     subgraph_name: str | None = None
+    # Frontend layout metadata (x/y/label); ignored by executor
+    ui: dict[str, Any] = Field(default_factory=dict)
 
 
 class EdgeConfig(BaseModel):
@@ -84,6 +86,8 @@ class CreateDagRequest(BaseModel):
     nodes: list[NodeSpecConfig]
     edges: list[EdgeConfig] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
+    # Graph-level UI metadata (zoom/pan); ignored by executor
+    ui: dict[str, Any] = Field(default_factory=dict)
 
 
 class CronJobRequest(BaseModel):
@@ -136,6 +140,13 @@ async def list_pipelines():
     return pipelines
 
 
+@router.get("/dags")
+async def list_dags():
+    """列出所有已保存的 DAG 图定义。"""
+    dag_repo = _get_dag_repo()
+    return {dag.name: dag.to_storage() for dag in await dag_repo.list_all()}
+
+
 @router.get("/dags/{name}")
 async def get_dag(
     name: Annotated[str, Path(description="DAG name")],
@@ -179,9 +190,39 @@ async def create_pipeline(
 async def create_dag(
     req: Annotated[CreateDagRequest, Body(description="DAG configuration")],
 ):
+    """保存 DAG 图，并投影注册为同名 Pipeline 供任务创建使用。"""
     dag = _build_dag_from_request(req)
+    if not any(n.type == "collector" for n in dag.nodes):
+        raise HTTPException(400, "DAG must contain at least one collector node")
     await _get_dag_repo().save(dag)
-    return {"message": f"DAG created: {req.name}", "config": dag.to_storage()}
+
+    # 双写：投影 Pipeline 注册进 Scheduler，任务下拉/ precheck / submit 可用
+    pipeline = dag_to_pipeline(dag)
+    if not pipeline.steps:
+        raise HTTPException(400, "DAG has no executable collector/processor/storage nodes")
+    await _get_scheduler().save_pipeline(pipeline)
+
+    return {
+        "message": f"DAG created: {req.name}",
+        "config": dag.to_storage(),
+        "pipeline": pipeline.to_config(),
+    }
+
+
+@router.delete("/dags/{name}")
+async def delete_dag(
+    name: Annotated[str, Path(description="DAG name")],
+    confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
+):
+    require_explicit_confirmation(confirm, "DAG deletion")
+    deleted = await _get_dag_repo().delete(name)
+    if not deleted:
+        raise HTTPException(404, f"DAG not found: {name}")
+    # 同步删除同名 pipeline 投影（若存在）
+    scheduler = _get_scheduler()
+    if scheduler.get_pipeline(name) is not None:
+        await scheduler.delete_pipeline(name)
+    return {"message": f"DAG deleted: {name}"}
 
 
 def _build_dag_from_request(req: CreateDagRequest) -> DAG:
@@ -195,6 +236,7 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
             ports_out=[PortSpec(name=p.name, required=p.required, type_hint=p.type_hint) for p in n.ports_out],
             is_param_port=set(n.is_param_port),
             subgraph_name=n.subgraph_name,
+            ui=dict(n.ui or {}),
         )
         for n in req.nodes
     ]
@@ -205,7 +247,7 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
         )
         for e in req.edges
     ]
-    return DAG(name=req.name, nodes=nodes, edges=edges)
+    return DAG(name=req.name, nodes=nodes, edges=edges, ui=dict(req.ui or {}))
 
 
 @router.delete("/pipelines/{name}")

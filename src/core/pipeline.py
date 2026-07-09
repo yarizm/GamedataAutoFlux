@@ -242,11 +242,13 @@ class Pipeline:
         return self
 
     def add_storage(self, name: str, config: dict[str, Any] | None = None) -> Pipeline:
-        """添加存储步骤"""
+        """添加存储步骤（local 等历史名归一为 sqlalchemy）。"""
+        from src.storage.factory import normalize_storage_name
+
         self.steps.append(
             PipelineStep(
                 step_type=StepType.STORAGE,
-                component_name=name,
+                component_name=normalize_storage_name(name),
                 config=config or {},
             )
         )
@@ -329,8 +331,12 @@ class Pipeline:
         from src.core.dag import pipeline_to_dag
         from src.core.dag_executor import DAGExecutor
 
-        dag = pipeline_to_dag(self)
+        # 优先用持久化 graph（保留条件边/拓扑）；没有再从 steps 投影
+        dag = await self._try_load_stored_dag()
+        if dag is None:
+            dag = pipeline_to_dag(self)
         executor = DAGExecutor()
+
         node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
 
         async def _on_event(task_id, node_spec, phase, *, out=None, error=None):
@@ -407,6 +413,17 @@ class Pipeline:
         )
         await self._report_progress(task.id, 1.0, "Pipeline completed")
         return result
+
+    async def _try_load_stored_dag(self) -> Any | None:
+        """尝试从持久化 graph 加载本 Pipeline 同名 DAG（失败返回 None）。"""
+        try:
+            from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
+            from src.storage.session_factory import get_session_factory
+
+            repo = SQLAlchemyPipelineRepository(get_session_factory())
+            return await repo.load_as_dag(self.name)
+        except Exception:
+            return None
 
     def _map_dag_result_to_pipeline_result(self, dag_result: Any) -> PipelineResult:
         """逐字段把 DAGResult 映射回 PipelineResult。"""
@@ -952,10 +969,12 @@ class Pipeline:
         """实例化步骤中的组件"""
         for step in steps:
             if component_type == "storage":
-                from src.storage.factory import get_storage
+                from src.storage.factory import get_storage, normalize_storage_name
 
                 # 优先使用 step_name, fallback to default storage
-                storage_name = step.component_name if step.component_name != "storage" else None
+                raw_name = step.component_name if step.component_name != "storage" else None
+                storage_name = normalize_storage_name(raw_name) if raw_name else None
+                step.component_name = storage_name or step.component_name
                 step.instance = get_storage(storage_name)
                 logger.debug(f"  实例化 [storage] via factory: {step.instance.__class__.__name__}")
             else:

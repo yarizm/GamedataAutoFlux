@@ -39,12 +39,12 @@ class TestPipelineConstruction:
 
     def test_add_storage(self):
         p = Pipeline("p")
-        p.add_storage("local", {"db_name": "test.db"})
+        p.add_storage("sqlalchemy", {"db_name": "test.db"})
         assert p.steps[0].step_type == StepType.STORAGE
-        assert p.steps[0].component_name == "local"
+        assert p.steps[0].component_name == "sqlalchemy"
 
     def test_chaining(self):
-        p = Pipeline("p").add_collector("steam").add_processor("cleaner").add_storage("local")
+        p = Pipeline("p").add_collector("steam").add_processor("cleaner").add_storage("sqlalchemy")
         assert len(p.steps) == 3
         assert [s.step_type for s in p.steps] == [
             StepType.COLLECTOR,
@@ -76,7 +76,7 @@ class TestPipelineStepFilters:
     def test_get_storages(self, pipeline_basic):
         ss = pipeline_basic._get_storages()
         assert len(ss) == 1
-        assert ss[0].component_name == "local"
+        assert ss[0].component_name == "sqlalchemy"
 
 
 class TestPipelineConfig:
@@ -94,7 +94,7 @@ class TestPipelineConfig:
             "name": "restored",
             "steps": [
                 {"type": "collector", "name": "taptap", "config": {"delay": 2.0}},
-                {"type": "storage", "name": "local"},
+                {"type": "storage", "name": "sqlalchemy"},
             ],
         }
         p = Pipeline.from_config(cfg)
@@ -269,7 +269,7 @@ class TestPipelineStep:
         assert s.instance is None
 
     def test_with_config(self):
-        s = PipelineStep(step_type=StepType.STORAGE, component_name="local", config={"db": "x.db"})
+        s = PipelineStep(step_type=StepType.STORAGE, component_name="sqlalchemy", config={"db": "x.db"})
         assert s.config == {"db": "x.db"}
 
 

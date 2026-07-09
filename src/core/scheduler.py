@@ -77,7 +77,7 @@ class Scheduler:
             else get_config("scheduler.default_retry_count", 3)
         )
         self._task_store_config = task_store_config or {
-            "provider": get_config("database.provider", "local"),
+            "provider": get_config("database.provider", "sqlalchemy"),
             "sqlalchemy_url": get_config("database.sqlalchemy_url")
             or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
             "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
@@ -206,7 +206,7 @@ class Scheduler:
         logger.info("Scheduler stopped")
 
     def _refresh_task_store_config(self) -> None:
-        self._task_store_config["provider"] = get_config("database.provider", "local")
+        self._task_store_config["provider"] = get_config("database.provider", "sqlalchemy")
         self._task_store_config["sqlalchemy_url"] = (
             get_config("database.sqlalchemy_url")
             or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
@@ -281,6 +281,30 @@ class Scheduler:
         """获取已注册的 Pipeline"""
         return self._pipelines.get(name)
 
+    async def resolve_pipeline(self, name: str) -> Pipeline | None:
+        """按名称解析 Pipeline；内存没有时尝试从 graph/pipeline 仓储投影加载。"""
+        if not name:
+            return None
+        pipeline = self._pipelines.get(name)
+        if pipeline is not None:
+            return pipeline
+        repo = self._pipeline_repo
+        if repo is not None and hasattr(repo, "load_as_dag"):
+            try:
+                dag = await repo.load_as_dag(name)
+            except Exception as exc:
+                logger.warning(f"resolve_pipeline load_as_dag failed for {name}: {exc}")
+                dag = None
+            if dag is not None:
+                from src.core.dag import dag_to_pipeline
+
+                pipeline = dag_to_pipeline(dag)
+                if not pipeline.steps:
+                    return None
+                self._pipelines[name] = pipeline
+                return pipeline
+        return None
+
     async def save_pipeline(self, pipeline: Pipeline) -> None:
         """Save a pipeline and persist it."""
         self._pipelines[pipeline.name] = pipeline
@@ -327,12 +351,14 @@ class Scheduler:
         if not self._started:
             raise RuntimeError("调度器未启动，请先调用 start()")
 
-        # 确定要使用的 Pipeline
+        # 确定要使用的 Pipeline（支持从 graph 投影）
         if pipeline is None:
             name = pipeline_name or task.pipeline_name
-            pipeline = self._pipelines.get(name)
+            pipeline = await self.resolve_pipeline(name or "")
             if pipeline is None:
-                raise ValueError(f"Pipeline '{name}' 不存在。可用: {list(self._pipelines.keys())}")
+                raise ValueError(
+                    f"Pipeline/DAG '{name}' 不存在。可用: {list(self._pipelines.keys())}"
+                )
 
         task.pipeline_name = pipeline.name
         if task.max_retries is None:  # 未显式设置，使用调度器默认值

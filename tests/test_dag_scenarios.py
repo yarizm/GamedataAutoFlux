@@ -194,6 +194,79 @@ async def test_scenario4_composite_subgraph():
 
 
 @pytest.mark.asyncio
+async def test_scenario6_collector_chain_from_upstream():
+    """场景6：collector → collector 串联（上游记录映射为下游 targets）。"""
+    from src.collectors.base import BaseCollector, CollectResult, CollectTarget
+
+    class _VideoCollector(BaseCollector):
+        async def collect(self, target: CollectTarget) -> CollectResult:
+            return CollectResult(
+                target=target,
+                success=True,
+                data={
+                    "video_url": target.params.get("video_url", target.name),
+                    "channel_id": f"UC_{target.name}",
+                    "channel_url": f"https://www.youtube.com/channel/UC_{target.name}",
+                    "channel_name": f"ch_{target.name}",
+                },
+            )
+
+    class _ProfileCollector(BaseCollector):
+        async def collect(self, target: CollectTarget) -> CollectResult:
+            return CollectResult(
+                target=target,
+                success=True,
+                data={
+                    "channel_id": target.params.get("channel_id"),
+                    "channel_url": target.params.get("channel_url"),
+                    "author": target.name,
+                },
+            )
+
+    snap = registry.snapshot()
+    registry.register("collector", "_video_chain")(_VideoCollector)
+    registry.register("collector", "_profile_chain")(_ProfileCollector)
+    try:
+        dag = DAG(
+            name="yt_chain",
+            nodes=[
+                NodeSpec(
+                    "videos", "collector", "_video_chain", {},
+                    [], [PortSpec("records")], set(),
+                ),
+                NodeSpec(
+                    "profiles", "collector", "_profile_chain",
+                    {"from_upstream": {"auto": True}},
+                    [PortSpec("records", required=False)],
+                    [PortSpec("records")],
+                    set(),
+                ),
+            ],
+            edges=[Edge("videos", "records", "profiles", "records")],
+        )
+        task = Task(
+            name="t",
+            targets=[
+                TaskTarget(name="v1", params={"video_url": "https://youtu.be/v1"}),
+                TaskTarget(name="v2", params={"video_url": "https://youtu.be/v2"}),
+            ],
+        )
+        result = await DAGExecutor().execute(task, dag)
+        assert result.success
+        # 两层 collector 各产出 2 条
+        assert len(result.collect_results) == 4
+        profile_results = [
+            r for r in result.collect_results
+            if isinstance(r.data, dict) and r.data.get("author")
+        ]
+        assert len(profile_results) == 2
+        authors = {r.data["author"] for r in profile_results}
+        assert authors == {"ch_v1", "ch_v2"}
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
 async def test_scenario5_pipeline_dag_equivalence():
     """场景5：同任务走 Pipeline.execute() 与 pipeline_to_dag+DAGExecutor 行为等价。"""
     from src.core.pipeline import Pipeline

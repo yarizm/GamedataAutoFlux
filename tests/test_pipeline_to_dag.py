@@ -1,9 +1,55 @@
 # tests/test_pipeline_to_dag.py
 from src.core.pipeline import Pipeline
-from src.core.dag import pipeline_to_dag
+from src.core.dag import dag_to_pipeline, pipeline_to_dag
+
+
+def test_dag_to_pipeline_roundtrip_steps():
+    p = (
+        Pipeline("rt")
+        .add_collector("steam")
+        .add_processor("cleaner")
+        .add_storage("sqlalchemy")
+    )
+    dag = pipeline_to_dag(p)
+    back = dag_to_pipeline(dag)
+    assert back.name == "rt"
+    types = [s.step_type.value for s in back.steps]
+    assert types == ["collector", "processor", "storage"]
+    assert [s.component_name for s in back.steps] == ["steam", "cleaner", "sqlalchemy"]
+
+
+def test_legacy_local_storage_normalizes_to_sqlalchemy():
+    from src.core.dag import DAG, NodeSpec, PortSpec
+    from src.storage.factory import normalize_storage_name
+
+    assert normalize_storage_name("local") == "sqlalchemy"
+    # add_storage 归一
+    p = Pipeline("legacy").add_collector("steam").add_storage("local")
+    assert p.steps[-1].component_name == "sqlalchemy"
+    # pipeline_to_dag 归一
+    dag = pipeline_to_dag(p)
+    stores = [n for n in dag.nodes if n.type == "storage"]
+    assert stores and stores[0].component == "sqlalchemy"
+    # from_storage 归一
+    restored = DAG.from_storage({
+        "name": "g",
+        "kind": "dag",
+        "nodes": [
+            {
+                "id": "s",
+                "type": "storage",
+                "component": "local",
+                "ports_in": [{"name": "records"}],
+                "ports_out": [],
+            }
+        ],
+        "edges": [],
+    })
+    assert restored.nodes[0].component == "sqlalchemy"
 
 
 def test_pipeline_to_dag_three_stage():
+
     p = (
         Pipeline("steam_basic")
         .add_collector("steam", config={"app_id": "123"})

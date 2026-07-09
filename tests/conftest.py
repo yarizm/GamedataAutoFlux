@@ -141,5 +141,5 @@ def pipeline_basic():
     p = Pipeline("test_pipeline")
     p.add_collector("steam", {"request_delay": 0.5})
     p.add_processor("cleaner")
-    p.add_storage("local")
+    p.add_storage("sqlalchemy")
     return p

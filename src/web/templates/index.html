@@ -290,7 +290,7 @@
                 <div class="form-group">
                     <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-emerald-400">存储目的地 / STORAGES</label>
                     <div class="flex gap-6 mt-2">
-                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-local" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">local</span></label>
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-sqlalchemy" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">sqlalchemy</span></label>
                         <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-vector" class="cyber-checkbox"> <span class="text-sm font-mono text-zinc-300">vector</span></label>
                     </div>
                 </div>
@@ -302,7 +302,7 @@
                     <textarea id="pipeline-steps" rows="6" class="bg-zinc-950 border-white/10 focus:border-rose-500/50 font-mono text-xs shadow-[inset_0_0_15px_rgba(0,0,0,0.8)]" placeholder='[
   {"type": "collector", "name": "steam", "config": {}},
   {"type": "processor", "name": "cleaner", "config": {}},
-  {"type": "storage", "name": "local", "config": {}}
+  {"type": "storage", "name": "sqlalchemy", "config": {}}
 ]'></textarea>
                 </div>
             </div>

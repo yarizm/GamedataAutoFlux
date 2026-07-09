@@ -164,6 +164,10 @@ class TaskService:
         targets = targets or []
         config = config or {}
 
+        # 允许仅存在 graph 的 DAG：先投影进 scheduler 内存，再 precheck/submit
+        if hasattr(self._scheduler, "resolve_pipeline"):
+            await self._scheduler.resolve_pipeline(pipeline_name)
+
         precheck = self.precheck(
             name=name,
             pipeline_name=pipeline_name,

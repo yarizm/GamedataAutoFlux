@@ -12,6 +12,7 @@ from src.storage.base import BaseStorage, StorageRecord, QueryResult
 from src.storage.models import Base, RecordModel
 
 
+@registry.register("storage", "local")  # 历史别名，与 sqlalchemy 同一实现
 @registry.register("storage", "sqlalchemy")
 class SQLAlchemyStorage(BaseStorage):
     """

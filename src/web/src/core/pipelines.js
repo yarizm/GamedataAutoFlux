@@ -78,16 +78,34 @@ export function getPipelineConfig(name) {
   return getCachedAvailablePipelines()[name] || null;
 }
 
+function _isDagConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  if (cfg.kind === 'dag' || cfg.kind === 'pipeline_legacy') return true;
+  return Array.isArray(cfg.nodes) && !Array.isArray(cfg.steps);
+}
+
 export function getCollectorForPipeline(name) {
   const pipeline = getPipelineConfig(name);
+  if (!pipeline) return '';
+  // 三段式 Pipeline
   const collectorStep = pipeline?.steps?.find((step) => step.type === 'collector');
-  return collectorStep?.name || collectorStep?.component_name || '';
+  if (collectorStep) {
+    return collectorStep.name || collectorStep.component_name || '';
+  }
+  // DAG：nodes[].type === collector
+  const collectorNode = (pipeline.nodes || []).find((n) => n.type === 'collector');
+  return collectorNode?.component || collectorNode?.name || '';
 }
 
 export function hasStorageStep(pipelineName, storageName) {
   const pipeline = getPipelineConfig(pipelineName);
-  return Boolean(pipeline?.steps?.some((step) =>
-    step.type === 'storage' && (step.name || step.component_name) === storageName));
+  if (!pipeline) return false;
+  if (Array.isArray(pipeline.steps)) {
+    return Boolean(pipeline.steps.some((step) =>
+      step.type === 'storage' && (step.name || step.component_name) === storageName));
+  }
+  return Boolean((pipeline.nodes || []).some((n) =>
+    n.type === 'storage' && (n.component || n.name) === storageName));
 }
 
 export async function populatePipelineSelect(selectId) {
@@ -96,13 +114,23 @@ export async function populatePipelineSelect(selectId) {
   if (!select) return allPipelines;
 
   const current = select.value;
-  const names = Object.keys(allPipelines);
+  const names = Object.keys(allPipelines).sort((a, b) => {
+    const aDag = _isDagConfig(allPipelines[a]) ? 0 : 1;
+    const bDag = _isDagConfig(allPipelines[b]) ? 0 : 1;
+    if (aDag !== bDag) return aDag - bDag;
+    return a.localeCompare(b);
+  });
   select.innerHTML = names.length === 0
     ? `<option value="">${t('pipelines.empty.pipelines')}</option>`
     : `<option value="">${t('tasks.selectPipeline')}</option>`;
 
   for (const name of names) {
-    select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`);
+    const cfg = allPipelines[name];
+    const label = _isDagConfig(cfg) ? `[DAG] ${name}` : name;
+    select.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(name)}">${escapeHtml(label)}</option>`,
+    );
   }
   if (names.includes(current)) select.value = current;
   return allPipelines;

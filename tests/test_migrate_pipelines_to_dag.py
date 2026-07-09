@@ -8,7 +8,7 @@ from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineReposi
 from src.services.sqlalchemy_dag_repository import SQLAlchemyDAGRepository
 from src.storage.models import SchedulerStateModel
 
-from scripts.migrate_pipelines_to_dag import migrate_pipelines_to_dag
+from src.services.pipeline_dag_migration import migrate_pipelines_to_dag
 
 
 async def _sf():
@@ -124,5 +124,64 @@ async def test_migrated_graph_loadable(isolated_db_config):
         assert isinstance(dag, DAG)
         types = {n.type for n in dag.nodes}
         assert {"collector", "processor", "storage"}.issubset(types)
+    finally:
+        await _close()
+
+
+@pytest.mark.asyncio
+async def test_migrate_skips_null_pipeline_data(isolated_db_config):
+    """data=None 的脏 pipeline 记录应跳过并标记 migrated，不进 failed。"""
+    sf = await _sf()
+    try:
+        async with sf() as session:
+            session.add(
+                SchedulerStateModel(
+                    key="pipeline:steam_vector_report",
+                    state_type="pipeline",
+                    data=None,
+                    metadata_={},
+                )
+            )
+            session.add(
+                SchedulerStateModel(
+                    key="pipeline:taptap_full_report",
+                    state_type="pipeline",
+                    data=None,
+                    metadata_={},
+                )
+            )
+            await session.commit()
+
+        result = await migrate_pipelines_to_dag(sf)
+        assert "steam_vector_report" in result["skipped"]
+        assert "taptap_full_report" in result["skipped"]
+        assert result["failed"] == []
+        assert result["migrated"] == []
+
+        # 二次运行幂等
+        result2 = await migrate_pipelines_to_dag(sf)
+        assert "steam_vector_report" in result2["skipped"]
+        assert result2["failed"] == []
+
+        async with sf() as session:
+            for name in ("steam_vector_report", "taptap_full_report"):
+                rec = (
+                    await session.execute(
+                        select(SchedulerStateModel).where(
+                            SchedulerStateModel.key == f"pipeline:{name}"
+                        )
+                    )
+                ).scalars().first()
+                assert rec is not None
+                assert rec.metadata_.get("migrated") is True
+                assert rec.metadata_.get("migration_skipped") == "invalid_or_empty_data"
+                graph = (
+                    await session.execute(
+                        select(SchedulerStateModel).where(
+                            SchedulerStateModel.key == f"graph:{name}"
+                        )
+                    )
+                ).scalars().first()
+                assert graph is None  # 无有效 data 不生成 graph
     finally:
         await _close()

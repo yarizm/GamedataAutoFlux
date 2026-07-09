@@ -29,6 +29,8 @@ class NodeSpec:
     is_param_port: set[str] = field(default_factory=set)
     # 复合节点专属：内部子图名
     subgraph_name: str | None = None
+    # 前端布局元数据（x/y/label 等）；执行路径忽略
+    ui: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -52,6 +54,8 @@ class DAG:
     nodes: list[NodeSpec]
     edges: list[Edge]
     conditions: dict[str, Condition] = field(default_factory=dict)
+    # 前端图级 UI 元数据（zoom/pan 等）；执行路径忽略
+    ui: dict[str, Any] = field(default_factory=dict)
 
     def node_by_id(self, node_id: str) -> NodeSpec | None:
         return next((n for n in self.nodes if n.id == node_id), None)
@@ -70,6 +74,7 @@ class DAG:
                     "ports_out": [{"name": p.name, "required": p.required, "type_hint": p.type_hint} for p in n.ports_out],
                     "is_param_port": sorted(n.is_param_port),
                     "subgraph_name": n.subgraph_name,
+                    "ui": dict(n.ui or {}),
                 }
                 for n in self.nodes
             ],
@@ -84,23 +89,31 @@ class DAG:
                 for e in self.edges
             ],
             "conditions": list(self.conditions.keys()),
+            "ui": dict(self.ui or {}),
         }
 
     @classmethod
     def from_storage(cls, payload: dict[str, Any]) -> "DAG":
-        nodes = [
-            NodeSpec(
-                id=n["id"],
-                type=n["type"],
-                component=n.get("component", ""),
-                config=n.get("config", {}),
-                ports_in=[PortSpec(**p) for p in n.get("ports_in", [])],
-                ports_out=[PortSpec(**p) for p in n.get("ports_out", [])],
-                is_param_port=set(n.get("is_param_port", [])),
-                subgraph_name=n.get("subgraph_name"),
+        from src.storage.factory import normalize_storage_name
+
+        nodes = []
+        for n in payload.get("nodes", []):
+            component = n.get("component", "")
+            if n.get("type") == "storage":
+                component = normalize_storage_name(component)
+            nodes.append(
+                NodeSpec(
+                    id=n["id"],
+                    type=n["type"],
+                    component=component,
+                    config=n.get("config", {}),
+                    ports_in=[PortSpec(**p) for p in n.get("ports_in", [])],
+                    ports_out=[PortSpec(**p) for p in n.get("ports_out", [])],
+                    is_param_port=set(n.get("is_param_port", [])),
+                    subgraph_name=n.get("subgraph_name"),
+                    ui=dict(n.get("ui") or {}),
+                )
             )
-            for n in payload.get("nodes", [])
-        ]
         edges = [
             Edge(
                 from_node=e["from"],
@@ -116,6 +129,7 @@ class DAG:
             nodes=nodes,
             edges=edges,
             conditions={name: Condition(name, None) for name in payload.get("conditions", [])},
+            ui=dict(payload.get("ui") or {}),
         )
 
 
@@ -172,9 +186,38 @@ def pipeline_to_dag(pipeline: Any) -> DAG:
             edges.append(Edge(src_id, "records", nid, "records"))
         prev_ids = [nid]
     sink_inputs = collector_ids if not processors else prev_ids
+    from src.storage.factory import normalize_storage_name
+
     for i, s in enumerate(storages):
-        nid = f"storage_{i}_{s.component_name}"
-        nodes.append(NodeSpec(nid, "storage", s.component_name, s.config, [PortSpec("records")], [], set()))
+        storage_name = normalize_storage_name(s.component_name)
+        nid = f"storage_{i}_{storage_name}"
+        nodes.append(NodeSpec(nid, "storage", storage_name, s.config, [PortSpec("records")], [], set()))
         for src_id in sink_inputs:
             edges.append(Edge(src_id, "records", nid, "records"))
     return DAG(name=pipeline.name, nodes=nodes, edges=edges)
+
+
+def dag_to_pipeline(dag: DAG) -> Any:
+    """把 DAG 投影为任务系统可用的 Pipeline（按 collector→processor→storage 顺序）。
+
+    用于任务选择器/precheck/调度注册；真正执行应优先加载 state_type=graph 真图。
+    条件边、composite 等拓扑细节不在投影中保留。
+    """
+    from src.core.pipeline import Pipeline
+    from src.storage.factory import normalize_storage_name
+
+    pipeline = Pipeline(dag.name)
+    order = {"collector": 0, "processor": 1, "storage": 2}
+    nodes = sorted(
+        [n for n in dag.nodes if n.type in order],
+        key=lambda n: (order[n.type], n.id),
+    )
+    for n in nodes:
+        config = dict(n.config or {})
+        if n.type == "collector":
+            pipeline.add_collector(n.component, config)
+        elif n.type == "processor":
+            pipeline.add_processor(n.component, config)
+        elif n.type == "storage":
+            pipeline.add_storage(normalize_storage_name(n.component), config)
+    return pipeline

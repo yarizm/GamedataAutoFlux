@@ -6,7 +6,7 @@ from src.core.pipeline import Pipeline
 from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
 from src.services.sqlalchemy_dag_repository import SQLAlchemyDAGRepository
 
-from scripts.migrate_pipelines_to_dag import migrate_pipelines_to_dag
+from src.services.pipeline_dag_migration import migrate_pipelines_to_dag
 
 
 async def _sf():

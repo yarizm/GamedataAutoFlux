@@ -100,6 +100,10 @@ def test_create_and_get_dag():
         assert body["config"]["kind"] == "dag"
         assert len(body["config"]["nodes"]) == 2
         assert len(body["config"]["edges"]) == 1
+        # 双写：投影 Pipeline 供任务选择
+        assert "pipeline" in body
+        assert body["pipeline"]["name"] == dag_name
+        assert any(s["type"] == "collector" for s in body["pipeline"]["steps"])
 
         got = client.get(f"/api/dags/{dag_name}")
         assert got.status_code == 200
@@ -107,6 +111,10 @@ def test_create_and_get_dag():
         assert data["name"] == dag_name
         assert data["kind"] == "dag"
         assert any(n["id"] == "src" for n in data["nodes"])
+
+        listed_dags = client.get("/api/dags")
+        assert listed_dags.status_code == 200
+        assert dag_name in listed_dags.json()
 
         listed = client.get("/api/pipelines")
         assert listed.status_code == 200

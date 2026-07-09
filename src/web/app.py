@@ -284,7 +284,7 @@ async def lifespan(app: FastAPI):
     await scheduler.start()
     # 自动迁移检测：旧 pipeline 快照转 graph，只转不删
     try:
-        from scripts.migrate_pipelines_to_dag import migrate_pipelines_to_dag
+        from src.services.pipeline_dag_migration import migrate_pipelines_to_dag
 
         migration = await migrate_pipelines_to_dag(session_factory)
         if migration["migrated"]:
