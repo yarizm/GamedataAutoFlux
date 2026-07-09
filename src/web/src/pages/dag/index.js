@@ -9,6 +9,7 @@ import { createCanvas } from './canvas.js';
 import { mountPalette } from './palette.js';
 import { mountSavedList } from './saved-list.js';
 import { mountInspector } from './inspector.js';
+import { loadCollectorMetaMap } from './schemas.js';
 
 /** @type {{ name: string, nodes: object[], edges: object[], ui: object }} */
 let editorState = {
@@ -317,6 +318,7 @@ export default {
     inspectorApi = mountInspector(container.querySelector('#dag-inspector'), {
       onUpdateNode,
       onUpdateEdge,
+      getEditor,
     });
 
     paletteApi = mountPalette(container.querySelector('#dag-palette'), {
@@ -330,6 +332,13 @@ export default {
     });
 
     bindToolbar(container);
+    loadCollectorMetaMap().then(() => {
+      // refresh node cards with input/output hints once metadata ready
+      for (const n of editorState.nodes) {
+        canvasApi?.rebuildNodeHtml?.(n.id);
+      }
+      refreshInspector();
+    });
     refreshInspector();
     return this;
   },
@@ -340,9 +349,13 @@ export default {
   },
 
   async refresh() {
+    await loadCollectorMetaMap();
     await Promise.all([
       paletteApi?.refresh?.(),
       savedListApi?.refresh?.(),
     ]);
+    for (const n of editorState.nodes) {
+      canvasApi?.rebuildNodeHtml?.(n.id);
+    }
   },
 };

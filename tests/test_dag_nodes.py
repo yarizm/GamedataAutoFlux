@@ -143,6 +143,71 @@ async def test_collector_node_maps_upstream_records_to_targets():
 
 
 @pytest.mark.asyncio
+async def test_collector_node_honors_manual_from_upstream_map():
+    """Non-auto map must drive collect_batch targets (shipped CollectorNode path)."""
+    snap = registry.snapshot()
+    registry.register("collector", "_capture_map")(_CaptureCollector)
+    _CaptureCollector.last_targets = []
+    try:
+        spec = NodeSpec(
+            id="profiles",
+            type="collector",
+            component="_capture_map",
+            config={
+                "from_upstream": {
+                    "auto": False,
+                    "map": {
+                        "channel_url": "channel_url",
+                        "channel_id": "channel_id",
+                    },
+                    "name_from": "channel_name",
+                }
+            },
+            ports_in=[PortSpec("records", required=False)],
+            ports_out=[PortSpec("records")],
+            is_param_port=set(),
+        )
+        task = Task(
+            name="t",
+            targets=[TaskTarget(name="video", params={"video_url": "https://youtu.be/x"})],
+        )
+        upstream = [
+            CollectResult(
+                target=CollectTarget(name="v1"),
+                success=True,
+                data={
+                    "channel_id": "UCmap1",
+                    "channel_url": "https://www.youtube.com/channel/UCmap1",
+                    "channel_name": "MappedAuthor",
+                    "noise": "ignore-me",
+                },
+            ),
+        ]
+        node = CollectorNode(spec, task=task, recovery_checkpoint={})
+        await node.setup()
+        out = await node.run(
+            NodeContext(
+                inputs={"records": upstream},
+                task=task,
+                config=spec.config,
+                recovery_checkpoint={},
+            )
+        )
+        await node.teardown()
+
+        assert len(_CaptureCollector.last_targets) == 1
+        t0 = _CaptureCollector.last_targets[0]
+        assert t0.name == "MappedAuthor"
+        assert t0.params["channel_id"] == "UCmap1"
+        assert t0.params["channel_url"].endswith("/UCmap1")
+        assert "noise" not in t0.params
+        assert "video_url" not in t0.params
+        assert len(out["records"]) == 1
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
 async def test_collector_node_from_upstream_empty_does_not_fallback_to_task():
     snap = registry.snapshot()
     registry.register("collector", "_capture_empty")(_CaptureCollector)

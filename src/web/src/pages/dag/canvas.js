@@ -1,9 +1,15 @@
 /**
  * Drawflow canvas wrapper for DAG editor.
  * Maps single "records" port to input_1 / output_1.
+ * Supports space/middle-button pan for canvas navigation.
  */
 import Drawflow from 'drawflow';
 import { escapeHtml } from '../../core/api.js';
+import {
+  getCachedCollectorMeta,
+  inputParamsFromMetadata,
+  outputFieldsForComponent,
+} from './schemas.js';
 
 function nodeHtml(node) {
   const title = escapeHtml(node.label || node.component || node.id);
@@ -12,11 +18,36 @@ function nodeHtml(node) {
   const badge = node.config?.from_upstream
     ? '<span class="dag-node-badge">↑上游</span>'
     : '';
+
+  let inHint = '';
+  let outHint = '';
+  if (node.type === 'collector') {
+    const meta = getCachedCollectorMeta(node.component);
+    const inputs = inputParamsFromMetadata(meta, node.component);
+    if (inputs.length) {
+      const keys = inputs.map((p) => p.key).filter((k) => k !== '__name__').slice(0, 4);
+      if (keys.length) {
+        inHint = `<div class="dag-node-ports"><span class="port-tag in">入参</span> ${escapeHtml(keys.join(', '))}</div>`;
+      }
+    }
+    const outs = outputFieldsForComponent(node.component).slice(0, 4).map((f) => f.key);
+    if (outs.length && outs[0] !== 'records') {
+      outHint = `<div class="dag-node-ports"><span class="port-tag out">输出</span> ${escapeHtml(outs.join(', '))}</div>`;
+    }
+  } else if (node.type === 'processor' || node.type === 'storage') {
+    inHint = '<div class="dag-node-ports"><span class="port-tag in">入</span> records</div>';
+    if (node.type === 'processor') {
+      outHint = '<div class="dag-node-ports"><span class="port-tag out">出</span> records</div>';
+    }
+  }
+
   return `
     <div class="dag-node-inner">
       <div class="dag-node-type">[${type}]</div>
       <div class="dag-node-title">${title}</div>
       <div class="dag-node-id">${id}</div>
+      ${inHint}
+      ${outHint}
       ${badge}
     </div>
   `;
@@ -50,9 +81,9 @@ export function createCanvas(el, handlers = {}) {
   editor.reroute = false;
   editor.force_first_input = false;
   editor.draggable_inputs = false;
-  editor.zoom_max = 1.6;
-  editor.zoom_min = 0.4;
-  editor.zoom_value = 0.1;
+  editor.zoom_max = 2.0;
+  editor.zoom_min = 0.25;
+  editor.zoom_value = 0.08;
   editor.start();
 
   /** businessId -> drawflow numeric id (string) */
@@ -62,6 +93,95 @@ export function createCanvas(el, handlers = {}) {
 
   let suppressEvents = false;
   let selectedEdgeKey = null;
+
+  // --- Canvas pan: space+drag / middle-button / empty-area drag (Drawflow native + boost) ---
+  let spaceHeld = false;
+  let panning = false;
+  let panLast = { x: 0, y: 0 };
+
+  function setPanCursor(on) {
+    el.classList.toggle('dag-panning', on);
+    el.style.cursor = on ? 'grabbing' : (spaceHeld ? 'grab' : '');
+  }
+
+  function onKeyDown(ev) {
+    if (ev.code === 'Space' && !ev.repeat && !ev.target.closest('input,textarea,select')) {
+      spaceHeld = true;
+      el.classList.add('dag-pan-ready');
+      el.style.cursor = 'grab';
+      ev.preventDefault();
+    }
+  }
+  function onKeyUp(ev) {
+    if (ev.code === 'Space') {
+      spaceHeld = false;
+      el.classList.remove('dag-pan-ready');
+      if (!panning) el.style.cursor = '';
+    }
+  }
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+
+  el.addEventListener('mousedown', (ev) => {
+    const onNode = ev.target.closest('.drawflow-node');
+    const onPort = ev.target.closest('.input, .output');
+    const onConn = ev.target.closest('.connection, .main-path, path');
+    const middle = ev.button === 1;
+    const spacePan = spaceHeld && ev.button === 0;
+    // empty-area / middle / space pan — do not steal node or port drags
+    const emptyPan = ev.button === 0
+      && !onNode
+      && !onPort
+      && !onConn
+      && (ev.target === el
+        || ev.target.classList?.contains('drawflow')
+        || ev.target.classList?.contains('parent-drawflow')
+        || ev.target === editor.precanvas
+        || ev.target.closest?.('#drawflow'));
+    if (middle || spacePan || emptyPan) {
+      panning = true;
+      panLast = { x: ev.clientX, y: ev.clientY };
+      setPanCursor(true);
+      // prevent Drawflow from starting a selection box that feels stiff
+      ev.preventDefault();
+      if (middle || spacePan) {
+        ev.stopPropagation();
+      }
+    }
+  }, true);
+
+  window.addEventListener('mousemove', (ev) => {
+    if (!panning) return;
+    const dx = ev.clientX - panLast.x;
+    const dy = ev.clientY - panLast.y;
+    panLast = { x: ev.clientX, y: ev.clientY };
+    editor.canvas_x = (editor.canvas_x || 0) + dx;
+    editor.canvas_y = (editor.canvas_y || 0) + dy;
+    editor.precanvas.style.transform =
+      `translate(${editor.canvas_x}px, ${editor.canvas_y}px) scale(${editor.zoom})`;
+    ev.preventDefault();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!panning) return;
+    panning = false;
+    setPanCursor(false);
+    if (spaceHeld) {
+      el.style.cursor = 'grab';
+    }
+  });
+
+  // Wheel zoom toward cursor (Drawflow has wheel zoom; ensure enabled)
+  el.addEventListener(
+    'wheel',
+    (ev) => {
+      // Drawflow handles wheel on precanvas; we just prevent page scroll
+      if (ev.ctrlKey || ev.metaKey || el.matches(':hover')) {
+        ev.preventDefault();
+      }
+    },
+    { passive: false },
+  );
 
   function mapDfId(dfId) {
     return dfToBiz.get(String(dfId)) || null;
@@ -228,13 +348,19 @@ export function createCanvas(el, handlers = {}) {
         editor.addConnection(fromDf, toDf, 'output_1', 'input_1');
       }
 
-      // restore zoom if present
-      if (editorState?.ui?.zoom && typeof editorState.ui.zoom === 'number') {
-        editor.zoom = editorState.ui.zoom;
-        editor.zoom_last_value = editorState.ui.zoom;
-        editor.precanvas.style.transform =
-          `translate(${editor.canvas_x}px, ${editor.canvas_y}px) scale(${editor.zoom})`;
+      // restore zoom + pan if present
+      const z = editorState?.ui?.zoom;
+      const pan = editorState?.ui?.pan;
+      if (typeof z === 'number' && z > 0) {
+        editor.zoom = z;
+        editor.zoom_last_value = z;
       }
+      if (pan && typeof pan.x === 'number' && typeof pan.y === 'number') {
+        editor.canvas_x = pan.x;
+        editor.canvas_y = pan.y;
+      }
+      editor.precanvas.style.transform =
+        `translate(${editor.canvas_x || 0}px, ${editor.canvas_y || 0}px) scale(${editor.zoom})`;
 
       // allow DOM to settle then style condition edges
       requestAnimationFrame(() => applyConditionStyles());
@@ -474,6 +600,8 @@ export function createCanvas(el, handlers = {}) {
     fitView,
     getZoomUi,
     destroy() {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       try {
         editor.clear();
       } catch {
