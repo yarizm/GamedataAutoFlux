@@ -1,4 +1,4 @@
-import { api, toast, escapeHtml } from '../../core/api.js';
+import { api, toast, escapeHtml, formatTime } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 import { populatePipelineSelect } from '../../core/pipelines.js';
 
@@ -6,6 +6,9 @@ export default {
   init(container, store) {
     this.container = container;
     this.store = store;
+    this._scheduleMode = 'preset';
+    this._editName = null;
+    this._bindModalOnce();
     this.refresh();
     return this;
   },
@@ -13,6 +16,29 @@ export default {
   destroy() {},
 
   async refresh() { await this._load(); },
+
+  _bindModalOnce() {
+    if (window._cronModalBound) return;
+    window._cronModalBound = true;
+
+    document.getElementById('cron-mode-preset')?.addEventListener('click', () => {
+      this._setScheduleMode('preset');
+    });
+    document.getElementById('cron-mode-cron')?.addEventListener('click', () => {
+      this._setScheduleMode('cron');
+    });
+    document.getElementById('cron-preset-type')?.addEventListener('change', () => {
+      this._updatePresetFields();
+      this._previewSchedule();
+    });
+    ['cron-preset-interval', 'cron-preset-time', 'cron-preset-day', 'cron-preset-minute', 'cron-timezone', 'cron-expr']
+      .forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', () => this._previewSchedule());
+        document.getElementById(id)?.addEventListener('input', () => this._previewSchedule());
+      });
+    document.getElementById('cron-preset-weekdays')?.addEventListener('change', () => this._previewSchedule());
+    document.getElementById('btn-cron-preview')?.addEventListener('click', () => this._previewSchedule(true));
+  },
 
   async _load() {
     try {
@@ -24,59 +50,310 @@ export default {
         list.innerHTML = `<p class="text-muted">${t('cron.empty')}</p>`;
         return;
       }
-      list.innerHTML = jobs.map((job) => `
+      list.innerHTML = jobs.map((job) => {
+        const enabled = job.enabled !== false;
+        const tone = enabled
+          ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+          : 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20';
+        const targets = job.targets_count ?? (job.task_template?.targets?.length || 0);
+        const label = job.human_label || job.cron_expr || job.trigger || '-';
+        return `
         <div class="cron-item group flex items-center justify-between p-4 rounded-xl bg-zinc-900 border border-white/5 transition-all duration-300 hover:bg-white/5 hover:border-white/10 mb-3 relative overflow-hidden">
           <div class="flex items-center gap-4 flex-1 min-w-0">
-            <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+            <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </div>
             <div class="flex-1 min-w-0">
-              <div class="font-bold text-zinc-100 text-sm tracking-tight mb-1 truncate">${escapeHtml(job.name)}</div>
+              <div class="flex items-center gap-2 mb-1">
+                <div class="font-bold text-zinc-100 text-sm tracking-tight truncate">${escapeHtml(job.name)}</div>
+                <span class="shrink-0 rounded border px-2 py-0.5 text-[10px] font-bold uppercase ${tone}">${enabled ? 'ON' : 'OFF'}</span>
+              </div>
+              <div class="text-xs text-zinc-400 mb-1 truncate">${escapeHtml(job.description || job.pipeline_name || '')}</div>
               <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${t('cron.trigger')}</span>
-                  <code class="text-[11px] text-zinc-300 font-mono bg-zinc-800 px-1.5 py-0.5 rounded border border-white/5">${escapeHtml(job.trigger)}</code>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">周期</span>
+                  <span class="text-[11px] text-zinc-200">${escapeHtml(label)}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${t('cron.next')}</span>
-                  <span class="text-[11px] text-amber-400/80 font-mono tabular-nums">${job.next_run || '-'}</span>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Pipeline</span>
+                  <code class="text-[11px] text-zinc-300 font-mono">${escapeHtml(job.pipeline_name || '-')}</code>
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">目标</span>
+                  <span class="text-[11px] text-zinc-300">${targets}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">下次</span>
+                  <span class="text-[11px] text-amber-400/80 font-mono tabular-nums">${job.next_run ? escapeHtml(formatTime(job.next_run)) : '-'}</span>
+                </div>
+                ${job.cron_expr ? `<code class="text-[10px] text-zinc-500 font-mono">${escapeHtml(job.cron_expr)}</code>` : ''}
               </div>
             </div>
           </div>
-          <div class="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <button class="btn btn-danger h-8 px-3 text-xs opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]" data-delete="${escapeHtml(job.id)}">${t('common.delete')}</button>
-        </div>
-      `).join('');
+          <div class="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-run="${escapeHtml(job.id)}">立即执行</button>
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-toggle="${escapeHtml(job.id)}" data-enabled="${enabled ? '1' : '0'}">${enabled ? '暂停' : '启用'}</button>
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-edit="${escapeHtml(job.id)}">编辑</button>
+            <button class="btn btn-danger h-8 px-3 text-xs" data-delete="${escapeHtml(job.id)}">${t('common.delete')}</button>
+          </div>
+          <div class="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        </div>`;
+      }).join('');
 
-      list.querySelectorAll('[data-delete]').forEach(btn => {
+      list.querySelectorAll('[data-delete]').forEach((btn) => {
         btn.addEventListener('click', () => this._deleteJob(btn.dataset.delete));
+      });
+      list.querySelectorAll('[data-edit]').forEach((btn) => {
+        btn.addEventListener('click', () => this._editJob(btn.dataset.edit));
+      });
+      list.querySelectorAll('[data-run]').forEach((btn) => {
+        btn.addEventListener('click', () => this._runJob(btn.dataset.run));
+      });
+      list.querySelectorAll('[data-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const enabled = btn.dataset.enabled === '1';
+          this._toggleJob(btn.dataset.toggle, !enabled);
+        });
       });
     } catch (err) {
       console.error('Load cron jobs failed:', err);
     }
   },
 
-  _showCreateModal() {
-    populatePipelineSelect('cron-pipeline');
+  _setScheduleMode(mode) {
+    this._scheduleMode = mode;
+    const presetPanel = document.getElementById('cron-preset-panel');
+    const advancedPanel = document.getElementById('cron-advanced-panel');
+    const presetBtn = document.getElementById('cron-mode-preset');
+    const cronBtn = document.getElementById('cron-mode-cron');
+    if (presetPanel) presetPanel.style.display = mode === 'preset' ? '' : 'none';
+    if (advancedPanel) advancedPanel.style.display = mode === 'cron' ? '' : 'none';
+    presetBtn?.classList.toggle('active', mode === 'preset');
+    cronBtn?.classList.toggle('active', mode === 'cron');
+    this._updatePresetFields();
+    this._previewSchedule();
+  },
+
+  _updatePresetFields() {
+    const type = document.getElementById('cron-preset-type')?.value || 'daily';
+    const show = {
+      interval: type === 'every_minutes',
+      time: type === 'daily' || type === 'weekly' || type === 'monthly',
+      weekdays: type === 'weekly',
+      day: type === 'monthly',
+      minute: type === 'hourly',
+    };
+    document.querySelectorAll('[data-preset-field]').forEach((el) => {
+      const key = el.getAttribute('data-preset-field');
+      el.style.display = show[key] ? '' : 'none';
+    });
+  },
+
+  _buildSchedulePayload() {
+    const timezone = document.getElementById('cron-timezone')?.value.trim() || 'Asia/Shanghai';
+    if (this._scheduleMode === 'cron') {
+      return {
+        mode: 'cron',
+        cron_expr: document.getElementById('cron-expr')?.value.trim() || '',
+        timezone,
+      };
+    }
+    const type = document.getElementById('cron-preset-type')?.value || 'daily';
+    const preset = { type };
+    if (type === 'every_minutes') {
+      preset.interval = parseInt(document.getElementById('cron-preset-interval')?.value || '15', 10);
+    } else if (type === 'hourly') {
+      preset.minute = parseInt(document.getElementById('cron-preset-minute')?.value || '0', 10);
+    } else if (type === 'daily' || type === 'weekly' || type === 'monthly') {
+      preset.time = document.getElementById('cron-preset-time')?.value || '08:00';
+    }
+    if (type === 'weekly') {
+      const days = [...document.querySelectorAll('#cron-preset-weekdays input:checked')].map((el) => el.value);
+      preset.weekdays = days;
+    }
+    if (type === 'monthly') {
+      preset.day_of_month = parseInt(document.getElementById('cron-preset-day')?.value || '1', 10);
+    }
+    return { mode: 'preset', preset, timezone };
+  },
+
+  _buildTaskTemplate() {
+    const targetsRaw = document.getElementById('cron-targets')?.value.trim() || '';
+    let targets = [];
+    if (targetsRaw) {
+      try {
+        const parsed = JSON.parse(targetsRaw);
+        targets = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        throw new Error('Targets JSON 无效');
+      }
+    }
+    const config = {};
+    if (document.getElementById('cron-rolling-window')?.checked) {
+      config.refresh = { rolling_window: true };
+    }
+    if (document.getElementById('cron-report-enabled')?.checked) {
+      config.report = { enabled: true };
+    }
+    const dataGroup = document.getElementById('cron-data-group')?.value.trim() || '';
+    if (dataGroup) {
+      config.data_group = { id: dataGroup, name: dataGroup };
+    }
+    const template = {};
+    if (targets.length) template.targets = targets;
+    if (Object.keys(config).length) template.config = config;
+    const description = document.getElementById('cron-description')?.value.trim() || '';
+    if (description) template.description = description;
+    return template;
+  },
+
+  async _previewSchedule(forceToast = false) {
+    const box = document.getElementById('cron-preview-box');
+    try {
+      const schedule = this._buildSchedulePayload();
+      const body = {
+        schedule,
+        timezone: schedule.timezone,
+        cron_expr: schedule.cron_expr || '',
+        count: 5,
+      };
+      const result = await api('/cron-jobs/preview', { method: 'POST', body: JSON.stringify(body) });
+      const runs = (result.next_runs || []).map((x) => formatTime(x)).join('\n');
+      if (box) {
+        box.textContent = `${result.human_label || ''}\n${result.cron_expr || ''}\n下次:\n${runs || '-'}`;
+      }
+      if (forceToast) toast(result.human_label || '预览成功', 'success');
+    } catch (err) {
+      if (box) box.textContent = err.message || '预览失败';
+      if (forceToast) toast(err.message || '预览失败', 'error');
+    }
+  },
+
+  async _showCreateModal() {
+    this._editName = null;
+    document.getElementById('cron-edit-mode').value = 'create';
+    const title = document.getElementById('cron-modal-title');
+    if (title) title.textContent = '添加定时任务';
+    const submit = document.getElementById('btn-submit-cron');
+    if (submit) submit.textContent = '创建';
+    document.getElementById('cron-name').value = '';
+    document.getElementById('cron-name').disabled = false;
+    document.getElementById('cron-description').value = '';
+    document.getElementById('cron-targets').value = '';
+    document.getElementById('cron-data-group').value = '';
+    document.getElementById('cron-rolling-window').checked = false;
+    document.getElementById('cron-report-enabled').checked = false;
+    document.getElementById('cron-enabled').checked = true;
+    document.getElementById('cron-timezone').value = 'Asia/Shanghai';
+    document.getElementById('cron-expr').value = '0 8 * * *';
+    document.getElementById('cron-preset-type').value = 'daily';
+    document.getElementById('cron-preset-time').value = '08:00';
+    await populatePipelineSelect('cron-pipeline');
+    this._setScheduleMode('preset');
     window.openModal && window.openModal('modal-create-cron');
+    this._previewSchedule();
+  },
+
+  async _editJob(name) {
+    try {
+      const job = await api(`/cron-jobs/${encodeURIComponent(name)}`);
+      this._editName = name;
+      document.getElementById('cron-edit-mode').value = 'edit';
+      const title = document.getElementById('cron-modal-title');
+      if (title) title.textContent = `编辑定时任务：${name}`;
+      const submit = document.getElementById('btn-submit-cron');
+      if (submit) submit.textContent = '保存';
+      await populatePipelineSelect('cron-pipeline');
+      document.getElementById('cron-name').value = job.name || name;
+      document.getElementById('cron-name').disabled = true;
+      document.getElementById('cron-pipeline').value = job.pipeline_name || '';
+      document.getElementById('cron-description').value = job.description || '';
+      document.getElementById('cron-timezone').value = job.timezone || 'Asia/Shanghai';
+      document.getElementById('cron-enabled').checked = job.enabled !== false;
+      document.getElementById('cron-expr').value = job.cron_expr || '';
+      const template = job.task_template || {};
+      document.getElementById('cron-targets').value = template.targets
+        ? JSON.stringify(template.targets, null, 2)
+        : '';
+      document.getElementById('cron-rolling-window').checked = !!(template.config?.refresh?.rolling_window);
+      document.getElementById('cron-report-enabled').checked = !!(template.config?.report?.enabled);
+      document.getElementById('cron-data-group').value = template.config?.data_group?.id || template.config?.data_group?.name || '';
+
+      const meta = job.schedule_meta || {};
+      if (meta.mode === 'preset' && meta.preset) {
+        this._applyPresetToForm(meta.preset);
+        this._setScheduleMode('preset');
+      } else {
+        this._setScheduleMode('cron');
+      }
+      window.openModal && window.openModal('modal-create-cron');
+      this._previewSchedule();
+    } catch (err) {
+      toast(err.message || '加载失败', 'error');
+    }
+  },
+
+  _applyPresetToForm(preset) {
+    const type = preset.type || 'daily';
+    document.getElementById('cron-preset-type').value = type;
+    if (preset.interval != null) document.getElementById('cron-preset-interval').value = String(preset.interval);
+    if (preset.time) document.getElementById('cron-preset-time').value = preset.time;
+    if (preset.hour != null && preset.minute != null) {
+      document.getElementById('cron-preset-time').value =
+        `${String(preset.hour).padStart(2, '0')}:${String(preset.minute).padStart(2, '0')}`;
+    }
+    if (preset.day_of_month != null) document.getElementById('cron-preset-day').value = String(preset.day_of_month);
+    if (preset.minute != null && type === 'hourly') {
+      document.getElementById('cron-preset-minute').value = String(preset.minute);
+    }
+    if (Array.isArray(preset.weekdays)) {
+      document.querySelectorAll('#cron-preset-weekdays input').forEach((el) => {
+        el.checked = preset.weekdays.includes(el.value);
+      });
+    }
+    this._updatePresetFields();
   },
 
   async _createJob() {
     const name = document.getElementById('cron-name')?.value.trim() || '';
     const pipelineName = document.getElementById('cron-pipeline')?.value || '';
-    const cronExpr = document.getElementById('cron-expr')?.value.trim() || '';
-
-    if (!name || !pipelineName || !cronExpr) {
+    const editMode = document.getElementById('cron-edit-mode')?.value === 'edit';
+    if (!name || !pipelineName) {
       toast(t('message.cronRequired'), 'error');
       return;
     }
+    let taskTemplate;
     try {
-      await api('/cron-jobs', {
-        method: 'POST',
-        body: JSON.stringify({ name, pipeline_name: pipelineName, cron_expr: cronExpr }),
-      });
-      toast(t('message.cronCreated'), 'success');
+      taskTemplate = this._buildTaskTemplate();
+    } catch (err) {
+      toast(err.message, 'error');
+      return;
+    }
+    const schedule = this._buildSchedulePayload();
+    const payload = {
+      name,
+      pipeline_name: pipelineName,
+      schedule,
+      cron_expr: schedule.cron_expr || '',
+      task_template: taskTemplate,
+      enabled: document.getElementById('cron-enabled')?.checked ?? true,
+      timezone: schedule.timezone || 'Asia/Shanghai',
+      description: document.getElementById('cron-description')?.value.trim() || '',
+    };
+    try {
+      if (editMode) {
+        await api(`/cron-jobs/${encodeURIComponent(this._editName || name)}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        toast('定时任务已更新', 'success');
+      } else {
+        await api('/cron-jobs', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        toast(t('message.cronCreated'), 'success');
+      }
       window.closeModal && window.closeModal('modal-create-cron');
       this.refresh();
     } catch (err) {
@@ -92,6 +369,28 @@ export default {
       this.refresh();
     } catch (err) {
       toast(t('message.deleteFailed', { error: err.message }), 'error');
+    }
+  },
+
+  async _runJob(name) {
+    try {
+      const result = await api(`/cron-jobs/${encodeURIComponent(name)}/run`, { method: 'POST' });
+      toast(`已触发: ${result.task_id || name}`, 'success');
+    } catch (err) {
+      toast(err.message || '执行失败', 'error');
+    }
+  },
+
+  async _toggleJob(name, enabled) {
+    try {
+      await api(`/cron-jobs/${encodeURIComponent(name)}/enabled`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+      toast(enabled ? '已启用' : '已暂停', 'success');
+      this.refresh();
+    } catch (err) {
+      toast(err.message || '操作失败', 'error');
     }
   },
 };

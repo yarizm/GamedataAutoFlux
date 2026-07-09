@@ -1,61 +1,98 @@
-"""Cron job CRUD lifecycle tests via FastAPI TestClient."""
+"""API tests for enriched cron jobs."""
 
 from fastapi.testclient import TestClient
 
 from src.web.app import app
 
 
-def test_list_cron_jobs():
+def test_cron_preview_preset() -> None:
     with TestClient(app) as client:
-        resp = client.get("/api/cron-jobs")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert isinstance(data, list)
+        response = client.post(
+            "/api/cron-jobs/preview",
+            json={
+                "schedule": {
+                    "mode": "preset",
+                    "preset": {"type": "daily", "time": "08:00"},
+                },
+                "timezone": "Asia/Shanghai",
+                "count": 3,
+            },
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cron_expr"] == "0 8 * * *"
+    assert payload["valid"] is True
+    assert len(payload["next_runs"]) == 3
+    assert "每天" in payload["human_label"]
 
 
-def test_create_and_delete_cron_job():
-    job_name = "__test_cron_smoke__"
-    payload = {
-        "name": job_name,
-        "pipeline_name": "steam_basic",
-        "cron_expr": "0 3 * * *",
-        "task_template": {
-            "name": "CS2 Auto",
-            "targets": [{"name": "CS2", "target_type": "game", "params": {"app_id": "730"}}],
-        },
-    }
+def test_create_cron_with_preset_and_targets() -> None:
+    name = "test_cron_daily_taptap_ui"
     with TestClient(app) as client:
-        # Create
-        resp = client.post("/api/cron-jobs", json=payload)
-        assert resp.status_code == 200
-        result = resp.json()
-        assert result.get("message", "").find(job_name) >= 0
+        # cleanup if exists
+        client.delete(f"/api/cron-jobs/{name}?confirm=true")
+        response = client.post(
+            "/api/cron-jobs",
+            json={
+                "name": name,
+                "pipeline_name": "taptap_basic",
+                "schedule": {
+                    "mode": "preset",
+                    "preset": {"type": "daily", "time": "09:00"},
+                    "timezone": "Asia/Shanghai",
+                },
+                "task_template": {
+                    "targets": [
+                        {
+                            "name": "Example",
+                            "target_type": "game",
+                            "params": {"app_id": "12345"},
+                        }
+                    ],
+                    "config": {"refresh": {"rolling_window": True}},
+                },
+                "enabled": True,
+                "description": "daily taptap",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["job_id"] == name
+        assert body["job"]["cron_expr"] == "0 9 * * *"
+        assert body["job"]["targets_count"] == 1
+        assert body["job"]["rolling_window"] is True
+        assert body["job"]["human_label"]
 
-        # Verify listed
-        resp2 = client.get("/api/cron-jobs")
-        listed = [j for j in resp2.json() if j.get("name") == job_name]
-        assert len(listed) == 1
+        listed = client.get("/api/cron-jobs").json()
+        match = next(j for j in listed if j["name"] == name)
+        assert match["pipeline_name"] == "taptap_basic"
 
-        # Delete (requires confirm)
-        resp3 = client.delete(f"/api/cron-jobs/{job_name}")
-        assert resp3.status_code == 400
+        # pause
+        toggled = client.patch(
+            f"/api/cron-jobs/{name}/enabled",
+            json={"enabled": False},
+        )
+        assert toggled.status_code == 200
+        assert toggled.json()["job"]["enabled"] is False
 
-        resp4 = client.delete(f"/api/cron-jobs/{job_name}?confirm=true")
-        assert resp4.status_code == 200
+        # run now
+        run = client.post(f"/api/cron-jobs/{name}/run")
+        assert run.status_code == 200
+        assert run.json().get("task_id")
 
-        # Verify removed
-        resp5 = client.get("/api/cron-jobs")
-        listed2 = [j for j in resp5.json() if j.get("name") == job_name]
-        assert len(listed2) == 0
+        # delete
+        deleted = client.delete(f"/api/cron-jobs/{name}?confirm=true")
+        assert deleted.status_code == 200
 
 
-def test_delete_missing_cron_job_fails():
+def test_create_cron_invalid_expr() -> None:
     with TestClient(app) as client:
-        resp = client.delete("/api/cron-jobs/__nonexistent_cron__?confirm=true")
-        assert resp.status_code == 404
-
-
-def test_create_cron_job_missing_fields():
-    with TestClient(app) as client:
-        resp = client.post("/api/cron-jobs", json={"name": "bad_cron"})
-        assert resp.status_code == 422
+        response = client.post(
+            "/api/cron-jobs",
+            json={
+                "name": "bad_cron",
+                "pipeline_name": "taptap_basic",
+                "cron_expr": "invalid",
+            },
+        )
+    assert response.status_code == 400

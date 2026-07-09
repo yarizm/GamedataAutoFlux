@@ -11,8 +11,25 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.services.cron_repository import CronJobConfig, CronRepository
+from src.services.cron_repository import (
+    CronJobConfig,
+    CronRepository,
+    cron_job_config_from_dict,
+)
 from src.storage.models import SchedulerStateModel
+
+
+def _job_to_data(job: CronJobConfig) -> dict:
+    return {
+        "name": job.name,
+        "pipeline_name": job.pipeline_name,
+        "cron_expr": job.cron_expr,
+        "task_template": job.task_template,
+        "enabled": job.enabled,
+        "timezone": job.timezone,
+        "schedule_meta": job.schedule_meta,
+        "description": job.description,
+    }
 
 
 class SQLAlchemyCronRepository(CronRepository):
@@ -23,12 +40,7 @@ class SQLAlchemyCronRepository(CronRepository):
 
     async def save(self, job: CronJobConfig) -> None:
         async with self._session_factory() as session:
-            data = {
-                "name": job.name,
-                "pipeline_name": job.pipeline_name,
-                "cron_expr": job.cron_expr,
-                "task_template": job.task_template,
-            }
+            data = _job_to_data(job)
 
             stmt = insert(SchedulerStateModel).values(
                 key=f"cron:{job.name}",
@@ -37,6 +49,7 @@ class SQLAlchemyCronRepository(CronRepository):
                 metadata_={
                     "kind": "cron",
                     "pipeline_name": job.pipeline_name,
+                    "enabled": job.enabled,
                 },
             )
             stmt = stmt.on_conflict_do_update(
@@ -60,12 +73,7 @@ class SQLAlchemyCronRepository(CronRepository):
             if db_record is None or not isinstance(db_record.data, dict):
                 return None
             try:
-                return CronJobConfig(
-                    name=str(db_record.data.get("name", name)),
-                    pipeline_name=str(db_record.data.get("pipeline_name", "")),
-                    cron_expr=str(db_record.data.get("cron_expr", "")),
-                    task_template=db_record.data.get("task_template", {}),
-                )
+                return cron_job_config_from_dict(db_record.data, fallback_name=name)
             except Exception as exc:
                 logger.warning(f"Failed to load cron job {name}: {exc}")
                 return None
@@ -92,14 +100,9 @@ class SQLAlchemyCronRepository(CronRepository):
             for r in db_records:
                 if isinstance(r.data, dict):
                     try:
-                        jobs.append(
-                            CronJobConfig(
-                                name=str(r.data.get("name", "")),
-                                pipeline_name=str(r.data.get("pipeline_name", "")),
-                                cron_expr=str(r.data.get("cron_expr", "")),
-                                task_template=r.data.get("task_template", {}),
-                            )
-                        )
+                        job = cron_job_config_from_dict(r.data)
+                        if job.name and job.pipeline_name and job.cron_expr:
+                            jobs.append(job)
                     except Exception as exc:
                         logger.warning(f"Skipping malformed cron record {r.key}: {exc}")
                         continue

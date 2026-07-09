@@ -282,7 +282,7 @@ class Scheduler:
         return self._pipelines.get(name)
 
     async def resolve_pipeline(self, name: str) -> Pipeline | None:
-        """按名称解析 Pipeline；内存没有时尝试从 graph/pipeline 仓储投影加载。"""
+        """按名称解析 Pipeline；内存没有时尝试从 graph/pipeline 仓储或内置模板投影加载。"""
         if not name:
             return None
         pipeline = self._pipelines.get(name)
@@ -303,6 +303,27 @@ class Scheduler:
                     return None
                 self._pipelines[name] = pipeline
                 return pipeline
+        # Built-in templates (steam_basic / taptap_basic / ...) — materialize on demand
+        try:
+            from src.core.pipeline_templates import PIPELINE_TEMPLATES
+
+            template = next(
+                (item for item in PIPELINE_TEMPLATES if item.get("id") == name),
+                None,
+            )
+            if template is not None:
+                pipeline = Pipeline.from_config(
+                    {
+                        "name": name,
+                        "description": template.get("description") or template.get("name") or name,
+                        "steps": template.get("steps") or [],
+                    }
+                )
+                if pipeline.steps:
+                    self._pipelines[name] = pipeline
+                    return pipeline
+        except Exception as exc:
+            logger.warning(f"resolve_pipeline template materialize failed for {name}: {exc}")
         return None
 
     async def save_pipeline(self, pipeline: Pipeline) -> None:
@@ -836,6 +857,11 @@ class Scheduler:
         cron_expr: str,
         task_template: dict[str, Any] | None = None,
         persist: bool = True,
+        *,
+        enabled: bool = True,
+        timezone: str | None = None,
+        schedule_meta: dict[str, Any] | None = None,
+        description: str = "",
     ) -> str:
         """添加定时任务。"""
         return self._cron_service.add_cron_job(
@@ -844,7 +870,26 @@ class Scheduler:
             cron_expr=cron_expr,
             task_template=task_template,
             persist=persist,
+            enabled=enabled,
+            timezone=timezone,
+            schedule_meta=schedule_meta,
+            description=description,
         )
+
+    def update_cron_job(self, name: str, **kwargs: Any) -> str:
+        """更新定时任务。"""
+        return self._cron_service.update_cron_job(name, **kwargs)
+
+    def set_cron_job_enabled(self, name: str, enabled: bool) -> bool:
+        """启用/暂停定时任务。"""
+        return self._cron_service.set_cron_job_enabled(name, enabled)
+
+    async def run_cron_job_now(self, name: str) -> str:
+        """立即按模板提交一次任务。"""
+        return await self._cron_service.run_cron_job_now(name)
+
+    def get_cron_job(self, name: str) -> dict[str, Any] | None:
+        return self._cron_service.get_cron_job(name)
 
     def remove_cron_job(self, name: str) -> bool:
         """移除定时任务"""

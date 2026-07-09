@@ -115,10 +115,15 @@ class SchedulerStateService:
         pipeline_name: str,
         cron_expr: str,
         task_template: dict[str, Any],
+        enabled: bool = True,
+        timezone: str = "Asia/Shanghai",
+        schedule_meta: dict[str, Any] | None = None,
+        description: str = "",
     ) -> None:
         """Persist a cron job snapshot."""
         cron_repo = self._get_cron_repo()
         task_store = self._get_task_store()
+        schedule_meta = schedule_meta if isinstance(schedule_meta, dict) else {}
         if cron_repo is not None:
             await cron_repo.save(
                 CronJobConfig(
@@ -126,6 +131,10 @@ class SchedulerStateService:
                     pipeline_name=pipeline_name,
                     cron_expr=cron_expr,
                     task_template=task_template,
+                    enabled=enabled,
+                    timezone=timezone,
+                    schedule_meta=schedule_meta,
+                    description=description,
                 )
             )
             return
@@ -145,11 +154,16 @@ class SchedulerStateService:
                     "pipeline_name": pipeline_name,
                     "cron_expr": cron_expr,
                     "task_template": task_template,
+                    "enabled": enabled,
+                    "timezone": timezone,
+                    "schedule_meta": schedule_meta,
+                    "description": description,
                 },
                 metadata={
                     "kind": "cron",
                     "pipeline_name": pipeline_name,
                     "refresh_kind": refresh.get("refresh_kind", ""),
+                    "enabled": enabled,
                 },
                 source="scheduler",
                 tags=["cron"],
@@ -236,23 +250,15 @@ class SchedulerStateService:
 
 
 def _cron_job_from_record(record: Any) -> CronJobConfig | None:
+    from src.services.cron_repository import cron_job_config_from_dict
+
     if not isinstance(getattr(record, "data", None), dict):
         return None
     data = record.data
-    name = str(data.get("name") or "").strip()
-    pipeline_name = str(data.get("pipeline_name") or "").strip()
-    cron_expr = str(data.get("cron_expr") or "").strip()
-    task_template = data.get("task_template", {})
-    if not name or not pipeline_name or not cron_expr:
+    job = cron_job_config_from_dict(data)
+    if not job.name or not job.pipeline_name or not job.cron_expr:
         return None
-    if not isinstance(task_template, dict):
-        task_template = {}
-    return CronJobConfig(
-        name=name,
-        pipeline_name=pipeline_name,
-        cron_expr=cron_expr,
-        task_template=task_template,
-    )
+    return job
 
 
 def on_background_task_done(task: Any, tasks_set: set[Any]) -> None:

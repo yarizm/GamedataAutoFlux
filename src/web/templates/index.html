@@ -314,26 +314,128 @@
     </div>
 
     <div class="modal-overlay" id="modal-create-cron">
-        <div class="modal">
+        <div class="modal modal-wide">
             <div class="modal-header">
-                <h2>添加定时任务</h2>
+                <h2 id="cron-modal-title">添加定时任务</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-cron')">&times;</button>
             </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="cron-name">任务名称</label>
-                    <input type="text" id="cron-name" placeholder="例如：daily_taptap">
+            <div class="modal-body space-y-4">
+                <input type="hidden" id="cron-edit-mode" value="create">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label for="cron-name">任务名称</label>
+                        <input type="text" id="cron-name" placeholder="例如：daily_taptap">
+                    </div>
+                    <div class="form-group">
+                        <label for="cron-pipeline">Pipeline</label>
+                        <select id="cron-pipeline">
+                            <option value="">-- 选择 Pipeline --</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="cron-pipeline">Pipeline</label>
-                    <select id="cron-pipeline">
-                        <option value="">-- 选择 Pipeline --</option>
-                    </select>
+                    <label for="cron-description">说明（可选）</label>
+                    <input type="text" id="cron-description" placeholder="例如：每天采集 TapTap 评论">
                 </div>
-                <div class="form-group">
-                    <label for="cron-expr">Cron 表达式</label>
-                    <input type="text" id="cron-expr" placeholder="0 8 * * *">
-                    <small class="text-muted">格式：分 时 日 月 周</small>
+
+                <div class="rounded-xl border border-white/5 bg-zinc-950/60 p-4">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">调度时间</div>
+                        <div class="flex gap-2 text-xs">
+                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn active" data-mode="preset" id="cron-mode-preset">可视化</button>
+                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn" data-mode="cron" id="cron-mode-cron">高级 Cron</button>
+                        </div>
+                    </div>
+
+                    <div id="cron-preset-panel" class="space-y-3">
+                        <div class="form-group">
+                            <label for="cron-preset-type">频率</label>
+                            <select id="cron-preset-type">
+                                <option value="every_minutes">每隔 N 分钟</option>
+                                <option value="hourly">每小时</option>
+                                <option value="daily" selected>每天</option>
+                                <option value="weekly">每周</option>
+                                <option value="monthly">每月</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="cron-preset-fields">
+                            <div class="form-group" data-preset-field="interval">
+                                <label for="cron-preset-interval">间隔（分钟）</label>
+                                <select id="cron-preset-interval">
+                                    <option value="5">5</option>
+                                    <option value="10">10</option>
+                                    <option value="15" selected>15</option>
+                                    <option value="20">20</option>
+                                    <option value="30">30</option>
+                                </select>
+                            </div>
+                            <div class="form-group" data-preset-field="time">
+                                <label for="cron-preset-time">时间</label>
+                                <input type="time" id="cron-preset-time" value="08:00">
+                            </div>
+                            <div class="form-group" data-preset-field="weekdays">
+                                <label>星期</label>
+                                <div class="flex flex-wrap gap-2 text-xs" id="cron-preset-weekdays">
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="mon" checked>一</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="tue">二</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="wed" checked>三</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="thu">四</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="fri" checked>五</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="sat">六</label>
+                                    <label class="inline-flex items-center gap-1"><input type="checkbox" value="sun">日</label>
+                                </div>
+                            </div>
+                            <div class="form-group" data-preset-field="day">
+                                <label for="cron-preset-day">每月几号</label>
+                                <input type="number" id="cron-preset-day" min="1" max="31" value="1">
+                            </div>
+                            <div class="form-group" data-preset-field="minute">
+                                <label for="cron-preset-minute">分钟</label>
+                                <input type="number" id="cron-preset-minute" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="cron-advanced-panel" class="space-y-3" style="display:none">
+                        <div class="form-group">
+                            <label for="cron-expr">Cron 表达式</label>
+                            <input type="text" id="cron-expr" placeholder="0 8 * * *" class="font-mono">
+                            <small class="text-muted">格式：分 时 日 月 周（5 段）</small>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                        <div class="form-group mb-0">
+                            <label for="cron-timezone">时区</label>
+                            <input type="text" id="cron-timezone" value="Asia/Shanghai" class="w-40">
+                        </div>
+                        <label class="inline-flex items-center gap-2 text-sm text-zinc-300 mt-5">
+                            <input type="checkbox" id="cron-enabled" checked> 启用
+                        </label>
+                        <button type="button" class="btn btn-ghost h-8 text-xs mt-5" id="btn-cron-preview">预览下次运行</button>
+                    </div>
+                    <div id="cron-preview-box" class="mt-3 text-xs text-zinc-400 font-mono whitespace-pre-wrap min-h-[1.5rem]"></div>
+                </div>
+
+                <div class="rounded-xl border border-white/5 bg-zinc-950/60 p-4 space-y-3">
+                    <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">采集参数</div>
+                    <div class="form-group">
+                        <label for="cron-targets">Targets（JSON 数组）</label>
+                        <textarea id="cron-targets" rows="5" class="font-mono text-xs" placeholder='[{"name":"游戏名","target_type":"game","params":{"app_id":"12345"}}]'></textarea>
+                        <small class="text-muted">与手动创建任务相同结构；可留空（链式 from_upstream pipeline）</small>
+                    </div>
+                    <div class="flex flex-wrap gap-4 text-sm text-zinc-300">
+                        <label class="inline-flex items-center gap-2">
+                            <input type="checkbox" id="cron-rolling-window"> 滚动时间窗口（自动刷新 start/end）
+                        </label>
+                        <label class="inline-flex items-center gap-2">
+                            <input type="checkbox" id="cron-report-enabled"> 完成后自动生成报告
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="cron-data-group">数据分组（可选）</label>
+                        <input type="text" id="cron-data-group" placeholder="例如：日常监控">
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

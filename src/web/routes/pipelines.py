@@ -91,12 +91,33 @@ class CreateDagRequest(BaseModel):
 
 
 class CronJobRequest(BaseModel):
-    """Create cron job request."""
+    """Create / update cron job request."""
 
     name: str = Field(..., description="Cron job name")
     pipeline_name: str = Field(..., description="Pipeline name")
-    cron_expr: str = Field(..., description="Cron expression")
-    task_template: dict[str, Any] = Field(default_factory=dict, description="Task template")
+    cron_expr: str = Field(default="", description="Five-field cron expression (optional if schedule provided)")
+    schedule: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Visual schedule: {mode: preset|cron, preset: {...}, cron_expr, timezone}",
+    )
+    task_template: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Task template: targets, config, collector_name, description",
+    )
+    enabled: bool = Field(default=True, description="Whether the job is active")
+    timezone: str = Field(default="", description="IANA timezone, e.g. Asia/Shanghai")
+    description: str = Field(default="", description="Human description")
+
+
+class CronSchedulePreviewRequest(BaseModel):
+    cron_expr: str = Field(default="", description="Five-field cron expression")
+    schedule: dict[str, Any] = Field(default_factory=dict)
+    timezone: str = Field(default="")
+    count: int = Field(default=5, ge=1, le=20)
+
+
+class CronEnabledRequest(BaseModel):
+    enabled: bool = True
 
 
 @router.get("/components")
@@ -272,20 +293,145 @@ async def list_cron_jobs():
     return scheduler.list_cron_jobs()
 
 
+@router.post("/cron-jobs/preview")
+async def preview_cron_schedule(
+    req: Annotated[CronSchedulePreviewRequest, Body(description="Schedule preview")],
+):
+    """Preview human label and next run times without creating a job."""
+    from src.core.cron_schedule import resolve_schedule_input, next_run_times
+
+    try:
+        resolved = resolve_schedule_input(
+            cron_expr=req.cron_expr or None,
+            schedule=req.schedule,
+            timezone=req.timezone or None,
+        )
+        runs = next_run_times(
+            resolved["cron_expr"],
+            count=req.count,
+            timezone=resolved["timezone"],
+        )
+        return {
+            **resolved,
+            "next_runs": runs,
+            "valid": True,
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.post("/cron-jobs")
 async def create_cron_job(req: Annotated[CronJobRequest, Body(description="Cron job setup")]):
     scheduler = _get_scheduler()
+    from src.core.cron_schedule import resolve_schedule_input
 
     try:
+        resolved = resolve_schedule_input(
+            cron_expr=req.cron_expr or None,
+            schedule=req.schedule,
+            timezone=req.timezone or None,
+        )
         job_id = scheduler.add_cron_job(
             name=req.name,
             pipeline_name=req.pipeline_name,
-            cron_expr=req.cron_expr,
+            cron_expr=resolved["cron_expr"],
             task_template=req.task_template,
+            enabled=req.enabled,
+            timezone=resolved["timezone"],
+            schedule_meta=resolved["schedule_meta"],
+            description=req.description,
         )
-        return {"message": f"Cron job created: {req.name}", "job_id": job_id}
+        job = scheduler.get_cron_job(req.name)
+        return {
+            "message": f"Cron job created: {req.name}",
+            "job_id": job_id,
+            "job": job,
+        }
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.put("/cron-jobs/{name}")
+async def update_cron_job(
+    name: Annotated[str, Path(description="Cron job ID/Name")],
+    req: Annotated[CronJobRequest, Body(description="Cron job update")],
+):
+    scheduler = _get_scheduler()
+    from src.core.cron_schedule import resolve_schedule_input
+
+    if scheduler.get_cron_job(name) is None:
+        raise HTTPException(404, f"Cron job not found: {name}")
+    try:
+        resolved = resolve_schedule_input(
+            cron_expr=req.cron_expr or None,
+            schedule=req.schedule,
+            timezone=req.timezone or None,
+        )
+        # Allow rename only if same name; path is authoritative
+        job_id = scheduler.update_cron_job(
+            name,
+            pipeline_name=req.pipeline_name,
+            cron_expr=resolved["cron_expr"],
+            task_template=req.task_template,
+            enabled=req.enabled,
+            timezone=resolved["timezone"],
+            schedule_meta=resolved["schedule_meta"],
+            description=req.description,
+        )
+        return {
+            "message": f"Cron job updated: {name}",
+            "job_id": job_id,
+            "job": scheduler.get_cron_job(name),
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.patch("/cron-jobs/{name}/enabled")
+async def set_cron_job_enabled(
+    name: Annotated[str, Path(description="Cron job ID/Name")],
+    req: Annotated[CronEnabledRequest, Body(description="Enable/disable")],
+):
+    scheduler = _get_scheduler()
+    if not scheduler.set_cron_job_enabled(name, req.enabled):
+        raise HTTPException(404, f"Cron job not found: {name}")
+    return {
+        "message": f"Cron job {'enabled' if req.enabled else 'disabled'}: {name}",
+        "job": scheduler.get_cron_job(name),
+    }
+
+
+@router.post("/cron-jobs/{name}/run")
+async def run_cron_job_now(name: Annotated[str, Path(description="Cron job ID/Name")]):
+    scheduler = _get_scheduler()
+    job = scheduler.get_cron_job(name)
+    if job is None:
+        raise HTTPException(404, f"Cron job not found: {name}")
+    # DAG-only / template pipelines: project into scheduler before submit
+    pipeline_name = str(job.get("pipeline_name") or "")
+    if pipeline_name and hasattr(scheduler, "resolve_pipeline"):
+        try:
+            await scheduler.resolve_pipeline(pipeline_name)
+        except Exception:
+            pass
+    try:
+        task_id = await scheduler.run_cron_job_now(name)
+        return {"message": f"Cron job triggered: {name}", "task_id": task_id}
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/cron-jobs/{name}")
+async def get_cron_job(name: Annotated[str, Path(description="Cron job ID/Name")]):
+    scheduler = _get_scheduler()
+    job = scheduler.get_cron_job(name)
+    if job is None:
+        raise HTTPException(404, f"Cron job not found: {name}")
+    return job
 
 
 @router.delete("/cron-jobs/{name}")
