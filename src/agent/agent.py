@@ -8,8 +8,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from langchain_core.messages import BaseMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import BaseTool
 from loguru import logger
 
 from src.agent.agent_history_persistence import (
@@ -35,9 +33,8 @@ from src.agent.agent_invoke_lifecycle import (
     should_discard_partial_runtime_state,
 )
 from src.agent.agent_invoke_orchestration import (
-    execute_prepared_agent_invoke,
     prepare_agent_invoke,
-    recover_agent_invoke,
+    run_prepared_agent_invoke,
 )
 from src.agent.agent_prompting import (
     default_system_prompt,
@@ -50,9 +47,6 @@ from src.agent.agent_redaction import (
     redact_stream_value,
 )
 from src.agent.agent_runtime_facade import (
-    build_agent_openai_tools_prompt,
-    build_agent_openai_tools_system_prompt,
-    build_agent_react_prompt,
     build_agent_runtime,
     handle_agent_parsing_error,
 )
@@ -95,18 +89,6 @@ class AgentService:
         self._histories_loaded = False
         self._system_prompt = get_config("agent.system_prompt", default_system_prompt())
         self._runtime = self._build_runtime()
-
-    def _build_openai_tools_system_prompt(self, tools: list[BaseTool]) -> str:
-        """Build the shared tool-calling system prompt text."""
-        return build_agent_openai_tools_system_prompt(self._system_prompt, tools)
-
-    def _build_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
-        """Build the tool-calling prompt with the active tool set."""
-        return build_agent_openai_tools_prompt(self._system_prompt, tools)
-
-    def _build_react_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
-        """Build the ReAct prompt with the active tool set."""
-        return build_agent_react_prompt(self._system_prompt, tools)
 
     def _handle_parsing_error(self, error: Exception) -> str:
         """Track parser errors and stop repeated malformed tool output."""
@@ -213,48 +195,23 @@ class AgentService:
             prepared_invoke = await self._prepare_invoke(session_id)
             self._parsing_error_count = 0
 
-            try:
-                executor = self._agent_executor
-                if not executor:
-                    yield {"type": "error", "content": "Agent was re-initialized during request."}
-                    return
-
-                async for rendered_event in execute_prepared_agent_invoke(
-                    executor=executor,
-                    session_id=session_id,
-                    user_input=user_input,
-                    invoke_state=invoke_state,
-                    prepared_invoke=prepared_invoke,
-                    runtime_input_mode=self._runtime.input_mode,
-                    build_invoke_payload=self._runtime.build_invoke_payload,
-                    build_workflow_chain_start_events=build_workflow_chain_start_events,
-                    redact_value=redact_stream_value,
-                    redact_stream_event=redact_stream_event,
-                    redact_stream_text=redact_stream_text,
-                    describe_tool_action=describe_tool_action,
-                    save_invoke_history=self._save_invoke_history,
-                ):
-                    yield rendered_event
-
-            except asyncio.CancelledError:
-                logger.info("Agent stream cancelled for session {}.", session_id)
-                await recover_agent_invoke(
-                    session_id=session_id,
-                    user_input=user_input,
-                    invoke_state=invoke_state,
-                    discard_partial_runtime_state=self._discard_partial_invoke_runtime_state,
-                    save_invoke_history=self._save_invoke_history,
-                )
-                raise
-            except Exception:
-                await recover_agent_invoke(
-                    session_id=session_id,
-                    user_input=user_input,
-                    invoke_state=invoke_state,
-                    discard_partial_runtime_state=self._discard_partial_invoke_runtime_state,
-                    save_invoke_history=self._save_invoke_history,
-                )
-                raise
+            async for rendered_event in run_prepared_agent_invoke(
+                executor=self._agent_executor,
+                session_id=session_id,
+                user_input=user_input,
+                invoke_state=invoke_state,
+                prepared_invoke=prepared_invoke,
+                runtime_input_mode=self._runtime.input_mode,
+                build_invoke_payload=self._runtime.build_invoke_payload,
+                build_workflow_chain_start_events=build_workflow_chain_start_events,
+                redact_value=redact_stream_value,
+                redact_stream_event=redact_stream_event,
+                redact_stream_text=redact_stream_text,
+                describe_tool_action=describe_tool_action,
+                save_invoke_history=self._save_invoke_history,
+                discard_partial_runtime_state=self._discard_partial_invoke_runtime_state,
+            ):
+                yield rendered_event
 
         except Exception as exc:
             logger.opt(exception=True).error(
@@ -383,9 +340,6 @@ class AgentService:
             forget_thread=self._runtime.forget_thread,
         )
 
-    async def _delete_persisted_sessions(self, session_ids: list[str]) -> None:
-        await self._delete_persisted_threads(session_ids)
-
     async def _clear_thread_state(self, thread_id: str) -> None:
         await clear_thread_history_state(
             lock=self._lock,
@@ -479,14 +433,6 @@ class AgentService:
     @_initialized.setter
     def _initialized(self, value: bool) -> None:
         self._runtime.initialized = bool(value)
-
-    @property
-    def _llm(self) -> Any:
-        return self._runtime.llm
-
-    @_llm.setter
-    def _llm(self, value: Any) -> None:
-        self._runtime.llm = value
 
     @property
     def _agent_executor(self) -> Any:

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from loguru import logger
 
 from src.agent.agent_invoke_lifecycle import AgentInvokeState, finalize_stream_tail
 from src.agent.agent_invoke_stream import (
@@ -62,6 +65,61 @@ async def recover_agent_invoke(
         user_input=user_input,
         invoke_state=invoke_state,
     )
+
+
+async def run_prepared_agent_invoke(
+    *,
+    executor: Any,
+    session_id: str,
+    user_input: str,
+    invoke_state: AgentInvokeState,
+    prepared_invoke: PreparedAgentInvoke,
+    runtime_input_mode: str,
+    build_invoke_payload: Callable[..., dict[str, Any]],
+    build_workflow_chain_start_events: Callable[..., list[dict[str, Any]]],
+    redact_value: Callable[[Any], Any],
+    redact_stream_event: Callable[[dict[str, Any]], dict[str, Any]],
+    redact_stream_text: Callable[[str], str],
+    describe_tool_action: Callable[[str, dict[str, Any]], str],
+    save_invoke_history: Callable[..., Awaitable[None]],
+    discard_partial_runtime_state: Callable[..., Awaitable[None]],
+) -> AsyncIterator[dict[str, Any]]:
+    try:
+        async for rendered_event in execute_prepared_agent_invoke(
+            executor=executor,
+            session_id=session_id,
+            user_input=user_input,
+            invoke_state=invoke_state,
+            prepared_invoke=prepared_invoke,
+            runtime_input_mode=runtime_input_mode,
+            build_invoke_payload=build_invoke_payload,
+            build_workflow_chain_start_events=build_workflow_chain_start_events,
+            redact_value=redact_value,
+            redact_stream_event=redact_stream_event,
+            redact_stream_text=redact_stream_text,
+            describe_tool_action=describe_tool_action,
+            save_invoke_history=save_invoke_history,
+        ):
+            yield rendered_event
+    except asyncio.CancelledError:
+        logger.info("Agent stream cancelled for session {}.", session_id)
+        await recover_agent_invoke(
+            session_id=session_id,
+            user_input=user_input,
+            invoke_state=invoke_state,
+            discard_partial_runtime_state=discard_partial_runtime_state,
+            save_invoke_history=save_invoke_history,
+        )
+        raise
+    except Exception:
+        await recover_agent_invoke(
+            session_id=session_id,
+            user_input=user_input,
+            invoke_state=invoke_state,
+            discard_partial_runtime_state=discard_partial_runtime_state,
+            save_invoke_history=save_invoke_history,
+        )
+        raise
 
 
 async def execute_prepared_agent_invoke(
