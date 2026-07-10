@@ -1,11 +1,17 @@
+import asyncio
 import time
+
+import pytest
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agent.agent_history_state import (
     build_thread_snapshots,
     cap_thread_histories,
+    clear_thread_history_state,
     collect_stale_thread_ids,
+    get_or_create_thread_history,
+    mark_pending_thread_history_recovery,
     merge_loaded_threads,
     summarize_session_metrics,
 )
@@ -123,3 +129,51 @@ def test_summarize_session_metrics_reports_counts_and_ages() -> None:
     assert summary["stale_thread_count"] == 1
     assert summary["newest_session_age_seconds"] == 5
     assert summary["oldest_session_age_seconds"] == 20
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_thread_history_creates_thread_and_updates_timestamp() -> None:
+    lock = asyncio.Lock()
+    histories = {}
+    timestamps = {}
+
+    history = await get_or_create_thread_history(
+        lock=lock,
+        histories=histories,
+        timestamps=timestamps,
+        thread_id="thread-a",
+        now=123.0,
+    )
+
+    assert history == []
+    assert histories["thread-a"] == []
+    assert timestamps["thread-a"] == 123.0
+
+
+@pytest.mark.asyncio
+async def test_mark_pending_thread_history_recovery_adds_thread() -> None:
+    pending = set()
+
+    await mark_pending_thread_history_recovery(
+        lock=asyncio.Lock(),
+        pending_recovery_threads=pending,
+        thread_id="thread-a",
+    )
+
+    assert pending == {"thread-a"}
+
+
+@pytest.mark.asyncio
+async def test_clear_thread_history_state_drops_history_and_timestamp() -> None:
+    histories = {"thread-a": [HumanMessage(content="hello")]}
+    timestamps = {"thread-a": 123.0}
+
+    await clear_thread_history_state(
+        lock=asyncio.Lock(),
+        histories=histories,
+        timestamps=timestamps,
+        thread_id="thread-a",
+    )
+
+    assert histories == {}
+    assert timestamps == {}

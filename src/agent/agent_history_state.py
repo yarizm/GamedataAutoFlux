@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 import time
@@ -133,6 +134,42 @@ def drop_thread_state(
 
 def list_active_thread_ids(histories: Mapping[str, list[BaseMessage]]) -> list[str]:
     return list(histories.keys())
+
+
+async def get_or_create_thread_history(
+    *,
+    lock: asyncio.Lock,
+    histories: MutableMapping[str, list[BaseMessage]],
+    timestamps: MutableMapping[str, float],
+    thread_id: str,
+    now: float,
+) -> list[BaseMessage]:
+    async with lock:
+        if thread_id not in histories:
+            histories[thread_id] = []
+        timestamps[thread_id] = now
+        return list(histories[thread_id])
+
+
+async def mark_pending_thread_history_recovery(
+    *,
+    lock: asyncio.Lock,
+    pending_recovery_threads: set[str],
+    thread_id: str,
+) -> None:
+    async with lock:
+        pending_recovery_threads.add(thread_id)
+
+
+async def clear_thread_history_state(
+    *,
+    lock: asyncio.Lock,
+    histories: MutableMapping[str, list[BaseMessage]],
+    timestamps: MutableMapping[str, float],
+    thread_id: str,
+) -> None:
+    async with lock:
+        drop_thread_state(histories, timestamps, thread_id)
 
 
 def render_thread_history(

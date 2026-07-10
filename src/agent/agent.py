@@ -19,8 +19,15 @@ from src.agent.agent_history_persistence import (
     save_agent_histories,
 )
 from src.agent.agent_history_state import (
+    clear_thread_history_state,
+    get_or_create_thread_history,
     list_active_thread_ids,
+    mark_pending_thread_history_recovery,
     render_thread_history,
+)
+from src.agent.agent_initialization import (
+    ensure_agent_runtime_ready,
+    ensure_histories_loaded_once,
 )
 from src.agent.agent_invoke_lifecycle import (
     AgentInvokeState,
@@ -33,11 +40,7 @@ from src.agent.agent_invoke_orchestration import (
     recover_agent_invoke,
 )
 from src.agent.agent_prompting import (
-    build_openai_tools_prompt,
-    build_openai_tools_system_prompt,
-    build_react_prompt,
     default_system_prompt,
-    next_parsing_error_response,
 )
 from src.agent.agent_redaction import (
     redact_history_message,
@@ -46,11 +49,24 @@ from src.agent.agent_redaction import (
     redact_stream_text,
     redact_stream_value,
 )
+from src.agent.agent_runtime_facade import (
+    build_agent_openai_tools_prompt,
+    build_agent_openai_tools_system_prompt,
+    build_agent_react_prompt,
+    build_agent_runtime,
+    handle_agent_parsing_error,
+)
+from src.agent.agent_runtime_config import (
+    build_runtime_config_snapshot,
+    discover_available_providers,
+    resolve_active_provider,
+    validate_provider_selection,
+)
 from src.agent.agent_status_summary import (
     describe_tool_action,
     summarize_agent_runtime_status,
 )
-from src.agent.runtime import BaseAgentRuntime, create_runtime
+from src.agent.runtime import BaseAgentRuntime
 from src.agent.thread_store import create_thread_store
 from src.agent.tools import ALL_TOOLS
 from src.agent.workflow_bridge_events import build_workflow_chain_start_events
@@ -63,7 +79,6 @@ class AgentService:
     """Manage Agent conversations and streaming execution."""
 
     def __init__(self, session_service: Any) -> None:
-        self._runtime = self._build_runtime()
         self._histories: dict[str, list[BaseMessage]] = {}
         self._sessions_timestamps: dict[str, float] = {}
         self._provider_override: str | None = None
@@ -79,41 +94,35 @@ class AgentService:
         self._session_timeout: int = get_config("agent.session_timeout_minutes", 60) * 60
         self._histories_loaded = False
         self._system_prompt = get_config("agent.system_prompt", default_system_prompt())
+        self._runtime = self._build_runtime()
 
     def _build_openai_tools_system_prompt(self, tools: list[BaseTool]) -> str:
         """Build the shared tool-calling system prompt text."""
-        return build_openai_tools_system_prompt(self._system_prompt, tools)
+        return build_agent_openai_tools_system_prompt(self._system_prompt, tools)
 
     def _build_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
         """Build the tool-calling prompt with the active tool set."""
-        return build_openai_tools_prompt(self._system_prompt, tools)
+        return build_agent_openai_tools_prompt(self._system_prompt, tools)
 
     def _build_react_prompt_with_tools(self, tools: list[BaseTool]) -> ChatPromptTemplate:
         """Build the ReAct prompt with the active tool set."""
-        return build_react_prompt(self._system_prompt, tools)
+        return build_agent_react_prompt(self._system_prompt, tools)
 
     def _handle_parsing_error(self, error: Exception) -> str:
         """Track parser errors and stop repeated malformed tool output."""
         current_count = int(getattr(self, "_parsing_error_count", 0) or 0)
-        next_count, response = next_parsing_error_response(
-            current_count,
-            error,
+        next_count, response = handle_agent_parsing_error(
+            current_count=current_count,
+            error=error,
             redact_stream_text=redact_stream_text,
         )
         self._parsing_error_count = next_count
-        logger.warning(
-            "Agent JSON parsing error (count {}): {}",
-            current_count + 1,
-            redact_sensitive_text(str(error)),
-        )
         return response
 
     def _build_runtime(self) -> BaseAgentRuntime:
         """Instantiate the currently configured runtime backend."""
-        return create_runtime(
-            build_openai_tools_system_prompt=self._build_openai_tools_system_prompt,
-            build_openai_tools_prompt=self._build_prompt_with_tools,
-            build_react_prompt=self._build_react_prompt_with_tools,
+        return build_agent_runtime(
+            system_prompt=self._system_prompt,
             create_mcp_manager=self._create_mcp_manager,
             handle_parsing_error=self._handle_parsing_error,
         )
@@ -139,12 +148,11 @@ class AgentService:
     async def _async_ensure_initialized(self) -> None:
         """Ensure runtime readiness and optional MCP startup."""
         async with self._init_lock:
-            await self._ensure_histories_loaded_locked()
-
-            if not self._initialized:
-                self._ensure_initialized()
-
-            await self._runtime.ensure_async(
+            await ensure_agent_runtime_ready(
+                ensure_histories_loaded_locked=self._ensure_histories_loaded_locked,
+                initialized=self._initialized,
+                ensure_initialized=self._ensure_initialized,
+                ensure_runtime_async=self._runtime.ensure_async,
                 provider_override=self._provider_override,
                 base_tools=list(ALL_TOOLS),
                 max_iterations=self._max_iterations,
@@ -157,28 +165,33 @@ class AgentService:
 
     async def _ensure_histories_loaded_locked(self) -> None:
         """Load persisted histories exactly once while holding _init_lock."""
-        if self._histories_loaded:
-            if self._threads_pending_history_recovery and not self._history_load_failed:
-                await self._save_histories(force=True)
-            return
-
-        loaded, needs_resave = await self._load_histories()
-        self._histories_loaded = loaded
-        self._history_load_failed = not loaded
-        if loaded and needs_resave:
+        result = await ensure_histories_loaded_once(
+            histories_loaded=self._histories_loaded,
+            history_load_failed=self._history_load_failed,
+            pending_history_recovery_thread_count=len(self._threads_pending_history_recovery),
+            load_histories=self._load_histories,
+        )
+        self._histories_loaded = result.histories_loaded
+        self._history_load_failed = result.history_load_failed
+        if result.should_resave_pending_recovery or result.needs_resave:
             await self._save_histories(force=True)
 
     async def _get_history(self, session_id: str) -> list[BaseMessage]:
         """Return the current session history and refresh its activity timestamp."""
-        async with self._lock:
-            if session_id not in self._histories:
-                self._histories[session_id] = []
-            self._sessions_timestamps[session_id] = time.time()
-            return list(self._histories[session_id])
+        return await get_or_create_thread_history(
+            lock=self._lock,
+            histories=self._histories,
+            timestamps=self._sessions_timestamps,
+            thread_id=session_id,
+            now=time.time(),
+        )
 
     async def _mark_pending_history_recovery(self, session_id: str) -> None:
-        async with self._lock:
-            self._threads_pending_history_recovery.add(session_id)
+        await mark_pending_thread_history_recovery(
+            lock=self._lock,
+            pending_recovery_threads=self._threads_pending_history_recovery,
+            thread_id=session_id,
+        )
 
     async def _prepare_invoke(self, session_id: str):
         return await prepare_agent_invoke(
@@ -374,9 +387,12 @@ class AgentService:
         await self._delete_persisted_threads(session_ids)
 
     async def _clear_thread_state(self, thread_id: str) -> None:
-        async with self._lock:
-            self._histories.pop(thread_id, None)
-            self._sessions_timestamps.pop(thread_id, None)
+        await clear_thread_history_state(
+            lock=self._lock,
+            histories=self._histories,
+            timestamps=self._sessions_timestamps,
+            thread_id=thread_id,
+        )
 
     def list_thread_ids(self) -> list[str]:
         """Return active thread ids using the future LangGraph naming."""
@@ -421,30 +437,30 @@ class AgentService:
 
     def get_active_provider(self) -> str:
         """Return the active LLM provider name."""
-        return self._provider_override or get_config("llm.provider", "qwen")
+        return resolve_active_provider(
+            self._provider_override,
+            default_provider=str(get_config("llm.provider", "qwen")),
+        )
 
     def set_provider(self, provider_name: str) -> None:
         """Switch the runtime LLM provider for the next invoke."""
-        available = self.get_available_providers()
-        if provider_name not in {item["key"] for item in available}:
-            raise ValueError(f"Unknown provider: {provider_name}")
+        validate_provider_selection(provider_name, self.get_available_providers())
         self._provider_override = provider_name
         self.reset_runtime()
         logger.info("Agent LLM provider switched to {}", provider_name)
 
     def reload_config(self, provider_name: str | None = None) -> None:
         """Reload config and discard the current initialized runtime."""
-        if provider_name:
-            available = self.get_available_providers()
-            if provider_name not in {item["key"] for item in available}:
-                raise ValueError(f"Unknown provider: {provider_name}")
-            self._provider_override = provider_name
-        else:
-            self._provider_override = None
-
-        self._max_iterations = get_config("agent.max_iterations", 10)
-        self._session_timeout = get_config("agent.session_timeout_minutes", 60) * 60
-        self._system_prompt = get_config("agent.system_prompt", default_system_prompt())
+        snapshot = build_runtime_config_snapshot(
+            provider_name=provider_name,
+            available_providers=self.get_available_providers(),
+            config_get=get_config,
+            default_system_prompt_text=default_system_prompt(),
+        )
+        self._provider_override = snapshot.provider_override
+        self._max_iterations = snapshot.max_iterations
+        self._session_timeout = snapshot.session_timeout
+        self._system_prompt = snapshot.system_prompt
         self._runtime = self._build_runtime()
         logger.info("Agent config reloaded (provider={})", self.get_active_provider())
 
@@ -491,21 +507,7 @@ class AgentService:
     @staticmethod
     def get_available_providers() -> list[dict]:
         """Discover configured LLM providers from settings."""
-        llm_config = get_config("llm", {})
-        providers: list[dict] = []
-        for key, cfg in llm_config.items():
-            if key == "provider" or not isinstance(cfg, dict):
-                continue
-            model = cfg.get("model")
-            if model:
-                providers.append(
-                    {
-                        "key": key,
-                        "label": key.capitalize(),
-                        "model": str(model),
-                    }
-                )
-        return providers
+        return discover_available_providers(get_config("llm", {}))
 
 
 _redact_stream_value = redact_stream_value
