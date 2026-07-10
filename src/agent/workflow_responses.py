@@ -4,8 +4,34 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agent.workflow_result_cards import (
+    build_pipeline_result_card,
+    build_report_result_card,
+    build_task_review_result_card,
+)
 from src.agent.workflow_support import _task_detail_data
 from src.agent.workflow_types import AgentWorkflowState
+
+
+def build_report_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_report_response(state)
+    return text, build_report_result_card(state)
+
+
+def build_task_review_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_task_review_response(state)
+    return text, build_task_review_result_card(state)
+
+
+def build_pipeline_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_pipeline_response(state)
+    return text, build_pipeline_result_card(state)
 
 
 def _build_report_response(state: AgentWorkflowState) -> str:

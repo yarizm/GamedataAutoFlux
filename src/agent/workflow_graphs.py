@@ -62,11 +62,15 @@ def _tool_bridge(
     build_args: Callable[[AgentWorkflowState], dict[str, Any]],
     *,
     output_state_key: str | None = None,
+    step_id: str | None = None,
+    step_label: str | None = None,
 ) -> WorkflowToolBridgeDefinition:
     return WorkflowToolBridgeDefinition(
         tool_name=tool_name,
         build_args=build_args,
         output_state_key=output_state_key,
+        step_id=step_id,
+        step_label=step_label,
     )
 
 
@@ -87,6 +91,8 @@ def _task_detail_node(name: str, handler: Any) -> WorkflowNodeDefinition:
             "get_task_detail",
             _build_get_task_detail_args,
             output_state_key="task_detail",
+            step_id="load_task",
+            step_label="加载任务",
         ),
     )
 
@@ -99,6 +105,8 @@ def _review_collection_results_node(name: str, handler: Any) -> WorkflowNodeDefi
             "review_collection_results",
             _build_review_collection_results_args,
             output_state_key="collection_review",
+            step_id="review",
+            step_label="复查采集",
         ),
     )
 
@@ -153,6 +161,8 @@ def build_workflow_graph_definitions(
                         "precheck_report",
                         _build_precheck_report_args,
                         output_state_key="report_precheck",
+                        step_id="precheck",
+                        step_label="报告预检",
                     ),
                 ),
                 _workflow_node(
@@ -162,6 +172,8 @@ def build_workflow_graph_definitions(
                         "generate_report",
                         _build_generate_report_args,
                         output_state_key="generated_report",
+                        step_id="generate",
+                        step_label="生成报告",
                     ),
                 ),
                 _response_node("compose_report_response", compose_report_response_handler),
@@ -240,6 +252,8 @@ def build_workflow_graph_definitions(
                         "create_dynamic_pipeline",
                         _build_create_dynamic_pipeline_args,
                         output_state_key="dynamic_pipeline_result",
+                        step_id="create_pipeline",
+                        step_label="创建Pipeline",
                     ),
                 ),
                 _response_node("compose_pipeline_response", compose_pipeline_response_handler),

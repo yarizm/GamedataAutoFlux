@@ -19,6 +19,8 @@ let currentTextBlock = null;
 let abortController = null;
 let currentResponseEvents = [];
 let autoScroll = true;
+/** @type {{ workflow_id: string, label: string, steps: {id:string,label:string,status:string}[], el: HTMLElement|null } | null} */
+let currentWorkflow = null;
 
 // ── Helpers ──
 function providerLabel(key) { return key.charAt(0).toUpperCase() + key.slice(1); }
@@ -47,6 +49,7 @@ function resetStreamState() {
   currentTextBlock = null; currentThinkingDrawer = null; currentThinkingBody = null;
   currentToolLine = null; currentToolResult = null; agentFinalText = '';
   currentResponseEvents = [];
+  currentWorkflow = null;
 }
 
 // ── Session storage ──
@@ -103,9 +106,11 @@ export default {
       searchInput.addEventListener('input', () => this._renderSessions());
     }
 
+    this._bindIntentChips();
+
     let sessions = loadSessions();
     if (!sessions.some(s => s.id === 'default')) {
-      sessions.unshift({ id: 'default', name: '默认会话', created_at: new Date().toISOString() });
+      sessions.unshift({ id: 'default', name: t('agent.defaultSession'), created_at: new Date().toISOString() });
     }
     saveSessions(sessions);
 
@@ -118,6 +123,23 @@ export default {
     this._syncServerSessions();
     this._initProviderSelector();
     this._refreshStatus();
+  },
+
+  // ── Intent chips (fill input only, no auto-send) ──
+
+  _bindIntentChips() {
+    const chips = document.querySelectorAll('#agent-intent-chips .agent-intent-chip');
+    chips.forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const templateKey = chip.getAttribute('data-template-key');
+        if (!templateKey) return;
+        const input = document.getElementById('agent-input');
+        if (!input) return;
+        input.value = t(templateKey);
+        input.focus();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
   },
 
   // ── Sessions ──
@@ -134,7 +156,7 @@ export default {
       const item = document.createElement('div');
       item.className = 'agent-session-item' + (s.id === agentSessionId ? ' active' : '');
       item.innerHTML = `<span class="agent-session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
-        <button class="agent-session-edit" title="重命名">✎</button>
+        <button class="agent-session-edit" title="${escapeHtml(t('agent.rename'))}">✎</button>
         <button class="agent-session-delete" title="${t('common.delete')}">&times;</button>`;
       item.querySelector('.agent-session-edit').addEventListener('click', (e) => { e.stopPropagation(); this._editSession(s.id); });
       item.querySelector('.agent-session-delete').addEventListener('click', (e) => { e.stopPropagation(); this._deleteSession(s.id); });
@@ -145,7 +167,8 @@ export default {
 
   _createSession() {
     const id = 'sess_' + Date.now();
-    const name = '会话 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const time = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const name = t('agent.sessionName', { time });
     let sessions = loadSessions();
     sessions.unshift({ id, name, created_at: new Date().toISOString() });
     saveSessions(sessions);
@@ -157,10 +180,10 @@ export default {
     let sessions = loadSessions();
     const sess = sessions.find(s => s.id === id);
     if (!sess) return;
-    const newName = prompt('修改会话标题', sess.name);
+    const newName = prompt(t('agent.renameSession'), sess.name);
     if (newName === null) return;
     const trimmed = newName.trim();
-    if (!trimmed) { toast('标题不能为空', 'error'); return; }
+    if (!trimmed) { toast(t('agent.titleRequired'), 'error'); return; }
     sess.name = trimmed;
     saveSessions(sessions);
     this._renderSessions();
@@ -184,7 +207,7 @@ export default {
 
   _deleteSession(id) {
     let sessions = loadSessions();
-    if (sessions.length <= 1) { toast('至少保留一个会话', 'error'); return; }
+    if (sessions.length <= 1) { toast(t('agent.keepOneSession'), 'error'); return; }
     sessions = sessions.filter(s => s.id !== id);
     saveSessions(sessions);
     localStorage.removeItem('agent_msgs_' + id);
@@ -301,25 +324,33 @@ export default {
       const mcp = status.mcp_running ? 'MCP on' : status.mcp_enabled ? 'MCP idle' : 'MCP off';
       const statusWarnings = status.status_warnings || [];
       const warningNote = statusWarnings.length ? ' · warning' : '';
-      text.textContent = `${model} · ${toolCount} tools · ${mcp}${warningNote}`;
+      text.textContent = t('agent.statusLine', { model, tools: toolCount, mcp, warning: warningNote });
       if (wrap) {
         const warningText = statusWarnings.join('\n') || '-';
-        wrap.title = `Provider: ${status.provider || '-'}\nAgent: ${status.agent_type || '-'}\nSessions: ${status.session_count ?? 0}\nHistory loaded: ${status.histories_loaded ? 'yes' : 'no'}\nWarnings: ${warningText}`;
+        wrap.title = [
+          `Provider: ${status.provider || '-'}`,
+          `Agent: ${status.agent_type || '-'}`,
+          `Sessions: ${status.session_count ?? 0}`,
+          `History: ${status.histories_loaded ? 'yes' : 'no'}`,
+          `Warnings: ${warningText}`,
+        ].join('\n');
       }
       if (dot) {
         if (status.status_health === 'warning') {
-          dot.style.backgroundColor = '#f59e0b';
-          dot.style.boxShadow = '0 0 8px rgba(245,158,11,0.8)';
+          dot.style.backgroundColor = 'var(--warning)';
+          dot.style.boxShadow = '0 0 8px color-mix(in srgb, var(--warning) 80%, transparent)';
         } else {
-          dot.style.backgroundColor = status.initialized ? '#34d399' : '#a78bfa';
-          dot.style.boxShadow = status.mcp_running ? '0 0 8px rgba(52,211,153,0.8)' : '0 0 5px rgba(139,92,246,0.8)';
+          dot.style.backgroundColor = status.initialized ? 'var(--success)' : 'var(--accent)';
+          dot.style.boxShadow = status.mcp_running
+            ? '0 0 8px color-mix(in srgb, var(--success) 80%, transparent)'
+            : '0 0 5px var(--accent-glow)';
         }
       }
     } catch {
-      text.textContent = 'Agent unavailable';
+      text.textContent = t('agent.unavailable');
       if (dot) {
-        dot.style.backgroundColor = '#fb7185';
-        dot.style.boxShadow = '0 0 8px rgba(251,113,133,0.8)';
+        dot.style.backgroundColor = 'var(--danger)';
+        dot.style.boxShadow = '0 0 8px color-mix(in srgb, var(--danger) 80%, transparent)';
       }
     }
   },
@@ -332,7 +363,7 @@ export default {
     try {
       await api('/agent/providers', { method: 'POST', body: JSON.stringify({ provider }) });
       localStorage.setItem('agent_provider', provider);
-      toast('已切换到 ' + providerLabel(provider), 'success');
+      toast(t('agent.switchedProvider', { provider: providerLabel(provider) }), 'success');
       this._refreshStatus();
     } catch (err) { toast(t('message.loadFailed', { error: err.message }), 'error'); select.value = prev; }
   },
@@ -400,7 +431,7 @@ export default {
       if (!keyEl?.value.trim() || !modelEl?.value.trim()) continue;
       items.push({ key: keyEl.value.trim(), model: modelEl.value.trim(), base_url: urlEl?.value.trim() || '', api_key: keyvalEl?.value.trim() || '', temperature: 0.3, max_tokens: 2000 });
     }
-    if (!items.length) { toast('至少需要一个有效的 provider（key 和 model 必填）', 'error'); return; }
+    if (!items.length) { toast(t('agent.providerRequired'), 'error'); return; }
     try {
       await api('/agent/providers/config', { method: 'PUT', body: JSON.stringify({ provider: document.getElementById('provider-config-default').value, items }) });
       toast(t('common.save'), 'success');
@@ -452,6 +483,7 @@ export default {
     currentToolLine = null;
     currentToolResult = null;
     agentFinalText = '';
+    currentWorkflow = null;
 
     for (const event of msg.steps) {
       this._handleEvent(event);
@@ -547,6 +579,7 @@ export default {
     currentToolLine = null;
     currentToolResult = null;
     currentResponseEvents = [];
+    currentWorkflow = null;
     scrollToBottom();
     return resp;
   },
@@ -598,9 +631,13 @@ export default {
       tool_result: '_handleToolResult',
       final: '_handleFinal',
       error: '_handleError',
+      workflow_start: '_handleWorkflowStart',
+      workflow_step: '_handleWorkflowStep',
+      workflow_end: '_handleWorkflowEnd',
+      result_card: '_handleResultCard',
     };
     const fn = handlers[event.type];
-    if (fn) this[fn](event);
+    if (fn && typeof this[fn] === 'function') this[fn](event);
   },
 
   _handleThinking(event) {
@@ -662,13 +699,13 @@ export default {
     const sc = statusMap[parsed.status] || '';
     const sl = labelMap[parsed.status] || parsed.status;
     let html = `<div class="tool-result-card ${sc}"><span class="tool-result-status">${escapeHtml(sl)}</span><span class="tool-result-summary">${escapeHtml(parsed.summary)}</span>`;
-    if (parsed.record_count !== undefined) html += `<span class="tool-result-count">${parsed.record_count} 条</span>`;
-    if (parsed.suggestion) html += `<div class="tool-result-suggestion">建议: ${escapeHtml(parsed.suggestion)}</div>`;
+    if (parsed.record_count !== undefined) html += `<span class="tool-result-count">${escapeHtml(t('reports.records', { count: parsed.record_count }))}</span>`;
+    if (parsed.suggestion) html += `<div class="tool-result-suggestion">${escapeHtml(t('agent.suggestion'))}: ${escapeHtml(parsed.suggestion)}</div>`;
     if (parsed.data_truncated) {
-      html += '<div class="tool-result-truncated">Data was truncated. Please narrow the query.</div>';
+      html += `<div class="tool-result-truncated">${escapeHtml(t('agent.dataTruncated'))}</div>`;
     } else if (parsed.data !== undefined && parsed.data !== null) {
       const pv = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2);
-      html += `<details class="tool-result-data"><summary>Data preview (${pv.length})</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
+      html += `<details class="tool-result-data"><summary>${escapeHtml(t('agent.dataPreview', { length: pv.length }))}</summary><pre>${escapeHtml(pv.length > 500 ? pv.substring(0, 500) + '...' : pv)}</pre></details>`;
     }
     if (parsed.warnings?.length) {
       html += '<div class="tool-result-warnings">' + parsed.warnings.map(w => `<div class="tool-result-warning-item">⚠ ${escapeHtml(w)}</div>`).join('') + '</div>';
@@ -717,6 +754,291 @@ export default {
     currentStepEl.appendChild(errEl);
     currentResponseEvents.push({ type: 'error', content: event.content || '' });
     scrollToBottom();
+  },
+
+  // ── Workflow path bar ──
+
+  _handleWorkflowStart(event) {
+    if (!currentResponseEl) return;
+    const steps = Array.isArray(event.steps)
+      ? event.steps.map((s) => ({
+          id: String(s.id || ''),
+          label: String(s.label || s.id || ''),
+          status: 'pending',
+        }))
+      : [];
+    currentWorkflow = {
+      workflow_id: event.workflow_id || '',
+      label: event.label || '',
+      steps,
+      el: null,
+    };
+    const pathEl = document.createElement('div');
+    pathEl.className = 'agent-workflow-path';
+    if (currentWorkflow.workflow_id) pathEl.dataset.workflowId = currentWorkflow.workflow_id;
+
+    if (currentWorkflow.label) {
+      const labelEl = document.createElement('div');
+      labelEl.className = 'agent-workflow-path-title';
+      labelEl.textContent = currentWorkflow.label;
+      pathEl.appendChild(labelEl);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'agent-workflow-path-steps';
+    steps.forEach((step, idx) => {
+      if (idx > 0) {
+        const connector = document.createElement('div');
+        connector.className = 'agent-workflow-path-connector';
+        row.appendChild(connector);
+      }
+      const stepEl = document.createElement('div');
+      stepEl.className = 'agent-workflow-path-step is-pending';
+      if (step.id) stepEl.dataset.stepId = step.id;
+      stepEl.dataset.status = 'pending';
+      const dot = document.createElement('span');
+      dot.className = 'agent-workflow-path-step-dot';
+      const lab = document.createElement('span');
+      lab.className = 'agent-workflow-path-step-label';
+      lab.textContent = step.label;
+      stepEl.appendChild(dot);
+      stepEl.appendChild(lab);
+      row.appendChild(stepEl);
+    });
+    pathEl.appendChild(row);
+
+    // Insert path bar above the steps stream
+    if (currentResponseSteps && currentResponseSteps.parentNode === currentResponseEl) {
+      currentResponseEl.insertBefore(pathEl, currentResponseSteps);
+    } else {
+      currentResponseEl.insertBefore(pathEl, currentResponseEl.firstChild);
+    }
+    currentWorkflow.el = pathEl;
+
+    currentResponseEvents.push({
+      type: 'workflow_start',
+      workflow_id: currentWorkflow.workflow_id,
+      label: currentWorkflow.label,
+      steps: steps.map((s) => ({ id: s.id, label: s.label })),
+    });
+    this._updateStatus(currentWorkflow.label || t('agent.path.running'));
+    scrollToBottom();
+  },
+
+  _setWorkflowStepStatus(stepId, status) {
+    if (!currentWorkflow) return;
+    const step = currentWorkflow.steps.find((s) => s.id === stepId);
+    if (step) step.status = status;
+    const pathEl = currentWorkflow.el;
+    if (!pathEl) return;
+    const stepEl = pathEl.querySelector(`.agent-workflow-path-step[data-step-id="${CSS.escape(stepId)}"]`);
+    if (!stepEl) return;
+    stepEl.dataset.status = status;
+    stepEl.className = `agent-workflow-path-step is-${status}`;
+  },
+
+  _handleWorkflowStep(event) {
+    if (!currentResponseEl || !currentWorkflow) return;
+    if (event.workflow_id && currentWorkflow.workflow_id && event.workflow_id !== currentWorkflow.workflow_id) {
+      return;
+    }
+    const stepId = event.step_id || '';
+    const status = event.status || 'running';
+    if (!stepId) return;
+
+    // When a step starts running, keep a single running step: leave previous running as done if still open
+    if (status === 'running') {
+      currentWorkflow.steps.forEach((s) => {
+        if (s.id !== stepId && s.status === 'running') this._setWorkflowStepStatus(s.id, 'done');
+      });
+    }
+    this._setWorkflowStepStatus(stepId, status);
+    // Prefer live label from event
+    if (event.label && currentWorkflow.el) {
+      const stepEl = currentWorkflow.el.querySelector(
+        `.agent-workflow-path-step[data-step-id="${CSS.escape(stepId)}"] .agent-workflow-path-step-label`,
+      );
+      if (stepEl) stepEl.textContent = event.label;
+      const st = currentWorkflow.steps.find((s) => s.id === stepId);
+      if (st && event.label) st.label = event.label;
+    }
+
+    currentResponseEvents.push({
+      type: 'workflow_step',
+      workflow_id: event.workflow_id || currentWorkflow.workflow_id,
+      step_id: stepId,
+      label: event.label || '',
+      status,
+    });
+    if (status === 'running') {
+      this._updateStatus(`${t('agent.path.running')}: ${event.label || stepId}`);
+    }
+    scrollToBottom();
+  },
+
+  _handleWorkflowEnd(event) {
+    if (!currentResponseEl || !currentWorkflow) return;
+    if (event.workflow_id && currentWorkflow.workflow_id && event.workflow_id !== currentWorkflow.workflow_id) {
+      return;
+    }
+    const endStatus = event.status || 'success';
+
+    currentWorkflow.steps.forEach((s) => {
+      if (s.status === 'done' || s.status === 'failed' || s.status === 'skipped' || s.status === 'interrupted') {
+        return;
+      }
+      if (endStatus === 'success') {
+        // running or pending that never updated → done if was running, skipped if still pending
+        this._setWorkflowStepStatus(s.id, s.status === 'running' ? 'done' : 'skipped');
+      } else if (endStatus === 'failed') {
+        this._setWorkflowStepStatus(s.id, s.status === 'running' ? 'failed' : 'skipped');
+      } else if (endStatus === 'fallback') {
+        this._setWorkflowStepStatus(s.id, s.status === 'running' ? 'failed' : 'skipped');
+      } else {
+        this._setWorkflowStepStatus(s.id, s.status === 'running' ? 'done' : 'skipped');
+      }
+    });
+
+    if (endStatus === 'fallback' && currentWorkflow.el) {
+      let banner = currentWorkflow.el.querySelector('.agent-workflow-path-fallback');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.className = 'agent-workflow-path-fallback';
+        currentWorkflow.el.appendChild(banner);
+      }
+      const reason = event.reason ? String(event.reason) : '';
+      banner.textContent = reason
+        ? `${t('agent.path.fallback')}: ${reason}`
+        : t('agent.path.fallback');
+    }
+
+    if (currentWorkflow.el) {
+      currentWorkflow.el.dataset.endStatus = endStatus;
+      currentWorkflow.el.classList.add(`is-end-${endStatus}`);
+    }
+
+    currentResponseEvents.push({
+      type: 'workflow_end',
+      workflow_id: event.workflow_id || currentWorkflow.workflow_id,
+      status: endStatus,
+      reason: event.reason || undefined,
+    });
+    scrollToBottom();
+  },
+
+  _handleResultCard(event) {
+    if (!currentResponseEl) return;
+    if (currentThinkingDrawer) {
+      currentThinkingDrawer.open = false;
+      currentThinkingDrawer = null;
+      currentThinkingBody = null;
+    }
+    currentTextBlock = null;
+
+    const card = document.createElement('div');
+    card.className = 'agent-result-card';
+    if (event.card_type) card.dataset.cardType = String(event.card_type);
+    const status = event.payload?.status;
+    if (status) {
+      card.dataset.status = String(status);
+      card.classList.add(`is-status-${String(status)}`);
+    }
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'agent-result-card-title';
+    titleEl.textContent = event.title || '';
+    card.appendChild(titleEl);
+
+    if (event.summary) {
+      const summaryEl = document.createElement('div');
+      summaryEl.className = 'agent-result-card-summary';
+      summaryEl.textContent = event.summary;
+      card.appendChild(summaryEl);
+    }
+
+    const actions = Array.isArray(event.actions) ? event.actions : [];
+    const visible = actions.filter(
+      (a) => a && (a.kind === 'navigate' || a.kind === 'copy'),
+    );
+    if (visible.length) {
+      const row = document.createElement('div');
+      row.className = 'agent-result-card-actions';
+      visible.forEach((action) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `agent-result-card-action is-${action.kind}`;
+        btn.textContent = action.label || action.id || action.kind;
+        btn.addEventListener('click', () => this._handleResultCardAction(action));
+        row.appendChild(btn);
+      });
+      card.appendChild(row);
+    }
+
+    if (currentResponseSteps) {
+      currentResponseSteps.appendChild(card);
+    } else {
+      const statusEl = currentResponseEl._statusEl;
+      if (statusEl && statusEl.parentNode === currentResponseEl) {
+        currentResponseEl.insertBefore(card, statusEl);
+      } else {
+        currentResponseEl.appendChild(card);
+      }
+    }
+
+    currentResponseEvents.push({
+      type: 'result_card',
+      card_type: event.card_type || '',
+      title: event.title || '',
+      summary: event.summary || '',
+      actions,
+      payload: event.payload || {},
+    });
+    scrollToBottom();
+  },
+
+  _handleResultCardAction(action) {
+    if (!action || !action.kind) return;
+    if (action.kind === 'navigate') {
+      const tab = action.href || action.payload?.tab;
+      if (!tab) return;
+      if (typeof window.activateTab === 'function') {
+        window.activateTab(tab);
+      } else if (this.store) {
+        this.store.set('activeTab', tab);
+      }
+      return;
+    }
+    if (action.kind === 'copy') {
+      const text = action.payload?.text;
+      if (!text) return;
+      const onOk = () => toast('已复制', 'success');
+      const onErr = () => toast('复制失败', 'error');
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(String(text)).then(onOk).catch(onErr);
+      } else {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = String(text);
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          onOk();
+        } catch {
+          onErr();
+        }
+      }
+    }
+    // Unknown kinds: intentionally ignored (never rendered)
+  },
+
+  _freezeWorkflowOnAbort() {
+    if (!currentWorkflow) return;
+    currentWorkflow.steps.forEach((s) => {
+      if (s.status === 'running') this._setWorkflowStepStatus(s.id, 'interrupted');
+    });
   },
 
   _renderTaskCard(taskId, taskName) {
@@ -813,6 +1135,7 @@ export default {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
+        this._freezeWorkflowOnAbort();
         if (currentResponseEl?._statusEl) currentResponseEl._statusEl.textContent = '已停止生成';
         if (!agentFinalText) agentFinalText = '*(已手动中止)*';
       } else {

@@ -1,4 +1,18 @@
-"""Workflow request matching and message parsing helpers."""
+"""Workflow request matching and message parsing helpers.
+
+P1 fail-closed policy
+---------------------
+- Report / task-review workflows require an **explicit** ``task_id`` in the user
+  text (patterns: ``task:…``, ``task-…``, ``任务 …``). Phrases like “最近 /
+  刚完成 / 上一任务 / latest task” are **not** auto-resolved to a task id;
+  without a parseable id the matcher returns ``None`` and routing falls back
+  to ``general_agent``.
+- Dynamic pipeline requires a URL **and** pipeline or collect intent keywords.
+  A bare URL alone does **not** match (does not steal from general agent).
+- Report keywords beat task-review when both classes match (resolve order:
+  report → review → pipeline); ``workflow_auto_retry`` is true only on
+  explicit retry language.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +29,13 @@ _REPORT_KEYWORDS = (
     "precheck",
     "coverage",
     "generate_report",
+    "excel 报告",
+    "excel报告",
+    "excel report",
+    "xlsx",
+    "分析报告",
+    "分析",
+    "复盘",
     "报告",
     "报表",
     "预检",
@@ -24,14 +45,19 @@ _GENERATE_KEYWORDS = (
     "generate report",
     "create report",
     "生成报告",
+    "出分析报告",
     "出报告",
     "生成一份报告",
+    "生成分析报告",
 )
 _TASK_REVIEW_KEYWORDS = (
     "review",
     "retry",
     "diagnose",
     "inspect",
+    "error",
+    "failed",
+    "failure",
     "复查",
     "审查",
     "诊断",
@@ -39,6 +65,10 @@ _TASK_REVIEW_KEYWORDS = (
     "重试",
     "重跑",
     "失败原因",
+    "为什么失败",
+    "为啥失败",
+    "挂了",
+    "报错",
     "查看问题",
 )
 _AUTO_RETRY_KEYWORDS = (
@@ -60,6 +90,16 @@ _PIPELINE_KEYWORDS = (
     "生成 pipeline",
     "网页采集",
     "浏览器采集",
+)
+# Collect-ish intent: URL + any of these also routes to pipeline workflow.
+_COLLECT_INTENT_KEYWORDS = (
+    "采集",
+    "抓取",
+    "监控",
+    "爬",
+    "scrape",
+    "collect",
+    "crawl",
 )
 _URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 _TASK_ID_PATTERNS = (
@@ -95,6 +135,12 @@ def _workflow_state(route: WorkflowRoute, **updates: Any) -> dict[str, Any]:
 
 
 def _match_report_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match report workflow only when report intent **and** explicit task_id exist.
+
+    Fail-closed: no task_id → None (no latest-task auto-resolve in P1).
+    When both report and review keywords appear, this matcher still matches;
+    callers should prefer report by resolving report before review.
+    """
     task_id = _extract_task_id(user_text)
     if not (task_id and _looks_like_report_request(user_text)):
         return None
@@ -108,6 +154,12 @@ def _match_report_workflow(user_text: str) -> dict[str, Any] | None:
 
 
 def _match_task_review_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match task-review workflow when diagnose/review intent **and** task_id exist.
+
+    Fail-closed: no task_id → None.
+    ``workflow_auto_retry`` is set only on explicit retry language
+    (see ``_AUTO_RETRY_KEYWORDS``), not on generic failure/diagnose words.
+    """
     task_id = _extract_task_id(user_text)
     if not (task_id and _looks_like_task_review_request(user_text)):
         return None
@@ -121,6 +173,10 @@ def _match_task_review_workflow(user_text: str) -> dict[str, Any] | None:
 
 
 def _match_pipeline_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match dynamic pipeline when URL is present **and** collect/pipeline intent.
+
+    Bare URL alone returns None so general_agent can handle free-form links.
+    """
     workflow_url = _extract_first_url(user_text)
     if not (workflow_url and _looks_like_pipeline_request(user_text)):
         return None
@@ -149,8 +205,11 @@ def _looks_like_task_review_request(text: str) -> bool:
 
 
 def _looks_like_pipeline_request(text: str) -> bool:
+    """True if text has pipeline keywords **or** collect-ish intent."""
     lowered = str(text or "").lower()
-    return any(keyword in lowered for keyword in _PIPELINE_KEYWORDS)
+    if any(keyword in lowered for keyword in _PIPELINE_KEYWORDS):
+        return True
+    return any(keyword in lowered for keyword in _COLLECT_INTENT_KEYWORDS)
 
 
 def _workflow_action(text: str) -> Literal["precheck", "generate"]:

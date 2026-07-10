@@ -33,6 +33,12 @@ class StreamState:
     final_output: str = ""
     """累积的最终输出文本"""
 
+    workflow_meta_started: bool = False
+    """是否已为当前 turn 发出 workflow_start（去重）"""
+
+    workflow_meta_ended: bool = False
+    """是否已为当前 turn 发出 workflow_end（去重）"""
+
 
 def process_text_chunk(
     text: str, state: StreamState, suppress_final: bool = False

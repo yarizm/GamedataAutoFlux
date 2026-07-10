@@ -35,6 +35,7 @@ class AgentWorkflowState(TypedDict, total=False):
     report_precheck: dict[str, Any] | None
     generated_report: dict[str, Any] | None
     dynamic_pipeline_result: dict[str, Any] | None
+    result_card: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,8 @@ class WorkflowToolBridgeDefinition:
     tool_name: str
     build_args: Callable[[AgentWorkflowState], dict[str, Any]]
     output_state_key: str | None = None
+    step_id: str | None = None  # defaults to tool_name when emitting step events
+    step_label: str | None = None  # human label for path bar
 
 
 @dataclass(frozen=True)

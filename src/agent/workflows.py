@@ -45,9 +45,9 @@ from src.agent.workflow_runtime_nodes import (
     review_collection_results_node,
 )
 from src.agent.workflow_responses import (
-    _build_pipeline_response,
-    _build_report_response,
-    _build_task_review_response,
+    build_pipeline_response_with_card,
+    build_report_response_with_card,
+    build_task_review_response_with_card,
 )
 from src.agent.workflow_types import AgentWorkflowState, WorkflowGraphDefinition, WorkflowRoute
 
@@ -235,12 +235,24 @@ async def _ainvoke_create_dynamic_pipeline_tool(payload: dict[str, Any]) -> Any:
 
 
 def _compose_report_response(state: AgentWorkflowState) -> dict[str, Any]:
-    return {"messages": [AIMessage(content=_build_report_response(state))]}
+    text, card = build_report_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out
 
 
 def _compose_task_review_response(state: AgentWorkflowState) -> dict[str, Any]:
-    return {"messages": [AIMessage(content=_build_task_review_response(state))]}
+    text, card = build_task_review_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out
 
 
 def _compose_pipeline_response(state: AgentWorkflowState) -> dict[str, Any]:
-    return {"messages": [AIMessage(content=_build_pipeline_response(state))]}
+    text, card = build_pipeline_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out

@@ -1,9 +1,14 @@
+from src.agent.agent_invoke_lifecycle import AgentInvokeState
+from src.agent.agent_invoke_stream import AgentInvokeStreamContext
 from src.agent.agent_stream_events import (
+    ChainEndHandlingResult,
     build_tool_end_result_event,
     build_tool_start_events,
     handle_chain_end_event,
     handle_chat_model_start_event,
     handle_chat_model_stream_event,
+    maybe_workflow_end_events,
+    maybe_workflow_start_events,
 )
 from src.agent.stream_parser import StreamState
 from src.agent.workflow_types import WorkflowToolBridgeDefinition
@@ -194,3 +199,95 @@ def test_handle_chain_end_event_emits_graph_final_output() -> None:
     assert result.final_output == "safe:graph final"
     assert result.run_completed is True
     assert result.handled is True
+
+
+def test_handle_chain_end_event_emits_result_card_before_final() -> None:
+    card = {
+        "type": "result_card",
+        "card_type": "report",
+        "title": "报告已生成",
+        "summary": "ok",
+        "actions": [{"id": "open", "label": "打开", "kind": "navigate", "href": "reports"}],
+        "payload": {"report_id": "r1"},
+    }
+    result = handle_chain_end_event(
+        {
+            "name": "LangGraph",
+            "data": {
+                "output": {
+                    "messages": [("ai", "graph final")],
+                    "result_card": card,
+                }
+            },
+        },
+        bridge_map={},
+        redact_value=lambda value: value,
+        redact_text=lambda text: f"safe:{text}",
+        suppress_final_stream=False,
+        has_state_final_output=False,
+        runtime_input_mode="messages_graph",
+    )
+
+    assert result.events[0] == card
+    assert result.events[1] == {"type": "final", "content": "safe:graph final"}
+    assert result.final_output == "safe:graph final"
+    assert result.run_completed is True
+    assert result.handled is True
+
+
+def _empty_stream_context(**kwargs) -> AgentInvokeStreamContext:
+    defaults = dict(
+        stream_state=StreamState(),
+        invoke_state=AgentInvokeState(),
+        suppress_final_stream=False,
+        workflow_bridges={},
+        runtime_input_mode="messages_graph",
+    )
+    defaults.update(kwargs)
+    return AgentInvokeStreamContext(**defaults)
+
+
+def test_maybe_workflow_start_on_entry_and_dedupe() -> None:
+    context = _empty_stream_context()
+    first = maybe_workflow_start_events(
+        {"name": "load_task_detail_report"},
+        context,
+    )
+    second = maybe_workflow_start_events(
+        {"name": "load_task_detail_report"},
+        context,
+    )
+    assert len(first) == 1
+    assert first[0]["type"] == "workflow_start"
+    assert first[0]["workflow_id"] == "report_workflow"
+    assert second == []
+    assert context.active_workflow_id == "report_workflow"
+
+
+def test_maybe_workflow_start_skips_general_agent() -> None:
+    context = _empty_stream_context()
+    assert maybe_workflow_start_events({"name": "general_agent"}, context) == []
+    assert context.active_workflow_id is None
+
+
+def test_maybe_workflow_end_on_compose_once() -> None:
+    context = _empty_stream_context(active_workflow_id="report_workflow")
+    context.stream_state.workflow_meta_started = True
+    end = maybe_workflow_end_events(
+        {"name": "compose_report_response"},
+        context,
+        ChainEndHandlingResult(events=[], handled=True),
+    )
+    again = maybe_workflow_end_events(
+        {"name": "compose_report_response"},
+        context,
+        ChainEndHandlingResult(events=[], handled=True),
+    )
+    assert end == [
+        {
+            "type": "workflow_end",
+            "workflow_id": "report_workflow",
+            "status": "success",
+        }
+    ]
+    assert again == []

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.agent.stream_parser import (
     StreamState,
@@ -17,6 +17,17 @@ from src.agent.workflow_bridge_events import (
     extract_graph_final_text,
     serialize_stream_output,
 )
+from src.agent.workflow_events import (
+    COMPOSE_NODE_TO_WORKFLOW,
+    END_SUCCESS,
+    ENTRY_NODE_TO_WORKFLOW,
+    WORKFLOW_META,
+    workflow_end_event,
+    workflow_start_event,
+)
+
+if TYPE_CHECKING:
+    from src.agent.agent_invoke_stream import AgentInvokeStreamContext
 
 
 @dataclass(frozen=True)
@@ -139,6 +150,59 @@ def build_tool_end_result_event(
     }
 
 
+def maybe_workflow_start_events(
+    event: dict[str, Any],
+    context: AgentInvokeStreamContext,
+) -> list[dict[str, Any]]:
+    """Emit workflow_start once when a routed graph entry node starts.
+
+    general_agent is intentionally excluded (not in ENTRY_NODE_TO_WORKFLOW).
+    """
+    if context.stream_state.workflow_meta_started:
+        return []
+
+    event_name = str(event.get("name") or "")
+    workflow_id = ENTRY_NODE_TO_WORKFLOW.get(event_name)
+    if workflow_id is None:
+        return []
+
+    meta = WORKFLOW_META[workflow_id]
+    context.active_workflow_id = workflow_id
+    context.workflow_label = meta.label
+    context.workflow_steps = [dict(step) for step in meta.steps]
+    context.stream_state.workflow_meta_started = True
+    return [
+        workflow_start_event(
+            workflow_id,
+            meta.label,
+            list(context.workflow_steps),
+        )
+    ]
+
+
+def maybe_workflow_end_events(
+    event: dict[str, Any],
+    context: AgentInvokeStreamContext,
+    chain_end_result: ChainEndHandlingResult,
+) -> list[dict[str, Any]]:
+    """Emit workflow_end once on compose node end or root graph completion."""
+    if not context.active_workflow_id or context.stream_state.workflow_meta_ended:
+        return []
+
+    event_name = str(event.get("name") or "")
+    is_compose = event_name in COMPOSE_NODE_TO_WORKFLOW
+    is_graph_root_complete = bool(
+        chain_end_result.run_completed
+        and context.runtime_input_mode == "messages_graph"
+        and not event.get("parent_ids")
+    )
+    if not is_compose and not is_graph_root_complete:
+        return []
+
+    context.stream_state.workflow_meta_ended = True
+    return [workflow_end_event(context.active_workflow_id, END_SUCCESS)]
+
+
 def handle_chain_end_event(
     event: dict[str, Any],
     *,
@@ -148,14 +212,16 @@ def handle_chain_end_event(
     suppress_final_stream: bool,
     has_state_final_output: bool,
     runtime_input_mode: str,
+    workflow_id: str | None = None,
 ) -> ChainEndHandlingResult:
-    workflow_result_event = build_workflow_chain_end_result_event(
+    workflow_result_events = build_workflow_chain_end_result_event(
         event,
         bridge_map=bridge_map,
         redact_value=redact_value,
+        workflow_id=workflow_id,
     )
-    if workflow_result_event:
-        return ChainEndHandlingResult(events=[workflow_result_event], handled=True)
+    if workflow_result_events:
+        return ChainEndHandlingResult(events=list(workflow_result_events), handled=True)
 
     name = event.get("name")
     if name == "AgentExecutor":
@@ -185,10 +251,20 @@ def handle_chain_end_event(
             handled=True,
         )
 
+    # Intermediate workflow nodes (compose / entry without bridge) must not be
+    # treated as graph root just because parent_ids is missing from the payload.
+    node_name = str(name or "")
+    if node_name in COMPOSE_NODE_TO_WORKFLOW or node_name in ENTRY_NODE_TO_WORKFLOW:
+        return ChainEndHandlingResult(events=[], handled=True)
+
     if runtime_input_mode == "messages_graph" and not event.get("parent_ids"):
         graph_output = event.get("data", {}).get("output", {})
         events: list[dict[str, Any]] = []
         final_output = ""
+        if isinstance(graph_output, dict):
+            result_card = graph_output.get("result_card")
+            if isinstance(result_card, dict) and result_card.get("type") == "result_card":
+                events.append(result_card)
         final_text = extract_graph_final_text(graph_output)
         if final_text and not has_state_final_output:
             safe_final_text = redact_text(final_text)

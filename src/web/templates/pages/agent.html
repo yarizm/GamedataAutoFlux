@@ -1,7 +1,7 @@
 <section class="tab-content" id="tab-agent">
             <div class="section-header flex-wrap">
                 <div class="flex items-center gap-4">
-                    <h1 class="text-3xl font-black tracking-tighter text-white">HUD 终端</h1>
+                    <h1 class="text-3xl font-black tracking-tighter text-theme-primary">HUD 终端</h1>
                     <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20" id="agent-runtime-status" title="Agent runtime status">
                         <span class="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_5px_rgba(139,92,246,0.8)]" id="agent-status-dot"></span>
                         <span class="text-[11px] text-violet-400 font-bold tracking-widest uppercase" id="agent-status-text">Agent Active</span>
@@ -9,7 +9,7 @@
                 </div>
                 <div class="flex items-center gap-3 mt-4 sm:mt-0">
                     <div class="bg-zinc-800 border border-white/10 rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
-                        <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-zinc-800 border-none text-white font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-violet-300" title="选择 LLM 模型">
+                        <select id="agent-provider-select" onchange="onAgentProviderChange()" class="bg-theme-elevated border-none text-theme-primary font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-violet-300" title="选择 LLM 模型">
                             <option value="" class="bg-zinc-800 text-zinc-300">加载中...</option>
                         </select>
                         <div class="w-px h-5 bg-white/10 mx-1"></div>
@@ -22,9 +22,9 @@
             </div>
             
             <div class="agent-layout grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 h-[calc(100vh-160px)] items-start">
-                <div class="agent-sidebar bg-zinc-900 border border-white/5 rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
+                <div class="agent-sidebar bg-theme-elevated border border-theme-subtle rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between">
-                        <h3 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">会话列表</h3>
+                        <h3 class="text-theme-primary font-bold tracking-tight text-lg uppercase">会话列表</h3>
                         <button class="agent-sidebar-new btn-ghost px-2 py-1 text-xs border border-violet-500/30 text-violet-400 rounded-md hover:bg-violet-500/20 hover:border-violet-400 transition-colors flex items-center gap-1 shadow-[0_0_8px_rgba(139,92,246,0.2)]" onclick="createAgentSession()">
                             <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                             新建
@@ -36,27 +36,33 @@
                     <div class="agent-session-list flex-1 overflow-y-auto px-2 pb-2 space-y-1" id="agent-session-list"></div>
                 </div>
                 
-                <div class="agent-chat-panel bg-zinc-950 border border-white/5 rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+                <div class="agent-chat-panel bg-theme-elevated border border-theme-subtle rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500/30 to-transparent"></div>
                     <div class="agent-messages flex-1 overflow-y-auto p-6 space-y-6" id="agent-messages">
                         <div class="agent-message assistant flex gap-4 max-w-[85%] mr-auto">
-                            <div class="agent-avatar assistant w-8 h-8 rounded-md bg-zinc-800 border border-white/10 text-zinc-400 flex items-center justify-center text-[10px] font-bold tracking-widest shrink-0 shadow-[0_0_10px_rgba(255,255,255,0.05)]">SYS</div>
-                            <div class="agent-bubble assistant bg-zinc-800 border border-white/5 text-zinc-300 rounded-2xl rounded-tl-sm p-4 text-sm leading-relaxed shadow-lg">
-                                <p class="mb-2">你好！我是游戏数据助手，可以帮你：</p>
-                                <ul class="list-disc pl-5 space-y-1 text-zinc-400 marker:text-violet-500">
-                                    <li>查看任务状态和系统概览</li>
-                                    <li>创建数据采集任务</li>
-                                    <li>配置 Pipeline 和定时任务</li>
-                                    <li>浏览和搜索已采集数据</li>
-                                    <li>生成数据分析报告</li>
+                            <div class="agent-avatar assistant">SYS</div>
+                            <div class="agent-bubble assistant">
+                                <p class="mb-2" data-i18n="agent.welcome">你好！我是游戏数据助手，可以帮你：</p>
+                                <ul class="list-disc pl-5 space-y-1 marker:text-violet-500" style="color: var(--text-muted)">
+                                    <li data-i18n="agent.help.status">查看任务状态和系统概览</li>
+                                    <li data-i18n="agent.help.create">创建数据采集任务</li>
+                                    <li data-i18n="agent.help.pipeline">配置流水线和定时任务</li>
+                                    <li data-i18n="agent.help.data">浏览和搜索已采集数据</li>
+                                    <li data-i18n="agent.help.report">生成数据分析报告</li>
                                 </ul>
-                                <p class="mt-2">请告诉我你需要什么帮助？</p>
+                                <p class="mt-2" data-i18n="agent.help.ask">请告诉我你需要什么帮助？</p>
                             </div>
                         </div>
                     </div>
                     
                     <div class="p-6 pt-2 bg-gradient-to-t from-[#050505] to-transparent">
-                        <div class="agent-input-area relative flex items-end gap-3 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] focus-within:border-violet-500/50 focus-within:shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all duration-300">
+                        <div id="agent-intent-chips" class="flex flex-wrap gap-2 mb-3 px-1">
+                            <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.diagnose" data-i18n="agent.chip.diagnose">任务诊断</button>
+                            <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.reportPrecheck" data-i18n="agent.chip.reportPrecheck">报告预检</button>
+                            <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.reportGenerate" data-i18n="agent.chip.reportGenerate">生成报告</button>
+                            <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.dynamicPipeline" data-i18n="agent.chip.dynamicPipeline">动态采集</button>
+                        </div>
+                        <div class="agent-input-area relative flex items-end gap-3 bg-theme-elevated backdrop-blur-xl border border-theme-strong rounded-2xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] focus-within:border-violet-500/50 focus-within:shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all duration-300">
                             <textarea id="agent-input" rows="1" class="flex-1 bg-transparent border-none text-zinc-200 text-sm focus:ring-0 resize-none max-h-32 min-h-[40px] py-2 px-3 outline-none" placeholder="输入指令，如：帮我采集 Elden Ring 的 Steam 数据..."></textarea>
                             <button class="btn btn-primary rounded-xl h-10 w-10 p-0 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(139,92,246,0.4)] hover:scale-105 transition-transform" onclick="sendAgentMessage()" id="btn-send-agent" title="发送">
                                 <svg class="w-5 h-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>

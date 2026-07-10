@@ -8,6 +8,12 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+from src.agent.workflow_events import (
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_RUNNING,
+    workflow_step_event,
+)
 from src.agent.workflow_types import WorkflowToolBridgeDefinition
 
 
@@ -17,6 +23,7 @@ def build_workflow_chain_start_events(
     bridge_map: Mapping[str, WorkflowToolBridgeDefinition],
     redact_value: Callable[[Any], Any],
     describe_tool_action: Callable[[str, dict[str, Any]], str],
+    workflow_id: str | None = None,
 ) -> list[dict[str, Any]]:
     workflow_bridge = bridge_map.get(str(event.get("name") or ""))
     if workflow_bridge is None:
@@ -40,6 +47,10 @@ def build_workflow_chain_start_events(
             "args": safe_args,
         }
     )
+    if workflow_id:
+        events.append(
+            _bridge_workflow_step_event(workflow_bridge, workflow_id, STEP_RUNNING)
+        )
     return events
 
 
@@ -49,20 +60,62 @@ def build_workflow_chain_end_result_event(
     bridge_map: Mapping[str, WorkflowToolBridgeDefinition],
     redact_value: Callable[[Any], Any],
     max_output_length: int = 4000,
-) -> dict[str, Any] | None:
+    workflow_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Build tool_result (and optional workflow_step) events for a chain end.
+
+    Returns an empty list when the event name is not bridged.
+    """
     workflow_bridge = bridge_map.get(str(event.get("name") or ""))
     if workflow_bridge is None:
-        return None
+        return []
 
     workflow_output = event.get("data", {}).get("output", {})
-    safe_output = redact_value(
-        workflow_tool_output_payload(workflow_bridge, workflow_output)
-    )
-    return {
-        "type": "tool_result",
-        "name": workflow_bridge.tool_name,
-        "content": serialize_stream_output(safe_output, max_length=max_output_length),
-    }
+    payload = workflow_tool_output_payload(workflow_bridge, workflow_output)
+    safe_output = redact_value(payload)
+    events: list[dict[str, Any]] = [
+        {
+            "type": "tool_result",
+            "name": workflow_bridge.tool_name,
+            "content": serialize_stream_output(
+                safe_output, max_length=max_output_length
+            ),
+        }
+    ]
+    if workflow_id:
+        events.append(
+            _bridge_workflow_step_event(
+                workflow_bridge,
+                workflow_id,
+                _step_status_from_output(payload),
+            )
+        )
+    return events
+
+
+def _bridge_workflow_step_event(
+    workflow_bridge: WorkflowToolBridgeDefinition,
+    workflow_id: str,
+    status: str,
+) -> dict[str, Any]:
+    step_id = workflow_bridge.step_id or workflow_bridge.tool_name
+    label = workflow_bridge.step_label or workflow_bridge.tool_name
+    return workflow_step_event(workflow_id, step_id, label, status)
+
+
+def _step_status_from_output(output: Any) -> str:
+    """Heuristic: treat explicit error markers as failed, otherwise done."""
+    if not isinstance(output, dict):
+        return STEP_DONE
+
+    status = str(output.get("status") or "").strip().lower()
+    if status in {"error", "failed", "failure"}:
+        return STEP_FAILED
+    if output.get("success") is False:
+        return STEP_FAILED
+    if output.get("error"):
+        return STEP_FAILED
+    return STEP_DONE
 
 
 def serialize_stream_output(value: Any, *, max_length: int = 4000) -> str:
