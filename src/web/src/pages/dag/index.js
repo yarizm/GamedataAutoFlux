@@ -30,6 +30,25 @@ let selection = { kind: null };
 let themeListener = null;
 let languageListener = null;
 
+const LAST_DAG_KEY = 'gamedata-autoflux.dag.active';
+
+function rememberActiveDag(name) {
+  try {
+    if (name) localStorage.setItem(LAST_DAG_KEY, name);
+    else localStorage.removeItem(LAST_DAG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readRememberedDag() {
+  try {
+    return localStorage.getItem(LAST_DAG_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 function getEditor() {
   return editorState;
 }
@@ -115,10 +134,12 @@ function syncFromCanvas() {
   }
 }
 
-function loadPayload(name, payload) {
+function loadPayload(name, payload, options = {}) {
+  const { quiet = false } = options;
   editorState = apiToEditor(payload);
   editorState.name = name || editorState.name;
   activeName = name || editorState.name;
+  rememberActiveDag(activeName);
   nodeCounter = {};
   for (const n of editorState.nodes) {
     nodeCounter[n.type] = (nodeCounter[n.type] || 0) + 1;
@@ -129,7 +150,9 @@ function loadPayload(name, payload) {
   refreshInspector();
   showValidateBar(null);
   savedListApi?.refresh();
-  toast(t('dag.loadedToast', { name: editorState.name }), 'success');
+  if (!quiet) {
+    toast(t('dag.loadedToast', { name: editorState.name }), 'success');
+  }
 }
 
 function clearGraph() {
@@ -140,6 +163,7 @@ function clearGraph() {
     ui: { zoom: 1, pan: { x: 0, y: 0 } },
   };
   activeName = '';
+  rememberActiveDag('');
   nodeCounter = {};
   setNameInput('');
   selection = { kind: null };
@@ -215,11 +239,21 @@ async function saveGraph() {
     }
   }
 
+  // Sync twice: positions first, then edges/zoom after layout settles
+  syncFromCanvas();
   const payload = editorToApi(editorState);
   try {
-    await api('/dags', { method: 'POST', body: JSON.stringify(payload) });
+    const resp = await api('/dags', { method: 'POST', body: JSON.stringify(payload) });
     activeName = name;
+    rememberActiveDag(name);
     invalidatePipelineCache();
+    // Prefer server echo so ui coords match what was persisted
+    const savedPayload = resp?.config && typeof resp.config === 'object'
+      ? resp.config
+      : await api(`/dags/${encodeURIComponent(name)}`).catch(() => payload);
+    editorState = apiToEditor(savedPayload);
+    editorState.name = name;
+    canvasApi?.loadEditor(editorState);
     toast(t('dag.savedToast', { name }), 'success');
     await savedListApi?.refresh();
   } catch (e) {
@@ -340,6 +374,14 @@ export default {
       onLoad: (name, payload) => loadPayload(name, payload),
       onDelete: (name) => deleteSaved(name),
     });
+
+    // Restore last opened graph after list fetch (page reload / service restart UX)
+    Promise.resolve(savedListApi.refresh?.()).then((saved) => {
+      const last = readRememberedDag();
+      if (!last || !saved?.[last]) return;
+      if (editorState.nodes.length > 0) return;
+      loadPayload(last, saved[last], { quiet: true });
+    }).catch(() => { /* ignore restore errors */ });
 
     bindToolbar(container);
     applyDagTheme();

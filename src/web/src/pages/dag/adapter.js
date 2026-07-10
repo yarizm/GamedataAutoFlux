@@ -7,6 +7,16 @@ export const TYPE_COLORS = {
   composite: 'violet',
 };
 
+/** Coerce layout coords (API may return number or numeric string). */
+export function layoutNum(value, fallback = 0) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = parseFloat(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
 export function defaultPortsForType(type) {
   if (type === 'storage') {
     return {
@@ -55,11 +65,16 @@ export function apiToEditor(payload) {
         name: p.name,
         required: p.required !== false,
       })),
-      x: typeof ui.x === 'number' ? ui.x : 60 + (i % 4) * 200,
-      y: typeof ui.y === 'number' ? ui.y : 40 + Math.floor(i / 4) * 120,
-      label: ui.label || '',
+      x: layoutNum(ui.x, Number.NaN),
+      y: layoutNum(ui.y, Number.NaN),
+      label: typeof ui.label === 'string' ? ui.label : '',
     };
-  });
+  }).map((n, i) => ({
+    ...n,
+    // Missing/invalid ui coords → stable grid (not 0,0 pile-up)
+    x: Number.isFinite(n.x) ? n.x : 60 + (i % 4) * 200,
+    y: Number.isFinite(n.y) ? n.y : 40 + Math.floor(i / 4) * 120,
+  }));
   const edges = (payload?.edges || []).map((e) => ({
     from: e.from,
     out: e.out || e.from_port || 'records',
@@ -67,11 +82,20 @@ export function apiToEditor(payload) {
     in: e.in || e.to_port || 'records',
     condition: e.condition || null,
   }));
+  const graphUi = payload?.ui && typeof payload.ui === 'object' ? payload.ui : {};
+  const pan = graphUi.pan && typeof graphUi.pan === 'object' ? graphUi.pan : {};
   return {
     name: payload?.name || '',
     nodes,
     edges,
-    ui: { zoom: 1, pan: { x: 0, y: 0 }, ...(payload?.ui || {}) },
+    ui: {
+      ...graphUi,
+      zoom: layoutNum(graphUi.zoom, 1) || 1,
+      pan: {
+        x: layoutNum(pan.x, 0),
+        y: layoutNum(pan.y, 0),
+      },
+    },
   };
 }
 
@@ -80,6 +104,8 @@ export function apiToEditor(payload) {
  * @param {{ name: string, nodes: object[], edges: object[], ui?: object }} editor
  */
 export function editorToApi(editor) {
+  const graphUi = editor.ui && typeof editor.ui === 'object' ? editor.ui : {};
+  const pan = graphUi.pan && typeof graphUi.pan === 'object' ? graphUi.pan : {};
   return {
     name: (editor.name || '').trim(),
     nodes: (editor.nodes || []).map((n) => ({
@@ -97,8 +123,8 @@ export function editorToApi(editor) {
       })),
       is_param_port: [],
       ui: {
-        x: Number(n.x) || 0,
-        y: Number(n.y) || 0,
+        x: layoutNum(n.x, 0),
+        y: layoutNum(n.y, 0),
         ...(n.label ? { label: n.label } : {}),
       },
     })),
@@ -110,6 +136,13 @@ export function editorToApi(editor) {
       condition: e.condition || null,
     })),
     conditions: [],
-    ui: editor.ui || {},
+    ui: {
+      ...graphUi,
+      zoom: layoutNum(graphUi.zoom, 1) || 1,
+      pan: {
+        x: layoutNum(pan.x, 0),
+        y: layoutNum(pan.y, 0),
+      },
+    },
   };
 }

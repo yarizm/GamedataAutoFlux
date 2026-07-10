@@ -362,12 +362,14 @@ export function createCanvas(el, handlers = {}) {
         const hasIn = inputsCount(n);
         const hasOut = outputsCount(n);
         const cls = `dag-type-${n.type || 'composite'}`;
+        const x = Number.isFinite(Number(n.x)) ? Number(n.x) : 0;
+        const y = Number.isFinite(Number(n.y)) ? Number(n.y) : 0;
         const dfId = editor.addNode(
           n.id,
           hasIn,
           hasOut,
-          Number(n.x) || 0,
-          Number(n.y) || 0,
+          x,
+          y,
           cls,
           {
             bizId: n.id,
@@ -389,24 +391,55 @@ export function createCanvas(el, handlers = {}) {
         editor.addConnection(fromDf, toDf, 'output_1', 'input_1');
       }
 
+      // Re-apply left/top from editor state (Drawflow + parent-node CSS can drift)
+      reapplyNodeLayout(nodes);
+
       // restore zoom + pan if present
-      const z = editorState?.ui?.zoom;
-      const pan = editorState?.ui?.pan;
-      if (typeof z === 'number' && z > 0) {
+      const z = Number(editorState?.ui?.zoom);
+      const pan = editorState?.ui?.pan || {};
+      if (Number.isFinite(z) && z > 0) {
         editor.zoom = z;
         editor.zoom_last_value = z;
       }
-      if (pan && typeof pan.x === 'number' && typeof pan.y === 'number') {
-        editor.canvas_x = pan.x;
-        editor.canvas_y = pan.y;
+      const panX = Number(pan.x);
+      const panY = Number(pan.y);
+      if (Number.isFinite(panX) && Number.isFinite(panY)) {
+        editor.canvas_x = panX;
+        editor.canvas_y = panY;
       }
-      editor.precanvas.style.transform =
-        `translate(${editor.canvas_x || 0}px, ${editor.canvas_y || 0}px) scale(${editor.zoom})`;
+      applyCanvasTransform();
 
-      // allow DOM to settle then style condition edges
-      requestAnimationFrame(() => applyConditionStyles());
+      // allow DOM to settle then style condition edges + layout once more
+      requestAnimationFrame(() => {
+        reapplyNodeLayout(nodes);
+        applyConditionStyles();
+      });
     } finally {
       suppressEvents = false;
+    }
+  }
+
+  function reapplyNodeLayout(nodes) {
+    for (const n of nodes || []) {
+      const dfId = mapBizId(n.id);
+      if (dfId == null) continue;
+      const x = Number(n.x);
+      const y = Number(n.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const nodeEl = el.querySelector(`#node-${dfId}`);
+      if (!nodeEl) continue;
+      nodeEl.style.left = `${x}px`;
+      nodeEl.style.top = `${y}px`;
+      try {
+        const home = editor.drawflow?.drawflow?.[editor.module]?.data;
+        if (home?.[dfId]) {
+          home[dfId].pos_x = x;
+          home[dfId].pos_y = y;
+        }
+        editor.updateConnectionNodes(`node-${dfId}`);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
