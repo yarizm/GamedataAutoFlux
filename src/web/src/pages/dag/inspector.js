@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 import {
   AUTO_UPSTREAM_FIELDS,
   getCachedCollectorMeta,
@@ -8,13 +9,15 @@ import {
   upstreamOutputFields,
 } from './schemas.js';
 
-const CONDITION_OPTIONS = [
-  { value: '', label: '无（始终）' },
-  { value: 'on_success', label: 'on_success' },
-  { value: 'on_failure', label: 'on_failure' },
-  { value: 'on_nonempty', label: 'on_nonempty' },
-  { value: 'on_empty', label: 'on_empty' },
-];
+function conditionOptions() {
+  return [
+    { value: '', label: t('dag.conditionNone') },
+    { value: 'on_success', label: 'on_success' },
+    { value: 'on_failure', label: 'on_failure' },
+    { value: 'on_nonempty', label: 'on_nonempty' },
+    { value: 'on_empty', label: 'on_empty' },
+  ];
+}
 
 /**
  * @param {HTMLElement} el
@@ -33,45 +36,47 @@ export function mountInspector(el, opts = {}) {
 
   function helpHtml() {
     return `
-      <h2 class="text-zinc-100 font-bold tracking-tight text-sm uppercase mb-3">属性</h2>
-      <p class="text-zinc-500 text-xs leading-relaxed">选中节点或边以编辑属性。</p>
-      <ul class="text-zinc-600 text-[11px] mt-3 space-y-1.5 list-disc list-inside">
-        <li><b>平移画布</b>：空白处拖拽 / 中键拖拽 / 按住空格再拖</li>
-        <li><b>缩放</b>：滚轮；工具栏「适应画布」</li>
-        <li>从输出端口拖到输入端口连线</li>
-        <li>collector 串联后可在属性里选择上游字段作入参（类似 Dify）</li>
+      <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(t('dag.properties'))}</h2>
+      <p class="text-muted text-xs leading-relaxed">${escapeHtml(t('dag.selectHint'))}</p>
+      <ul class="text-muted text-[11px] mt-3 space-y-1.5 list-disc list-inside">
+        <li>${escapeHtml(t('dag.help.pan'))}</li>
+        <li>${escapeHtml(t('dag.help.zoom'))}</li>
+        <li>${escapeHtml(t('dag.help.connect'))}</li>
+        <li>${escapeHtml(t('dag.help.upstream'))}</li>
       </ul>
     `;
   }
 
   function renderInputsBlock(node) {
     if (node.type !== 'collector') {
+      const outLabel = node.type === 'storage' ? t('dag.portsNone') : 'records';
       return `
         <div class="insp-field">
-          <label>端口</label>
-          <div class="insp-ro text-[11px]">输入 records · 输出 ${node.type === 'storage' ? '（无）' : 'records'}</div>
+          <label>${escapeHtml(t('dag.ports'))}</label>
+          <div class="insp-ro text-[11px]">${escapeHtml(t('dag.portsIO', { out: outLabel }))}</div>
         </div>`;
     }
     const meta = getCachedCollectorMeta(node.component);
     const inputs = inputParamsFromMetadata(meta, node.component);
     const outs = outputFieldsForComponent(node.component);
+    // param keys (code) stay English; only chrome labels are translated
     const inHtml = inputs.length
       ? inputs.map((p) =>
-        `<li><code>${escapeHtml(p.key)}</code>${p.required ? ' <span class="text-amber-400">*</span>' : ''} <span class="text-zinc-600">${escapeHtml(p.label || '')}</span></li>`,
+        `<li><code>${escapeHtml(p.key)}</code>${p.required ? ' <span style="color:var(--warning)">*</span>' : ''} <span class="text-muted">${escapeHtml(p.label || '')}</span></li>`,
       ).join('')
-      : '<li class="text-zinc-600">（无声明，任务 targets 直传）</li>';
+      : `<li class="text-muted">${escapeHtml(t('dag.noDeclaredInputs'))}</li>`;
     const outHtml = outs.map((p) =>
-      `<li><code>${escapeHtml(p.key)}</code> <span class="text-zinc-600">${escapeHtml(p.label || '')}</span></li>`,
+      `<li><code>${escapeHtml(p.key)}</code> <span class="text-muted">${escapeHtml(p.label || '')}</span></li>`,
     ).join('');
     return `
       <div class="insp-field">
-        <label>期望入参（任务 targets / 上游映射）</label>
+        <label>${escapeHtml(t('dag.expectedInputs'))}</label>
         <ul class="insp-param-list">${inHtml}</ul>
       </div>
       <div class="insp-field">
-        <label>已知输出字段</label>
+        <label>${escapeHtml(t('dag.knownOutputs'))}</label>
         <ul class="insp-param-list">${outHtml}</ul>
-        <p class="text-zinc-600 text-[10px] mt-1">下游 from_upstream 可勾选这些字段</p>
+        <p class="text-muted text-[10px] mt-1">${escapeHtml(t('dag.downstreamHint'))}</p>
       </div>
     `;
   }
@@ -95,18 +100,15 @@ export function mountInspector(el, opts = {}) {
       : ['channel_url', 'channel_id', 'video_url', 'app_id'];
 
     const upFields = upstreamOutputFields(ed, node.id);
-    const upOptions = upFields.map((f) =>
-      `<option value="${escapeHtml(f.key)}">${escapeHtml(f.key)}${f.fromComponent ? ` ← ${escapeHtml(f.fromComponent)}` : ''}</option>`,
-    ).join('');
 
     const mapRows = targetKeys.map((tk) => {
       const cur = mapObj[tk] || '';
       return `
         <div class="insp-map-row">
           <span class="insp-map-target font-mono text-[11px]">${escapeHtml(tk)}</span>
-          <span class="text-zinc-600 text-[10px]">←</span>
+          <span class="text-muted text-[10px]">←</span>
           <select data-map-target="${escapeHtml(tk)}" class="insp-map-src" ${!hasUp || autoMode ? 'disabled' : ''}>
-            <option value="">（不映射）</option>
+            <option value="">${escapeHtml(t('dag.noMap'))}</option>
             ${upFields.map((f) =>
               `<option value="${escapeHtml(f.key)}" ${f.key === cur ? 'selected' : ''}>${escapeHtml(f.key)}</option>`,
             ).join('')}
@@ -116,40 +118,40 @@ export function mountInspector(el, opts = {}) {
 
     const autoChecks = AUTO_UPSTREAM_FIELDS.map((k) => {
       const known = upFields.some((f) => f.key === k);
-      return `<label class="insp-chip ${known ? 'is-known' : ''}" title="${known ? '上游可能输出' : '通用字段'}">
+      return `<label class="insp-chip ${known ? 'is-known' : ''}" title="${escapeHtml(known ? t('dag.upstreamKnown') : t('dag.fieldCommon'))}">
         <code>${escapeHtml(k)}</code>
       </label>`;
     }).join('');
 
     return `
       <div class="insp-field">
-        <label>上游字段映射（类似 Dify 变量）</label>
-        <label class="flex items-center gap-2 text-xs text-zinc-300 normal-case tracking-normal mb-2">
+        <label>${escapeHtml(t('dag.upstreamMap'))}</label>
+        <label class="flex items-center gap-2 text-xs normal-case tracking-normal mb-2" style="color:var(--text-secondary)">
           <input id="insp-upstream" type="checkbox" ${hasUp ? 'checked' : ''} />
-          启用 from_upstream（用上游 records 生成 targets）
+          ${escapeHtml(t('dag.enableUpstream'))}
         </label>
         <div id="insp-upstream-body" class="${hasUp ? '' : 'hidden'}">
-          <div class="flex gap-3 mb-2 text-xs text-zinc-300 normal-case tracking-normal">
+          <div class="flex gap-3 mb-2 text-xs normal-case tracking-normal" style="color:var(--text-secondary)">
             <label class="flex items-center gap-1.5">
               <input type="radio" name="insp-up-mode" value="auto" ${autoMode || !hasUp ? 'checked' : ''} />
-              自动（推荐）
+              ${escapeHtml(t('dag.modeAuto'))}
             </label>
             <label class="flex items-center gap-1.5">
               <input type="radio" name="insp-up-mode" value="map" ${hasUp && !autoMode ? 'checked' : ''} />
-              手动映射
+              ${escapeHtml(t('dag.modeMap'))}
             </label>
           </div>
           <div id="insp-auto-hint" class="${autoMode ? '' : 'hidden'}">
-            <p class="text-zinc-600 text-[10px] mb-1">自动抽取上游 data 中这些字段（有则映射）：</p>
+            <p class="text-muted text-[10px] mb-1">${escapeHtml(t('dag.autoHint'))}</p>
             <div class="insp-chip-row">${autoChecks}</div>
           </div>
           <div id="insp-map-panel" class="${!autoMode && hasUp ? '' : 'hidden'}">
-            <p class="text-zinc-600 text-[10px] mb-1">目标入参 ← 上游输出字段</p>
-            ${mapRows || '<p class="text-zinc-600 text-[10px]">无可用目标字段</p>'}
-            <p class="text-zinc-600 text-[10px] mt-2">上游可选字段：</p>
-            <div class="insp-chip-row">${upOptions
+            <p class="text-muted text-[10px] mb-1">${escapeHtml(t('dag.mapHint'))}</p>
+            ${mapRows || `<p class="text-muted text-[10px]">${escapeHtml(t('dag.noTargetFields'))}</p>`}
+            <p class="text-muted text-[10px] mt-2">${escapeHtml(t('dag.upstreamFields'))}</p>
+            <div class="insp-chip-row">${upFields.length
               ? upFields.map((f) => `<span class="insp-chip is-known"><code>${escapeHtml(f.key)}</code></span>`).join('')
-              : '<span class="text-zinc-600 text-[10px]">先连接上游 collector</span>'}</div>
+              : `<span class="text-muted text-[10px]">${escapeHtml(t('dag.connectUpstream'))}</span>`}</div>
           </div>
         </div>
       </div>
@@ -174,7 +176,7 @@ export function mountInspector(el, opts = {}) {
 
       if (!hasUp) {
         if (node.config?.from_upstream) {
-          if (!window.confirm('关闭 from_upstream 后，将不再用上游结果生成 targets。确定？')) {
+          if (!window.confirm(t('dag.confirmDisableUpstream'))) {
             if (upstreamEl) upstreamEl.checked = true;
             body?.classList.remove('hidden');
             return;
@@ -226,23 +228,23 @@ export function mountInspector(el, opts = {}) {
     const configText = JSON.stringify(node.config || {}, null, 2);
 
     el.innerHTML = `
-      <h2 class="text-zinc-100 font-bold tracking-tight text-sm uppercase mb-3">节点</h2>
+      <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(t('dag.node'))}</h2>
       <div class="insp-field">
         <label>ID</label>
         <div class="insp-ro font-mono">${escapeHtml(node.id)}</div>
       </div>
       <div class="insp-field">
         <label>Type / Component</label>
-        <div class="insp-ro"><span class="font-mono text-zinc-400">[${escapeHtml(node.type)}]</span> ${escapeHtml(node.component)}</div>
+        <div class="insp-ro"><span class="font-mono" style="color:var(--text-muted)">[${escapeHtml(node.type)}]</span> ${escapeHtml(node.component)}</div>
       </div>
       <div class="insp-field">
-        <label for="insp-label">显示标签</label>
-        <input id="insp-label" type="text" value="${escapeHtml(node.label || '')}" placeholder="默认用 component" />
+        <label for="insp-label">${escapeHtml(t('dag.label'))}</label>
+        <input id="insp-label" type="text" value="${escapeHtml(node.label || '')}" placeholder="${escapeHtml(t('dag.labelPlaceholder'))}" />
       </div>
       ${renderInputsBlock(node)}
       ${renderUpstreamMapper(node)}
       <div class="insp-field">
-        <label for="insp-config">Config (JSON 高级)</label>
+        <label for="insp-config">${escapeHtml(t('dag.configJson'))}</label>
         <textarea id="insp-config" spellcheck="false">${escapeHtml(configText)}</textarea>
         <div id="insp-config-err" class="insp-error hidden"></div>
       </div>
@@ -266,14 +268,14 @@ export function mountInspector(el, opts = {}) {
       try {
         const parsed = JSON.parse(configEl.value || '{}');
         if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          throw new Error('config 必须是 JSON 对象');
+          throw new Error(t('dag.configMustObject'));
         }
         errEl?.classList.add('hidden');
         if (errEl) errEl.textContent = '';
         opts.onUpdateNode?.(node.id, { config: parsed });
       } catch (e) {
         if (errEl) {
-          errEl.textContent = e.message || 'JSON 解析失败';
+          errEl.textContent = e.message || t('dag.jsonParseFail');
           errEl.classList.remove('hidden');
         }
       }
@@ -282,13 +284,13 @@ export function mountInspector(el, opts = {}) {
 
   function renderEdge(edge) {
     const cond = edge.condition || '';
-    const optsHtml = CONDITION_OPTIONS.map(
-      (o) => `<option value="${o.value}" ${o.value === cond ? 'selected' : ''}>${o.label}</option>`,
+    const optsHtml = conditionOptions().map(
+      (o) => `<option value="${o.value}" ${o.value === cond ? 'selected' : ''}>${escapeHtml(o.label)}</option>`,
     ).join('');
     el.innerHTML = `
-      <h2 class="text-zinc-100 font-bold tracking-tight text-sm uppercase mb-3">边</h2>
+      <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(t('dag.edge'))}</h2>
       <div class="insp-field">
-        <label>连接</label>
+        <label>${escapeHtml(t('dag.connection'))}</label>
         <div class="insp-ro font-mono text-[11px]">
           ${escapeHtml(edge.from)}.${escapeHtml(edge.out || 'records')}
           →
@@ -296,10 +298,10 @@ export function mountInspector(el, opts = {}) {
         </div>
       </div>
       <div class="insp-field">
-        <label for="insp-condition">条件 (condition)</label>
+        <label for="insp-condition">${escapeHtml(t('dag.condition'))}</label>
         <select id="insp-condition">${optsHtml}</select>
       </div>
-      <p class="text-zinc-600 text-[10px]">非空条件边在画布上显示为虚线。数据字段映射请在目标节点的「上游字段映射」中配置。</p>
+      <p class="text-muted text-[10px]">${escapeHtml(t('dag.edgeConditionHint'))}</p>
     `;
     el.querySelector('#insp-condition')?.addEventListener('change', (ev) => {
       const value = ev.target.value || null;

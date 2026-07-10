@@ -1,18 +1,18 @@
 <section class="tab-content" id="tab-cron">
             <div class="section-header">
-                <h1>定时任务调度</h1>
+                <h1 data-i18n="cron.title">定时任务</h1>
                 <button class="btn btn-primary" onclick="showCreateCronModal()" id="btn-create-cron">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    添加定时任务
+                    <span data-i18n="cron.create">+ 添加定时任务</span>
                 </button>
             </div>
 
-            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 overflow-hidden rounded-2xl">
+            <div class="card border-theme-subtle shadow-2xl p-0 overflow-hidden rounded-2xl">
                 <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">任务队列状态</h2>
+                    <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="cron.queueStatus">任务队列状态</h2>
                 </div>
                 <div class="card-body px-6 pb-6" id="cron-list">
-                    <p class="text-zinc-600 text-sm">暂无定时任务</p>
+                    <p class="text-zinc-600 text-sm" data-i18n="cron.empty">暂无定时任务</p>
                 </div>
             </div>
         </section>

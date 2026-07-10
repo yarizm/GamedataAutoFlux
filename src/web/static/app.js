@@ -434,12 +434,16 @@ function renderDataGames(games) {
     container.innerHTML = games.map((game) => {
         const activeClass = selectedDataGame?.game_key === game.game_key ? "active" : "";
         const sourceText = (game.sources || []).map((source) => `${source.name} ${source.count}`).join(" / ");
+        const metaText = `App ID: ${game.app_id || "-"} · Group: ${game.group_name || "-"} · ${game.total_records} records`;
+        const sources = sourceText || "No source";
         return `
             <div class="data-game-item ${activeClass}" role="button" tabindex="0" onclick="selectDataGame('${escapeJs(game.game_key)}')" onkeydown="handleDataGameKeydown(event, '${escapeJs(game.game_key)}')">
-                <button class="data-game-delete" type="button" title="Delete category" onclick="deleteDataGame(event, '${escapeJs(game.game_key)}')">Delete</button>
-                <span class="data-game-name">${escapeHtml(game.game_name)}</span>
-                <span class="data-game-meta">App ID: ${escapeHtml(game.app_id || "-")} | Group: ${escapeHtml(game.group_name || "-")} | ${game.total_records} records</span>
-                <span class="data-game-sources">${escapeHtml(sourceText || "No source")}</span>
+                <div class="data-game-body">
+                    <div class="data-game-name" title="${escapeHtml(game.game_name)}">${escapeHtml(game.game_name)}</div>
+                    <div class="data-game-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+                    <div class="data-game-sources" title="${escapeHtml(sources)}">${escapeHtml(sources)}</div>
+                </div>
+                <button class="data-game-delete" type="button" title="Delete" aria-label="Delete" onclick="deleteDataGame(event, '${escapeJs(game.game_key)}')">×</button>
             </div>
         `;
     }).join("");

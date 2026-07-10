@@ -1,6 +1,6 @@
 <section class="tab-content" id="tab-reports">
             <div class="section-header">
-                <h1 class="text-3xl font-black tracking-tighter text-white">报告生成</h1>
+                <h1 class="text-3xl font-black tracking-tighter text-theme-primary">报告生成</h1>
                 <button class="btn btn-primary" onclick="generateReport()" id="btn-generate-report">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     开始分析
@@ -9,9 +9,9 @@
 
             <div class="reports-layout grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
                 <div class="flex flex-col gap-6">
-                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card border-theme-subtle shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
                         <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
-                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">分析参数配置</h2>
+                            <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase">分析参数配置</h2>
                         </div>
                         <div class="card-body px-6 pb-6">
                             <div class="form-group">
@@ -83,9 +83,9 @@
                         </div>
                     </div>
 
-                    <div class="card bg-zinc-900 border-white/5 shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                    <div class="card border-theme-subtle shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
                         <div class="card-header pb-3 border-b border-white/10 px-6 pt-6 mb-4">
-                            <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">报告历史记录</h2>
+                            <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase">报告历史记录</h2>
                         </div>
                         <div class="card-body px-6 pb-6" id="reports-list">
                             <p class="text-zinc-600 text-sm">暂无历史记录</p>
@@ -95,12 +95,12 @@
 
                 <div class="h-full flex flex-col min-h-[800px]">
                     <div class="flex items-center justify-between mb-4 px-2">
-                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase flex items-center gap-2">
+                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase flex items-center gap-2">
                             <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
                             输出控制台
                         </h2>
                     </div>
-                    <div class="flex-1 bg-zinc-950 border border-white/5 rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
+                    <div class="flex-1 bg-theme-elevated border border-theme-subtle rounded-2xl shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] p-8 overflow-y-auto relative">
                         <pre class="report-output bg-transparent border-none p-0 shadow-none m-0 w-full h-full text-zinc-300 whitespace-pre-wrap font-sans text-[15px] leading-relaxed" id="report-content"><span class="text-zinc-600 font-mono text-sm">Waiting for analysis initialization...</span></pre>
                     </div>
                 </div>

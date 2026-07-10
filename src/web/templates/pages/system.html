@@ -31,59 +31,59 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
-                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">诊断项目检查</h2>
+                <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                    <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4">
+                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.checks">诊断项目</h2>
                     </div>
                     <div class="card-body px-6 pb-6" id="system-checks-list">
-                        <p class="text-zinc-600 text-sm px-2">尚未加载诊断结果</p>
+                        <p class="text-muted text-sm px-2" data-i18n="system.notLoaded.checks">尚未加载诊断结果</p>
                     </div>
                 </div>
 
-                <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
-                    <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">系统路径清单</h2>
+                <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mb-0 overflow-hidden">
+                    <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4">
+                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.paths">运行路径</h2>
                     </div>
                     <div class="card-body px-6 pb-6" id="system-paths-list">
-                        <p class="text-zinc-600 text-sm px-2">尚未加载路径信息</p>
+                        <p class="text-muted text-sm px-2" data-i18n="system.notLoaded.paths">尚未加载路径信息</p>
                     </div>
                 </div>
             </div>
 
-            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
-                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between gap-4">
-                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Worker 状态</h2>
-                    <button class="btn btn-ghost btn-sm" onclick="window._reconcileStaleWorkerTasks()">清理失联任务</button>
+            <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4 flex items-center justify-between gap-4">
+                    <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.workers">Worker 状态</h2>
+                    <button class="btn btn-ghost btn-sm" onclick="window._reconcileStaleWorkerTasks()" data-i18n="system.reconcileWorkers">清理失联任务</button>
                 </div>
                 <div class="card-body px-6 pb-6" id="system-workers-list">
-                    <p class="text-zinc-600 text-sm px-2">尚未加载 Worker 信息</p>
+                    <p class="text-muted text-sm px-2" data-i18n="system.notLoaded.workers">尚未加载 Worker 信息</p>
                 </div>
             </div>
 
-            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
-                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between gap-4">
-                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Deep Probes</h2>
-                    <span class="text-[10px] text-zinc-500 uppercase tracking-widest">opt-in network / API</span>
+            <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4 flex items-center justify-between gap-4">
+                    <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.probes">深度检查</h2>
+                    <span class="text-[10px] text-muted uppercase tracking-widest" data-i18n="system.probes.hint">可选网络 / API</span>
                 </div>
                 <div class="card-body px-6 pb-6" id="system-probes-list">
-                    <p class="text-zinc-600 text-sm px-2">尚未运行深度检查。点击「深度检查」探测 API / 网络 / Session 资产。</p>
+                    <p class="text-muted text-sm px-2" data-i18n="system.notLoaded.probes">尚未运行深度检查。点击「深度检查」探测 API / 网络 / Session 资产。</p>
                 </div>
             </div>
 
-            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
-                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Session Diagnostics</h2>
+            <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4">
+                    <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.sessions">Session 诊断</h2>
                 </div>
                 <div class="card-body px-6 pb-6" id="system-session-list">
-                    <p class="text-zinc-600 text-sm px-2">尚未加载 Session 信息</p>
+                    <p class="text-muted text-sm px-2" data-i18n="system.notLoaded.sessions">尚未加载 Session 信息</p>
                 </div>
             </div>
-            <div class="card bg-zinc-900 border-white/5 shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
-                <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                    <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">Session Inventory</h2>
+            <div class="card border-theme-subtle shadow-2xl p-0 rounded-2xl mt-6 mb-0 overflow-hidden">
+                <div class="card-header pb-3 border-b border-theme-subtle px-6 pt-6 mb-4">
+                    <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="system.inventory">Session 清单</h2>
                 </div>
                 <div class="card-body px-6 pb-6" id="system-session-inventory-list">
-                    <p class="text-zinc-600 text-sm px-2">No persisted session inventory available.</p>
+                    <p class="text-muted text-sm px-2" data-i18n="system.empty.inventory">暂无持久化 Session 清单</p>
                 </div>
             </div>
         </section>

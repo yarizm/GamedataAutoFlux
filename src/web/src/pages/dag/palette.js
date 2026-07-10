@@ -1,4 +1,5 @@
 import { api, toast, escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 import { TYPE_COLORS } from './adapter.js';
 
 /**
@@ -23,14 +24,15 @@ export function mountPalette(el, opts = {}) {
         }
       }
       if (!items.length) {
-        el.innerHTML = '<p class="text-zinc-600 text-xs">无可用组件</p>';
+        el.innerHTML = `<p class="text-muted text-xs">${escapeHtml(t('dag.empty.components'))}</p>`;
         return;
       }
       el.innerHTML = items.map((it) => {
         const color = TYPE_COLORS[it.type] || 'zinc';
+        // type + component names stay English (L3 technical ids)
         return `<button type="button" class="dag-palette-item" data-add-type="${escapeHtml(it.type)}" data-add-name="${escapeHtml(it.name)}">
           <span class="font-mono text-${color}-400">[${escapeHtml(it.type)}]</span>
-          <span class="text-zinc-200 ml-1">${escapeHtml(it.name)}</span>
+          <span class="ml-1">${escapeHtml(it.name)}</span>
         </button>`;
       }).join('');
       el.querySelectorAll('[data-add-type]').forEach((btn) => {
@@ -39,8 +41,8 @@ export function mountPalette(el, opts = {}) {
         });
       });
     } catch (e) {
-      el.innerHTML = `<p class="text-rose-400 text-xs">加载失败: ${escapeHtml(e.message || String(e))}</p>`;
-      toast('加载节点库失败', 'error');
+      el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: e.message || String(e) }))}</p>`;
+      toast(t('dag.paletteLoadFail'), 'error');
     }
   }
 

@@ -2,8 +2,13 @@ import CodeMirror from 'codemirror';
 import 'codemirror/mode/javascript/javascript.js';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/theme/dracula.css';
+import 'codemirror/theme/eclipse.css'; // light
 
 let editorsInitialized = false;
+
+function cmThemeName() {
+  return document.documentElement.dataset.theme === 'light' ? 'eclipse' : 'dracula';
+}
 
 function createJsonEditor(textareaId, options = {}) {
   const textarea = document.getElementById(textareaId);
@@ -13,13 +18,20 @@ function createJsonEditor(textareaId, options = {}) {
 
   const editor = CodeMirror.fromTextArea(textarea, {
     mode: { name: 'javascript', json: true },
-    theme: 'dracula',
+    theme: cmThemeName(),
     lineNumbers: true,
     lineWrapping: true,
     tabSize: 2,
     ...options,
   });
   return editor;
+}
+
+export function applyEditorsTheme() {
+  const name = cmThemeName();
+  [window.taskTargetsEditor, window.pipelineStepsEditor].forEach((ed) => {
+    if (ed) ed.setOption('theme', name);
+  });
 }
 
 export function initEditors() {
@@ -43,4 +55,8 @@ export function refreshEditorForModal(id) {
   if (id === 'modal-create-pipeline' && window.pipelineStepsEditor) {
     window.pipelineStepsEditor.refresh();
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('themechange', applyEditorsTheme);
 }

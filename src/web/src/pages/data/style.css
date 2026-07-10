@@ -1,0 +1,140 @@
+/* Data browser — game list layout (unlayered, high specificity, no absolute delete) */
+
+#data-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 60vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  min-width: 0;
+}
+
+.data-game-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.75rem;
+  column-gap: 0.35rem;
+  align-items: start;
+  padding: 0.65rem 0.5rem 0.65rem 0.75rem;
+  margin: 0;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.data-game-item:hover {
+  background-color: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.data-game-item.active {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 14%, transparent),
+    transparent
+  );
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.data-game-body {
+  grid-column: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.data-game-name,
+.data-game-meta,
+.data-game-sources {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.data-game-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.data-game-meta,
+.data-game-sources {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Kill any legacy absolute/centered delete from /static/style.css */
+.data-game-item > .data-game-delete,
+button.data-game-delete {
+  grid-column: 2;
+  grid-row: 1;
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  translate: none !important;
+  inset: auto !important;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--danger) 55%, transparent);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.data-game-item:hover > .data-game-delete,
+.data-game-item:focus-within > .data-game-delete {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.data-game-item > .data-game-delete:hover {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+html[data-theme="light"] .data-game-item:hover {
+  background-color: var(--bg-muted, #f1f5f9);
+}
+
+html[data-theme="light"] .data-game-item.active {
+  background: linear-gradient(to right, var(--accent-soft, #eef2ff), transparent);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.data-preview {
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--bg-canvas) 30%, transparent);
+}

@@ -8,7 +8,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=10">
     {% if vite_dev %}
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/main.js"></script>
@@ -16,6 +15,7 @@
     {% if vite_css %}<link rel="stylesheet" href="/static/dist/{{ vite_css }}">{% endif %}
     <script type="module" src="/static/dist/{{ vite_js }}"></script>
     {% else %}
+    <link rel="stylesheet" href="/static/style.css?v=11">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
@@ -79,17 +79,17 @@
                         <input type="text" id="task-name" placeholder="例如：TapTap 每日检查">
                     </div>
                     <div class="form-group">
-                        <label for="task-data-group">Data group</label>
+                        <label for="task-data-group" data-i18n="prompt.dataGroup">数据分组</label>
                         <input type="text" id="task-data-group" placeholder="Example: delta-force-april">
                     </div>
                     <div class="form-group">
-                        <label for="task-pipeline">Pipeline</label>
+                        <label for="task-pipeline" data-i18n="cron.pipeline">流水线</label>
                         <select id="task-pipeline" onchange="updateTaskTargetFields()">
-                            <option value="">-- 选择 Pipeline --</option>
+                            <option value="" data-i18n="tasks.selectPipeline">-- 选择流水线 --</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="task-target-name">Target Name</label>
+                        <label for="task-target-name" data-i18n="tasks.targetName">目标名称</label>
                         <input type="text" id="task-target-name" placeholder="Counter-Strike 2 / Mobile Legends">
                     </div>
                 </div>
@@ -208,7 +208,7 @@
                         <input type="file" id="task-yt-profiles-txt" accept=".txt" onchange="importYouTubeTargets('youtube_profiles', 'youtube_channel')">
                         <small class="text-muted block mt-1">支持格式：/channel/UCxxx、/ @handle、/user/name。跳过 # 注释行和空行。</small>
                     </div>
-                    <div id="task-yt-profiles-preview" class="hidden mt-3 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                    <div id="task-yt-profiles-preview" class="hidden mt-3 rounded-lg bg-theme-elevated border border-theme-strong p-3 text-xs text-zinc-400"></div>
                 </div>
 
                 <div id="task-youtube-comments-fields" style="display: none;">
@@ -217,7 +217,7 @@
                         <input type="file" id="task-yt-comments-txt" accept=".txt" onchange="importYouTubeTargets('youtube_comments', 'youtube_video')">
                         <small class="text-muted block mt-1">支持格式：youtube.com/watch?v=、youtu.be/、/shorts/。跳过 # 注释行和空行。</small>
                     </div>
-                    <div id="task-yt-comments-preview" class="hidden mt-3 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                    <div id="task-yt-comments-preview" class="hidden mt-3 rounded-lg bg-theme-elevated border border-theme-strong p-3 text-xs text-zinc-400"></div>
                 </div>
 
                 </div>
@@ -262,33 +262,33 @@
     <div class="modal-overlay" id="modal-create-pipeline">
         <div class="modal">
             <div class="modal-header">
-                <h2>新建 Pipeline</h2>
+                <h2 data-i18n="pipelines.modal.create">创建流水线</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-pipeline')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="pipeline-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">预设模板 / TEMPLATE</label>
+                    <label for="pipeline-template" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2" data-i18n="pipelines.template">预设模板</label>
                     <select id="pipeline-template" class="bg-zinc-800 border-white/5 focus:border-violet-500/50" onchange="applyPipelineTemplate()">
-                        <option value="">-- 自定义空白流 --</option>
+                        <option value="" data-i18n="pipelines.custom">-- 自定义 --</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2">流标识符 / PIPELINE_NAME</label>
+                    <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2" data-i18n="pipelines.name">流水线名称</label>
                     <input type="text" id="pipeline-name" class="bg-zinc-800 border-white/5 focus:border-violet-500/50 font-mono text-sm" placeholder="例如：taptap_daily_flow">
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-collector" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-cyan-400">入口采集器 / SOURCE_COLLECTOR</label>
+                    <label for="pipeline-collector" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-cyan-400" data-i18n="pipelines.collector">采集器</label>
                     <select id="pipeline-collector" class="bg-zinc-800 border-white/5 focus:border-cyan-500/50 text-cyan-100"></select>
                 </div>
                 <div class="form-group">
-                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-violet-400">处理中间件 / PROCESSORS</label>
+                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-violet-400" data-i18n="pipelines.processors">处理中间件</label>
                     <div class="flex gap-6 mt-2">
                         <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-processor-cleaner" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">cleaner</span></label>
                         <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-processor-embedding" class="cyber-checkbox"> <span class="text-sm font-mono text-zinc-300">embedding</span></label>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-emerald-400">存储目的地 / STORAGES</label>
+                    <label class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 text-emerald-400" data-i18n="pipelines.storages">存储目的地</label>
                     <div class="flex gap-6 mt-2">
                         <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-sqlalchemy" class="cyber-checkbox" checked> <span class="text-sm font-mono text-zinc-300">sqlalchemy</span></label>
                         <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="pipeline-storage-vector" class="cyber-checkbox"> <span class="text-sm font-mono text-zinc-300">vector</span></label>
@@ -296,10 +296,10 @@
                 </div>
                 <div class="form-group mt-6">
                     <label for="pipeline-steps" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2 flex items-center justify-between">
-                        <span>高级 JSON 配置 / ADVANCED_STEPS</span>
-                        <span class="text-rose-400 text-[10px] font-normal lowercase tracking-normal">Danger Zone</span>
+                        <span data-i18n="pipelines.advancedSteps">高级 JSON 配置</span>
+                        <span class="text-rose-400 text-[10px] font-normal lowercase tracking-normal" data-i18n="pipelines.dangerZone">危险区域</span>
                     </label>
-                    <textarea id="pipeline-steps" rows="6" class="bg-zinc-950 border-white/10 focus:border-rose-500/50 font-mono text-xs shadow-[inset_0_0_15px_rgba(0,0,0,0.8)]" placeholder='[
+                    <textarea id="pipeline-steps" rows="6" class="bg-theme-elevated border-theme-strong focus:border-rose-500/50 font-mono text-xs" placeholder='[
   {"type": "collector", "name": "steam", "config": {}},
   {"type": "processor", "name": "cleaner", "config": {}},
   {"type": "storage", "name": "sqlalchemy", "config": {}}
@@ -307,8 +307,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-ghost" onclick="closeModal('modal-create-pipeline')">取消</button>
-                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline">部署 Pipeline</button>
+                <button class="btn btn-ghost" onclick="closeModal('modal-create-pipeline')" data-i18n="common.cancel">取消</button>
+                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline" data-i18n="pipelines.deploy">部署流水线</button>
             </div>
         </div>
     </div>
@@ -316,34 +316,34 @@
     <div class="modal-overlay" id="modal-create-cron">
         <div class="modal modal-wide">
             <div class="modal-header">
-                <h2 id="cron-modal-title">添加定时任务</h2>
+                <h2 id="cron-modal-title" data-i18n="cron.modal.create">添加定时任务</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-cron')">&times;</button>
             </div>
             <div class="modal-body space-y-4">
                 <input type="hidden" id="cron-edit-mode" value="create">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="form-group">
-                        <label for="cron-name">任务名称</label>
+                        <label for="cron-name" data-i18n="cron.name">任务名称</label>
                         <input type="text" id="cron-name" placeholder="例如：daily_taptap">
                     </div>
                     <div class="form-group">
-                        <label for="cron-pipeline">Pipeline</label>
+                        <label for="cron-pipeline" data-i18n="cron.pipeline">流水线</label>
                         <select id="cron-pipeline" onchange="window.updateCronTargetFields && window.updateCronTargetFields()">
-                            <option value="">-- 选择 Pipeline --</option>
+                            <option value="" data-i18n="tasks.selectPipeline">-- 选择流水线 --</option>
                         </select>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="cron-description">说明（可选）</label>
+                    <label for="cron-description" data-i18n="cron.description">说明（可选）</label>
                     <input type="text" id="cron-description" placeholder="例如：每天采集 TapTap 评论">
                 </div>
 
-                <div class="rounded-xl border border-white/5 bg-zinc-950/60 p-4">
+                <div class="rounded-xl border border-theme-subtle bg-theme-elevated p-4">
                     <div class="flex items-center justify-between gap-3 mb-3">
-                        <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">调度时间</div>
+                        <div class="text-sm font-bold text-theme-primary uppercase tracking-tight" data-i18n="cron.scheduleTime">调度时间</div>
                         <div class="flex gap-2 text-xs">
-                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn active" data-mode="preset" id="cron-mode-preset">可视化</button>
-                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn" data-mode="cron" id="cron-mode-cron">高级 Cron</button>
+                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn active" data-mode="preset" id="cron-mode-preset" data-i18n="cron.mode.preset">可视化</button>
+                            <button type="button" class="btn btn-ghost h-7 px-2 cron-mode-btn" data-mode="cron" id="cron-mode-cron" data-i18n="cron.mode.cron">高级 Cron</button>
                         </div>
                     </div>
 
@@ -417,16 +417,16 @@
                     <div id="cron-preview-box" class="mt-3 text-xs text-zinc-400 font-mono whitespace-pre-wrap min-h-[1.5rem]"></div>
                 </div>
 
-                <div class="rounded-xl border border-white/5 bg-zinc-950/60 p-4 space-y-3">
+                <div class="rounded-xl border border-theme-subtle bg-theme-elevated p-4 space-y-3">
                     <div class="flex items-center justify-between gap-3">
-                        <div class="text-sm font-bold text-zinc-100 uppercase tracking-tight">采集参数</div>
+                        <div class="text-sm font-bold text-theme-primary uppercase tracking-tight" data-i18n="cron.collectParams">采集参数</div>
                         <span id="cron-collector-badge" class="text-[10px] font-mono uppercase tracking-widest text-amber-400/80">采集器: —</span>
                     </div>
-                    <p class="text-xs text-zinc-500" id="cron-target-helper">请先选择 Pipeline，将显示对应采集参数。</p>
+                    <p class="text-xs text-zinc-500" id="cron-target-helper" data-i18n="cron.targetHelper">请先选择流水线，将显示对应采集参数。</p>
 
                     <div id="cron-target-common">
                         <div class="form-group">
-                            <label for="cron-target-name">目标名称</label>
+                            <label for="cron-target-name" data-i18n="tasks.targetName">目标名称</label>
                             <input type="text" id="cron-target-name" placeholder="Counter-Strike 2 / 游戏名 / 关键词">
                         </div>
                     </div>
@@ -542,7 +542,7 @@
                             <label for="cron-yt-profiles-txt">上传 TXT（每行一个频道链接）</label>
                             <input type="file" id="cron-yt-profiles-txt" accept=".txt" onchange="importYouTubeTargets('youtube_profiles', 'youtube_channel', 'cron')">
                         </div>
-                        <div id="cron-yt-profiles-preview" class="hidden mt-2 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                        <div id="cron-yt-profiles-preview" class="hidden mt-2 rounded-lg bg-theme-elevated border border-theme-strong p-3 text-xs text-zinc-400"></div>
                     </div>
 
                     <div id="cron-youtube-comments-fields" style="display:none">
@@ -550,7 +550,7 @@
                             <label for="cron-yt-comments-txt">上传 TXT（每行一个视频链接）</label>
                             <input type="file" id="cron-yt-comments-txt" accept=".txt" onchange="importYouTubeTargets('youtube_comments', 'youtube_video', 'cron')">
                         </div>
-                        <div id="cron-yt-comments-preview" class="hidden mt-2 rounded-lg bg-zinc-950 border border-white/10 p-3 text-xs text-zinc-400"></div>
+                        <div id="cron-yt-comments-preview" class="hidden mt-2 rounded-lg bg-theme-elevated border border-theme-strong p-3 text-xs text-zinc-400"></div>
                     </div>
 
                     <details class="rounded-lg border border-white/5 bg-zinc-900/50 p-3">
@@ -673,7 +673,7 @@
                 <div id="tmpl-tab-upload" style="display:none">
                     <div class="bg-zinc-800/50 rounded-xl p-4 mb-5 border border-white/5">
                         <h4 class="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-3">YAML 格式参考</h4>
-                        <pre class="text-xs text-zinc-300 font-mono bg-zinc-950 p-3 rounded-lg overflow-x-auto leading-relaxed border border-white/5">name: "模板名称"
+                        <pre class="text-xs text-zinc-300 font-mono bg-theme-elevated p-3 rounded-lg overflow-x-auto leading-relaxed border border-white/5">name: "模板名称"
 description: "模板用途说明"
 required_collectors:
   - steam

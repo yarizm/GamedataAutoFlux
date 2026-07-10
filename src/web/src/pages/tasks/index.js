@@ -2,6 +2,11 @@ import { api, toast, escapeHtml, escapeJs, formatTime } from '../../core/api.js'
 import { renderBadge, renderProgress, setValue } from '../../core/api.js';
 import { getLanguage, t } from '../../core/i18n.js';
 import {
+  formatApiError,
+  formatPrecheckCategory,
+  formatPrecheckIssue,
+} from '../../core/formatError.js';
+import {
   getCollectorForPipeline,
   hasStorageStep,
   loadAvailablePipelines,
@@ -244,7 +249,9 @@ export default {
       window.closeModal('modal-create-task');
       window.refreshDashboard && window.refreshDashboard();
       this.refresh();
-    } catch (err) { toast(t('message.createFailed', { error: err.message }), 'error'); }
+    } catch (err) {
+      toast(t('message.createFailed', { error: formatApiError(err) }), 'error');
+    }
   },
 
   _renderPrecheck(precheck) {
@@ -285,13 +292,16 @@ export default {
     const cats = [...order.filter((c) => groups[c]), ...Object.keys(groups).filter((c) => !order.includes(c))];
     return cats.map((cat) => `
       <div class="mt-3">
-        <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">${escapeHtml(cat)}</div>
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">${escapeHtml(formatPrecheckCategory(cat))}</div>
         <ul class="space-y-1">${groups[cat].map((i) => {
+          const formatted = formatPrecheckIssue(i);
           const cid = i.collector_id ? `${escapeHtml(i.collector_id)} · ` : '';
-          const action = i.suggested_action
-            ? `<div class="text-[11px] text-zinc-500 mt-0.5">${escapeHtml(i.suggested_action)}</div>`
-            : '';
-          return `<li class="task-precheck-${escapeHtml(i.level)} text-sm">${cid}<strong>${escapeHtml(i.code || '')}</strong> ${escapeHtml(i.field)}: ${escapeHtml(i.message)}${action}</li>`;
+          return `<li class="task-precheck-${escapeHtml(i.level)} text-sm">
+  ${cid}<strong>${escapeHtml(formatted.title)}</strong>
+  ${i.field ? ` <code class="text-[11px]">${escapeHtml(i.field)}</code>` : ''}:
+  ${escapeHtml(formatted.message)}
+  ${formatted.suggestion ? `<div class="text-[11px] text-zinc-500 mt-0.5">${escapeHtml(formatted.suggestion)}</div>` : ''}
+</li>`;
         }).join('')}</ul>
       </div>`).join('');
   },
@@ -299,8 +309,15 @@ export default {
   _renderProbeSummary(report) {
     if (!report || !report.summary) return '';
     const s = report.summary;
-    return `<div class="mt-3 rounded-lg border border-white/5 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
-      Deep probes: total=${s.total ?? 0} ok=${s.ok ?? 0} warn=${s.warning ?? 0} err=${s.error ?? 0} skip=${s.skipped ?? 0}
+    const summaryText = t('tasks.deepProbeSummary', {
+      total: s.total ?? 0,
+      ok: s.ok ?? 0,
+      warn: s.warning ?? 0,
+      err: s.error ?? 0,
+      skip: s.skipped ?? 0,
+    });
+    return `<div class="mt-3 rounded-lg border border-theme-subtle bg-theme-elevated px-3 py-2 text-xs text-zinc-400">
+      ${escapeHtml(summaryText)}
     </div>`;
   },
 
@@ -338,19 +355,19 @@ export default {
     const tone = this._precheckTone(precheckStatus);
 
     return `
-      <div class="mt-4 rounded-xl bg-zinc-950 border border-white/5 p-4">
+      <div class="mt-4 rounded-xl bg-theme-elevated border border-theme-subtle p-4">
         <div class="flex items-start justify-between gap-3">
-          <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Session readiness</div>
+          <div class="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">${escapeHtml(t('tasks.sessionReadiness'))}</div>
           <span class="shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase ${tone}">${escapeHtml(precheckStatus)} / ${escapeHtml(status)}</span>
         </div>
         <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div>
-            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Mode</div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">${escapeHtml(t('tasks.sessionMode'))}</div>
             <div class="text-zinc-300">${escapeHtml(mode)} / ${escapeHtml(binding)}</div>
             <div class="text-zinc-500 mt-1">${escapeHtml(leaseStrategy)}</div>
           </div>
           <div>
-            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Account</div>
+            <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">${escapeHtml(t('tasks.sessionAccount'))}</div>
             <div class="text-zinc-300">${escapeHtml(accountKind)}</div>
             <div class="text-zinc-500 mt-1 break-all">${escapeHtml(locatorLabel)}: ${escapeHtml(locator)}</div>
           </div>
@@ -358,11 +375,11 @@ export default {
         <div class="mt-3 text-sm text-zinc-300 leading-relaxed">${escapeHtml(summary)}</div>
         <div class="mt-3 flex flex-wrap gap-1.5">
           ${capabilities.length
-            ? capabilities.map((capability) => `<span class="rounded bg-white/5 border border-white/5 px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('')
-            : '<span class="text-xs text-zinc-600">No extra worker capability required.</span>'}
+            ? capabilities.map((capability) => `<span class="rounded bg-white/5 border border-theme-subtle px-2 py-1 text-[11px] text-zinc-400">${escapeHtml(capability)}</span>`).join('')
+            : `<span class="text-xs text-zinc-600">${escapeHtml(t('tasks.noExtraWorkerCapability'))}</span>`}
         </div>
         ${reasons.length ? `<div class="mt-3 space-y-2">${reasons.map((reason) => `
-          <div class="rounded-lg bg-white/5 border border-white/5 px-3 py-2">
+          <div class="rounded-lg bg-white/5 border border-theme-subtle px-3 py-2">
             <div class="text-xs font-semibold text-zinc-200">${escapeHtml(reason.name || 'session')}</div>
             <div class="text-xs text-zinc-500 mt-1">${escapeHtml(reason.message || '')}</div>
           </div>
@@ -397,7 +414,7 @@ export default {
     try {
       const data = await api(`/tasks/${id}/logs`);
       if (!data.logs.length) { container.innerHTML = `<p class="text-muted">${t('common.empty.logs')}</p>`; return; }
-      container.innerHTML = `<div class="terminal-console bg-zinc-950 border border-white/5 p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
+      container.innerHTML = `<div class="terminal-console bg-theme-elevated border border-theme-subtle p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
         const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
         return `<div class="terminal-line log-entry ${statusClass}">
           <span class="log-time text-zinc-600 mr-2">${log.started_at ? formatTime(log.started_at) : ''}</span>
@@ -434,7 +451,7 @@ export default {
       const autoReportLink = task.result_summary?.generated_report_id
         ? `<div style="margin-top:0.75rem"><button class="btn btn-primary btn-sm" onclick="viewReport('${escapeJs(task.result_summary.generated_report_id)}')">${t('tasks.generatedReport')}</button></div>` : '';
       const latestLogs = task.step_logs?.length
-        ? `<div class="terminal-console bg-zinc-950 border border-white/5 p-3 rounded-lg max-h-48 overflow-y-auto">` + task.step_logs.slice(-8).map(log => `<div class="terminal-line log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
+        ? `<div class="terminal-console bg-theme-elevated border border-theme-subtle p-3 rounded-lg max-h-48 overflow-y-auto">` + task.step_logs.slice(-8).map(log => `<div class="terminal-line log-entry ${log.status==='success'?'log-success':log.status==='failed'?'log-failed':'log-running'}">
             <span class="log-time text-zinc-600">${log.started_at ? formatTime(log.started_at) : ''}</span>
             <span class="log-step text-violet-400">[${escapeHtml(log.step)}]</span>
             <span class="log-message text-zinc-300">${escapeHtml(log.message||'')}</span>
@@ -444,8 +461,8 @@ export default {
 
       container.innerHTML = `
         <div class="detail-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
-            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('tasks.basic')}</h3>
+          <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl flex flex-col gap-3">
+            <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-1">${t('tasks.basic')}</h3>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">ID</span><code class="text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">${task.id}</code></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.name')}</span><span class="text-zinc-200 font-medium">${escapeHtml(task.name)}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.status')}</span><span>${renderBadge(task.status)}</span></div>
@@ -454,18 +471,18 @@ export default {
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Retry</span><span class="text-zinc-200">${task.retry_count}/${task.max_retries}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-rose-400 truncate max-w-[200px]" title="${escapeHtml(task.error||'-')}">${escapeHtml(task.error||'-')}</span></div>
           </div>
-          <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
-            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-1">${t('common.description')}</h3>
+          <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl flex flex-col gap-3">
+            <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-1">${t('common.description')}</h3>
             <p class="text-sm text-zinc-400">${escapeHtml(task.description||t('common.none'))}</p>
-            <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mt-2 mb-1">${t('tasks.recentLogs')}</h3>
+            <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mt-2 mb-1">${t('tasks.recentLogs')}</h3>
             ${latestLogs}
           </div>
         </div>
         <div class="mt-6 flex flex-col gap-4">
           ${observability}
-          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.targets')}</h3>${targets}</div>
-          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.runtimeConfig')}</h3>${config}</div>
-          <div><h3 class="text-zinc-100 font-bold mb-2">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}</div>
+          <div><h3 class="text-theme-primary font-bold mb-2">${t('tasks.targets')}</h3>${targets}</div>
+          <div><h3 class="text-theme-primary font-bold mb-2">${t('tasks.runtimeConfig')}</h3>${config}</div>
+          <div><h3 class="text-theme-primary font-bold mb-2">${t('tasks.resultSummary')}</h3>${resultSummary}${autoReportLink}</div>
         </div>`;
     } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
   },
@@ -482,8 +499,8 @@ export default {
     const latestCheckpoints = (checkpoints || []).slice(0, 4);
     return `
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
-          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Collector & Recovery</h3>
+        <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl">
+          <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-3">${escapeHtml(t('tasks.collectorRecovery'))}</h3>
           <div class="task-observe-grid">
             ${this._renderObserveKv('Collector', metadata.collector_id || task.collector_name || '-')}
             ${this._renderObserveKv('Session', `${metadata.session_mode || session.session_mode || '-'}${metadata.requires_session ? ' / required' : ''}`)}
@@ -493,7 +510,7 @@ export default {
           </div>
           ${recovery.guidance ? `<p class="mt-3 text-xs text-zinc-500 leading-relaxed">${escapeHtml(recovery.guidance)}</p>` : ''}
           ${(sessionAccount.account_kind || sessionState.health || sessionLease.strategy) ? `
-            <div class="mt-3 rounded-lg bg-zinc-950 border border-white/5 p-3">
+            <div class="mt-3 rounded-lg bg-theme-elevated border border-theme-subtle p-3">
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                 <div>
                   <div class="text-zinc-600 uppercase font-bold tracking-widest mb-1">Account</div>
@@ -515,26 +532,26 @@ export default {
           ` : ''}
           ${session.checks?.length ? `<div class="mt-3 space-y-2">${session.checks.map(check => this._renderSessionCheck(check)).join('')}</div>` : ''}
         </div>
-        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
-          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Task Events</h3>
+        <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl">
+          <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-3">${escapeHtml(t('tasks.events'))}</h3>
           ${latestEvents.length ? `<div class="space-y-2 max-h-64 overflow-y-auto pr-1">${latestEvents.map(event => this._renderTaskEvent(event)).join('')}</div>` : `<p class="text-muted">${t('common.empty.logs')}</p>`}
         </div>
       </div>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
-          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Artifacts</h3>
-          ${artifacts.length ? `<div class="space-y-2">${artifacts.map(artifact => this._renderArtifact(artifact)).join('')}</div>` : `<p class="text-muted">No artifacts yet.</p>`}
+        <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl">
+          <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-3">${escapeHtml(t('tasks.artifacts'))}</h3>
+          ${artifacts.length ? `<div class="space-y-2">${artifacts.map(artifact => this._renderArtifact(artifact)).join('')}</div>` : `<p class="text-muted">${escapeHtml(t('tasks.noArtifacts'))}</p>`}
         </div>
-        <div class="detail-card bg-zinc-900 border border-white/5 p-4 rounded-xl">
-          <h3 class="text-zinc-100 font-bold border-b border-white/10 pb-2 mb-3">Checkpoints</h3>
+        <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl">
+          <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-3">${escapeHtml(t('tasks.checkpoints'))}</h3>
           ${latestCheckpoint ? `<div class="mb-3 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs text-emerald-300">Latest: #${escapeHtml(String(latestCheckpoint.seq))} ${escapeHtml(latestCheckpoint.recovery_level || 'L0')} at ${escapeHtml(formatTime(latestCheckpoint.created_at))}</div>` : ''}
-          ${latestCheckpoints.length ? `<div class="space-y-2">${latestCheckpoints.map(checkpoint => this._renderCheckpoint(checkpoint)).join('')}</div>` : `<p class="text-muted">No checkpoints yet.</p>`}
+          ${latestCheckpoints.length ? `<div class="space-y-2">${latestCheckpoints.map(checkpoint => this._renderCheckpoint(checkpoint)).join('')}</div>` : `<p class="text-muted">${escapeHtml(t('tasks.noCheckpoints'))}</p>`}
         </div>
       </div>`;
   },
 
   _renderObserveKv(label, value) {
-    return `<div class="flex items-center justify-between gap-4 text-sm py-1.5 border-b border-white/5 last:border-b-0">
+    return `<div class="flex items-center justify-between gap-4 text-sm py-1.5 border-b border-theme-subtle last:border-b-0">
       <span class="text-zinc-500">${escapeHtml(label)}</span>
       <span class="text-zinc-200 text-right">${escapeHtml(String(value || '-'))}</span>
     </div>`;
@@ -543,7 +560,7 @@ export default {
   _renderSessionCheck(check) {
     const status = check.status || 'unknown';
     const tone = status === 'ok' ? 'text-emerald-300 bg-emerald-500/10' : status === 'error' ? 'text-rose-300 bg-rose-500/10' : 'text-amber-300 bg-amber-500/10';
-    return `<div class="rounded-lg bg-zinc-950 border border-white/5 p-3">
+    return `<div class="rounded-lg bg-theme-elevated border border-theme-subtle p-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="text-xs font-semibold text-zinc-200 truncate">${escapeHtml(check.name || 'session')}</div>
@@ -555,7 +572,7 @@ export default {
   },
 
   _renderTaskEvent(event) {
-    const tone = event.level === 'error' ? 'text-rose-300 border-rose-500/20 bg-rose-500/5' : event.level === 'warning' ? 'text-amber-300 border-amber-500/20 bg-amber-500/5' : 'text-zinc-300 border-white/5 bg-zinc-950';
+    const tone = event.level === 'error' ? 'text-rose-300 border-rose-500/20 bg-rose-500/5' : event.level === 'warning' ? 'text-amber-300 border-amber-500/20 bg-amber-500/5' : 'text-zinc-300 border-theme-subtle bg-theme-elevated';
     const status = event.payload?.status || event.payload?.task_status || '';
     return `<div class="rounded-lg border p-3 ${tone}">
       <div class="flex items-center justify-between gap-3 text-xs">
@@ -571,7 +588,7 @@ export default {
     const size = typeof artifact.size === 'number' ? ` · ${Math.round(artifact.size / 1024)} KB` : '';
     const downloadUrl = safeArtifactDownloadUrl(artifact.download_url);
     const link = downloadUrl ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(downloadUrl)}" target="_blank" rel="noopener">Open</a>` : '';
-    return `<div class="flex items-center justify-between gap-3 rounded-lg bg-zinc-950 border border-white/5 p-3">
+    return `<div class="flex items-center justify-between gap-3 rounded-lg bg-theme-elevated border border-theme-subtle p-3">
       <div class="min-w-0">
         <div class="text-sm text-zinc-200 truncate">${escapeHtml(artifact.name || label)}</div>
         <div class="text-xs text-zinc-600">${escapeHtml(label + size)}</div>
@@ -582,7 +599,7 @@ export default {
 
   _renderCheckpoint(checkpoint) {
     const cursor = checkpoint.cursor && Object.keys(checkpoint.cursor).length ? ` · ${JSON.stringify(checkpoint.cursor)}` : '';
-    return `<div class="rounded-lg bg-zinc-950 border border-white/5 p-3">
+    return `<div class="rounded-lg bg-theme-elevated border border-theme-subtle p-3">
       <div class="flex items-center justify-between gap-3 text-xs">
         <span class="font-bold text-zinc-200">#${escapeHtml(String(checkpoint.seq || '-'))} ${escapeHtml(checkpoint.recovery_level || 'L0')}</span>
         <span class="text-zinc-600">${escapeHtml(formatTime(checkpoint.created_at))}</span>

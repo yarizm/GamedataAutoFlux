@@ -1,4 +1,5 @@
 import { api, toast, escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 
 /**
  * Mount saved DAG list.
@@ -20,7 +21,7 @@ export function mountSavedList(el, opts = {}) {
       saved = data || {};
       const names = Object.keys(saved).sort();
       if (!names.length) {
-        el.innerHTML = '<p class="text-zinc-600 text-xs">暂无已保存的 DAG</p>';
+        el.innerHTML = `<p class="text-muted text-xs">${escapeHtml(t('dag.empty.saved'))}</p>`;
         return saved;
       }
       const active = opts.getActiveName?.() || '';
@@ -29,15 +30,13 @@ export function mountSavedList(el, opts = {}) {
         const nCount = (dag.nodes || []).length;
         const eCount = (dag.edges || []).length;
         const isActive = name === active;
-        const activeCls = isActive
-          ? 'border-sky-500/40 bg-sky-500/10'
-          : 'border-white/5 bg-zinc-800/40';
+        const activeCls = isActive ? 'is-active' : '';
         return `<div class="flex items-center gap-1">
-          <button type="button" class="flex-1 text-left px-2 py-1.5 rounded-lg border ${activeCls} hover:border-sky-500/30 text-xs transition-all" data-load-dag="${escapeHtml(name)}">
-            <div class="text-zinc-100 font-medium truncate">${escapeHtml(name)}</div>
-            <div class="text-zinc-600 text-[10px]">${nCount} 节点 · ${eCount} 边</div>
+          <button type="button" class="dag-saved-item ${activeCls}" data-load-dag="${escapeHtml(name)}">
+            <div class="dag-saved-name">${escapeHtml(name)}</div>
+            <div class="dag-saved-meta">${escapeHtml(t('dag.nodeEdgeCount', { n: nCount, e: eCount }))}</div>
           </button>
-          <button type="button" class="px-1.5 py-1 text-zinc-600 hover:text-rose-400 text-xs" data-del-dag="${escapeHtml(name)}" title="删除">×</button>
+          <button type="button" class="dag-saved-del" data-del-dag="${escapeHtml(name)}" title="${escapeHtml(t('common.delete'))}">×</button>
         </div>`;
       }).join('');
 
@@ -46,7 +45,7 @@ export function mountSavedList(el, opts = {}) {
           const name = btn.dataset.loadDag;
           const payload = saved[name];
           if (!payload) {
-            toast(`未找到 DAG: ${name}`, 'error');
+            toast(t('dag.notFound', { name }), 'error');
             return;
           }
           opts.onLoad?.(name, payload);
@@ -60,7 +59,7 @@ export function mountSavedList(el, opts = {}) {
       });
       return saved;
     } catch (e) {
-      el.innerHTML = `<p class="text-rose-400 text-xs">加载失败: ${escapeHtml(e.message || String(e))}</p>`;
+      el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: e.message || String(e) }))}</p>`;
       return saved;
     }
   }

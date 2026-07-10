@@ -3,6 +3,7 @@ import { createStore } from './core/store.js';
 import { activateTab, bindNavigation, bindModalOverlayClose, restartAutoRefresh } from './core/router.js';
 import { initWebSocket } from './core/websocket.js';
 import { applyTranslations, bindLanguageControls, configureI18n, getLanguage, setLanguage, t } from './core/i18n.js';
+import { initTheme, bindThemeControls } from './core/theme.js';
 import {
   getCollectorForPipeline,
   hasStorageStep,
@@ -229,6 +230,8 @@ function handleLanguageChange() {
 document.addEventListener('DOMContentLoaded', () => {
   installGlobalBridge();
   configureI18n(store);
+  initTheme();
+  bindThemeControls();
   bindLanguageControls();
   loadAvailablePipelines().catch((err) => console.error('Load pipeline cache failed:', err));
   bindNavigation(store);

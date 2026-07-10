@@ -1,3 +1,4 @@
+import './style.css';
 import { api, toast, escapeHtml, formatTime, setValue } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 
@@ -85,16 +86,20 @@ export default {
   _renderGames(games) {
     const container = document.getElementById('data-games-list');
     if (!container) return;
-    if (!games.length) { container.innerHTML = '<p class="text-muted">暂无已落库数据</p>'; return; }
+    if (!games.length) { container.innerHTML = `<p class="text-muted">${escapeHtml(t('data.emptyStored'))}</p>`; return; }
 
     container.innerHTML = games.map((game) => {
       const activeClass = selectedDataGame?.game_key === game.game_key ? 'active' : '';
       const sourceText = (game.sources || []).map(s => `${s.name} ${s.count}`).join(' / ');
+      const metaText = `App ID: ${game.app_id || '-'} · ${t('data.group')}: ${game.group_name || '-'} · ${t('reports.records', { count: game.total_records })}`;
+      const sources = sourceText || t('common.none');
       return `<div class="data-game-item ${activeClass}" role="button" tabindex="0" data-game="${escapeHtml(game.game_key)}">
-        <button class="data-game-delete" type="button" title="${t('common.delete')}" data-delete="${escapeHtml(game.game_key)}">${t('common.delete')}</button>
-        <span class="data-game-name">${escapeHtml(game.game_name)}</span>
-        <span class="data-game-meta">App ID: ${escapeHtml(game.app_id || '-')} | Group: ${escapeHtml(game.group_name || '-')} | ${t('reports.records', { count: game.total_records })}</span>
-        <span class="data-game-sources">${escapeHtml(sourceText || t('common.none'))}</span>
+        <div class="data-game-body">
+          <div class="data-game-name" title="${escapeHtml(game.game_name)}">${escapeHtml(game.game_name)}</div>
+          <div class="data-game-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+          <div class="data-game-sources" title="${escapeHtml(sources)}">${escapeHtml(sources)}</div>
+        </div>
+        <button class="data-game-delete" type="button" title="${t('common.delete')}" aria-label="${t('common.delete')}" data-delete="${escapeHtml(game.game_key)}">×</button>
       </div>`;
     }).join('');
 
@@ -121,20 +126,19 @@ export default {
     const sourceFilter = document.getElementById('data-source-filter');
 
     if (!selectedDataGame) {
-      if (title) title.textContent = '选择一个游戏';
-      if (summary) summary.textContent = '按 App ID 或游戏名聚合已落库 JSON';
+      if (title) title.textContent = t('data.chooseGame');
+      if (summary) summary.textContent = t('data.summary');
       return;
     }
     if (title) title.textContent = selectedDataGame.game_name;
     if (summary) {
-      summary._baseText = summary._baseText || summary.textContent;
-      const text = `App ID: ${selectedDataGame.app_id || '-'} | ${selectedDataGame.total_records} 条记录 | 最新 ${formatTime(selectedDataGame.latest_stored_at)}`;
+      const text = `App ID: ${selectedDataGame.app_id || '-'} | ${t('reports.records', { count: selectedDataGame.total_records })} | ${t('data.latest')} ${formatTime(selectedDataGame.latest_stored_at)}`;
       summary._baseText = text;
       summary.textContent = text;
     }
     if (sourceFilter) {
       const current = sourceFilter.value;
-      sourceFilter.innerHTML = '<option value="">全部数据源</option>';
+      sourceFilter.innerHTML = `<option value="">${escapeHtml(t('data.allSources'))}</option>`;
       for (const src of selectedDataGame.sources || []) {
         sourceFilter.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(src.name)}">${escapeHtml(src.name)} (${src.count})</option>`);
       }
@@ -170,27 +174,27 @@ export default {
   _renderRecords(records) {
     const tbody = document.getElementById('data-records-body');
     if (!tbody) return;
-    if (!records.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-muted">该分类下暂无记录</td></tr>'; return; }
+    if (!records.length) { tbody.innerHTML = `<tr><td colspan="6" class="text-muted">${escapeHtml(t('data.noRecordsInCategory'))}</td></tr>`; return; }
 
     const allChecked = records.length > 0 && records.every(r => selectedDataRecordKeys.has(r.key));
     tbody.innerHTML = records.map((record) => {
       const checked = selectedDataRecordKeys.has(record.key) ? 'checked' : '';
       const comp = record.completeness || 'full';
-      const compLabel = { full: '完整', partial: '部分', empty: '空' }[comp] || comp;
+      const compLabel = { full: t('data.completeness.full'), partial: t('data.completeness.partial'), empty: t('data.completeness.empty') }[comp] || comp;
       return `<tr class="group">
         <td class="cell-checkbox"><input type="checkbox" class="record-checkbox cyber-checkbox" data-key="${escapeHtml(record.key)}" ${checked}></td>
         <td class="max-w-[150px] truncate" title="${escapeHtml(record.key)}"><code>${escapeHtml(record.key)}</code></td>
         <td>${escapeHtml(record.data_source)}</td>
-        <td class="max-w-[300px] truncate" title="${escapeHtml(formatDataSummary(record.summary || {}))}"><span class="completeness-badge completeness-${comp}" title="数据完整度: ${compLabel}">${compLabel}</span> ${escapeHtml(formatDataSummary(record.summary || {}))}</td>
+        <td class="max-w-[300px] truncate" title="${escapeHtml(formatDataSummary(record.summary || {}))}"><span class="completeness-badge completeness-${comp}" title="${escapeHtml(t('data.completenessTitle'))}: ${escapeHtml(compLabel)}">${escapeHtml(compLabel)}</span> ${escapeHtml(formatDataSummary(record.summary || {}))}</td>
         <td>${formatTime(record.stored_at)}</td>
         <td><div class="action-buttons flex gap-2 opacity-30 group-hover:opacity-100 transition-opacity duration-300">
-          <button class="btn btn-ghost btn-sm" data-preview="${escapeHtml(record.key)}">预览</button>
-          <button class="btn btn-ghost btn-sm" data-download="${escapeHtml(record.key)}">导出</button>
-          <button class="btn btn-ghost btn-sm" data-edit="${escapeHtml(record.key)}">${t('common.edit')}</button>
-          <button class="btn btn-ghost btn-sm" data-refresh="${escapeHtml(record.key)}">Update</button>
-          <button class="btn btn-ghost btn-sm" data-schedule="${escapeHtml(record.key)}">Schedule</button>
-          <button class="btn btn-primary btn-sm" data-report="${escapeHtml(record.key)}">报告</button>
-          <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(record.key)}">${t('common.delete')}</button>
+          <button class="btn btn-ghost btn-sm" data-preview="${escapeHtml(record.key)}">${escapeHtml(t('data.preview'))}</button>
+          <button class="btn btn-ghost btn-sm" data-download="${escapeHtml(record.key)}">${escapeHtml(t('data.export'))}</button>
+          <button class="btn btn-ghost btn-sm" data-edit="${escapeHtml(record.key)}">${escapeHtml(t('common.edit'))}</button>
+          <button class="btn btn-ghost btn-sm" data-refresh="${escapeHtml(record.key)}">${escapeHtml(t('common.update'))}</button>
+          <button class="btn btn-ghost btn-sm" data-schedule="${escapeHtml(record.key)}">${escapeHtml(t('common.schedule'))}</button>
+          <button class="btn btn-primary btn-sm" data-report="${escapeHtml(record.key)}">${escapeHtml(t('data.report'))}</button>
+          <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(record.key)}">${escapeHtml(t('common.delete'))}</button>
         </div></td>
       </tr>`;
     }).join('');
@@ -221,8 +225,12 @@ export default {
     const bar = document.getElementById('data-batch-bar');
     const countEl = document.getElementById('data-batch-count');
     if (!bar) return;
-    if (selectedDataRecordKeys.size > 0) { bar.style.display = 'flex'; if (countEl) countEl.textContent = `已选 ${selectedDataRecordKeys.size} 条`; }
-    else { bar.style.display = 'none'; }
+    if (selectedDataRecordKeys.size > 0) {
+      bar.style.display = 'flex';
+      if (countEl) countEl.textContent = t('data.selectedCount', { count: selectedDataRecordKeys.size });
+    } else {
+      bar.style.display = 'none';
+    }
   },
 
   async _toggleSelectAll(el) {
@@ -243,7 +251,7 @@ export default {
     }
     const totalPages = Math.ceil(result.total / result.page_size);
     if (totalPages <= 1 && result.page_size <= 50) {
-      container.innerHTML = `<span class="text-muted">共 ${result.total} 条</span>`;
+      container.innerHTML = `<span class="text-muted">${escapeHtml(t('data.totalCount', { count: result.total }))}</span>`;
       return;
     }
     let pageBtns = '';
@@ -254,16 +262,17 @@ export default {
     for (let i = startPage; i <= endPage; i++) {
       pageBtns += `<button class="btn btn-ghost btn-sm ${i === result.page ? 'active' : ''}" data-goto="${i}">${i}</button>`;
     }
+    const perPage = (n) => escapeHtml(t('data.perPage', { size: n }));
     container.innerHTML = `<div class="pagination-controls">
-      <button class="btn btn-ghost btn-sm" data-goto="${result.page - 1}" ${result.page <= 1 ? 'disabled' : ''}>上一页</button>
+      <button class="btn btn-ghost btn-sm" data-goto="${result.page - 1}" ${result.page <= 1 ? 'disabled' : ''}>${escapeHtml(t('data.pagePrev'))}</button>
       ${pageBtns}
-      <button class="btn btn-ghost btn-sm" data-goto="${result.page + 1}" ${!result.has_more ? 'disabled' : ''}>下一页</button>
-      <span class="text-muted">共 ${result.total} 条</span>
+      <button class="btn btn-ghost btn-sm" data-goto="${result.page + 1}" ${!result.has_more ? 'disabled' : ''}>${escapeHtml(t('data.pageNext'))}</button>
+      <span class="text-muted">${escapeHtml(t('data.totalCount', { count: result.total }))}</span>
       <select class="page-size-select" id="page-size-select">
-        <option value="20" ${result.page_size === 20 ? 'selected' : ''}>20条/页</option>
-        <option value="50" ${result.page_size === 50 ? 'selected' : ''}>50条/页</option>
-        <option value="100" ${result.page_size === 100 ? 'selected' : ''}>100条/页</option>
-        <option value="200" ${result.page_size === 200 ? 'selected' : ''}>200条/页</option>
+        <option value="20" ${result.page_size === 20 ? 'selected' : ''}>${perPage(20)}</option>
+        <option value="50" ${result.page_size === 50 ? 'selected' : ''}>${perPage(50)}</option>
+        <option value="100" ${result.page_size === 100 ? 'selected' : ''}>${perPage(100)}</option>
+        <option value="200" ${result.page_size === 200 ? 'selected' : ''}>${perPage(200)}</option>
       </select>
     </div>`;
 
@@ -282,7 +291,7 @@ export default {
       api(`/data/records?${params.toString()}`).then(result => {
         currentDataRecords = result.items; currentDataTotal = result.total; currentDataPage = result.page;
         this._renderRecords(currentDataRecords); this._renderPagination(result);
-      }).catch(err => toast(`Load failed: ${err.message}`, 'error'));
+      }).catch(err => toast(t('message.loadFailed', { error: err.message }), 'error'));
     }
   },
 
@@ -292,42 +301,42 @@ export default {
 
   async _preview(key) {
     const preview = document.getElementById('data-preview');
-    if (preview) preview.textContent = '加载中...';
+    if (preview) preview.textContent = t('common.loading');
     try {
       const detail = await api(`/data/records/${encodeURIComponent(key)}`);
       if (preview) preview.textContent = JSON.stringify(detail, null, 2);
-    } catch (err) { if (preview) preview.textContent = `Load failed: ${err.message}`; }
+    } catch (err) { if (preview) preview.textContent = t('message.loadFailed', { error: err.message }); }
   },
 
   _download(key) { window.open(`/api/data/records/download?key=${encodeURIComponent(key)}`, '_blank'); },
 
   async _edit(key) {
     const record = currentDataRecords.find(r => r.key === key) || {};
-    const groupName = prompt('Data group', record.group_name || record.group_id || '');
+    const groupName = prompt(t('prompt.dataGroup'), record.group_name || record.group_id || '');
     if (groupName === null) return;
-    const displayName = prompt('Display name', record.display_name || record.game_name || '');
+    const displayName = prompt(t('prompt.displayName'), record.display_name || record.game_name || '');
     if (displayName === null) return;
     try {
       const updated = await api(`/data/records/${encodeURIComponent(key)}`, {
         method: 'PATCH', body: JSON.stringify({ group_id: groupName.trim(), group_name: groupName.trim(), display_name: displayName.trim() }),
       });
-      toast('Record updated', 'success');
+      toast(t('message.recordUpdated'), 'success');
       await this._loadGames();
       if (selectedDataGame) await this._loadRecords(currentDataPage);
       else await this._search();
       this._preview(updated.key);
-    } catch (err) { toast(`Update failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.editFailed', { error: err.message }), 'error'); }
   },
 
   async _deleteRecord(key) {
-    if (!confirm(`Delete data record ${key}?`)) return;
+    if (!confirm(t('confirm.deleteRecord', { key }))) return;
     try {
       await api(`/data/records/${encodeURIComponent(key)}?confirm=true`, { method: 'DELETE' });
-      toast('Record deleted', 'success');
+      toast(t('message.recordDeleted'), 'success');
       selectedDataRecordKeys.delete(key);
       await this._loadGames();
       this._loadRecords(currentDataPage);
-    } catch (err) { toast(`Delete failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 
   async _deleteGame(e, gameKey) {
@@ -335,10 +344,10 @@ export default {
     const game = dataGames.find(g => g.game_key === gameKey);
     if (!game) return;
     const name = game.group_name || game.game_name || game.game_key;
-    if (!confirm(`Delete category "${name}" and all related records, vector data, tasks, schedules, and reports?`)) return;
+    if (!confirm(t('confirm.deleteCategory', { name }))) return;
     try {
       const resp = await api(`/data/games/${encodeURIComponent(gameKey)}?confirm=true`, { method: 'DELETE' });
-      toast(`Category deleted: ${resp.records_deleted} records`, 'success');
+      toast(t('message.categoryDeleted', { count: resp.records_deleted }), 'success');
       if (selectedDataGame?.game_key === gameKey) {
         selectedDataGame = null;
         window.selectedDataGame = null;
@@ -347,35 +356,35 @@ export default {
         this._renderRecords([]);
         const title = document.getElementById('data-records-title');
         const summary = document.getElementById('data-selected-summary');
-        if (title) title.textContent = 'Choose a game category';
+        if (title) title.textContent = t('data.chooseCategory');
         if (summary) summary.textContent = '';
       }
       await this._loadGames();
       await this._loadGroups();
       window.loadTasks && window.loadTasks();
       window.loadReports && window.loadReports();
-    } catch (err) { toast(`Delete category failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.deleteCategoryFailed', { error: err.message }), 'error'); }
   },
 
   async _refresh(key) {
     try {
       const resp = await api(`/data/records/refresh?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify({ rolling_window: true }) });
-      toast(`Refresh task submitted: ${resp.task_id}`, 'success');
+      toast(t('message.refreshSubmitted', { taskId: resp.task_id }), 'success');
       window.activateTab && window.activateTab('tasks', this.store);
       window.loadTasks && window.loadTasks();
-    } catch (err) { toast(`Refresh failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.refreshFailed', { error: err.message }), 'error'); }
   },
 
   async _schedule(key) {
-    const cronExpr = prompt('Cron expression', '0 8 * * *');
+    const cronExpr = prompt(t('prompt.cronExpression'), '0 8 * * *');
     if (!cronExpr) return;
-    const name = prompt('Schedule name', `refresh_${key.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48)}`);
+    const name = prompt(t('prompt.scheduleName'), `refresh_${key.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48)}`);
     if (!name) return;
     try {
       await api(`/data/records/refresh-schedules?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify({ name, cron_expr: cronExpr, rolling_window: true }) });
-      toast('Refresh schedule created', 'success');
+      toast(t('message.scheduleCreated'), 'success');
       window.loadCronJobs && window.loadCronJobs();
-    } catch (err) { toast(`Schedule failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.scheduleFailed', { error: err.message }), 'error'); }
   },
 
   async _useForReport(key) {
@@ -383,21 +392,21 @@ export default {
     await window.addReportRecordSelection?.(key, record);
     await window.syncSelectedReportRecordKeys?.();
     setValue('report-data-source', record?.data_source || '');
-    setValue('report-prompt', `基于所选原始 JSON 数据，生成${record?.game_name || '该游戏'}的数据分析报告。`);
+    setValue('report-prompt', t('data.reportPromptSingle', { game: record?.game_name || t('data.thisGame') }));
     window.activateTab && window.activateTab('reports', this.store);
-    toast('已添加 1 条原始 JSON 用于报告', 'success');
+    toast(t('message.addedToReport', { count: 1 }), 'success');
   },
 
   async _batchDelete() {
     if (selectedDataRecordKeys.size === 0) return;
     const keys = Array.from(selectedDataRecordKeys);
-    if (!confirm(`确定删除 ${keys.length} 条记录？此操作不可撤销。`)) return;
+    if (!confirm(t('confirm.batchDeleteRecords', { count: keys.length }))) return;
     try {
       const result = await api('/data/records/batch-delete', { method: 'POST', body: JSON.stringify({ keys, confirm: true }) });
       toast(result.message, 'success');
       selectedDataRecordKeys.clear();
       this._loadRecords(currentDataPage);
-    } catch (err) { toast(`Batch delete failed: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.batchDeleteFailed', { error: err.message }), 'error'); }
   },
 
   async _batchAddToReport() {
@@ -410,9 +419,12 @@ export default {
     if (added > 0) {
       await window.syncSelectedReportRecordKeys?.();
       setValue('report-data-source', selectedDataGame?.game_name || '');
-      setValue('report-prompt', `基于 ${selectedDataGame?.game_name || '所选游戏'} 的 ${added} 条数据生成综合分析报告。`);
+      setValue('report-prompt', t('data.reportPromptBatch', {
+        game: selectedDataGame?.game_name || t('data.selectedGame'),
+        count: added,
+      }));
       window.activateTab && window.activateTab('reports', this.store);
-      toast(`已添加 ${added} 条记录用于报告`, 'success');
+      toast(t('message.addedToReport', { count: added }), 'success');
     }
   },
 
@@ -425,8 +437,8 @@ export default {
       const a = document.createElement('a');
       a.href = url; a.download = `batch_export_${new Date().toISOString().slice(0, 10)}.json`;
       a.click(); URL.revokeObjectURL(url);
-      toast(`Exported ${result.count} records`, 'success');
-    } catch (err) { toast(`Batch export failed: ${err.message}`, 'error'); }
+      toast(t('message.exportedRecords', { count: result.count }), 'success');
+    } catch (err) { toast(t('message.batchExportFailed', { error: err.message }), 'error'); }
   },
 
   async _batchExportXlsx() {
@@ -443,10 +455,10 @@ export default {
       }
       if (record?.collector) collectors.add(record.collector);
     }
-    if (collectors.size !== 1) { toast('请选择同一种 YouTube 数据源导出', 'error'); return; }
+    if (collectors.size !== 1) { toast(t('message.youtubeSingleSource'), 'error'); return; }
     const collector = Array.from(collectors)[0] || '';
     if (!['youtube_profiles', 'youtube_comments'].includes(collector)) {
-      toast('XLSX 导出仅支持 YouTube 博主信息和评论数据', 'error');
+      toast(t('message.youtubeXlsxOnly'), 'error');
       return;
     }
     try {
@@ -460,9 +472,9 @@ export default {
       });
       if (resp.download_url) {
         window.open(resp.download_url, '_blank');
-        toast(`已导出 ${resp.record_count} 条记录`, 'success');
+        toast(t('message.exportedRecords', { count: resp.record_count }), 'success');
       }
-    } catch (err) { toast(`XLSX 导出失败: ${err.message}`, 'error'); }
+    } catch (err) { toast(t('message.xlsxExportFailed', { error: err.message }), 'error'); }
   },
 };
 

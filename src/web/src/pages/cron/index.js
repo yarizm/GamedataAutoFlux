@@ -69,32 +69,32 @@ export default {
         const targets = job.targets_count ?? (job.task_template?.targets?.length || 0);
         const label = job.human_label || job.cron_expr || job.trigger || '-';
         return `
-        <div class="cron-item group flex items-center justify-between p-4 rounded-xl bg-zinc-900 border border-white/5 transition-all duration-300 hover:bg-white/5 hover:border-white/10 mb-3 relative overflow-hidden">
+        <div class="cron-item group flex items-center justify-between p-4 rounded-xl bg-theme-elevated border border-theme-subtle transition-all duration-300 hover:bg-white/5 hover:border-theme-strong mb-3 relative overflow-hidden">
           <div class="flex items-center gap-4 flex-1 min-w-0">
             <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1">
-                <div class="font-bold text-zinc-100 text-sm tracking-tight truncate">${escapeHtml(job.name)}</div>
-                <span class="shrink-0 rounded border px-2 py-0.5 text-[10px] font-bold uppercase ${tone}">${enabled ? 'ON' : 'OFF'}</span>
+                <div class="font-bold text-theme-primary text-sm tracking-tight truncate">${escapeHtml(job.name)}</div>
+                <span class="shrink-0 rounded border px-2 py-0.5 text-[10px] font-bold uppercase ${tone}">${enabled ? t('cron.on') : t('cron.off')}</span>
               </div>
               <div class="text-xs text-zinc-400 mb-1 truncate">${escapeHtml(job.description || job.pipeline_name || '')}</div>
               <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">周期</span>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${escapeHtml(t('cron.schedule'))}</span>
                   <span class="text-[11px] text-zinc-200">${escapeHtml(label)}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Pipeline</span>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${escapeHtml(t('cron.pipeline'))}</span>
                   <code class="text-[11px] text-zinc-300 font-mono">${escapeHtml(job.pipeline_name || '-')}</code>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">目标</span>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${escapeHtml(t('cron.targets'))}</span>
                   <span class="text-[11px] text-zinc-300">${targets}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">下次</span>
+                  <span class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">${escapeHtml(t('cron.nextShort'))}</span>
                   <span class="text-[11px] text-amber-400/80 font-mono tabular-nums">${job.next_run ? escapeHtml(formatTime(job.next_run)) : '-'}</span>
                 </div>
                 ${job.cron_expr ? `<code class="text-[10px] text-zinc-500 font-mono">${escapeHtml(job.cron_expr)}</code>` : ''}
@@ -102,9 +102,9 @@ export default {
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button class="btn btn-ghost h-8 px-2 text-xs" data-run="${escapeHtml(job.id)}">立即执行</button>
-            <button class="btn btn-ghost h-8 px-2 text-xs" data-toggle="${escapeHtml(job.id)}" data-enabled="${enabled ? '1' : '0'}">${enabled ? '暂停' : '启用'}</button>
-            <button class="btn btn-ghost h-8 px-2 text-xs" data-edit="${escapeHtml(job.id)}">编辑</button>
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-run="${escapeHtml(job.id)}">${t('cron.runNow')}</button>
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-toggle="${escapeHtml(job.id)}" data-enabled="${enabled ? '1' : '0'}">${enabled ? t('cron.pause') : t('cron.enable')}</button>
+            <button class="btn btn-ghost h-8 px-2 text-xs" data-edit="${escapeHtml(job.id)}">${t('common.edit')}</button>
             <button class="btn btn-danger h-8 px-3 text-xs" data-delete="${escapeHtml(job.id)}">${t('common.delete')}</button>
           </div>
           <div class="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -211,11 +211,11 @@ export default {
       try {
         const parsed = parseAdvancedTargetsJson(
           targetsRaw,
-          formState.targetName || 'Target',
+          formState.targetName || t('tasks.targetName'),
         );
         if (parsed) targets = parsed;
       } catch {
-        throw new Error('高级 JSON Targets 无效');
+        throw new Error(t('cron.advancedJsonInvalid'));
       }
     }
 
@@ -267,12 +267,12 @@ export default {
       const result = await api('/cron-jobs/preview', { method: 'POST', body: JSON.stringify(body) });
       const runs = (result.next_runs || []).map((x) => formatTime(x)).join('\n');
       if (box) {
-        box.textContent = `${result.human_label || ''}\n${result.cron_expr || ''}\n下次:\n${runs || '-'}`;
+        box.textContent = `${result.human_label || ''}\n${result.cron_expr || ''}\n${t('cron.previewNext')}\n${runs || '-'}`;
       }
-      if (forceToast) toast(result.human_label || '预览成功', 'success');
+      if (forceToast) toast(result.human_label || t('cron.previewOk'), 'success');
     } catch (err) {
-      if (box) box.textContent = err.message || '预览失败';
-      if (forceToast) toast(err.message || '预览失败', 'error');
+      if (box) box.textContent = err.message || t('cron.previewFail');
+      if (forceToast) toast(err.message || t('cron.previewFail'), 'error');
     }
   },
 
@@ -280,9 +280,9 @@ export default {
     this._editName = null;
     document.getElementById('cron-edit-mode').value = 'create';
     const title = document.getElementById('cron-modal-title');
-    if (title) title.textContent = '添加定时任务';
+    if (title) title.textContent = t('cron.modal.create');
     const submit = document.getElementById('btn-submit-cron');
-    if (submit) submit.textContent = '创建';
+    if (submit) submit.textContent = t('common.create');
     document.getElementById('cron-name').value = '';
     document.getElementById('cron-name').disabled = false;
     document.getElementById('cron-description').value = '';
@@ -308,9 +308,9 @@ export default {
       this._editName = name;
       document.getElementById('cron-edit-mode').value = 'edit';
       const title = document.getElementById('cron-modal-title');
-      if (title) title.textContent = `编辑定时任务：${name}`;
+      if (title) title.textContent = t('cron.modal.edit', { name });
       const submit = document.getElementById('btn-submit-cron');
-      if (submit) submit.textContent = '保存';
+      if (submit) submit.textContent = t('common.save');
       await populatePipelineSelect('cron-pipeline');
       document.getElementById('cron-name').value = job.name || name;
       document.getElementById('cron-name').disabled = true;
@@ -338,7 +338,7 @@ export default {
         if (preview && targets.length) {
           preview.style.display = 'block';
           preview.className = 'mt-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300';
-          preview.innerHTML = `已加载 <strong>${targets.length}</strong> 个目标`;
+          preview.innerHTML = t('cron.loadedTargets', { count: targets.length });
         }
       } else if (targets.length === 1) {
         applyTargetToForm('cron', collector, targets[0]);
@@ -357,7 +357,7 @@ export default {
       window.openModal && window.openModal('modal-create-cron');
       this._previewSchedule();
     } catch (err) {
-      toast(err.message || '加载失败', 'error');
+      toast(err.message || t('cron.loadFailed'), 'error');
     }
   },
 
@@ -414,7 +414,7 @@ export default {
           method: 'PUT',
           body: JSON.stringify(payload),
         });
-        toast('定时任务已更新', 'success');
+        toast(t('message.cronUpdated'), 'success');
       } else {
         await api('/cron-jobs', {
           method: 'POST',
@@ -443,9 +443,9 @@ export default {
   async _runJob(name) {
     try {
       const result = await api(`/cron-jobs/${encodeURIComponent(name)}/run`, { method: 'POST' });
-      toast(`已触发: ${result.task_id || name}`, 'success');
+      toast(t('cron.triggered', { id: result.task_id || name }), 'success');
     } catch (err) {
-      toast(err.message || '执行失败', 'error');
+      toast(err.message || t('cron.runFailed'), 'error');
     }
   },
 
@@ -455,10 +455,10 @@ export default {
         method: 'PATCH',
         body: JSON.stringify({ enabled }),
       });
-      toast(enabled ? '已启用' : '已暂停', 'success');
+      toast(enabled ? t('cron.enabledToast') : t('cron.pausedToast'), 'success');
       this.refresh();
     } catch (err) {
-      toast(err.message || '操作失败', 'error');
+      toast(err.message || t('cron.actionFailed'), 'error');
     }
   },
 };

@@ -8,7 +8,7 @@
                         <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     </div>
                     <input type="text" id="data-search-query" class="w-full pl-10 pr-20 py-2 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-full text-zinc-200 text-sm focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/50 shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all duration-300 placeholder-zinc-600" placeholder="搜索任务名称、游戏名、或数据记录...">
-                    <button class="absolute inset-y-1 right-1 btn-primary px-3 text-xs rounded-full shadow-[0_0_10px_rgba(139,92,246,0.3)] hover:shadow-[0_0_15px_rgba(139,92,246,0.5)]" onclick="searchDataRecords()">Search</button>
+                    <button class="absolute inset-y-1 right-1 btn-primary px-3 text-xs rounded-full shadow-[0_0_10px_rgba(139,92,246,0.3)] hover:shadow-[0_0_15px_rgba(139,92,246,0.5)]" onclick="searchDataRecords()" data-i18n="common.search">搜索</button>
                 </div>
                 <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium rounded-md hover:bg-white/5" onclick="loadDataGames()" id="btn-refresh-data" title="刷新列表">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -16,36 +16,36 @@
             </div>
 
             <div class="data-browser-layout grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start h-[calc(100vh-160px)]">
-                <div class="card data-game-panel h-full flex flex-col mb-0 border-white/5 bg-zinc-900 p-0 overflow-hidden rounded-2xl shadow-2xl">
+                <div class="card data-game-panel h-full flex flex-col mb-0 border-theme-subtle bg-theme-elevated p-0 overflow-hidden rounded-2xl shadow-2xl">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-2">
-                        <h2 class="text-zinc-100 font-bold tracking-tight text-lg uppercase">游戏索引</h2>
+                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase">游戏索引</h2>
                     </div>
                     <div class="card-body overflow-y-auto px-2 pb-2" id="data-games-list">
                         <p class="text-muted px-4">暂无数据</p>
                     </div>
                 </div>
 
-                <div class="card data-record-panel h-full flex flex-col mb-0 border-white/5 bg-zinc-900 p-0 overflow-hidden rounded-2xl shadow-2xl">
+                <div class="card data-record-panel h-full flex flex-col mb-0 border-theme-subtle bg-theme-elevated p-0 overflow-hidden rounded-2xl shadow-2xl">
                     <div class="card-header flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/5 mb-4">
                         <div class="flex-1 min-w-0 pr-4">
-                            <h2 id="data-records-title" class="text-xl font-bold text-white tracking-tight truncate mb-1">选择一个游戏</h2>
+                            <h2 id="data-records-title" class="text-xl font-bold text-theme-primary tracking-tight truncate mb-1">选择一个游戏</h2>
                             <div class="text-[11px] font-mono text-zinc-500 tracking-wide truncate" id="data-selected-summary">按 App ID 或游戏名聚合已落库 JSON</div>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             <select id="data-source-filter" onchange="currentDataSourceFilter=this.value;loadSelectedGameRecords(1)" class="bg-zinc-800 border border-white/10 text-zinc-300 text-xs rounded-md px-2 py-1 h-8 focus:ring-violet-500/40">
                                 <option value="">全部数据源</option>
                             </select>
-                            <button class="btn btn-ghost h-8 px-2 text-xs border border-white/10" onclick="loadDataGroups()">Groups</button>
-                            <button class="btn btn-primary h-8 px-3 text-xs" onclick="useCurrentDataForReport()">用于报告</button>
+                            <button class="btn btn-ghost h-8 px-2 text-xs border border-white/10" onclick="loadDataGroups()" data-i18n="data.groups">分组</button>
+                            <button class="btn btn-primary h-8 px-3 text-xs" onclick="useCurrentDataForReport()" data-i18n="data.useForReport">用于报告</button>
                         </div>
                     </div>
                     <div class="card-body flex flex-col flex-1 overflow-hidden px-6 pb-6 relative">
                         <div id="data-batch-bar" class="batch-action-bar" style="display:none;">
                             <span id="data-batch-count">已选 0 条</span>
-                            <button class="btn btn-primary btn-sm" onclick="batchAddToReport()">加入报告</button>
-                            <button class="btn btn-primary btn-sm" onclick="batchExportSelected()">导出选中</button>
-                            <button class="btn btn-emerald btn-sm" onclick="batchExportXlsx()">导出 XLSX</button>
-                            <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()">删除选中</button>
+                            <button class="btn btn-primary btn-sm" onclick="batchAddToReport()" data-i18n="data.addToReport">加入报告</button>
+                            <button class="btn btn-primary btn-sm" onclick="batchExportSelected()" data-i18n="data.exportSelected">导出选中</button>
+                            <button class="btn btn-emerald btn-sm" onclick="batchExportXlsx()" data-i18n="data.exportXlsx">导出 XLSX</button>
+                            <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()" data-i18n="data.deleteSelected">删除选中</button>
                         </div>
                         
                         <div class="flex justify-end mb-3">
@@ -75,14 +75,14 @@
                         
                         <div class="shrink-0 h-[250px] flex flex-col">
                             <div class="flex items-center justify-between mb-3 px-1">
-                                <h3 class="text-zinc-100 font-bold tracking-tight text-sm uppercase">原始记录预览</h3>
+                                <h3 class="font-bold tracking-tight text-sm uppercase" style="color: var(--text-primary)" data-i18n="data.previewTitle">原始 JSON 预览</h3>
                                 <div class="flex gap-1.5">
                                     <div class="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
                                     <div class="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
                                     <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
                                 </div>
                             </div>
-                            <pre class="terminal-console flex-1 overflow-y-auto data-preview p-4 m-0 border border-white/5 shadow-[inset_0_0_30px_rgba(0,0,0,0.8)]" id="data-preview">选择一条记录后在这里预览</pre>
+                            <pre class="terminal-console flex-1 overflow-y-auto data-preview p-4 m-0 rounded-lg" id="data-preview" data-i18n="data.previewEmpty">选择一条记录后在这里预览</pre>
                         </div>
                     </div>
                 </div>

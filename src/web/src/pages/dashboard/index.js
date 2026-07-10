@@ -6,6 +6,18 @@ let dashboardChart = null;
 let echartsModulePromise = null;
 let dashboardResizeHandler = null;
 
+function chartThemeColors() {
+  const light = document.documentElement.dataset.theme === 'light';
+  return {
+    text: light ? '#64748b' : '#a1a1aa',
+    tooltipBg: light ? '#ffffff' : 'rgba(10,10,10,0.9)',
+    tooltipBorder: light ? '#d0d7e2' : 'rgba(255,255,255,0.1)',
+    tooltipText: light ? '#0f172a' : '#d4d4d8',
+    pieBorder: light ? '#ffffff' : '#050505',
+    emphasisLabel: light ? '#0f172a' : '#e4e4e7',
+  };
+}
+
 function renderTaskActions(task) {
   return `<div class="btn-group">
     <button class="btn btn-sm" onclick="viewTaskDetail('${escapeJs(task.id)}')">${t('common.details')}</button>
@@ -22,12 +34,18 @@ export default {
     this._unsub = store.subscribe((key) => {
       if (key === 'refresh' && store.get('activeTab') === 'dashboard') this.refresh();
     });
+    this._onTheme = () => { if (dashboardChart) this.refresh(); };
+    window.addEventListener('themechange', this._onTheme);
     this.refresh();
     return this;
   },
 
   destroy() {
     if (this._unsub) this._unsub();
+    if (this._onTheme) {
+      window.removeEventListener('themechange', this._onTheme);
+      this._onTheme = null;
+    }
     if (dashboardResizeHandler) {
       window.removeEventListener('resize', dashboardResizeHandler);
       dashboardResizeHandler = null;
@@ -89,25 +107,26 @@ export default {
   _setChartOption(stats) {
     if (!dashboardChart) return;
     const counts = stats.status_counts || {};
+    const theme = chartThemeColors();
     dashboardChart.setOption({
       backgroundColor: 'transparent',
-      tooltip: { 
+      tooltip: {
         trigger: 'item',
-        backgroundColor: 'rgba(10, 10, 10, 0.9)',
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        textStyle: { color: '#d4d4d8' }
+        backgroundColor: theme.tooltipBg,
+        borderColor: theme.tooltipBorder,
+        textStyle: { color: theme.tooltipText },
       },
-      legend: { top: 'bottom', textStyle: { color: '#a1a1aa' } },
+      legend: { top: 'bottom', textStyle: { color: theme.text } },
       series: [{
         name: t('dashboard.taskDistribution'),
         type: 'pie',
         radius: ['70%', '85%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 8, borderColor: '#050505', borderWidth: 3 },
+        itemStyle: { borderRadius: 8, borderColor: theme.pieBorder, borderWidth: 3 },
         label: { show: false, position: 'center' },
-        emphasis: { 
-          label: { show: true, fontSize: 18, fontWeight: 'bold', color: '#e4e4e7' },
-          itemStyle: { shadowBlur: 15, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+        emphasis: {
+          label: { show: true, fontSize: 18, fontWeight: 'bold', color: theme.emphasisLabel },
+          itemStyle: { shadowBlur: 15, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' },
         },
         labelLine: { show: false },
         data: [

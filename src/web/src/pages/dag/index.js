@@ -2,6 +2,7 @@ import 'drawflow/dist/drawflow.min.css';
 import './style.css';
 
 import { api, toast, escapeHtml } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 import { invalidatePipelineCache } from '../../core/pipelines.js';
 import { apiToEditor, editorToApi, defaultPortsForType } from './adapter.js';
 import { validateEditor } from './validate.js';
@@ -26,6 +27,8 @@ let paletteApi = null;
 let savedListApi = null;
 let inspectorApi = null;
 let selection = { kind: null };
+let themeListener = null;
+let languageListener = null;
 
 function getEditor() {
   return editorState;
@@ -39,6 +42,13 @@ function setNameInput(name) {
 function readNameInput() {
   const el = document.getElementById('dag-name-input');
   return (el?.value || '').trim();
+}
+
+function applyDagTheme() {
+  const wrap = document.getElementById('dag-canvas-wrap');
+  if (!wrap) return;
+  const theme = document.documentElement.dataset.theme || 'dark';
+  wrap.dataset.theme = theme;
 }
 
 function refreshInspector() {
@@ -68,12 +78,12 @@ function showValidateBar(result) {
   if (!bar) return;
   if (!result) {
     bar.textContent = '';
-    bar.className = 'text-xs text-zinc-500 mb-2 px-1';
+    bar.className = 'text-xs text-muted mb-2 px-1';
     return;
   }
   if (result.ok) {
     bar.className = 'text-xs mb-2 px-1 is-ok';
-    bar.textContent = '校验通过';
+    bar.textContent = t('dag.validateOk');
     return;
   }
   bar.className = 'text-xs mb-2 px-1 has-errors';
@@ -119,7 +129,7 @@ function loadPayload(name, payload) {
   refreshInspector();
   showValidateBar(null);
   savedListApi?.refresh();
-  toast(`已加载: ${editorState.name}`, 'success');
+  toast(t('dag.loadedToast', { name: editorState.name }), 'success');
 }
 
 function clearGraph() {
@@ -160,17 +170,17 @@ function addNode(type, component) {
 
 async function deleteSaved(name) {
   if (!name) return;
-  if (!window.confirm(`确定删除 DAG「${name}」？将同时移除同名任务 Pipeline 投影。`)) return;
+  if (!window.confirm(t('dag.confirmDelete', { name }))) return;
   try {
     await api(`/dags/${encodeURIComponent(name)}?confirm=true`, { method: 'DELETE' });
     invalidatePipelineCache();
     if (activeName === name) {
       clearGraph();
     }
-    toast(`已删除: ${name}`, 'success');
+    toast(t('dag.deletedToast', { name }), 'success');
     await savedListApi?.refresh();
   } catch (e) {
-    toast(`删除失败: ${e.message || e}`, 'error');
+    toast(t('message.deleteFailed', { error: e.message || e }), 'error');
   }
 }
 
@@ -180,9 +190,9 @@ function runValidate() {
   const result = validateEditor(editorState);
   showValidateBar(result);
   if (result.ok) {
-    toast('校验通过', 'success');
+    toast(t('dag.validateOk'), 'success');
   } else {
-    toast(`校验失败：${result.issues.length} 项问题`, 'error');
+    toast(t('dag.validateFail', { count: result.issues.length }), 'error');
   }
   return result;
 }
@@ -193,14 +203,14 @@ async function saveGraph() {
   const result = validateEditor(editorState);
   showValidateBar(result);
   if (!result.ok) {
-    toast(`保存被拦截：${result.issues.length} 项问题`, 'error');
+    toast(t('dag.saveBlocked', { count: result.issues.length }), 'error');
     return;
   }
 
   const name = editorState.name;
   const saved = savedListApi?.getSaved?.() || {};
   if (saved[name] && name !== activeName) {
-    if (!window.confirm(`DAG「${name}」已存在，确定覆盖？`)) {
+    if (!window.confirm(t('dag.confirmOverwrite', { name }))) {
       return;
     }
   }
@@ -210,10 +220,10 @@ async function saveGraph() {
     await api('/dags', { method: 'POST', body: JSON.stringify(payload) });
     activeName = name;
     invalidatePipelineCache();
-    toast(`DAG 已保存: ${name}（已可在创建任务中选择）`, 'success');
+    toast(t('dag.savedToast', { name }), 'success');
     await savedListApi?.refresh();
   } catch (e) {
-    toast(`保存失败: ${e.message || e}`, 'error');
+    toast(t('dag.saveFail', { error: e.message || e }), 'error');
   }
 }
 
@@ -255,7 +265,7 @@ function bindToolbar(container) {
     canvasApi?.fitView();
   });
   container.querySelector('#btn-dag-clear')?.addEventListener('click', () => {
-    if (editorState.nodes.length && !window.confirm('清空画布？未保存的修改将丢失。')) return;
+    if (editorState.nodes.length && !window.confirm(t('dag.confirmClear'))) return;
     clearGraph();
   });
   container.querySelector('#btn-dag-refresh-list')?.addEventListener('click', () => {
@@ -272,7 +282,7 @@ window.dagRefreshList = async () => {
 window.dagLoadGraph = (name) => {
   const saved = savedListApi?.getSaved?.() || {};
   if (!saved[name]) {
-    toast(`未找到 DAG: ${name}`, 'error');
+    toast(t('dag.notFound', { name }), 'error');
     return;
   }
   loadPayload(name, saved[name]);
@@ -332,6 +342,19 @@ export default {
     });
 
     bindToolbar(container);
+    applyDagTheme();
+    if (!themeListener) {
+      themeListener = () => applyDagTheme();
+      window.addEventListener('themechange', themeListener);
+    }
+    if (!languageListener) {
+      languageListener = () => {
+        refreshInspector();
+        paletteApi?.refresh?.();
+        savedListApi?.refresh?.();
+      };
+      window.addEventListener('languagechange', languageListener);
+    }
     loadCollectorMetaMap().then(() => {
       // refresh node cards with input/output hints once metadata ready
       for (const n of editorState.nodes) {
@@ -346,6 +369,14 @@ export default {
   destroy() {
     canvasApi?.destroy();
     canvasApi = null;
+    if (themeListener) {
+      window.removeEventListener('themechange', themeListener);
+      themeListener = null;
+    }
+    if (languageListener) {
+      window.removeEventListener('languagechange', languageListener);
+      languageListener = null;
+    }
   },
 
   async refresh() {
@@ -357,5 +388,7 @@ export default {
     for (const n of editorState.nodes) {
       canvasApi?.rebuildNodeHtml?.(n.id);
     }
+    refreshInspector();
+    applyDagTheme();
   },
 };

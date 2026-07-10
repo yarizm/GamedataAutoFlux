@@ -66,13 +66,13 @@ function renderReportQuality(quality, compact = false) {
   const missing = Array.isArray(quality.missing_collectors) ? quality.missing_collectors : [];
   const summary = String(quality.quality_summary || risks[0] || '');
   const detail = compact
-    ? (missing.length ? `Missing: ${missing.map(labelCollector).join(' / ')}` : summary)
+    ? (missing.length ? `${t('reports.missing')}: ${missing.map(labelCollector).join(' / ')}` : summary)
     : summary;
-  const action = quality.regeneration_recommended ? 'Regenerate recommended' : '';
+  const action = quality.regeneration_recommended ? t('reports.regenerateRecommended') : '';
   return `
     <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]" title="${escapeHtml(summary)}">
       <span class="inline-flex items-center h-5 px-2 border ${qualityBadgeClass(status)} font-medium">${escapeHtml(label)}</span>
-      ${detail ? `<span class="text-zinc-500 truncate max-w-full">${escapeHtml(detail)}</span>` : ''}
+      ${detail ? `<span class="text-muted truncate max-w-full">${escapeHtml(detail)}</span>` : ''}
       ${action ? `<span class="text-amber-300/90">${escapeHtml(action)}</span>` : ''}
     </div>`;
 }
@@ -141,12 +141,12 @@ export default {
         <div class="report-item group flex flex-col p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative min-w-0 overflow-hidden mb-1 hover:bg-white/5">
           <div class="flex items-center justify-between">
             <button class="flex-1 text-left min-w-0 pr-4 outline-none" data-view="${report.id}">
-              <div class="font-semibold text-zinc-100 text-sm mb-1 truncate tracking-tight group-hover:text-violet-400 transition-colors">${escapeHtml(report.title)}</div>
+              <div class="font-semibold text-theme-primary text-sm mb-1 truncate tracking-tight group-hover:text-violet-400 transition-colors">${escapeHtml(report.title)}</div>
               <div class="text-xs text-zinc-500 truncate mb-0.5 tabular-nums">${formatTime(report.generated_at)} | ${escapeHtml(report.template)} | ${t('reports.records', { count: report.matched_records })}</div>
               ${renderReportQuality(report.quality, true)}
             </button>
             <div class="inline-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
-              <button class="btn btn-ghost px-2 h-7 text-xs border border-white/10" data-edit="${report.id}">编辑</button>
+              <button class="btn btn-ghost px-2 h-7 text-xs border border-theme-strong" data-edit="${report.id}">编辑</button>
               <button class="btn btn-danger px-2 h-7 text-xs" data-delete="${report.id}">删除</button>
             </div>
           </div>
@@ -262,9 +262,9 @@ export default {
     container.innerHTML = `
       <div class="report-precheck-title">${escapeHtml(precheck.message || t('reports.precheckFinished'))}</div>
       <div class="report-precheck-grid">
-        <span>Records</span><strong>${precheck.usable_records || 0}/${precheck.selected_records || 0}</strong>
-        <span>${t('reports.available')}</span><strong>${escapeHtml(availableText)}</strong>
-        <span>${t('reports.missing')}</span><strong>${escapeHtml(missingText)}</strong>
+        <span>${escapeHtml(t('data.records'))}</span><strong>${precheck.usable_records || 0}/${precheck.selected_records || 0}</strong>
+        <span>${escapeHtml(t('reports.available'))}</span><strong>${escapeHtml(availableText)}</strong>
+        <span>${escapeHtml(t('reports.missing'))}</span><strong>${escapeHtml(missingText)}</strong>
       </div>
       ${fillBtns ? `<div class="report-precheck-actions">${fillBtns}</div>` : ''}
       ${recommendations.length ? `<ul>${recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>` : ''}`;
@@ -353,8 +353,8 @@ export default {
   _renderCollectorCheckboxes() {
     const collectorKeys = ['steam', 'taptap', 'gtrends', 'monitor', 'events', 'steam_discussions', 'official_site', 'qimai'];
     const html = collectorKeys.map(val =>
-      `<label class="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg border border-white/5 cursor-pointer hover:bg-zinc-700/50 transition-colors">
-        <input type="checkbox" value="${escapeHtml(val)}" class="w-4 h-4 rounded border-white/10 text-violet-500 focus:ring-violet-500/40 bg-zinc-900">
+      `<label class="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg border border-theme-subtle cursor-pointer hover:bg-zinc-700/50 transition-colors">
+        <input type="checkbox" value="${escapeHtml(val)}" class="w-4 h-4 rounded border-theme-strong text-violet-500 focus:ring-violet-500/40 bg-theme-elevated">
         <span class="text-xs text-zinc-300">${escapeHtml(labelCollector(val))}</span>
       </label>`
     ).join('');

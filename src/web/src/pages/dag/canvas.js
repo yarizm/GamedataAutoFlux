@@ -94,14 +94,44 @@ export function createCanvas(el, handlers = {}) {
   let suppressEvents = false;
   let selectedEdgeKey = null;
 
-  // --- Canvas pan: space+drag / middle-button / empty-area drag (Drawflow native + boost) ---
+  // --- Canvas pan: space+drag / middle-button / empty-area only ---
+  // Must fully own pan events: dual pan with Drawflow causes canvas_x double-count
+  // and nodes appear to jump when left-dragging.
   let spaceHeld = false;
   let panning = false;
   let panLast = { x: 0, y: 0 };
 
+  function applyCanvasTransform() {
+    if (!editor.precanvas) return;
+    editor.precanvas.style.transform =
+      `translate(${editor.canvas_x || 0}px, ${editor.canvas_y || 0}px) scale(${editor.zoom || 1})`;
+  }
+
   function setPanCursor(on) {
     el.classList.toggle('dag-panning', on);
     el.style.cursor = on ? 'grabbing' : (spaceHeld ? 'grab' : '');
+  }
+
+  function stopPanning() {
+    if (!panning) return;
+    panning = false;
+    setPanCursor(false);
+    if (spaceHeld) el.style.cursor = 'grab';
+  }
+
+  /** True only for blank canvas hits — never nodes/ports/connections. */
+  function isEmptyCanvasTarget(target) {
+    if (!target || !el.contains(target)) return false;
+    if (target.closest('.drawflow-node, .input, .output, .connection, .main-path, .point, .drawflow-delete')) {
+      return false;
+    }
+    return (
+      target === el
+      || target === editor.precanvas
+      || target.classList?.contains('parent-drawflow')
+      || target.classList?.contains('drawflow')
+      || target.classList?.contains('parent-node')
+    );
   }
 
   function onKeyDown(ev) {
@@ -123,52 +153,53 @@ export function createCanvas(el, handlers = {}) {
   window.addEventListener('keyup', onKeyUp);
 
   el.addEventListener('mousedown', (ev) => {
-    const onNode = ev.target.closest('.drawflow-node');
-    const onPort = ev.target.closest('.input, .output');
-    const onConn = ev.target.closest('.connection, .main-path, path');
+    // Node / port / connection: never pan; cancel any pan so node drag stays stable
+    const onInteractive = ev.target.closest(
+      '.drawflow-node, .input, .output, .connection, .main-path, .point, .drawflow-delete',
+    );
+    if (onInteractive) {
+      stopPanning();
+      // Prevent Drawflow from also treating this as canvas pan
+      try { editor.editor_selected = false; } catch { /* ignore */ }
+      return;
+    }
+
     const middle = ev.button === 1;
     const spacePan = spaceHeld && ev.button === 0;
-    // empty-area / middle / space pan — do not steal node or port drags
-    const emptyPan = ev.button === 0
-      && !onNode
-      && !onPort
-      && !onConn
-      && (ev.target === el
-        || ev.target.classList?.contains('drawflow')
-        || ev.target.classList?.contains('parent-drawflow')
-        || ev.target === editor.precanvas
-        || ev.target.closest?.('#drawflow'));
-    if (middle || spacePan || emptyPan) {
-      panning = true;
-      panLast = { x: ev.clientX, y: ev.clientY };
-      setPanCursor(true);
-      // prevent Drawflow from starting a selection box that feels stiff
-      ev.preventDefault();
-      if (middle || spacePan) {
-        ev.stopPropagation();
-      }
-    }
+    const emptyPan = ev.button === 0 && isEmptyCanvasTarget(ev.target);
+    if (!(middle || spacePan || emptyPan)) return;
+
+    panning = true;
+    panLast = { x: ev.clientX, y: ev.clientY };
+    // Kill Drawflow's own canvas drag so canvas_x is not applied twice on mouseup
+    try {
+      editor.editor_selected = false;
+      editor.drag = false;
+    } catch { /* ignore */ }
+    setPanCursor(true);
+    ev.preventDefault();
+    ev.stopPropagation();
   }, true);
 
   window.addEventListener('mousemove', (ev) => {
     if (!panning) return;
+    // If Drawflow started a node drag somehow, yield immediately
+    if (editor.drag) {
+      stopPanning();
+      return;
+    }
     const dx = ev.clientX - panLast.x;
     const dy = ev.clientY - panLast.y;
+    if (dx === 0 && dy === 0) return;
     panLast = { x: ev.clientX, y: ev.clientY };
     editor.canvas_x = (editor.canvas_x || 0) + dx;
     editor.canvas_y = (editor.canvas_y || 0) + dy;
-    editor.precanvas.style.transform =
-      `translate(${editor.canvas_x}px, ${editor.canvas_y}px) scale(${editor.zoom})`;
+    applyCanvasTransform();
     ev.preventDefault();
   });
 
   window.addEventListener('mouseup', () => {
-    if (!panning) return;
-    panning = false;
-    setPanCursor(false);
-    if (spaceHeld) {
-      el.style.cursor = 'grab';
-    }
+    stopPanning();
   });
 
   // Wheel zoom toward cursor (Drawflow has wheel zoom; ensure enabled)
@@ -246,10 +277,20 @@ export function createCanvas(el, handlers = {}) {
       const dfId = mapBizId(n.id);
       if (dfId == null) continue;
       try {
-        const info = editor.getNodeFromId(dfId);
-        if (info) {
-          n.x = typeof info.pos_x === 'number' ? info.pos_x : n.x;
-          n.y = typeof info.pos_y === 'number' ? info.pos_y : n.y;
+        const nodeEl = el.querySelector(`#node-${dfId}`);
+        let x = nodeEl ? parseFloat(nodeEl.style.left) : NaN;
+        let y = nodeEl ? parseFloat(nodeEl.style.top) : NaN;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          const info = editor.getNodeFromId(dfId);
+          x = typeof info?.pos_x === 'number' ? info.pos_x : n.x;
+          y = typeof info?.pos_y === 'number' ? info.pos_y : n.y;
+        }
+        if (Number.isFinite(x)) n.x = x;
+        if (Number.isFinite(y)) n.y = y;
+        const home = editor.drawflow?.drawflow?.[editor.module]?.data;
+        if (home?.[dfId] && Number.isFinite(x) && Number.isFinite(y)) {
+          home[dfId].pos_x = x;
+          home[dfId].pos_y = y;
         }
       } catch {
         /* node may have been removed */
@@ -486,11 +527,32 @@ export function createCanvas(el, handlers = {}) {
     const ed = handlers.getEditor?.();
     if (!bizId || !ed) return;
     try {
-      const info = editor.getNodeFromId(dfId);
-      const node = ed.nodes.find((n) => n.id === bizId);
-      if (node && info) {
-        node.x = info.pos_x;
-        node.y = info.pos_y;
+      // Prefer DOM left/top: Drawflow sometimes writes pos_x/pos_y with a
+      // double-subtract against offsetLeft after style update (visible jump /
+      // wrong save position under zoom/pan).
+      const nodeEl = el.querySelector(`#node-${dfId}`);
+      let x;
+      let y;
+      if (nodeEl) {
+        x = parseFloat(nodeEl.style.left);
+        y = parseFloat(nodeEl.style.top);
+      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        const info = editor.getNodeFromId(dfId);
+        x = info?.pos_x;
+        y = info?.pos_y;
+      }
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        const home = editor.drawflow?.drawflow?.[editor.module]?.data;
+        if (home?.[dfId]) {
+          home[dfId].pos_x = x;
+          home[dfId].pos_y = y;
+        }
+        const node = ed.nodes.find((n) => n.id === bizId);
+        if (node) {
+          node.x = x;
+          node.y = y;
+        }
       }
     } catch {
       /* ignore */

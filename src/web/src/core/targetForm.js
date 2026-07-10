@@ -3,6 +3,8 @@
  * Field element IDs use a prefix: task-* or cron-*.
  */
 
+import { t } from './i18n.js';
+
 export const COLLECTOR_FIELD_KEYS = [
   'steam',
   'steam_discussions',
@@ -59,13 +61,13 @@ export function updateTargetFieldPanels(prefix, collector) {
     helper.textContent =
       COLLECTOR_TIPS[collector]
       || (collector
-        ? `当前采集器: ${collector}。请填写下方字段，或使用高级 JSON 覆盖。`
-        : '请先选择 Pipeline，将显示对应采集参数。');
+        ? t('cron.collectorActive', { collector })
+        : t('cron.targetHelper'));
   }
 
   const badge = document.getElementById(`${prefix}-collector-badge`);
   if (badge) {
-    badge.textContent = collector ? `采集器: ${collector}` : '采集器: —';
+    badge.textContent = t('cron.collectorBadge', { name: collector || '—' });
   }
 }
 
