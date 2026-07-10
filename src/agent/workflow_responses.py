@@ -6,6 +6,7 @@ from typing import Any
 
 from src.agent.workflow_result_cards import (
     build_pipeline_result_card,
+    build_readiness_result_card,
     build_report_result_card,
     build_task_review_result_card,
 )
@@ -32,6 +33,29 @@ def build_pipeline_response_with_card(
 ) -> tuple[str, dict[str, Any] | None]:
     text = _build_pipeline_response(state)
     return text, build_pipeline_result_card(state)
+
+
+def build_readiness_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_readiness_response(state)
+    return text, build_readiness_result_card(state)
+
+
+def _build_readiness_response(state: AgentWorkflowState) -> str:
+    card = build_readiness_result_card(state)
+    lines = [card.get("title") or "系统就绪", card.get("summary") or ""]
+    payload = card.get("payload") or {}
+    blocking = payload.get("blocking") or []
+    warnings = payload.get("warnings") or []
+    if blocking:
+        lines.append("阻塞项：")
+        lines.extend(f"- {item}" for item in blocking[:6])
+    if warnings:
+        lines.append("关注项：")
+        lines.extend(f"- {item}" for item in warnings[:6])
+    lines.append("如需深度探测，请到「系统检查」页手动开启。")
+    return "\n".join(line for line in lines if line)
 
 
 def _build_report_response(state: AgentWorkflowState) -> str:

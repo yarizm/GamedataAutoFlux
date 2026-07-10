@@ -129,6 +129,12 @@ def _workflow_state(route: WorkflowRoute, **updates: Any) -> dict[str, Any]:
         "report_precheck": None,
         "generated_report": None,
         "dynamic_pipeline_result": None,
+        "result_card": None,
+        "workflow_collector_id": "",
+        "workflow_readiness_scope": "system",
+        "workflow_readiness_note": "",
+        "readiness_config": None,
+        "readiness_session": None,
     }
     state.update(updates)
     return state
@@ -172,6 +178,33 @@ def _match_task_review_workflow(user_text: str) -> dict[str, Any] | None:
     )
 
 
+def _match_readiness_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match system/collector readiness intent.
+
+    Does not steal report/task_review (task_id + their intents) or pipeline
+    (URL + collect intent). Deep probe is never implied by this match.
+    """
+    if not _looks_like_readiness_request(user_text):
+        return None
+    task_id = _extract_task_id(user_text)
+    if task_id and (
+        _looks_like_report_request(user_text) or _looks_like_task_review_request(user_text)
+    ):
+        return None
+    if _extract_first_url(user_text) and _looks_like_pipeline_request(user_text):
+        return None
+
+    collector_id, note = _extract_collector_alias(user_text)
+    scope: Literal["collector", "system"] = "collector" if collector_id else "system"
+    return _workflow_state(
+        "readiness_workflow",
+        workflow_collector_id=collector_id or "",
+        workflow_readiness_scope=scope,
+        workflow_readiness_note=note or "",
+        workflow_prompt=user_text,
+    )
+
+
 def _match_pipeline_workflow(user_text: str) -> dict[str, Any] | None:
     """Match dynamic pipeline when URL is present **and** collect/pipeline intent.
 
@@ -210,6 +243,73 @@ def _looks_like_pipeline_request(text: str) -> bool:
     if any(keyword in lowered for keyword in _PIPELINE_KEYWORDS):
         return True
     return any(keyword in lowered for keyword in _COLLECT_INTENT_KEYWORDS)
+
+
+_READINESS_KEYWORDS = (
+    "readiness",
+    "ready to collect",
+    "can i collect",
+    "can we collect",
+    "login status",
+    "system check",
+    "session check",
+    "就绪",
+    "能不能采",
+    "可否采集",
+    "能否采集",
+    "可以采吗",
+    "能采吗",
+    "登录了吗",
+    "登录态",
+    "系统检查",
+    "检查环境",
+    "环境诊断",
+    "采集准备",
+    "检查是否就绪",
+    "是否就绪",
+)
+
+_COLLECTOR_ALIASES: tuple[tuple[str, str], ...] = (
+    ("steam_discussions", "steam_discussions"),
+    ("steam discussions", "steam_discussions"),
+    ("youtube_comments", "youtube_comments"),
+    ("youtube comments", "youtube_comments"),
+    ("youtube_profiles", "youtube_profiles"),
+    ("official_site", "official_site"),
+    ("steamdb", "steam"),
+    ("steam", "steam"),
+    ("蒸汽", "steam"),
+    ("七麦", "qimai"),
+    ("qimai", "qimai"),
+    ("taptap", "taptap"),
+    ("youtube", "youtube_profiles"),
+    ("官网", "official_site"),
+    ("official", "official_site"),
+    ("讨论", "steam_discussions"),
+    ("discussions", "steam_discussions"),
+    ("gtrends", "gtrends"),
+    ("google trends", "gtrends"),
+    ("trends", "gtrends"),
+    ("趋势", "gtrends"),
+    ("monitor", "monitor"),
+    ("监控", "monitor"),
+)
+
+
+def _looks_like_readiness_request(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(keyword in lowered for keyword in _READINESS_KEYWORDS)
+
+
+def _extract_collector_alias(text: str) -> tuple[str, str]:
+    """Return (collector_id, note)."""
+    lowered = str(text or "").lower()
+    if "youtube" in lowered and ("评论" in lowered or "comment" in lowered):
+        return "youtube_comments", ""
+    for alias, collector_id in _COLLECTOR_ALIASES:
+        if alias in lowered:
+            return collector_id, ""
+    return "", ""
 
 
 def _workflow_action(text: str) -> Literal["precheck", "generate"]:

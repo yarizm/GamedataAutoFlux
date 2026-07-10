@@ -22,6 +22,7 @@ from src.agent.workflow_graphs import (
 )
 from src.agent.workflow_matchers import (
     _match_pipeline_workflow,
+    _match_readiness_workflow,
     _match_report_workflow,
     _match_task_review_workflow,
     _workflow_state,
@@ -37,15 +38,19 @@ from src.agent.workflow_routing import (
     task_review_detail_branch,
 )
 from src.agent.workflow_runtime_nodes import (
+    check_readiness_config_node,
+    check_readiness_session_node,
     create_dynamic_pipeline_node,
     generate_report_node,
     load_task_detail_node,
     precheck_report_node,
     prepare_dynamic_pipeline_node,
+    resolve_readiness_target_node,
     review_collection_results_node,
 )
 from src.agent.workflow_responses import (
     build_pipeline_response_with_card,
+    build_readiness_response_with_card,
     build_report_response_with_card,
     build_task_review_response_with_card,
 )
@@ -64,6 +69,7 @@ def _workflow_graph_definitions() -> tuple[WorkflowGraphDefinition, ...]:
         match_report_workflow=_match_report_workflow,
         match_task_review_workflow=_match_task_review_workflow,
         match_pipeline_workflow=_match_pipeline_workflow,
+        match_readiness_workflow=_match_readiness_workflow,
         load_task_detail_handler=_load_task_detail,
         review_collection_results_handler=_review_collection_results,
         precheck_report_handler=_precheck_report,
@@ -73,6 +79,10 @@ def _workflow_graph_definitions() -> tuple[WorkflowGraphDefinition, ...]:
         compose_report_response_handler=_compose_report_response,
         compose_task_review_response_handler=_compose_task_review_response,
         compose_pipeline_response_handler=_compose_pipeline_response,
+        resolve_readiness_target_handler=_resolve_readiness_target,
+        check_readiness_config_handler=_check_readiness_config,
+        check_readiness_session_handler=_check_readiness_session,
+        compose_readiness_response_handler=_compose_readiness_response,
         report_task_detail_branch=_report_task_detail_branch,
         task_review_detail_branch=_task_review_detail_branch,
         review_branch=_review_branch,
@@ -252,6 +262,26 @@ def _compose_task_review_response(state: AgentWorkflowState) -> dict[str, Any]:
 
 def _compose_pipeline_response(state: AgentWorkflowState) -> dict[str, Any]:
     text, card = build_pipeline_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out
+
+
+def _resolve_readiness_target(state: AgentWorkflowState) -> dict[str, Any]:
+    return resolve_readiness_target_node(state)
+
+
+def _check_readiness_config(state: AgentWorkflowState) -> dict[str, Any]:
+    return check_readiness_config_node(state)
+
+
+def _check_readiness_session(state: AgentWorkflowState) -> dict[str, Any]:
+    return check_readiness_session_node(state)
+
+
+def _compose_readiness_response(state: AgentWorkflowState) -> dict[str, Any]:
+    text, card = build_readiness_response_with_card(state)
     out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
     if card is not None:
         out["result_card"] = card

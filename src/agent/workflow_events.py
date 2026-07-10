@@ -64,6 +64,18 @@ WORKFLOW_META: dict[str, WorkflowMeta] = {
             {"id": "respond", "label": "汇总"},
         ),
     ),
+    "readiness_workflow": WorkflowMeta(
+        workflow_id="readiness_workflow",
+        label="系统就绪",
+        entry_node="resolve_readiness_target",
+        compose_node="compose_readiness_response",
+        steps=(
+            {"id": "resolve_target", "label": "识别目标"},
+            {"id": "check_config", "label": "配置检查"},
+            {"id": "check_session", "label": "会话/登录态"},
+            {"id": "respond", "label": "汇总"},
+        ),
+    ),
 }
 
 ENTRY_NODE_TO_WORKFLOW: dict[str, str] = {

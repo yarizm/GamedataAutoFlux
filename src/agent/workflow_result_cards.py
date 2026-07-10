@@ -231,6 +231,123 @@ def build_pipeline_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def build_readiness_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Build result_card for readiness_workflow."""
+    scope = str(state.get("workflow_readiness_scope") or "system").strip().lower()
+    collector_id = str(state.get("workflow_collector_id") or "").strip()
+    config = state.get("readiness_config") or {}
+    session = state.get("readiness_session") or {}
+    note = str(state.get("workflow_readiness_note") or "").strip()
+
+    checks: list[dict[str, Any]] = []
+    if isinstance(config.get("checks"), list):
+        checks.extend([c for c in config["checks"] if isinstance(c, dict)])
+    if isinstance(session.get("checks"), list):
+        checks.extend([c for c in session["checks"] if isinstance(c, dict)])
+
+    health = _merge_health_statuses(
+        str(config.get("status") or ""),
+        str(session.get("status") or ""),
+        checks=checks,
+    )
+    blocking = _collect_check_messages(checks, levels=("error",))
+    warnings = _collect_check_messages(checks, levels=("warning", "warn"))
+
+    if scope == "collector" and collector_id:
+        title = f"{collector_id} 采集就绪"
+        if health == "ok":
+            summary = f"采集器 `{collector_id}` 配置与会话检查通过，可尝试提交采集任务。"
+        elif health == "warning":
+            summary = f"采集器 `{collector_id}` 可运行但存在需关注项（共 {len(warnings)} 条）。"
+        else:
+            summary = f"采集器 `{collector_id}` 当前存在阻塞问题（共 {len(blocking)} 条），不建议直接采集。"
+    else:
+        title = "系统就绪摘要"
+        if health == "ok":
+            summary = "系统配置与会话敏感采集源检查通过。"
+        elif health == "warning":
+            summary = f"系统总体可用，但有 {len(warnings)} 项需关注。"
+        else:
+            summary = f"系统检查发现 {len(blocking)} 项阻塞问题。"
+
+    if note:
+        summary = f"{summary} {note}"
+
+    summary += " 深度探测不会在此自动执行；如需 live probe 请到「系统检查」页开启。"
+
+    actions = [
+        _navigate_action("open_system", "系统检查", "system"),
+    ]
+    if blocking:
+        actions.append(
+            {
+                "id": "copy_blocking",
+                "label": "复制阻塞项",
+                "kind": "copy",
+                "payload": {"text": "\n".join(blocking[:8])},
+            }
+        )
+
+    slim_checks = []
+    for c in checks[:12]:
+        slim_checks.append(
+            {
+                "id": c.get("id") or c.get("name") or "",
+                "status": c.get("status") or "",
+                "message": c.get("message") or c.get("summary") or "",
+            }
+        )
+
+    return result_card_event(
+        "readiness",
+        title,
+        summary,
+        actions=actions,
+        payload=_compact_payload(
+            {
+                "scope": scope if scope in ("collector", "system") else "system",
+                "collector_id": collector_id or None,
+                "health": health,
+                "blocking": blocking[:12],
+                "warnings": warnings[:12],
+                "checks": slim_checks,
+            }
+        ),
+    )
+
+
+def _merge_health_statuses(
+    *statuses: str,
+    checks: list[dict[str, Any]] | None = None,
+) -> str:
+    levels = {str(s).lower() for s in statuses if s}
+    if checks:
+        for c in checks:
+            levels.add(str(c.get("status") or "").lower())
+    if "error" in levels or "failed" in levels:
+        return "error"
+    if "warning" in levels or "warn" in levels:
+        return "warning"
+    return "ok"
+
+
+def _collect_check_messages(
+    checks: list[dict[str, Any]],
+    *,
+    levels: tuple[str, ...],
+) -> list[str]:
+    want = {x.lower() for x in levels}
+    out: list[str] = []
+    for c in checks:
+        st = str(c.get("status") or "").lower()
+        if st not in want:
+            continue
+        msg = str(c.get("message") or c.get("summary") or "").strip()
+        if msg:
+            out.append(msg)
+    return out
+
+
 def _navigate_action(action_id: str, label: str, href: str) -> dict[str, Any]:
     return {
         "id": action_id,

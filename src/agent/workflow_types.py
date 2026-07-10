@@ -13,6 +13,7 @@ WorkflowRoute = Literal[
     "report_workflow",
     "task_review_workflow",
     "pipeline_workflow",
+    "readiness_workflow",
 ]
 WorkflowAction = Literal["precheck", "generate", "review", "retry", "pipeline"]
 
@@ -36,6 +37,11 @@ class AgentWorkflowState(TypedDict, total=False):
     generated_report: dict[str, Any] | None
     dynamic_pipeline_result: dict[str, Any] | None
     result_card: dict[str, Any] | None
+    workflow_collector_id: str
+    workflow_readiness_scope: str  # collector | system
+    workflow_readiness_note: str
+    readiness_config: dict[str, Any] | None
+    readiness_session: dict[str, Any] | None
 
 
 @dataclass(frozen=True)

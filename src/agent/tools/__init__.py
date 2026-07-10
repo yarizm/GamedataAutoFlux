@@ -26,7 +26,13 @@ from .identifiers import (
     SearchGameIdentifiersTool,
     VerifyGameIdentifierTool,
 )
-from .system import GetAgentStatusTool, GetSystemStatsTool, LaunchSteamDBBrowserTool
+from .system import (
+    CheckCollectorReadinessTool,
+    CheckSystemReadinessTool,
+    GetAgentStatusTool,
+    GetSystemStatsTool,
+    LaunchSteamDBBrowserTool,
+)
 from .semantic_search import SemanticSearchTool
 
 ALL_TOOLS: list[BaseTool] = [
@@ -53,6 +59,8 @@ ALL_TOOLS: list[BaseTool] = [
     GetReportContentTool(),
     GetSystemStatsTool(),
     GetAgentStatusTool(),
+    CheckSystemReadinessTool(),
+    CheckCollectorReadinessTool(),
     SearchGameIdentifiersTool(),
     VerifyGameIdentifierTool(),
     ReviewCollectionResultsTool(),

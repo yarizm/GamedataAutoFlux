@@ -123,11 +123,19 @@ def _conditional_edge(
     return WorkflowConditionalEdgeDefinition(source=source, branch=branch, targets=targets)
 
 
+def _build_readiness_session_args(state: AgentWorkflowState) -> dict[str, Any]:
+    return {
+        "collector_id": str(state.get("workflow_collector_id") or "").strip(),
+        "scope": str(state.get("workflow_readiness_scope") or "system").strip(),
+    }
+
+
 def build_workflow_graph_definitions(
     *,
     match_report_workflow: Callable[[str], dict[str, Any] | None],
     match_task_review_workflow: Callable[[str], dict[str, Any] | None],
     match_pipeline_workflow: Callable[[str], dict[str, Any] | None],
+    match_readiness_workflow: Callable[[str], dict[str, Any] | None] | None = None,
     load_task_detail_handler: Any,
     review_collection_results_handler: Any,
     precheck_report_handler: Any,
@@ -137,13 +145,17 @@ def build_workflow_graph_definitions(
     compose_report_response_handler: Any,
     compose_task_review_response_handler: Any,
     compose_pipeline_response_handler: Any,
+    resolve_readiness_target_handler: Any | None = None,
+    check_readiness_config_handler: Any | None = None,
+    check_readiness_session_handler: Any | None = None,
+    compose_readiness_response_handler: Any | None = None,
     report_task_detail_branch: Callable[[AgentWorkflowState], str],
     task_review_detail_branch: Callable[[AgentWorkflowState], str],
     review_branch: Callable[[AgentWorkflowState], str],
     precheck_branch: Callable[[AgentWorkflowState], str],
     pipeline_prepare_branch: Callable[[AgentWorkflowState], str],
 ) -> tuple[WorkflowGraphDefinition, ...]:
-    return (
+    definitions: list[WorkflowGraphDefinition] = [
         WorkflowGraphDefinition(
             route="report_workflow",
             entry_node="load_task_detail_report",
@@ -273,7 +285,71 @@ def build_workflow_graph_definitions(
                 ("compose_pipeline_response", END),
             ),
         ),
-    )
+    ]
+
+    if (
+        match_readiness_workflow is not None
+        and resolve_readiness_target_handler is not None
+        and check_readiness_config_handler is not None
+        and check_readiness_session_handler is not None
+        and compose_readiness_response_handler is not None
+    ):
+        definitions.append(
+            WorkflowGraphDefinition(
+                route="readiness_workflow",
+                entry_node="resolve_readiness_target",
+                resolve=match_readiness_workflow,
+                nodes=(
+                    _workflow_node(
+                        "resolve_readiness_target",
+                        resolve_readiness_target_handler,
+                        bridge=_tool_bridge(
+                            "resolve_readiness_target",
+                            lambda state: {
+                                "collector_id": str(state.get("workflow_collector_id") or ""),
+                                "scope": str(state.get("workflow_readiness_scope") or "system"),
+                            },
+                            step_id="resolve_target",
+                            step_label="识别目标",
+                        ),
+                    ),
+                    _workflow_node(
+                        "check_readiness_config",
+                        check_readiness_config_handler,
+                        bridge=_tool_bridge(
+                            "check_system_readiness",
+                            lambda state: {},
+                            output_state_key="readiness_config",
+                            step_id="check_config",
+                            step_label="配置检查",
+                        ),
+                    ),
+                    _workflow_node(
+                        "check_readiness_session",
+                        check_readiness_session_handler,
+                        bridge=_tool_bridge(
+                            "check_collector_readiness",
+                            _build_readiness_session_args,
+                            output_state_key="readiness_session",
+                            step_id="check_session",
+                            step_label="会话/登录态",
+                        ),
+                    ),
+                    _response_node(
+                        "compose_readiness_response",
+                        compose_readiness_response_handler,
+                    ),
+                ),
+                edges=(
+                    ("resolve_readiness_target", "check_readiness_config"),
+                    ("check_readiness_config", "check_readiness_session"),
+                    ("check_readiness_session", "compose_readiness_response"),
+                    ("compose_readiness_response", END),
+                ),
+            )
+        )
+
+    return tuple(definitions)
 
 
 def workflow_entry_nodes(

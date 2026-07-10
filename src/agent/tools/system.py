@@ -60,6 +60,73 @@ class GetAgentStatusTool(BaseTool):
         raise NotImplementedError("Use _arun")
 
 
+class CheckSystemReadinessTool(BaseTool):
+    name: str = "check_system_readiness"
+    description: str = (
+        "检查系统级采集就绪状态（配置与依赖、会话敏感采集源摘要）。"
+        "不会执行 deep probe / 外网探测。用户问系统能不能采、环境是否就绪时使用。"
+    )
+
+    async def _arun(self) -> str:
+        from src.core.diagnostics import (
+            build_config_diagnostics,
+            build_session_diagnostics_overview,
+        )
+
+        try:
+            config = build_config_diagnostics()
+            sessions = build_session_diagnostics_overview()
+            status = "ok"
+            for part in (config, sessions):
+                st = str(part.get("status") or "").lower()
+                if st == "error":
+                    status = "error"
+                elif st == "warning" and status == "ok":
+                    status = "warning"
+            return _format_result(
+                status,
+                f"系统就绪检查完成，状态={status}（未执行深度探测）",
+                {"config": config, "sessions": sessions},
+                suggestion="如需 live 深度探测，请到系统检查页开启 Deep Probe。",
+                max_data_length=8000,
+            )
+        except Exception as e:
+            return _format_result("error", f"系统就绪检查失败: {_safe_error_text(e)}")
+
+    def _run(self) -> str:
+        raise NotImplementedError("Use _arun")
+
+
+class CheckCollectorReadinessTool(BaseTool):
+    name: str = "check_collector_readiness"
+    description: str = (
+        "检查单个采集器（如 qimai/steam/youtube）的本地会话与相关配置是否就绪。"
+        "不会执行 deep probe。用户问某个数据源能不能采、是否已登录时使用。"
+    )
+
+    async def _arun(self, collector_id: str = "") -> str:
+        from src.core.diagnostics import build_collector_session_diagnostics
+
+        cid = str(collector_id or "").strip()
+        if not cid:
+            return _format_result("error", "collector_id 不能为空")
+        try:
+            payload = build_collector_session_diagnostics(cid)
+            status = str(payload.get("status") or "ok")
+            return _format_result(
+                status if status in ("ok", "warning", "error") else "ok",
+                f"采集器 {cid} 就绪检查完成，状态={status}",
+                payload,
+                suggestion="若状态为 error，请根据 checks 修复登录态或配置；深度探测请到系统检查页。",
+                max_data_length=8000,
+            )
+        except Exception as e:
+            return _format_result("error", f"采集器就绪检查失败: {_safe_error_text(e)}")
+
+    def _run(self, collector_id: str = "") -> str:
+        raise NotImplementedError("Use _arun")
+
+
 class LaunchSteamDBBrowserTool(BaseTool):
     name: str = "launch_steamdb_browser"
     description: str = "一键启动用于 SteamDB 采集的浏览器，并开放 CDP 端口。系统检查报错找不到 SteamDB 浏览器时，可以通过此工具自动打开。"

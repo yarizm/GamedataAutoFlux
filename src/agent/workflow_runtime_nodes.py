@@ -22,6 +22,64 @@ from src.agent.workflow_types import AgentWorkflowState
 ToolInvoker = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
+def resolve_readiness_target_node(state: AgentWorkflowState) -> dict[str, Any]:
+    """Normalize readiness scope / collector id from matcher state."""
+    scope = str(state.get("workflow_readiness_scope") or "system").strip().lower()
+    collector_id = str(state.get("workflow_collector_id") or "").strip()
+    if collector_id and scope != "collector":
+        scope = "collector"
+    if not collector_id:
+        scope = "system"
+    return {
+        "workflow_readiness_scope": scope,
+        "workflow_collector_id": collector_id,
+    }
+
+
+def check_readiness_config_node(state: AgentWorkflowState) -> dict[str, Any]:
+    """Run config diagnostics (no deep probe)."""
+    from src.core.diagnostics import build_config_diagnostics
+
+    try:
+        payload = build_config_diagnostics()
+        return {"readiness_config": {"status": "ok", **payload}}
+    except Exception as exc:
+        return {
+            "readiness_config": {
+                "status": "error",
+                "summary": f"配置检查失败: {exc}",
+                "checks": [],
+                "error": str(exc),
+            }
+        }
+
+
+def check_readiness_session_node(state: AgentWorkflowState) -> dict[str, Any]:
+    """Run session diagnostics for one collector or session-sensitive overview."""
+    from src.core.diagnostics import (
+        build_collector_session_diagnostics,
+        build_session_diagnostics_overview,
+    )
+
+    scope = str(state.get("workflow_readiness_scope") or "system").strip().lower()
+    collector_id = str(state.get("workflow_collector_id") or "").strip()
+    try:
+        if scope == "collector" and collector_id:
+            payload = build_collector_session_diagnostics(collector_id)
+            return {"readiness_session": {"status": payload.get("status") or "ok", **payload}}
+        payload = build_session_diagnostics_overview()
+        return {"readiness_session": {"status": payload.get("status") or "ok", **payload}}
+    except Exception as exc:
+        return {
+            "readiness_session": {
+                "status": "error",
+                "summary": f"会话检查失败: {exc}",
+                "checks": [],
+                "error": str(exc),
+            }
+        }
+
+
 async def load_task_detail_node(
     state: AgentWorkflowState,
     *,

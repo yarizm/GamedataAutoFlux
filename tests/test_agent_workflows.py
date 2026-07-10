@@ -71,6 +71,7 @@ def test_workflow_entry_nodes_cover_all_known_routes() -> None:
         "report_workflow": "load_task_detail_report",
         "task_review_workflow": "load_task_detail_task_review",
         "pipeline_workflow": "prepare_dynamic_pipeline",
+        "readiness_workflow": "resolve_readiness_target",
     }
 
 
