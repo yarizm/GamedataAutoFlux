@@ -140,8 +140,6 @@ class DAGExecutor:
 
         # 用 pipeline 标准恢复上下文（含 collect 键），节点直接消费
         recovery_context = build_pipeline_recovery_context(task, recovery_checkpoint)
-        # 已完成的 collector 目标数（用于跳过已采目标）；node 级完成仅内部用
-        collect_ctx = recovery_context.get("collect", {}) if recovery_context else {}
 
         # 每次执行重置实例状态，避免跨调用泄漏
         self._port_table = {}
