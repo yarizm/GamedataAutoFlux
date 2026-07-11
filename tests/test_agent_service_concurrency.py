@@ -25,10 +25,24 @@ def force_runtime_backend(monkeypatch, backend: str) -> None:
 
 
 def disable_runtime_mcp(monkeypatch) -> None:
+    """Disable Playwright MCP and allow LLM client init without real API keys.
+
+    CI has no secrets; unit tests only need a non-empty key so ChatOpenAI
+    construction succeeds. Workflow tests never call the live LLM.
+    """
+
     def fake_runtime_get_config(key, default=None):
         if key == "agent.playwright_mcp.enabled":
             return False
-        return base_get_config(key, default)
+        value = base_get_config(key, default)
+        if (
+            isinstance(key, str)
+            and key.startswith("llm.")
+            and key.endswith(".api_key")
+            and not str(value or "").strip()
+        ):
+            return "ci-test-dummy-key"
+        return value
 
     monkeypatch.setattr("src.agent.runtime.get_config", fake_runtime_get_config)
 
