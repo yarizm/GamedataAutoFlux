@@ -64,6 +64,8 @@ def test_route_request_uses_last_user_message() -> None:
 
 
 def test_workflow_entry_nodes_cover_all_known_routes() -> None:
+    _workflow_entry_nodes.cache_clear()
+    _workflow_graph_definitions.cache_clear()
     entry_nodes = _workflow_entry_nodes()
 
     assert entry_nodes == {
@@ -72,6 +74,8 @@ def test_workflow_entry_nodes_cover_all_known_routes() -> None:
         "task_review_workflow": "load_task_detail_task_review",
         "pipeline_workflow": "prepare_dynamic_pipeline",
         "readiness_workflow": "resolve_readiness_target",
+        "cron_workflow": "resolve_cron_intent",
+        "multisource_workflow": "resolve_multisource_intent",
     }
 
 

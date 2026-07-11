@@ -135,6 +135,19 @@ def _workflow_state(route: WorkflowRoute, **updates: Any) -> dict[str, Any]:
         "workflow_readiness_note": "",
         "readiness_config": None,
         "readiness_session": None,
+        "workflow_cron_action": "",
+        "workflow_cron_name": "",
+        "workflow_cron_expr": "",
+        "workflow_cron_timezone": "",
+        "workflow_cron_confirm": False,
+        "workflow_cron_schedule_meta": None,
+        "cron_draft": None,
+        "cron_result": None,
+        "workflow_multisource_game": "",
+        "workflow_multisource_collectors": [],
+        "workflow_multisource_confirm": False,
+        "multisource_draft": None,
+        "multisource_result": None,
     }
     state.update(updates)
     return state
@@ -224,6 +237,265 @@ def _match_pipeline_workflow(user_text: str) -> dict[str, Any] | None:
         workflow_wait_strategy_type=str(prepared["wait_strategy_type"]),
         workflow_wait_strategy_selector=prepared["wait_strategy_selector"],
         workflow_js_script=str(prepared["js_script"]),
+    )
+
+
+def _match_cron_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match cron list / create / delete intents (P3).
+
+    Fail-closed: bare schedule words without cron-domain or list/delete signals
+    do not match. Create executes only when confirm language is present
+    (enforced later in apply node); matcher still routes draft creates.
+    """
+    from src.agent.workflow_cron_parse import (
+        extract_job_name,
+        extract_pipeline_name,
+        extract_timezone,
+        parse_schedule,
+    )
+
+    text = str(user_text or "").strip()
+    if not text:
+        return None
+
+    # Do not steal report / review / pipeline / readiness primary signals
+    if _extract_task_id(text) and (
+        _looks_like_report_request(text) or _looks_like_task_review_request(text)
+    ):
+        return None
+    if _extract_first_url(text) and _looks_like_pipeline_request(text):
+        return None
+    if _looks_like_readiness_request(text) and not _looks_like_cron_domain(text):
+        return None
+
+    action = _cron_action(text)
+    if action is None:
+        return None
+
+    pipeline_name = extract_pipeline_name(text) if action in {"create", "delete"} else ""
+    schedule = parse_schedule(text) if action == "create" else {
+        "cron_expr": "",
+        "schedule_meta": {},
+        "timezone": extract_timezone(text),
+        "issues": [],
+    }
+    cron_expr = str(schedule.get("cron_expr") or "")
+    job_name = ""
+    if action in {"create", "delete"}:
+        job_name = extract_job_name(
+            text,
+            pipeline_name=pipeline_name,
+            cron_expr=cron_expr,
+        )
+    if action == "delete" and not job_name:
+        # delete may reference name after 删除定时任务
+        job_name = _extract_delete_job_name(text)
+
+    return _workflow_state(
+        "cron_workflow",
+        workflow_prompt=text,
+        workflow_pipeline_name=pipeline_name,
+        workflow_cron_action=action,
+        workflow_cron_name=job_name,
+        workflow_cron_expr=cron_expr,
+        workflow_cron_timezone=str(schedule.get("timezone") or extract_timezone(text)),
+        workflow_cron_confirm=_cron_confirm(text),
+        workflow_cron_schedule_meta=schedule.get("schedule_meta") or {},
+        cron_draft={
+            "human_schedule": schedule.get("human_schedule") or "",
+            "next_runs": schedule.get("next_runs") or [],
+            "issues": list(schedule.get("issues") or []),
+        },
+    )
+
+
+_CRON_DOMAIN_KEYWORDS = (
+    "定时任务",
+    "定时",
+    "cron",
+    "调度",
+    "scheduled",
+    "schedule",
+    "每天",
+    "每周",
+    "每月",
+    "每小时",
+    "每隔",
+    "自动跑",
+    "自动执行",
+    "every day",
+    "daily",
+    "weekly",
+    "hourly",
+    "every hour",
+    "every month",
+)
+_CRON_LIST_KEYWORDS = (
+    "有哪些定时",
+    "定时任务列表",
+    "list cron",
+    "列出定时",
+    "查看定时",
+    "所有定时",
+    "定时列表",
+    "list schedule",
+    "scheduled jobs",
+)
+_CRON_DELETE_KEYWORDS = (
+    "删除定时",
+    "删掉定时",
+    "取消定时",
+    "remove cron",
+    "delete cron",
+    "删除调度",
+)
+_CRON_CREATE_KEYWORDS = (
+    "创建定时",
+    "添加定时",
+    "新建定时",
+    "create cron",
+    "add cron",
+    "schedule job",
+    "定时跑",
+    "定时执行",
+)
+_CRON_CONFIRM_KEYWORDS = (
+    "确认创建",
+    "确认删除",
+    "确认",
+    "confirm=true",
+    "confirm create",
+    "confirm delete",
+    "confirmed",
+    "confirm",
+)
+
+
+def _looks_like_cron_domain(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(keyword in lowered for keyword in _CRON_DOMAIN_KEYWORDS)
+
+
+def _cron_action(text: str) -> Literal["list", "create", "delete"] | None:
+    lowered = str(text or "").lower()
+    if any(keyword in lowered for keyword in _CRON_DELETE_KEYWORDS):
+        return "delete"
+    if any(keyword in lowered for keyword in _CRON_LIST_KEYWORDS):
+        return "list"
+    if any(keyword in lowered for keyword in _CRON_CREATE_KEYWORDS):
+        return "create"
+
+    from src.agent.workflow_cron_parse import extract_pipeline_name, parse_schedule
+
+    pipeline = extract_pipeline_name(text)
+    schedule = parse_schedule(text)
+    has_expr = bool(schedule.get("cron_expr"))
+    has_schedule = has_expr or bool(schedule.get("issues"))
+
+    # Card copy_confirm_create: "确认创建 pipeline:monitor */15 * * * * 名称 …"
+    # Must rematch without NL domain/run cues.
+    if _is_confirm_create_phrase(text) and pipeline and has_expr:
+        return "create"
+
+    # "每天 8 点跑 pipeline:x" / "每 15 分钟跑 pipeline:monitor"
+    if pipeline and has_expr and _has_run_hint(text):
+        return "create"
+    if _looks_like_cron_domain(text):
+        if pipeline and (has_expr or _has_run_hint(text)):
+            return "create"
+        if pipeline and has_schedule:
+            return "create"
+        if _has_run_hint(text) and (pipeline or has_expr):
+            return "create"
+    return None
+
+
+def _is_confirm_create_phrase(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(
+        k in lowered or k in text
+        for k in ("确认创建", "confirm create", "confirm=true")
+    )
+
+
+def _has_run_hint(text: str) -> bool:
+    lowered = str(text or "").lower()
+    hints = ("跑", "执行", "运行", "run ", " schedule", "调度")
+    return any(h in lowered or h in text for h in hints)
+
+
+def _cron_confirm(text: str) -> bool:
+    lowered = str(text or "").lower()
+    # Prefer longer phrases first; bare confirm is allowed only with cron domain
+    if any(k in lowered for k in ("确认创建", "确认删除", "confirm=true", "confirm create", "confirm delete")):
+        return True
+    if "确认" in text or "confirm" in lowered:
+        return _looks_like_cron_domain(text) or any(
+            k in lowered for k in _CRON_DELETE_KEYWORDS + _CRON_CREATE_KEYWORDS + _CRON_LIST_KEYWORDS
+        )
+    return False
+
+
+def _extract_delete_job_name(text: str) -> str:
+    patterns = (
+        re.compile(
+            r"(?:删除定时(?:任务)?|删掉定时(?:任务)?|取消定时(?:任务)?|delete cron|remove cron)"
+            r"\s*[:：]?\s*[`'\"]?([A-Za-z0-9][\w.-]{0,63})[`'\"]?",
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(str(text or ""))
+        if match:
+            return match.group(1).strip("`'\"，。,.;")
+    return ""
+
+
+def _match_multisource_workflow(user_text: str) -> dict[str, Any] | None:
+    """Match multi-source collect intent (P4).
+
+    Requires multi-source signal (keyword or ≥2 collectors + collect intent)
+    and does not steal report/review/URL-pipeline/readiness/cron primaries
+    (those are also ordered ahead in graph resolve).
+    """
+    from src.agent.workflow_multisource_parse import (
+        build_multisource_draft,
+        extract_collectors,
+        extract_game_name,
+        has_multisource_confirm,
+        looks_like_multisource_request,
+    )
+
+    text = str(user_text or "").strip()
+    if not text:
+        return None
+
+    if _extract_task_id(text) and (
+        _looks_like_report_request(text) or _looks_like_task_review_request(text)
+    ):
+        return None
+    if _extract_first_url(text) and _looks_like_pipeline_request(text):
+        return None
+    if _looks_like_readiness_request(text) and not looks_like_multisource_request(text):
+        return None
+    # cron domain without multi → leave to cron (resolve order still prefers cron if both)
+    if not looks_like_multisource_request(text):
+        return None
+
+    game = extract_game_name(text)
+    collectors = extract_collectors(text)
+    draft = build_multisource_draft(text, game_name=game, collectors=collectors)
+    # Fail-closed: need game or drafts path recognizable; empty multi alone → general
+    if not game and not collectors and not draft.get("task_drafts"):
+        return None
+
+    return _workflow_state(
+        "multisource_workflow",
+        workflow_prompt=text,
+        workflow_multisource_game=game,
+        workflow_multisource_collectors=list(collectors or draft.get("collectors") or []),
+        workflow_multisource_confirm=has_multisource_confirm(text),
+        multisource_draft=draft,
     )
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from src.agent.workflow_result_cards import (
+    build_cron_result_card,
+    build_multisource_result_card,
     build_pipeline_result_card,
     build_readiness_result_card,
     build_report_result_card,
@@ -40,6 +42,99 @@ def build_readiness_response_with_card(
 ) -> tuple[str, dict[str, Any] | None]:
     text = _build_readiness_response(state)
     return text, build_readiness_result_card(state)
+
+
+def build_cron_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_cron_response(state)
+    return text, build_cron_result_card(state)
+
+
+def build_multisource_response_with_card(
+    state: AgentWorkflowState,
+) -> tuple[str, dict[str, Any] | None]:
+    text = _build_multisource_response(state)
+    return text, build_multisource_result_card(state)
+
+
+def _build_multisource_response(state: AgentWorkflowState) -> str:
+    card = build_multisource_result_card(state)
+    lines = [str(card.get("title") or "多源采集"), str(card.get("summary") or "")]
+    payload = card.get("payload") if isinstance(card.get("payload"), dict) else {}
+    game = str(payload.get("game_name") or "").strip()
+    if game:
+        lines.append(f"目标：`{game}`")
+    collectors = payload.get("collectors") or []
+    if isinstance(collectors, list) and collectors:
+        lines.append("数据源：" + "、".join(str(c) for c in collectors))
+    drafts = payload.get("task_drafts") or []
+    if isinstance(drafts, list) and drafts:
+        lines.append("任务草案：")
+        for item in drafts[:10]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- `{item.get('name') or ''}` → pipeline `{item.get('pipeline_name') or ''}`"
+                f" ({item.get('collector_id') or ''})"
+            )
+    created = payload.get("created_tasks") or []
+    if isinstance(created, list) and created:
+        lines.append("已提交：")
+        for item in created[:10]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- `{item.get('task_id') or ''}` {item.get('name') or ''} "
+                f"({item.get('pipeline_name') or ''})"
+            )
+    issues = payload.get("issues") or []
+    if isinstance(issues, list) and issues:
+        lines.append("问题：")
+        lines.extend(f"- {item}" for item in issues[:8])
+    if str(payload.get("status") or "") == "needs_confirm":
+        lines.append("安全策略：需在同一条消息中包含「确认创建」才会真正提交任务。")
+    return "\n".join(line for line in lines if line)
+
+
+def _build_cron_response(state: AgentWorkflowState) -> str:
+    card = build_cron_result_card(state)
+    lines = [str(card.get("title") or "定时任务"), str(card.get("summary") or "")]
+    payload = card.get("payload") if isinstance(card.get("payload"), dict) else {}
+    cron_expr = str(payload.get("cron_expr") or "").strip()
+    human = str(payload.get("human_schedule") or "").strip()
+    pipeline = str(payload.get("pipeline_name") or "").strip()
+    job_name = str(payload.get("job_name") or "").strip()
+    if job_name:
+        lines.append(f"任务名称：`{job_name}`")
+    if pipeline:
+        lines.append(f"Pipeline：`{pipeline}`")
+    if cron_expr:
+        lines.append(f"Cron：`{cron_expr}`")
+    if human:
+        lines.append(f"调度说明：{human}")
+    next_runs = payload.get("next_runs") or []
+    if isinstance(next_runs, list) and next_runs:
+        lines.append("下次运行：")
+        lines.extend(f"- {item}" for item in next_runs[:3])
+    jobs = payload.get("jobs") or []
+    if isinstance(jobs, list) and jobs:
+        lines.append("任务列表：")
+        for job in jobs[:12]:
+            if not isinstance(job, dict):
+                continue
+            name = job.get("name") or ""
+            pl = job.get("pipeline_name") or ""
+            expr = job.get("cron_expr") or ""
+            lines.append(f"- `{name}` → {pl} `{expr}`")
+    issues = payload.get("issues") or []
+    if isinstance(issues, list) and issues:
+        lines.append("问题：")
+        lines.extend(f"- {item}" for item in issues[:8])
+    status = str(payload.get("status") or "")
+    if status == "needs_confirm":
+        lines.append("安全策略：需在同一条消息中包含确认语才会真正创建/删除。")
+    return "\n".join(line for line in lines if line)
 
 
 def _build_readiness_response(state: AgentWorkflowState) -> str:
@@ -141,12 +236,17 @@ def _build_pipeline_response(state: AgentWorkflowState) -> str:
         data = result.get("data")
         data = data if isinstance(data, dict) else {}
         if status == "ok":
+            resolved = str(data.get("pipeline_name") or pipeline_name or "").strip()
             lines = [
-                summary or f"已为 `{url}` 创建动态采集 Pipeline `{pipeline_name}`。",
-                f"Pipeline 名称：`{data.get('pipeline_name') or pipeline_name}`",
+                summary or f"已为 `{url}` 创建动态采集 Pipeline `{resolved}`。",
+                f"Pipeline 名称：`{resolved}`",
                 f"目标 URL：`{url}`",
                 f"等待策略：`{state.get('workflow_wait_strategy_type') or 'networkidle'}`",
-                "可直接继续使用 `create_task` 配合该 pipeline 发起采集任务。",
+                (
+                    f"下一步：创建任务 pipeline:{resolved} 目标 {url}"
+                    if resolved
+                    else "下一步：使用 create_task 配合该 pipeline 发起采集。"
+                ),
             ]
             return "\n".join(lines)
         if summary:

@@ -77,7 +77,7 @@ include = ["src*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: tests that access real external services",
+    "integration: tests that access real external services (skipped in CI by default)",
 ]
 
 [tool.ruff]

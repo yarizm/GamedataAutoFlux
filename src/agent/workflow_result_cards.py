@@ -76,15 +76,34 @@ def build_report_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
             *_task_navigate_actions(task_id),
             _navigate_action("open_reports", "查看报告", "reports"),
         ]
+        draft_phrase = _report_collect_draft_phrase(precheck)
+        if draft_phrase:
+            actions.append(
+                {
+                    "id": "copy_collect_draft",
+                    "label": "复制补采指令",
+                    "kind": "copy",
+                    "payload": {"text": draft_phrase},
+                }
+            )
+            if not can_generate:
+                summary += " 可复制补采指令继续采集缺口数据源。"
+        next_action = precheck.get("next_best_action")
+        if isinstance(next_action, dict) and next_action.get("collector_label"):
+            summary += f" 优先处理：{next_action.get('collector_label')}。"
         return result_card_event(
             "report",
             title,
             summary,
             actions=actions,
-            payload={
-                **_base_payload(task_id, status=status),
-                "can_generate": can_generate,
-            },
+            payload=_compact_payload(
+                {
+                    **_base_payload(task_id, status=status),
+                    "can_generate": can_generate,
+                    "missing_collectors": precheck.get("missing_collectors"),
+                    "collect_draft_phrase": draft_phrase or None,
+                }
+            ),
         )
 
     record_count = int(review.get("record_count") or 0) if isinstance(review, dict) else 0
@@ -150,16 +169,50 @@ def build_task_review_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
         "issues": issues,
         "auto_retry": auto_retry,
     }
+    actions = list(_task_navigate_actions(task_id))
     retry_task_id = str(review.get("retry_task_id") or "").strip()
+    retry_error = str(review.get("retry_error") or "").strip()
     if retry_task_id:
         payload["retry_task_id"] = retry_task_id
         summary += f" 已创建重试任务 {retry_task_id}。"
+        actions.append(
+            {
+                "id": "copy_retry_task_id",
+                "label": "复制重试任务 ID",
+                "kind": "copy",
+                "payload": {"text": retry_task_id},
+            }
+        )
+    elif auto_retry and retry_error:
+        summary += f" 自动重试失败：{retry_error}"
+        retry_phrase = f"对任务 task:{task_id} 自动重试" if task_id else "请带 task_id 重试诊断"
+        actions.append(
+            {
+                "id": "copy_retry_phrase",
+                "label": "复制重试指令",
+                "kind": "copy",
+                "payload": {"text": retry_phrase},
+            }
+        )
+        payload["retry_error"] = retry_error
+    elif not auto_retry and completeness in {"partial", "empty", "failed", "unknown"}:
+        retry_phrase = f"对任务 task:{task_id} 自动重试" if task_id else ""
+        if retry_phrase:
+            actions.append(
+                {
+                    "id": "copy_retry_phrase",
+                    "label": "复制重试指令",
+                    "kind": "copy",
+                    "payload": {"text": retry_phrase},
+                }
+            )
+            payload["retry_phrase"] = retry_phrase
 
     return result_card_event(
         "task_review",
         "任务复查完成",
         summary,
-        actions=_task_navigate_actions(task_id),
+        actions=actions,
         payload=payload,
     )
 
@@ -183,22 +236,44 @@ def build_pipeline_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     data = data if isinstance(data, dict) else {}
     resolved_name = str(data.get("pipeline_name") or pipeline_name or "").strip()
 
+    run_phrase = _create_task_phrase(
+        pipeline_name=resolved_name or pipeline_name,
+        task_name=f"run_{(resolved_name or pipeline_name or 'dynamic')[:40]}",
+        targets_hint=url,
+    )
+
     if result:
         status = str(result.get("status") or "").lower()
         summary = str(result.get("summary") or "").strip()
         if status == "ok":
+            actions = [
+                _navigate_action("open_pipelines", "打开 Pipeline", "pipelines"),
+                _navigate_action("open_tasks", "打开任务", "tasks"),
+            ]
+            if run_phrase:
+                actions.append(
+                    {
+                        "id": "copy_create_task",
+                        "label": "复制创建任务指令",
+                        "kind": "copy",
+                        "payload": {"text": run_phrase},
+                    }
+                )
+                summary = (
+                    summary
+                    or f"已为 {url} 创建动态采集 Pipeline {resolved_name}。"
+                ) + " 可复制创建任务指令立即开跑。"
             return result_card_event(
                 "dynamic_pipeline",
                 "Pipeline 已创建",
                 summary or f"已为 {url} 创建动态采集 Pipeline {resolved_name}。",
-                actions=[
-                    _navigate_action("open_pipelines", "打开 Pipeline", "pipelines"),
-                ],
+                actions=actions,
                 payload=_compact_payload(
                     {
                         "status": "success",
                         "pipeline_name": resolved_name,
                         "url": url,
+                        "create_task_phrase": run_phrase or None,
                     }
                 ),
             )
@@ -216,16 +291,243 @@ def build_pipeline_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    draft_actions = [_navigate_action("open_pipelines", "打开 Pipeline", "pipelines")]
+    if run_phrase:
+        draft_actions.append(
+            {
+                "id": "copy_create_task",
+                "label": "复制创建任务指令",
+                "kind": "copy",
+                "payload": {"text": run_phrase},
+            }
+        )
     return result_card_event(
         "dynamic_pipeline",
         "Pipeline 草案已准备",
         f"已为 {url} 准备动态采集 Pipeline 草案：{resolved_name or pipeline_name or '未命名'}。",
-        actions=[_navigate_action("open_pipelines", "打开 Pipeline", "pipelines")],
+        actions=draft_actions,
         payload=_compact_payload(
             {
                 "status": "draft",
                 "pipeline_name": resolved_name or pipeline_name,
                 "url": url,
+                "create_task_phrase": run_phrase or None,
+            }
+        ),
+    )
+
+
+def build_multisource_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Build result_card for multisource_workflow."""
+    draft = state.get("multisource_draft") if isinstance(state.get("multisource_draft"), dict) else {}
+    result = (
+        state.get("multisource_result") if isinstance(state.get("multisource_result"), dict) else {}
+    )
+    status = str(result.get("status") or draft.get("status") or "error").strip().lower()
+    game = str(
+        result.get("game_name")
+        or state.get("workflow_multisource_game")
+        or draft.get("game_name")
+        or ""
+    ).strip()
+    collectors = (
+        result.get("collectors")
+        or state.get("workflow_multisource_collectors")
+        or draft.get("collectors")
+        or []
+    )
+    if not isinstance(collectors, list):
+        collectors = []
+    task_drafts = result.get("task_drafts") or draft.get("task_drafts") or []
+    if not isinstance(task_drafts, list):
+        task_drafts = []
+    created = result.get("created_tasks") if isinstance(result.get("created_tasks"), list) else []
+    issues = result.get("issues") or draft.get("issues") or []
+    if not isinstance(issues, list):
+        issues = []
+
+    title_map = {
+        "success": "多源任务已提交",
+        "partial": "多源任务部分提交",
+        "needs_confirm": "待确认多源采集",
+        "incomplete": "多源草案不完整",
+        "draft": "多源采集草案",
+        "error": "多源采集失败",
+    }
+    title = title_map.get(status, "多源采集")
+    summary = str(result.get("summary") or draft.get("summary") or "").strip() or title
+
+    actions = [
+        _navigate_action("open_tasks", "打开任务", "tasks"),
+        _navigate_action("open_pipelines", "打开 Pipeline", "pipelines"),
+    ]
+    from src.agent.workflow_multisource_parse import draft_to_confirm_phrase
+
+    if status in {"needs_confirm", "draft", "incomplete"}:
+        phrase = draft_to_confirm_phrase(
+            {
+                "game_name": game,
+                "collectors": collectors,
+            }
+        )
+        if phrase:
+            actions.append(
+                {
+                    "id": "copy_confirm_multisource",
+                    "label": "复制确认句",
+                    "kind": "copy",
+                    "payload": {"text": phrase},
+                }
+            )
+    if created:
+        ids = ", ".join(
+            str(t.get("task_id") or "") for t in created if isinstance(t, dict) and t.get("task_id")
+        )
+        if ids:
+            actions.append(
+                {
+                    "id": "copy_task_ids",
+                    "label": "复制任务 ID",
+                    "kind": "copy",
+                    "payload": {"text": ids},
+                }
+            )
+
+    slim_drafts = []
+    for item in task_drafts[:12]:
+        if not isinstance(item, dict):
+            continue
+        slim_drafts.append(
+            {
+                "collector_id": item.get("collector_id") or "",
+                "pipeline_name": item.get("pipeline_name") or "",
+                "name": item.get("name") or "",
+            }
+        )
+
+    return result_card_event(
+        "multisource",
+        title,
+        summary,
+        actions=actions,
+        payload=_compact_payload(
+            {
+                "status": status,
+                "game_name": game or None,
+                "collectors": collectors or None,
+                "task_drafts": slim_drafts or None,
+                "created_tasks": created or None,
+                "issues": [str(i) for i in issues[:12]] or None,
+            }
+        ),
+    )
+
+
+def build_cron_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Build result_card for cron_workflow."""
+    action = str(state.get("workflow_cron_action") or "").strip().lower() or "list"
+    result = state.get("cron_result") if isinstance(state.get("cron_result"), dict) else {}
+    draft = state.get("cron_draft") if isinstance(state.get("cron_draft"), dict) else {}
+    status = str(result.get("status") or "").strip().lower() or "error"
+
+    job_name = str(
+        result.get("job_name") or state.get("workflow_cron_name") or draft.get("job_name") or ""
+    ).strip()
+    pipeline_name = str(
+        result.get("pipeline_name")
+        or state.get("workflow_pipeline_name")
+        or draft.get("pipeline_name")
+        or ""
+    ).strip()
+    cron_expr = str(
+        result.get("cron_expr") or state.get("workflow_cron_expr") or draft.get("cron_expr") or ""
+    ).strip()
+    human = str(result.get("human_schedule") or draft.get("human_schedule") or "").strip()
+    next_runs = result.get("next_runs") or draft.get("next_runs") or []
+    if not isinstance(next_runs, list):
+        next_runs = []
+    issues = result.get("issues") or draft.get("issues") or []
+    if not isinstance(issues, list):
+        issues = []
+    jobs = result.get("jobs") if isinstance(result.get("jobs"), list) else []
+
+    title_map = {
+        ("list", "success"): "定时任务列表",
+        ("create", "success"): "定时任务已创建",
+        ("create", "needs_confirm"): "待确认创建",
+        ("create", "incomplete"): "定时草案不完整",
+        ("delete", "success"): "定时任务已删除",
+        ("delete", "needs_confirm"): "待确认删除",
+        ("delete", "incomplete"): "删除信息不完整",
+        ("create", "error"): "定时操作失败",
+        ("delete", "error"): "定时操作失败",
+        ("list", "error"): "定时操作失败",
+    }
+    title = title_map.get((action, status), "定时任务")
+    if status == "error" and (action, status) not in title_map:
+        title = "定时操作失败"
+
+    summary = str(result.get("summary") or "").strip()
+    if not summary:
+        if action == "list":
+            summary = f"当前共有 {len(jobs)} 个定时任务。"
+        elif status == "needs_confirm" and action == "create":
+            summary = f"已解析调度草案，等待同句「确认创建」：`{job_name or '未命名'}`。"
+        elif status == "incomplete":
+            summary = "定时草案不完整，请补充 Pipeline 与调度时间。"
+        else:
+            summary = "定时任务处理完成。"
+
+    actions = [_navigate_action("open_cron", "打开定时任务", "cron")]
+    if cron_expr:
+        actions.append(
+            {
+                "id": "copy_cron_expr",
+                "label": "复制 Cron",
+                "kind": "copy",
+                "payload": {"text": cron_expr},
+            }
+        )
+    if status == "needs_confirm" and action == "create" and pipeline_name and cron_expr:
+        # Phrase must rematch _match_cron_workflow (confirm create + pipeline + raw expr).
+        confirm_text = (
+            f"确认创建 pipeline:{pipeline_name} {cron_expr}"
+            + (f" 名称 {job_name}" if job_name else "")
+        )
+        actions.append(
+            {
+                "id": "copy_confirm_create",
+                "label": "复制确认句",
+                "kind": "copy",
+                "payload": {"text": confirm_text},
+            }
+        )
+    if status == "needs_confirm" and action == "delete" and job_name:
+        actions.append(
+            {
+                "id": "copy_confirm_delete",
+                "label": "复制确认句",
+                "kind": "copy",
+                "payload": {"text": f"确认删除定时任务 {job_name}"},
+            }
+        )
+
+    return result_card_event(
+        "cron",
+        title,
+        summary,
+        actions=actions,
+        payload=_compact_payload(
+            {
+                "action": action,
+                "status": status,
+                "job_name": job_name or None,
+                "pipeline_name": pipeline_name or None,
+                "cron_expr": cron_expr or None,
+                "human_schedule": human or None,
+                "next_runs": next_runs[:5] or None,
+                "jobs": jobs[:30] or None,
+                "issues": [str(i) for i in issues[:12]] or None,
             }
         ),
     )
@@ -355,6 +657,69 @@ def _navigate_action(action_id: str, label: str, href: str) -> dict[str, Any]:
         "kind": "navigate",
         "href": href,
     }
+
+
+def _report_collect_draft_phrase(precheck: Mapping[str, Any]) -> str:
+    """Build a copyable multi-source / create-task guidance phrase from precheck."""
+    next_action = precheck.get("next_best_action")
+    if not isinstance(next_action, dict):
+        # fall back to first recommended action with draft
+        actions = precheck.get("recommended_actions") or precheck.get("source_actions") or []
+        if isinstance(actions, list):
+            for item in actions:
+                if isinstance(item, dict) and item.get("create_task_draft"):
+                    next_action = item
+                    break
+    if not isinstance(next_action, dict):
+        missing = precheck.get("missing_collectors") or []
+        if isinstance(missing, list) and missing:
+            labels = ", ".join(str(m) for m in missing[:4] if str(m).strip())
+            if labels:
+                return f"多源采集 补齐数据源 {labels}"
+        return ""
+
+    draft = next_action.get("create_task_draft")
+    if isinstance(draft, dict) and draft.get("pipeline_name"):
+        name = str(draft.get("name") or "补采任务").strip()
+        pipeline = str(draft.get("pipeline_name") or "").strip()
+        targets = draft.get("targets") if isinstance(draft.get("targets"), list) else []
+        game = ""
+        if targets and isinstance(targets[0], dict):
+            game = str(targets[0].get("name") or "").strip()
+        parts = [f"创建任务 pipeline:{pipeline}"]
+        if game:
+            parts.append(f"游戏 {game}")
+        if name:
+            parts.append(f"名称 {name}")
+        return " ".join(parts)
+
+    collector = str(
+        next_action.get("collector") or next_action.get("collector_label") or ""
+    ).strip()
+    pipeline = str(next_action.get("pipeline_name") or "").strip()
+    if collector and pipeline:
+        return f"多源采集 {collector} pipeline:{pipeline}"
+    if collector:
+        return f"多源采集 {collector}"
+    return ""
+
+
+def _create_task_phrase(
+    *,
+    pipeline_name: str,
+    task_name: str = "",
+    targets_hint: str = "",
+) -> str:
+    pipeline = str(pipeline_name or "").strip()
+    if not pipeline:
+        return ""
+    parts = [f"创建任务 pipeline:{pipeline}"]
+    if task_name:
+        parts.append(f"名称 {task_name}")
+    if targets_hint:
+        parts.append(f"目标 {targets_hint}")
+    parts.append("（可在任务页提交或让 Agent 执行 create_task）")
+    return " ".join(parts)
 
 
 def _task_navigate_actions(task_id: str) -> list[dict[str, Any]]:

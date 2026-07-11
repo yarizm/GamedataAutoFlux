@@ -136,6 +136,8 @@ def build_workflow_graph_definitions(
     match_task_review_workflow: Callable[[str], dict[str, Any] | None],
     match_pipeline_workflow: Callable[[str], dict[str, Any] | None],
     match_readiness_workflow: Callable[[str], dict[str, Any] | None] | None = None,
+    match_cron_workflow: Callable[[str], dict[str, Any] | None] | None = None,
+    match_multisource_workflow: Callable[[str], dict[str, Any] | None] | None = None,
     load_task_detail_handler: Any,
     review_collection_results_handler: Any,
     precheck_report_handler: Any,
@@ -149,6 +151,14 @@ def build_workflow_graph_definitions(
     check_readiness_config_handler: Any | None = None,
     check_readiness_session_handler: Any | None = None,
     compose_readiness_response_handler: Any | None = None,
+    resolve_cron_intent_handler: Any | None = None,
+    resolve_cron_schedule_handler: Any | None = None,
+    apply_cron_action_handler: Any | None = None,
+    compose_cron_response_handler: Any | None = None,
+    resolve_multisource_intent_handler: Any | None = None,
+    build_multisource_draft_handler: Any | None = None,
+    apply_multisource_action_handler: Any | None = None,
+    compose_multisource_response_handler: Any | None = None,
     report_task_detail_branch: Callable[[AgentWorkflowState], str],
     task_review_detail_branch: Callable[[AgentWorkflowState], str],
     review_branch: Callable[[AgentWorkflowState], str],
@@ -345,6 +355,150 @@ def build_workflow_graph_definitions(
                     ("check_readiness_config", "check_readiness_session"),
                     ("check_readiness_session", "compose_readiness_response"),
                     ("compose_readiness_response", END),
+                ),
+            )
+        )
+
+    if (
+        match_cron_workflow is not None
+        and resolve_cron_intent_handler is not None
+        and resolve_cron_schedule_handler is not None
+        and apply_cron_action_handler is not None
+        and compose_cron_response_handler is not None
+    ):
+        definitions.append(
+            WorkflowGraphDefinition(
+                route="cron_workflow",
+                entry_node="resolve_cron_intent",
+                resolve=match_cron_workflow,
+                nodes=(
+                    _workflow_node(
+                        "resolve_cron_intent",
+                        resolve_cron_intent_handler,
+                        bridge=_tool_bridge(
+                            "resolve_cron_intent",
+                            lambda state: {
+                                "action": str(state.get("workflow_cron_action") or ""),
+                                "job_name": str(state.get("workflow_cron_name") or ""),
+                                "pipeline_name": str(state.get("workflow_pipeline_name") or ""),
+                            },
+                            step_id="resolve_intent",
+                            step_label="识别意图",
+                        ),
+                    ),
+                    _workflow_node(
+                        "resolve_cron_schedule",
+                        resolve_cron_schedule_handler,
+                        bridge=_tool_bridge(
+                            "resolve_cron_schedule",
+                            lambda state: {
+                                "prompt": str(state.get("workflow_prompt") or ""),
+                                "timezone": str(state.get("workflow_cron_timezone") or ""),
+                            },
+                            output_state_key="cron_draft",
+                            step_id="resolve_schedule",
+                            step_label="解析调度",
+                        ),
+                    ),
+                    _workflow_node(
+                        "apply_cron_action",
+                        apply_cron_action_handler,
+                        bridge=_tool_bridge(
+                            "apply_cron_action",
+                            lambda state: {
+                                "action": str(state.get("workflow_cron_action") or ""),
+                                "confirm": bool(state.get("workflow_cron_confirm")),
+                                "job_name": str(state.get("workflow_cron_name") or ""),
+                            },
+                            output_state_key="cron_result",
+                            step_id="apply_action",
+                            step_label="执行操作",
+                        ),
+                    ),
+                    _response_node(
+                        "compose_cron_response",
+                        compose_cron_response_handler,
+                    ),
+                ),
+                edges=(
+                    ("resolve_cron_intent", "resolve_cron_schedule"),
+                    ("resolve_cron_schedule", "apply_cron_action"),
+                    ("apply_cron_action", "compose_cron_response"),
+                    ("compose_cron_response", END),
+                ),
+            )
+        )
+
+    if (
+        match_multisource_workflow is not None
+        and resolve_multisource_intent_handler is not None
+        and build_multisource_draft_handler is not None
+        and apply_multisource_action_handler is not None
+        and compose_multisource_response_handler is not None
+    ):
+        definitions.append(
+            WorkflowGraphDefinition(
+                route="multisource_workflow",
+                entry_node="resolve_multisource_intent",
+                resolve=match_multisource_workflow,
+                nodes=(
+                    _workflow_node(
+                        "resolve_multisource_intent",
+                        resolve_multisource_intent_handler,
+                        bridge=_tool_bridge(
+                            "resolve_multisource_intent",
+                            lambda state: {
+                                "game": str(state.get("workflow_multisource_game") or ""),
+                                "collectors": list(
+                                    state.get("workflow_multisource_collectors") or []
+                                ),
+                            },
+                            step_id="resolve_intent",
+                            step_label="识别目标",
+                        ),
+                    ),
+                    _workflow_node(
+                        "build_multisource_draft",
+                        build_multisource_draft_handler,
+                        bridge=_tool_bridge(
+                            "build_multisource_draft",
+                            lambda state: {
+                                "prompt": str(state.get("workflow_prompt") or ""),
+                                "game": str(state.get("workflow_multisource_game") or ""),
+                            },
+                            output_state_key="multisource_draft",
+                            step_id="build_draft",
+                            step_label="生成草案",
+                        ),
+                    ),
+                    _workflow_node(
+                        "apply_multisource_action",
+                        apply_multisource_action_handler,
+                        bridge=_tool_bridge(
+                            "apply_multisource_action",
+                            lambda state: {
+                                "confirm": bool(state.get("workflow_multisource_confirm")),
+                                "drafts": len(
+                                    (state.get("multisource_draft") or {}).get("task_drafts") or []
+                                )
+                                if isinstance(state.get("multisource_draft"), dict)
+                                else 0,
+                            },
+                            output_state_key="multisource_result",
+                            step_id="apply_action",
+                            step_label="提交任务",
+                        ),
+                    ),
+                    _response_node(
+                        "compose_multisource_response",
+                        compose_multisource_response_handler,
+                    ),
+                ),
+                edges=(
+                    ("resolve_multisource_intent", "build_multisource_draft"),
+                    ("build_multisource_draft", "apply_multisource_action"),
+                    ("apply_multisource_action", "compose_multisource_response"),
+                    ("compose_multisource_response", END),
                 ),
             )
         )

@@ -76,6 +76,30 @@ WORKFLOW_META: dict[str, WorkflowMeta] = {
             {"id": "respond", "label": "汇总"},
         ),
     ),
+    "cron_workflow": WorkflowMeta(
+        workflow_id="cron_workflow",
+        label="定时任务",
+        entry_node="resolve_cron_intent",
+        compose_node="compose_cron_response",
+        steps=(
+            {"id": "resolve_intent", "label": "识别意图"},
+            {"id": "resolve_schedule", "label": "解析调度"},
+            {"id": "apply_action", "label": "执行操作"},
+            {"id": "respond", "label": "汇总"},
+        ),
+    ),
+    "multisource_workflow": WorkflowMeta(
+        workflow_id="multisource_workflow",
+        label="多源采集",
+        entry_node="resolve_multisource_intent",
+        compose_node="compose_multisource_response",
+        steps=(
+            {"id": "resolve_intent", "label": "识别目标"},
+            {"id": "build_draft", "label": "生成草案"},
+            {"id": "apply_action", "label": "提交任务"},
+            {"id": "respond", "label": "汇总"},
+        ),
+    ),
 }
 
 ENTRY_NODE_TO_WORKFLOW: dict[str, str] = {

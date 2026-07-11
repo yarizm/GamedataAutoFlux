@@ -23,7 +23,9 @@ npm run build                   # 生产构建，输出到 ../static/dist/
 
 # 测试
 pytest                          # 全部测试
-pytest -m "not integration"     # 跳过集成测试
+pytest -m "not integration"     # 跳过集成测试（CI 默认）
+pytest tests/test_agent_workflow_cron.py tests/test_agent_workflow_multisource.py tests/test_agent_workflow_readiness.py tests/test_agent_workflow_events.py tests/test_agent_workflows.py
+# 或：pytest tests -k "agent_workflow or agent_workflows" -q
 pytest tests/test_*.py -k worker  # 运行特定测试（如 worker 相关）
 pytest tests/test_smoke.py      # 单个文件
 
@@ -101,9 +103,9 @@ LangChain + LangGraph 驱动，是最复杂的子系统：
 - **`runtime.py`** — `langgraph_agent` / `langchain_classic` 两种运行时后端切换。
 - **`agent_invoke_lifecycle.py`** — 调用生命周期：setup → execute → teardown，含错误处理和中途取消。
 - **`agent_invoke_orchestration.py`** — 编排层，协调 prompt 构建、工具调用、结果处理。
-- **`agent_invoke_stream.py`** — SSE 流式输出，支持中断和恢复。
-- **`agent_stream_events.py`** — 流式事件类型定义（tool_call / tool_result / final / error）。
-- **`stream_parser.py`** — 流式响应解析。
+- **`agent_invoke_stream.py`** — SSE 流式输出，支持中断和恢复；路径工作流会额外发 `workflow_*` / `result_card`。
+- **`agent_stream_events.py`** — 流式事件（thinking / tool_* / final / error）与 workflow meta 衔接。
+- **`stream_parser.py`** — 流式响应解析（含 workflow meta 去重状态）。
 - **`checkpointer.py`** — LangGraph checkpoint 持久化，支持 memory/file 后端。
 - **`thread_store.py`** — 线程历史持久化与恢复。
 - **`mcp_client.py`** — Playwright MCP Server 集成（需 Node.js + npx），Agent 可操作浏览器。
@@ -114,29 +116,40 @@ LangChain + LangGraph 驱动，是最复杂的子系统：
 - **`schemas.py`** — Pydantic 模型（ChatRequest, AgentConfig 等）。
 - **Workflow 图系统** — LangGraph 工作流引擎：
   - `workflow_graphs.py` — 图定义（tool bridge 构建器）
-  - `workflow_types.py` — 状态/节点/边类型定义
+  - `workflow_types.py` — 状态/节点/边类型定义（含各 workflow route）
   - `workflow_routing.py` — 用户意图 → workflow 路由匹配
-  - `workflow_matchers.py` — 路由匹配规则
-  - `workflow_runtime_nodes.py` — 运行时节点处理器
+  - `workflow_matchers.py` — 规则匹配（fail-closed，无 LLM 路由）
+  - `workflow_cron_parse.py` — 定时 NL / preset / 5 段 cron 解析（纯函数）
+  - `workflow_multisource_parse.py` — 多源游戏名 + collector → create_task 草案（纯函数）
+  - `workflow_runtime_nodes.py` — 运行时节点（含 cron/multisource apply 与 confirm 门闩）
   - `workflow_bridge_events.py` — 图节点 → SSE 事件桥接
-  - `workflow_responses.py` — Workflow 结果响应构建
-  - `workflows.py` — Agent 工具注册到 workflow 的映射
+  - `workflow_events.py` — `WORKFLOW_META`、path bar 步骤、`workflow_start/step/end`、`result_card` 事件
+  - `workflow_result_cards.py` — 结构化 result_card（navigate + copy）
+  - `workflow_responses.py` — 文本汇总 + card
+  - `workflows.py` — root graph 装配、handler 接线
   - `workflow_support.py` — 支持函数
 
-**三条优先图式工作流**：
-1. 报告链路：任务详情 → 采集结果复查 → 报告预检 → 报告生成
-2. 任务诊断链路：任务详情 → 采集结果复查 → 自动重试决策
-3. 动态 Pipeline 链路：URL 识别 → 采集草案生成 → create_dynamic_pipeline
+**SSE 协议（路径工作流）**：专用图命中时发 `workflow_start` → `workflow_step*` → `workflow_end` + `result_card`；`general_agent` **不**发假 path。既有 `thinking` / `tool_call` / `tool_result` / `final` / `error` 保留。
+
+**六条规则图式工作流**（resolve 顺序固定）：
+1. **报告** `report_workflow`：task_id + 报告意图 → 详情 → 复查 → 预检 →（可选）生成；card 可复制补采指令
+2. **任务诊断** `task_review_workflow`：task_id + 诊断/失败意图 → 详情 → 复查（显式重试语才 auto_retry）；card 可复制重试指令
+3. **动态 Pipeline** `pipeline_workflow`：URL + 采集意图 → 草案 → 创建；成功 card 可复制 create_task 指令
+4. **系统就绪** `readiness_workflow`：就绪/登录态意图 → 配置 + 会话诊断（**默认不 deep probe**）
+5. **定时任务** `cron_workflow`：list / 草案创建 / 删除；**同句「确认创建/确认删除」才 mutate**；确认句可回环 rematch
+6. **多源采集** `multisource_workflow`：游戏名 + 多 collector（或「多源」关键词）→ 多路 create_task 草案；**同句确认才提交**
+
+路由优先级：report → task_review → pipeline → readiness → cron → multisource → `general_agent`。
 
 **工具集** (`src/agent/tools/`)：
-- `tasks.py` — 创建/查询/取消任务
-- `data.py` — 数据浏览与搜索
+- `tasks.py` — 创建/查询/取消任务（create 含 identifier 自动补全）
+- `data.py` — 数据浏览与搜索、采集复查/定向重试
 - `semantic_search.py` — pgvector 语义检索
 - `pipelines.py` — Pipeline 管理（含 create_dynamic_pipeline）
-- `reports.py` — 报告生成与预检
-- `cron.py` — 定时任务管理
+- `reports.py` — 报告生成与预检（含 source gap → create_task_draft）
+- `cron.py` — 定时任务 list/create/delete（create/delete 需 `confirm=true`）
 - `identifiers.py` — Steam App ID 解析和游戏标识符发现
-- `system.py` — 系统状态查询
+- `system.py` — 系统状态与就绪检查工具
 - `utils.py` — 工具辅助函数
 
 ### 4. Web 层 (`src/web/`)
@@ -237,10 +250,12 @@ LangChain + LangGraph 驱动，是最复杂的子系统：
 - **Worker Agent 可选**：默认 Scheduler 本地执行所有任务。启动 Worker Agent 后，需要登录态的任务会自动路由到声明对应能力的 Worker。Worker 通过环境变量或命令行参数配置 `--base-url`、`--capability` 等。
 - **Agent MCP 依赖**：Playwright MCP 工具需要 Node.js 和 `npx`。Windows 下 Playwright 不可用或连续失败时会自动降级并禁用浏览器工具。
 - **前端有两套 JS 加载路径**：`index.html` 通过 Jinja2 条件分三路 — ① Vite dev (`VITE_DEV=1`, localhost:5173) ② Vite 构建产物 (`static/dist/`, 需 `npm run build`) ③ 静态脚本 (`static/agent.js` 等)。修改 `src/web/src/` 源码后必须 `npm run build`，否则 Vite 构建模式下不生效。
-- **前端构建产物已提交到 git**（`src/web/static/dist/`），修改前端后记得 `npm run build` 再提交。
+- **前端构建产物默认不入库**：`src/web/static/dist/` 在 `.gitignore` 中；CI 与部署时执行 `cd src/web && npm ci && npm run build`。Agent 意图 chips 在 `templates/pages/agent.html` + `src/web/src/core/i18n.js`。
+- **Agent 危险操作同句确认**：cron create/delete、multisource 提交任务仅在同一条用户消息含确认语时执行；card 提供可 rematch 的复制确认句。
+- **新增图式工作流**：matcher + graph 节点 + `WORKFLOW_META` + result_card +（可选）chip/i18n；补 `tests/test_agent_workflow_*.py`；勿发明新 SSE 类型除非扩展协议。
 - **config/settings.yaml** 中的敏感值用 `${VAR_NAME}` 引用环境变量，不要直接写明文密钥。数据库连接通过 `DATABASE_URL` 环境变量配置。
 - **采集器配置多层级解析**：`collect_batch()` 的重试/超时/并发参数按 collector 级 → global 级 fallback。
-- 集成测试标记为 `@pytest.mark.integration`，会访问外部服务，CI 环境需要跳过或配置凭据。
+- 集成测试标记为 `@pytest.mark.integration`，会访问外部服务；**CI 默认 `pytest -m "not integration"`**。
 - 部分采集器（Google Trends、Twitch、Firecrawl）需要海外网络连通性。
 - `pgvector` 为可选依赖（`models.py` 中自动降级为 JSON 类型）。
 - **Edit 工具修改 HTML 模板**时，可能将属性引号保存为 `\"` 字面量，导致浏览器无法识别元素 ID。修改 `index.html` 后务必用 `grep` 或 `curl` 检查渲染输出。

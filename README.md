@@ -119,11 +119,29 @@ Pipeline 与 DAG 并存：`Pipeline.execute()` 默认委托 `DAGExecutor`（经 
 
 LangChain + LangGraph 双运行时，支持运行时切换（`agent.runtime_backend`）。
 
-- **29 个工具**：任务管理、数据浏览/搜索、语义搜索（pgvector）、Pipeline 管理、Cron 管理、报告生成/预检、Steam App ID 解析、游戏标识符发现、系统诊断
-- **3 条优先工作流**：报告链路（复查→预检→生成）、任务诊断（复查→自动重试决策）、动态 Pipeline（URL 识别→采集草案→创建）
+- **工具集**：任务管理、数据浏览/搜索、语义搜索（pgvector）、Pipeline 管理、Cron 管理、报告生成/预检、Steam App ID 解析、游戏标识符发现、系统/就绪诊断
+- **6 条规则图式工作流**（命中后走固定路径 + path bar + `result_card`，非 LLM 路由）：
+  1. 报告（task 复查 → 预检 → 生成）
+  2. 任务诊断（复查；显式重试语可 auto_retry）
+  3. 动态 Pipeline（URL + 采集意图 → 创建）
+  4. 系统就绪（配置 + 会话；默认不 deep probe）
+  5. 定时任务（list / 草案创建 / 删除；**同句确认才写入**）
+  6. 多源采集（游戏 + 多数据源草案；**同句确认才提交任务**）
+- **SSE**：`thinking` / `tool_*` / `final` / `error`，路径工作流另有 `workflow_start|step|end` 与 `result_card`（navigate + copy）
 - **Playwright MCP**：Agent 可自主导航网页、分析 DOM、执行 JS 提取（需 Node.js + npx）
-- **流式 SSE**：thinking / tool_call / tool_result / final 事件类型，支持中断恢复
 - **会话持久化**：SQLAlchemy 存储，支持 thread 语义、LangGraph checkpoint（memory/file）
+
+示例话术：
+
+```text
+有哪些定时任务
+每天 8 点跑 pipeline:steam_full
+确认创建 每天 8 点跑 pipeline:steam_full 名称 steam_daily
+多源采集《原神》 steam 七麦
+确认创建 多源采集《原神》 steam 七麦
+检查七麦采集是否就绪
+对任务 task:xxx 做报告预检
+```
 
 ### 存储层
 
@@ -180,29 +198,33 @@ python scripts/qimai_login.py
 | `config/` | settings.yaml + logging.yaml |
 | `src/` | 全部源码 |
 | `scripts/` | 工具脚本（登录、smoke test、批量报告） |
-| `tests/` | pytest 测试（70 文件，含集成测试） |
+| `tests/` | pytest 测试（含 Agent workflow 与集成测试） |
 | `data/` | 浏览器 profile、报告输出、缓存 |
 | `logs/` | 运行日志 |
 | `tmp/` | 临时文件（Excel 报告等） |
-| `docs/` | 设计文档 |
+| `docs/` | 设计文档（过程产物，默认不随功能提交） |
 
 ## 测试
 
 ```bash
-pytest                          # 全部测试
-pytest -m "not integration"     # 跳过集成测试
-pytest tests/test_worker_agent.py  # 单个文件
+pytest -m "not integration"     # 默认/CI：跳过访问外网的集成测试
+pytest                          # 全部测试（含 integration）
+pytest tests/test_agent_workflow_cron.py tests/test_agent_workflow_multisource.py
+pytest tests/test_worker_agent.py
 ```
 
 测试隔离：`conftest.py` 的 `isolated_db_config` fixture 为每个测试创建临时 SQLite 数据库。
+
+CI（`.github/workflows/ci.yml`）：`compileall` → `ruff` → Agent workflow 套件 → `pytest -m "not integration"` → 前端 `npm ci && npm run build`。
 
 ## 注意事项
 
 - **Python 3.12+** 必需。Windows 自动切换 ProactorEventLoop。
 - **config/settings.yaml** 中的敏感值必须用 `${VAR_NAME}` 引用环境变量，不要写明文。
 - 部分采集器需要外网（Google Trends、Twitch、Firecrawl）。
-- 前端修改 `src/web/src/` 后需 `npm run build`，构建产物已提交 git。
-- 集成测试标记 `@pytest.mark.integration`，CI 环境需跳过或配置凭据。
+- 前端修改 `src/web/src/` 后需 `npm run build`；`src/web/static/dist/` 默认 gitignore，CI/部署时构建。
+- 集成测试标记 `@pytest.mark.integration`，CI 默认跳过。
+- Agent 创建定时任务 / 多源提交等高风险操作需要**同一条消息**内的确认语（如「确认创建」）。
 
 ## 许可证
 

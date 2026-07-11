@@ -14,6 +14,8 @@ WorkflowRoute = Literal[
     "task_review_workflow",
     "pipeline_workflow",
     "readiness_workflow",
+    "cron_workflow",
+    "multisource_workflow",
 ]
 WorkflowAction = Literal["precheck", "generate", "review", "retry", "pipeline"]
 
@@ -42,6 +44,19 @@ class AgentWorkflowState(TypedDict, total=False):
     workflow_readiness_note: str
     readiness_config: dict[str, Any] | None
     readiness_session: dict[str, Any] | None
+    workflow_cron_action: str  # list | create | delete
+    workflow_cron_name: str
+    workflow_cron_expr: str
+    workflow_cron_timezone: str
+    workflow_cron_confirm: bool
+    workflow_cron_schedule_meta: dict[str, Any] | None
+    cron_draft: dict[str, Any] | None
+    cron_result: dict[str, Any] | None
+    workflow_multisource_game: str
+    workflow_multisource_collectors: list[str]
+    workflow_multisource_confirm: bool
+    multisource_draft: dict[str, Any] | None
+    multisource_result: dict[str, Any] | None
 
 
 @dataclass(frozen=True)

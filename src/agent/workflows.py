@@ -21,6 +21,8 @@ from src.agent.workflow_graphs import (
     workflow_node_bridge_map as build_workflow_node_bridge_map,
 )
 from src.agent.workflow_matchers import (
+    _match_cron_workflow,
+    _match_multisource_workflow,
     _match_pipeline_workflow,
     _match_readiness_workflow,
     _match_report_workflow,
@@ -38,6 +40,9 @@ from src.agent.workflow_routing import (
     task_review_detail_branch,
 )
 from src.agent.workflow_runtime_nodes import (
+    apply_cron_action_node,
+    apply_multisource_action_node,
+    build_multisource_draft_node,
     check_readiness_config_node,
     check_readiness_session_node,
     create_dynamic_pipeline_node,
@@ -45,10 +50,15 @@ from src.agent.workflow_runtime_nodes import (
     load_task_detail_node,
     precheck_report_node,
     prepare_dynamic_pipeline_node,
+    resolve_cron_intent_node,
+    resolve_cron_schedule_node,
+    resolve_multisource_intent_node,
     resolve_readiness_target_node,
     review_collection_results_node,
 )
 from src.agent.workflow_responses import (
+    build_cron_response_with_card,
+    build_multisource_response_with_card,
     build_pipeline_response_with_card,
     build_readiness_response_with_card,
     build_report_response_with_card,
@@ -70,6 +80,8 @@ def _workflow_graph_definitions() -> tuple[WorkflowGraphDefinition, ...]:
         match_task_review_workflow=_match_task_review_workflow,
         match_pipeline_workflow=_match_pipeline_workflow,
         match_readiness_workflow=_match_readiness_workflow,
+        match_cron_workflow=_match_cron_workflow,
+        match_multisource_workflow=_match_multisource_workflow,
         load_task_detail_handler=_load_task_detail,
         review_collection_results_handler=_review_collection_results,
         precheck_report_handler=_precheck_report,
@@ -83,6 +95,14 @@ def _workflow_graph_definitions() -> tuple[WorkflowGraphDefinition, ...]:
         check_readiness_config_handler=_check_readiness_config,
         check_readiness_session_handler=_check_readiness_session,
         compose_readiness_response_handler=_compose_readiness_response,
+        resolve_cron_intent_handler=_resolve_cron_intent,
+        resolve_cron_schedule_handler=_resolve_cron_schedule,
+        apply_cron_action_handler=_apply_cron_action,
+        compose_cron_response_handler=_compose_cron_response,
+        resolve_multisource_intent_handler=_resolve_multisource_intent,
+        build_multisource_draft_handler=_build_multisource_draft,
+        apply_multisource_action_handler=_apply_multisource_action,
+        compose_multisource_response_handler=_compose_multisource_response,
         report_task_detail_branch=_report_task_detail_branch,
         task_review_detail_branch=_task_review_detail_branch,
         review_branch=_review_branch,
@@ -282,6 +302,46 @@ def _check_readiness_session(state: AgentWorkflowState) -> dict[str, Any]:
 
 def _compose_readiness_response(state: AgentWorkflowState) -> dict[str, Any]:
     text, card = build_readiness_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out
+
+
+def _resolve_cron_intent(state: AgentWorkflowState) -> dict[str, Any]:
+    return resolve_cron_intent_node(state)
+
+
+def _resolve_cron_schedule(state: AgentWorkflowState) -> dict[str, Any]:
+    return resolve_cron_schedule_node(state)
+
+
+def _apply_cron_action(state: AgentWorkflowState) -> dict[str, Any]:
+    return apply_cron_action_node(state)
+
+
+def _compose_cron_response(state: AgentWorkflowState) -> dict[str, Any]:
+    text, card = build_cron_response_with_card(state)
+    out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
+    if card is not None:
+        out["result_card"] = card
+    return out
+
+
+def _resolve_multisource_intent(state: AgentWorkflowState) -> dict[str, Any]:
+    return resolve_multisource_intent_node(state)
+
+
+def _build_multisource_draft(state: AgentWorkflowState) -> dict[str, Any]:
+    return build_multisource_draft_node(state)
+
+
+async def _apply_multisource_action(state: AgentWorkflowState) -> dict[str, Any]:
+    return await apply_multisource_action_node(state)
+
+
+def _compose_multisource_response(state: AgentWorkflowState) -> dict[str, Any]:
+    text, card = build_multisource_response_with_card(state)
     out: dict[str, Any] = {"messages": [AIMessage(content=text)]}
     if card is not None:
         out["result_card"] = card
