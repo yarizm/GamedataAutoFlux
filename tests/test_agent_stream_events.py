@@ -24,8 +24,7 @@ def test_handle_chat_model_start_event_resets_state_and_emits_thinking() -> None
     state = StreamState(
         in_thinking_block=True,
         content_buffer="buffer",
-        in_react_action=True,
-        react_emitted_len=5,
+        final_output="prior",
     )
 
     events, updated_state = handle_chat_model_start_event(
@@ -35,8 +34,6 @@ def test_handle_chat_model_start_event_resets_state_and_emits_thinking() -> None
 
     assert events == [{"type": "thinking", "content": "正在分析您的请求..."}]
     assert updated_state.in_thinking_block is False
-    assert updated_state.in_react_action is False
-    assert updated_state.react_emitted_len == 0
     assert updated_state.content_buffer == ""
 
 
@@ -158,26 +155,6 @@ def test_handle_chain_end_event_emits_workflow_result_without_finishing_run() ->
     ]
     assert result.final_output == ""
     assert result.run_completed is False
-    assert result.handled is True
-
-
-def test_handle_chain_end_event_emits_agent_executor_final_output() -> None:
-    result = handle_chain_end_event(
-        {
-            "name": "AgentExecutor",
-            "data": {"output": {"output": "done"}},
-        },
-        bridge_map={},
-        redact_value=lambda value: value,
-        redact_text=lambda text: f"safe:{text}",
-        suppress_final_stream=False,
-        has_state_final_output=False,
-        runtime_input_mode="legacy_executor",
-    )
-
-    assert result.events == [{"type": "final", "content": "safe:done"}]
-    assert result.final_output == "safe:done"
-    assert result.run_completed is True
     assert result.handled is True
 
 

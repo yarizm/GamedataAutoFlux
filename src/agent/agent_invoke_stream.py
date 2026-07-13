@@ -24,21 +24,29 @@ from src.agent.workflow_events import END_FAILED, workflow_end_event
 class AgentInvokeStreamContext:
     stream_state: StreamState
     invoke_state: AgentInvokeState
-    suppress_final_stream: bool
-    workflow_bridges: Mapping[str, Any]
-    runtime_input_mode: str
+    suppress_final_stream: bool = False
+    workflow_bridges: Mapping[str, Any] = field(default_factory=dict)
+    runtime_input_mode: str = "messages_graph"
+    recursion_limit: int | None = None
     active_workflow_id: str | None = None
     workflow_label: str | None = None
     workflow_steps: list[dict[str, str]] = field(default_factory=list)
 
 
-def build_agent_event_stream_config(session_id: str) -> dict[str, Any]:
-    return {
+def build_agent_event_stream_config(
+    session_id: str,
+    *,
+    recursion_limit: int | None = None,
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
         "configurable": {
             "session_id": session_id,
             "thread_id": session_id,
         }
     }
+    if recursion_limit is not None:
+        config["recursion_limit"] = int(recursion_limit)
+    return config
 
 
 async def stream_agent_executor_events(
@@ -58,7 +66,10 @@ async def stream_agent_executor_events(
     try:
         async for event in executor.astream_events(
             invoke_payload,
-            config=build_agent_event_stream_config(session_id),
+            config=build_agent_event_stream_config(
+                session_id,
+                recursion_limit=context.recursion_limit,
+            ),
             version="v2",
         ):
             kind = event.get("event")
@@ -66,7 +77,6 @@ async def stream_agent_executor_events(
             if kind == "on_chat_model_start":
                 rendered_events, context.stream_state = handle_chat_model_start_event(
                     context.stream_state,
-                    suppress_final_stream=context.suppress_final_stream,
                 )
                 for rendered_event in rendered_events:
                     yield rendered_event
@@ -90,7 +100,6 @@ async def stream_agent_executor_events(
                 rendered_events, context.stream_state = handle_chat_model_stream_event(
                     event,
                     context.stream_state,
-                    suppress_final_stream=context.suppress_final_stream,
                     redact_stream_event=redact_stream_event,
                 )
                 for rendered_event in rendered_events:
@@ -122,9 +131,7 @@ async def stream_agent_executor_events(
                 bridge_map=dict(context.workflow_bridges),
                 redact_value=redact_value,
                 redact_text=redact_text,
-                suppress_final_stream=context.suppress_final_stream,
                 has_state_final_output=bool(context.stream_state.final_output),
-                runtime_input_mode=context.runtime_input_mode,
                 workflow_id=context.active_workflow_id,
             )
             # workflow_end before result_card/final when compose or root completes

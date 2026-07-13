@@ -48,7 +48,6 @@ from src.agent.agent_redaction import (
 )
 from src.agent.agent_runtime_facade import (
     build_agent_runtime,
-    handle_agent_parsing_error,
 )
 from src.agent.agent_runtime_config import (
     build_runtime_config_snapshot,
@@ -90,23 +89,11 @@ class AgentService:
         self._system_prompt = get_config("agent.system_prompt", default_system_prompt())
         self._runtime = self._build_runtime()
 
-    def _handle_parsing_error(self, error: Exception) -> str:
-        """Track parser errors and stop repeated malformed tool output."""
-        current_count = int(getattr(self, "_parsing_error_count", 0) or 0)
-        next_count, response = handle_agent_parsing_error(
-            current_count=current_count,
-            error=error,
-            redact_stream_text=redact_stream_text,
-        )
-        self._parsing_error_count = next_count
-        return response
-
     def _build_runtime(self) -> BaseAgentRuntime:
-        """Instantiate the currently configured runtime backend."""
+        """Instantiate the LangGraph agent runtime."""
         return build_agent_runtime(
             system_prompt=self._system_prompt,
             create_mcp_manager=self._create_mcp_manager,
-            handle_parsing_error=self._handle_parsing_error,
         )
 
     def _ensure_initialized(self) -> None:
@@ -182,7 +169,6 @@ class AgentService:
             mark_pending_history_recovery=self._mark_pending_history_recovery,
             cleanup_stale_sessions=self._cleanup_stale_sessions,
             get_history=self._get_history,
-            uses_legacy_react_parser=self._runtime.uses_legacy_react_parser,
             workflow_node_bridge_map=workflow_node_bridge_map,
         )
 
@@ -193,7 +179,6 @@ class AgentService:
         try:
             await self._async_ensure_initialized()
             prepared_invoke = await self._prepare_invoke(session_id)
-            self._parsing_error_count = 0
 
             async for rendered_event in run_prepared_agent_invoke(
                 executor=self._agent_executor,
@@ -202,6 +187,7 @@ class AgentService:
                 invoke_state=invoke_state,
                 prepared_invoke=prepared_invoke,
                 runtime_input_mode=self._runtime.input_mode,
+                recursion_limit=self._runtime.recursion_limit(),
                 build_invoke_payload=self._runtime.build_invoke_payload,
                 build_workflow_chain_start_events=build_workflow_chain_start_events,
                 redact_value=redact_stream_value,

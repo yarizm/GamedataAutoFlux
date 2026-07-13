@@ -325,15 +325,16 @@ async def test_agent_ainvoke_does_not_revive_expired_session(monkeypatch) -> Non
             self.received_config = None
 
         async def astream_events(self, payload, config, version):
-            self.received_history = payload["chat_history"]
+            self.received_history = payload.get("messages")
             self.received_config = config
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
-    force_runtime_backend(monkeypatch, "langchain_classic")
+    force_runtime_backend(monkeypatch, "langgraph_agent")
     session_service = ImmediateSessionService()
     service = AgentService(session_service=session_service)
     service._session_timeout = 10
@@ -349,9 +350,11 @@ async def test_agent_ainvoke_does_not_revive_expired_session(monkeypatch) -> Non
 
     events = [event async for event in service.ainvoke("new request", "expired")]
 
-    assert executor.received_history == []
+    # LangGraph payload embeds the new turn; expired context must not revive.
+    assert executor.received_history == [("human", "new request")]
     assert executor.received_config["configurable"]["session_id"] == "expired"
     assert executor.received_config["configurable"]["thread_id"] == "expired"
+    assert "recursion_limit" in executor.received_config
     assert session_service.deleted_sessions == ["expired"]
     assert service._histories["expired"][0].content == "new request"
     assert not any(event["type"] == "error" for event in events)
@@ -364,14 +367,15 @@ async def test_agent_ainvoke_loads_persisted_history_before_first_request(monkey
             self.received_history = None
 
         async def astream_events(self, payload, config, version):
-            self.received_history = payload["chat_history"]
+            self.received_history = payload.get("messages")
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
-    force_runtime_backend(monkeypatch, "langchain_classic")
+    force_runtime_backend(monkeypatch, "langgraph_agent")
     session_service = ExistingHistorySessionService()
     service = AgentService(session_service=session_service)
     service._initialized = True
@@ -385,9 +389,15 @@ async def test_agent_ainvoke_loads_persisted_history_before_first_request(monkey
 
     events = [event async for event in service.ainvoke("new request", "loaded-session")]
 
-    assert [message.content for message in executor.received_history] == [
+    def _content(message):
+        if isinstance(message, tuple):
+            return message[-1]
+        return message.content
+
+    assert [_content(message) for message in executor.received_history] == [
         "persisted question",
         "persisted answer",
+        "new request",
     ]
     saved_history = session_service.saved_histories["loaded-session"]
     assert [message.content for message in saved_history] == [
@@ -408,14 +418,15 @@ async def test_agent_ainvoke_preserves_existing_persisted_history_after_load_ret
             self.received_history = None
 
         async def astream_events(self, payload, config, version):
-            self.received_history = payload["chat_history"]
+            self.received_history = payload.get("messages")
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
-    force_runtime_backend(monkeypatch, "langchain_classic")
+    force_runtime_backend(monkeypatch, "langgraph_agent")
     session_service = FlakyExistingHistorySessionService()
     service = AgentService(session_service=session_service)
     service._initialized = True
@@ -429,7 +440,8 @@ async def test_agent_ainvoke_preserves_existing_persisted_history_after_load_ret
 
     _ = [event async for event in service.ainvoke("new request", "loaded-session")]
 
-    assert executor.received_history == []
+    # History load failed: only the new turn is sent (no persisted context).
+    assert executor.received_history == [("human", "new request")]
     assert service._histories_loaded is False
     degraded_status = service.get_status_summary()
     assert degraded_status["status_health"] == "warning"
@@ -463,14 +475,15 @@ async def test_agent_keeps_pending_recovery_until_resave_succeeds(monkeypatch) -
             self.received_history = None
 
         async def astream_events(self, payload, config, version):
-            self.received_history = payload["chat_history"]
+            self.received_history = payload.get("messages")
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
-    force_runtime_backend(monkeypatch, "langchain_classic")
+    force_runtime_backend(monkeypatch, "langgraph_agent")
     session_service = FlakyExistingHistoryAndResaveSessionService()
     service = AgentService(session_service=session_service)
     service._initialized = True
@@ -484,7 +497,7 @@ async def test_agent_keeps_pending_recovery_until_resave_succeeds(monkeypatch) -
 
     _ = [event async for event in service.ainvoke("new request", "loaded-session")]
 
-    assert executor.received_history == []
+    assert executor.received_history == [("human", "new request")]
     await service.ensure_histories_loaded()
 
     degraded_status = service.get_status_summary()
@@ -519,8 +532,11 @@ async def test_agent_pending_recovery_thread_keeps_all_buffered_turns_until_merg
             self.calls += 1
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": f"done {self.calls}"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {
+                    "output": {"messages": [AIMessage(content=f"done {self.calls}")]}
+                },
             }
 
     session_service = DeferredExistingHistorySessionService()
@@ -567,24 +583,25 @@ async def test_agent_pending_recovery_thread_keeps_all_buffered_turns_until_merg
 
 
 @pytest.mark.asyncio
-async def test_agent_ainvoke_resets_parsing_error_count_per_request(monkeypatch) -> None:
+async def test_agent_ainvoke_passes_recursion_limit_from_max_iterations(monkeypatch) -> None:
     class CapturingExecutor:
-        def __init__(self, service: AgentService) -> None:
-            self.service = service
-            self.count_at_start = None
+        def __init__(self) -> None:
+            self.received_config = None
 
         async def astream_events(self, payload, config, version):
-            self.count_at_start = self.service._parsing_error_count
+            self.received_config = config
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
     session_service = ImmediateSessionService()
     service = AgentService(session_service=session_service)
-    service._parsing_error_count = 2
-    executor = CapturingExecutor(service)
+    service._max_iterations = 10
+    service._runtime._max_iterations = 10
+    executor = CapturingExecutor()
     service._agent_executor = executor
 
     async def initialized_noop() -> None:
@@ -594,7 +611,8 @@ async def test_agent_ainvoke_resets_parsing_error_count_per_request(monkeypatch)
 
     _ = [event async for event in service.ainvoke("fresh request", "fresh-session")]
 
-    assert executor.count_at_start == 0
+    assert executor.received_config is not None
+    assert executor.received_config["recursion_limit"] == 25
 
 
 @pytest.mark.asyncio
@@ -646,10 +664,7 @@ async def test_langgraph_runtime_ignores_legacy_react_stream_parser(monkeypatch)
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "system",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     service._agent_executor = StreamingGraphExecutor()
@@ -690,8 +705,9 @@ async def test_agent_ainvoke_redacts_llm_stream_events_and_saved_output(monkeypa
             }
             yield {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             }
 
     session_service = ImmediateSessionService()
@@ -753,10 +769,7 @@ async def test_agent_ainvoke_uses_graph_runtime_payload_and_final_output(monkeyp
     service._sessions_timestamps["graph-session"] = time.time()
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "system",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     executor = GraphExecutor()
@@ -811,10 +824,7 @@ async def test_agent_ainvoke_with_real_langgraph_agent_emits_tool_and_final_even
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     service._agent_executor = agent_graph
@@ -875,10 +885,7 @@ async def test_agent_ainvoke_with_streaming_langgraph_agent_saves_final_once(
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     service._agent_executor = agent_graph
@@ -907,10 +914,7 @@ async def test_agent_ainvoke_langgraph_report_precheck_workflow_emits_tool_chain
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 
@@ -1019,10 +1023,7 @@ async def test_agent_ainvoke_langgraph_report_generate_workflow_runs_generate_re
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 
@@ -1137,10 +1138,7 @@ async def test_agent_ainvoke_langgraph_task_review_workflow_emits_review_chain(
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 
@@ -1224,10 +1222,7 @@ async def test_agent_ainvoke_langgraph_task_review_workflow_supports_auto_retry(
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 
@@ -1303,10 +1298,7 @@ async def test_agent_ainvoke_langgraph_pipeline_workflow_creates_dynamic_pipelin
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 
@@ -1364,10 +1356,7 @@ async def test_agent_ainvoke_langgraph_pipeline_workflow_reports_dynamic_pipelin
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
 

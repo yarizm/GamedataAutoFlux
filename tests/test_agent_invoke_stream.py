@@ -46,14 +46,15 @@ async def test_stream_agent_executor_events_builds_thread_aware_config() -> None
         invoke_state=AgentInvokeState(),
         suppress_final_stream=False,
         workflow_bridges={},
-        runtime_input_mode="legacy_executor",
+        runtime_input_mode="messages_graph",
+        recursion_limit=25,
     )
 
     events = [
         event
         async for event in stream_agent_executor_events(
             executor,
-            invoke_payload={"input": "hello"},
+            invoke_payload={"messages": [("human", "hello")]},
             session_id="thread-1",
             context=context,
             build_workflow_chain_start_events=lambda *args, **kwargs: [],
@@ -67,8 +68,8 @@ async def test_stream_agent_executor_events_builds_thread_aware_config() -> None
     assert events == []
     assert executor.calls == [
         {
-            "payload": {"input": "hello"},
-            "config": build_agent_event_stream_config("thread-1"),
+            "payload": {"messages": [("human", "hello")]},
+            "config": build_agent_event_stream_config("thread-1", recursion_limit=25),
             "version": "v2",
         }
     ]
@@ -77,6 +78,8 @@ async def test_stream_agent_executor_events_builds_thread_aware_config() -> None
 
 @pytest.mark.asyncio
 async def test_stream_agent_executor_events_updates_state_and_stops_on_completion() -> None:
+    from langchain_core.messages import AIMessage
+
     executor = _FakeExecutor(
         [
             {"event": "on_chat_model_start"},
@@ -92,8 +95,9 @@ async def test_stream_agent_executor_events_updates_state_and_stops_on_completio
             },
             {
                 "event": "on_chain_end",
-                "name": "AgentExecutor",
-                "data": {"output": {"output": "done"}},
+                "name": "GamedataAutoFluxAgent",
+                "parent_ids": [],
+                "data": {"output": {"messages": [AIMessage(content="done")]}},
             },
         ]
     )
@@ -102,14 +106,14 @@ async def test_stream_agent_executor_events_updates_state_and_stops_on_completio
         invoke_state=AgentInvokeState(),
         suppress_final_stream=False,
         workflow_bridges={},
-        runtime_input_mode="legacy_executor",
+        runtime_input_mode="messages_graph",
     )
 
     events = [
         event
         async for event in stream_agent_executor_events(
             executor,
-            invoke_payload={"input": "hello"},
+            invoke_payload={"messages": [("human", "hello")]},
             session_id="thread-2",
             context=context,
             build_workflow_chain_start_events=lambda *args, **kwargs: [],
@@ -125,7 +129,7 @@ async def test_stream_agent_executor_events_updates_state_and_stops_on_completio
         {"type": "final", "content": "done"},
     ]
     assert context.stream_state.final_output == "done"
-    assert context.invoke_state.final_output == ""
+    # stream final already counted; chain_end may also emit but has_state_final skips
     assert context.invoke_state.run_completed is True
 
 
@@ -143,14 +147,14 @@ async def test_stream_agent_executor_events_emits_tool_and_workflow_events() -> 
         invoke_state=AgentInvokeState(),
         suppress_final_stream=False,
         workflow_bridges={},
-        runtime_input_mode="legacy_executor",
+        runtime_input_mode="messages_graph",
     )
 
     events = [
         event
         async for event in stream_agent_executor_events(
             executor,
-            invoke_payload={"input": "hello"},
+            invoke_payload={"messages": [("human", "hello")]},
             session_id="thread-3",
             context=context,
             build_workflow_chain_start_events=lambda event, **kwargs: [

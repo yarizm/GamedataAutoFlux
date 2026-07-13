@@ -72,11 +72,12 @@ class LangGraphCheckpointerConfig(_FlexibleModel):
 
 class AgentConfig(_FlexibleModel):
     enabled: bool = True
+    # Fixed LangGraph-only backend; kept for status/API compatibility.
     runtime_backend: str = Field(
         default="langgraph_agent",
-        pattern="^(langchain_classic|langgraph_agent)$",
+        pattern="^langgraph_agent$",
     )
-    agent_type: str = Field(default="openai_tools", pattern="^(openai_tools|react)$")
+    agent_type: str = Field(default="openai_tools", pattern="^openai_tools$")
     max_iterations: int = Field(default=10, ge=1)
     session_timeout_minutes: int = Field(default=60, ge=1)
     playwright_mcp: PlaywrightMcpConfig = Field(default_factory=PlaywrightMcpConfig)
@@ -262,22 +263,8 @@ def validate_settings_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_settings_warnings(model: SettingsModel) -> list[dict[str, Any]]:
-    warnings: list[dict[str, Any]] = []
-    if (
-        model.agent.runtime_backend == "langgraph_agent"
-        and model.agent.agent_type == "react"
-    ):
-        warnings.append(
-            {
-                "path": "agent.agent_type",
-                "message": (
-                    "agent.agent_type=react is ignored when "
-                    "agent.runtime_backend=langgraph_agent; the effective mode is openai_tools."
-                ),
-                "type": "compatibility_warning",
-            }
-        )
-    return warnings
+    del model
+    return []
 
 
 def _format_validation_error(error: dict[str, Any]) -> dict[str, Any]:

@@ -1,11 +1,9 @@
-"""Prompt-building and parsing-error helpers for Agent runtimes."""
+"""Prompt-building helpers for the LangGraph Agent runtime."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
 
 
@@ -26,101 +24,6 @@ def build_openai_tools_system_prompt(
         f"当你需要查询数据、管理任务或进行网络请求时，必须主动且直接地调用对应的工具：\n"
         f"{tool_desc}\n"
         f"===================================\n"
-    )
-
-
-def build_openai_tools_prompt(
-    system_prompt: str,
-    tools: Sequence[BaseTool],
-) -> ChatPromptTemplate:
-    system_content = build_openai_tools_system_prompt(system_prompt, tools)
-    return ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content=system_content),
-            MessagesPlaceholder("chat_history", optional=True),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ]
-    )
-
-
-def build_react_prompt(
-    system_prompt: str,
-    tools: Sequence[BaseTool],
-) -> ChatPromptTemplate:
-    del tools
-    prefix = f"""Respond to the human as helpfully and accurately as possible. You have access to the following tools:
-
-{{tools}}
-
-Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-Valid "action" values: "Final Answer" or {{tool_names}}
-
-Provide only ONE action per $JSON_BLOB, as shown:
-
-```
-{{{{
-  "action": $TOOL_NAME,
-  "action_input": $INPUT
-}}}}
-```
-
-Follow this format:
-
-Question: input question to answer
-Thought: consider previous and subsequent steps
-Action:
-```
-$JSON_BLOB
-```
-Observation: action result
-... (repeat Thought/Action/Observation N times)
-Thought: I know what to respond
-Action:
-```
-{{{{
-  "action": "Final Answer",
-  "action_input": "Final response to human"
-}}}}
-```
-
-Additional Rules:
-{system_prompt}
-"""
-    suffix = (
-        "Begin! Reminder to ALWAYS respond with a valid json blob of a single action. "
-        "Use tools if necessary. Respond directly if appropriate. "
-        "Format is Action:```$JSON_BLOB```then Observation"
-    )
-
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", prefix),
-            MessagesPlaceholder("chat_history", optional=True),
-            ("human", "{input}\n\n" + suffix + "\n\n{agent_scratchpad}"),
-        ]
-    )
-
-
-def next_parsing_error_response(
-    current_count: int,
-    error: Exception,
-    *,
-    redact_stream_text: Callable[[str], str],
-) -> tuple[int, str]:
-    next_count = current_count + 1
-    if next_count >= 3:
-        return (
-            0,
-            "Action failed because the action format was incorrect 3 times in a row. Stop using tools and ask the user for clarification.",
-        )
-
-    safe_error = redact_stream_text(str(error))
-    return (
-        next_count,
-        "Check your json formatting. It must be valid json with 'action' and "
-        f"'action_input' keys. Error: {safe_error}",
     )
 
 

@@ -33,13 +33,12 @@ async def test_prepare_agent_invoke_marks_pending_recovery_before_loading_histor
         mark_pending_history_recovery=mark_pending_history_recovery,
         cleanup_stale_sessions=cleanup_stale_sessions,
         get_history=get_history,
-        uses_legacy_react_parser=lambda: True,
         workflow_node_bridge_map=lambda: {"node": "bridge"},
     )
 
     assert calls == ["mark:thread-a", "cleanup", "history:thread-a"]
     assert result.history == ["persisted"]
-    assert result.suppress_final_stream is True
+    assert result.suppress_final_stream is False
     assert result.workflow_bridges == {"node": "bridge"}
 
 
@@ -63,7 +62,6 @@ async def test_prepare_agent_invoke_skips_recovery_marker_when_histories_loaded(
         mark_pending_history_recovery=mark_pending_history_recovery,
         cleanup_stale_sessions=cleanup_stale_sessions,
         get_history=get_history,
-        uses_legacy_react_parser=lambda: False,
         workflow_node_bridge_map=dict,
     )
 
@@ -129,8 +127,8 @@ async def test_run_prepared_agent_invoke_recovers_after_cancellation() -> None:
                     suppress_final_stream=False,
                     workflow_bridges={},
                 ),
-                runtime_input_mode="legacy_executor",
-                build_invoke_payload=lambda **kwargs: {"input": kwargs["user_input"]},
+                runtime_input_mode="messages_graph",
+                build_invoke_payload=lambda **kwargs: {"messages": [("human", kwargs["user_input"])]},
                 build_workflow_chain_start_events=lambda *args, **kwargs: [],
                 redact_value=lambda value: value,
                 redact_stream_event=lambda event: event,
@@ -181,8 +179,8 @@ async def test_run_prepared_agent_invoke_recover_after_runtime_error() -> None:
                     suppress_final_stream=False,
                     workflow_bridges={},
                 ),
-                runtime_input_mode="legacy_executor",
-                build_invoke_payload=lambda **kwargs: {"input": kwargs["user_input"]},
+                runtime_input_mode="messages_graph",
+                build_invoke_payload=lambda **kwargs: {"messages": [("human", kwargs["user_input"])]},
                 build_workflow_chain_start_events=lambda *args, **kwargs: [],
                 redact_value=lambda value: value,
                 redact_stream_event=lambda event: event,
@@ -214,8 +212,8 @@ async def test_run_prepared_agent_invoke_surfaces_reinitialized_executor_error()
                 suppress_final_stream=False,
                 workflow_bridges={},
             ),
-            runtime_input_mode="legacy_executor",
-            build_invoke_payload=lambda **kwargs: {"input": kwargs["user_input"]},
+            runtime_input_mode="messages_graph",
+            build_invoke_payload=lambda **kwargs: {"messages": [("human", kwargs["user_input"])]},
             build_workflow_chain_start_events=lambda *args, **kwargs: [],
             redact_value=lambda value: value,
             redact_stream_event=lambda event: event,

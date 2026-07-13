@@ -88,7 +88,7 @@ def test_agent_status_summary_is_lightweight() -> None:
     summary = service.get_status_summary()
 
     assert summary["initialized"] is False
-    assert summary["runtime_backend"] in {"langchain_classic", "langgraph_agent"}
+    assert summary["runtime_backend"] == "langgraph_agent"
     assert summary["active_tool_count"] == len(ALL_TOOLS)
     assert summary["base_tools"] == [tool.name for tool in ALL_TOOLS]
     assert "get_agent_status" in summary["active_tools"]
@@ -170,12 +170,10 @@ def test_agent_status_summary_includes_session_health_metrics(monkeypatch) -> No
     assert summary["thread_checkpoint_storage_path"] is None
 
 
-def test_agent_reload_config_rebuilds_runtime_backend(monkeypatch) -> None:
-    current_backend = {"value": "langchain_classic"}
-
+def test_agent_reload_config_keeps_langgraph_runtime(monkeypatch) -> None:
     def fake_get_config(key, default=None):
         if key == "agent.runtime_backend":
-            return current_backend["value"]
+            return "langgraph_agent"
         if key == "agent.max_iterations":
             return 10
         if key == "agent.session_timeout_minutes":
@@ -192,20 +190,19 @@ def test_agent_reload_config_rebuilds_runtime_backend(monkeypatch) -> None:
     monkeypatch.setattr("src.agent.runtime.get_config", fake_get_config)
 
     service = AgentService(session_service=object())
-    assert service.get_status_summary()["runtime_backend"] == "langchain_classic"
+    assert service.get_status_summary()["runtime_backend"] == "langgraph_agent"
 
-    current_backend["value"] = "langgraph_agent"
     service.reload_config()
 
     assert service.get_status_summary()["runtime_backend"] == "langgraph_agent"
 
 
-def test_agent_status_summary_reports_effective_agent_type_for_langgraph(monkeypatch) -> None:
+def test_agent_status_summary_reports_openai_tools_only(monkeypatch) -> None:
     def fake_get_config(key, default=None):
         if key == "agent.runtime_backend":
             return "langgraph_agent"
         if key == "agent.agent_type":
-            return "react"
+            return "openai_tools"
         if key == "agent.max_iterations":
             return 10
         if key == "agent.session_timeout_minutes":
@@ -225,13 +222,12 @@ def test_agent_status_summary_reports_effective_agent_type_for_langgraph(monkeyp
     summary = service.get_status_summary()
 
     assert summary["runtime_backend"] == "langgraph_agent"
-    assert summary["configured_agent_type"] == "react"
+    assert summary["configured_agent_type"] == "openai_tools"
     assert summary["effective_agent_type"] == "openai_tools"
     assert summary["agent_type"] == "openai_tools"
     assert summary["legacy_react_parser_enabled"] is False
-    assert summary["agent_type_compatibility_warnings"]
-    assert summary["status_health"] == "warning"
-    assert summary["status_warnings"] == summary["agent_type_compatibility_warnings"]
+    assert summary["agent_type_compatibility_warnings"] == []
+    assert summary["status_health"] == "ok"
 
 
 def test_agent_defaults_to_langgraph_runtime_when_backend_not_configured(monkeypatch) -> None:
@@ -473,7 +469,7 @@ def test_agent_status_api_returns_runtime_summary() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["runtime_backend"] in {"langchain_classic", "langgraph_agent"}
+    assert payload["runtime_backend"] == "langgraph_agent"
     assert payload["active_tool_count"] >= len(ALL_TOOLS)
     assert "get_agent_status" in payload["active_tools"]
 
@@ -561,10 +557,7 @@ def test_agent_chat_sse_supports_langgraph_runtime(monkeypatch) -> None:
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     service._agent_executor = agent_graph
@@ -631,10 +624,7 @@ def test_agent_history_and_sessions_api_support_langgraph_runtime(monkeypatch) -
     service = AgentService(session_service=session_service)
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "You are helpful",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     service._set_runtime_for_testing(graph_runtime)
     service._agent_executor = agent_graph

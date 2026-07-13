@@ -201,7 +201,7 @@ def test_settings_schema_defaults_to_langgraph_runtime_backend() -> None:
     assert validation["normalized"]["agent"]["agent_type"] == "openai_tools"
 
 
-def test_settings_schema_warns_on_langgraph_react_combo() -> None:
+def test_settings_schema_rejects_langgraph_react_combo() -> None:
     validation = validate_settings_payload(
         {
             "agent": {
@@ -211,26 +211,16 @@ def test_settings_schema_warns_on_langgraph_react_combo() -> None:
         }
     )
 
-    assert validation["valid"] is True
-    assert validation["issues"] == []
-    assert validation["warnings"] == [
-        {
-            "path": "agent.agent_type",
-            "message": (
-                "agent.agent_type=react is ignored when "
-                "agent.runtime_backend=langgraph_agent; the effective mode is openai_tools."
-            ),
-            "type": "compatibility_warning",
-        }
-    ]
+    assert validation["valid"] is False
+    assert any(issue["path"] == "agent.agent_type" for issue in validation["issues"])
 
 
-def test_build_config_diagnostics_warns_on_langgraph_react_combo(monkeypatch) -> None:
+def test_build_config_diagnostics_errors_on_classic_runtime(monkeypatch) -> None:
     def fake_get_config(key: str, default=None):
         if key == "agent.runtime_backend":
-            return "langgraph_agent"
+            return "langchain_classic"
         if key == "agent.agent_type":
-            return "react"
+            return "openai_tools"
         return get_config(key, default)
 
     monkeypatch.setattr(
@@ -244,9 +234,8 @@ def test_build_config_diagnostics_warns_on_langgraph_react_combo(monkeypatch) ->
         item for item in diagnostics["checks"] if item["name"] == "agent.runtime_compatibility"
     )
 
-    assert check["status"] == "warning"
-    assert check["details"]["runtime_backend"] == "langgraph_agent"
-    assert check["details"]["configured_agent_type"] == "react"
+    assert check["status"] == "error"
+    assert check["details"]["runtime_backend"] == "langchain_classic"
     assert check["details"]["effective_agent_type"] == "openai_tools"
 
 

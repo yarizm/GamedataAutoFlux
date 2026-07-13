@@ -265,29 +265,33 @@ def _settings_schema_check() -> dict[str, Any]:
 
 
 def _agent_runtime_compatibility_check() -> dict[str, Any]:
-    runtime_backend = str(get_config("agent.runtime_backend", "langchain_classic") or "").strip()
+    runtime_backend = str(get_config("agent.runtime_backend", "langgraph_agent") or "").strip()
     configured_agent_type = str(get_config("agent.agent_type", "openai_tools") or "").strip()
-    effective_agent_type = (
-        "openai_tools"
-        if runtime_backend == "langgraph_agent"
-        else (configured_agent_type or "openai_tools")
-    )
-    if runtime_backend == "langgraph_agent" and configured_agent_type == "react":
+    if runtime_backend and runtime_backend != "langgraph_agent":
         return _check(
             "agent.runtime_compatibility",
-            "warning",
-            "langgraph_agent ignores the legacy react text protocol and uses openai_tools semantics.",
+            "error",
+            "Only langgraph_agent runtime is supported; langchain_classic has been removed.",
             runtime_backend=runtime_backend,
+            configured_agent_type=configured_agent_type or "openai_tools",
+            effective_agent_type="openai_tools",
+        )
+    if configured_agent_type and configured_agent_type != "openai_tools":
+        return _check(
+            "agent.runtime_compatibility",
+            "error",
+            "Only openai_tools agent_type is supported; react text protocol has been removed.",
+            runtime_backend=runtime_backend or "langgraph_agent",
             configured_agent_type=configured_agent_type,
-            effective_agent_type=effective_agent_type,
+            effective_agent_type="openai_tools",
         )
     return _check(
         "agent.runtime_compatibility",
         "ok",
-        "Agent runtime and agent_type configuration are compatible.",
-        runtime_backend=runtime_backend or "langchain_classic",
+        "Agent uses LangGraph-only runtime with openai_tools semantics.",
+        runtime_backend=runtime_backend or "langgraph_agent",
         configured_agent_type=configured_agent_type or "openai_tools",
-        effective_agent_type=effective_agent_type,
+        effective_agent_type="openai_tools",
     )
 
 

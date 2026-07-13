@@ -3,9 +3,7 @@
 from src.agent.stream_parser import (
     StreamState,
     process_text_chunk,
-    process_react_chunk,
     flush_buffer,
-    parse_react_final_answer,
 )
 
 
@@ -79,50 +77,6 @@ class TestProcessTextChunk:
         assert "".join(f["content"] for f in final) == "AB"
 
 
-# ==================== process_react_chunk ====================
-
-
-class TestProcessReactChunk:
-    def test_thought_becomes_thinking(self):
-        """ReAct Thought: → thinking（流式场景：多 chunk + flush 出完整内容）"""
-        state = StreamState()
-        # 第一个 chunk：因 tail-safe 留白，只产出安全的头部
-        events1, state = process_react_chunk("Thought: 我需要查询", state)
-        # 第二个 chunk：继续产出剩余
-        events2, state = process_react_chunk("数据库的最新状态", state)
-        # flush 收尾
-        events3, state = flush_buffer(state, suppress_final=True)
-
-        all_events = events1 + events2 + events3
-        thinking_contents = "".join(e["content"] for e in all_events if e["type"] == "thinking")
-        assert "查询数据库" in thinking_contents
-
-    def test_action_marker_stops_thinking(self):
-        """检测到 Action: 后不再产出 thinking"""
-        events, state = process_react_chunk("Thought: 分析完成\nAction:", StreamState())
-        assert state.in_react_action
-
-    def test_json_action_marker(self):
-        """{"action" 格式的 Action 标记"""
-        events, state = process_react_chunk(
-            'Thought: 准备调用工具\n{"action": "tool_name"', StreamState()
-        )
-        assert state.in_react_action
-
-    def test_action_across_chunks(self):
-        """Action 标记跨 chunk"""
-        state = StreamState()
-        events1, state = process_react_chunk("Thought: 分析数据\nAct", state)
-        events2, state = process_react_chunk("ion:\n```json\n...", state)
-        assert state.in_react_action
-
-    def test_after_action_no_events(self):
-        """进入 Action 块后不再产出新事件"""
-        state = StreamState(in_react_action=True, content_buffer="...")
-        events, state = process_react_chunk("更多action内容", state)
-        assert len(events) == 0
-
-
 # ==================== flush_buffer ====================
 
 
@@ -143,51 +97,7 @@ class TestFlushBuffer:
         assert events[0] == {"type": "final", "content": "最终文本"}
         assert state.final_output == "最终文本"
 
-    def test_flush_react_remaining_thought(self):
-        """ReAct 模式刷新剩余 thought"""
-        state = StreamState(content_buffer="余量思考")
-        events, state = flush_buffer(state, suppress_final=True)
-        assert len(events) == 1
-        assert events[0]["type"] == "thinking"
-
     def test_flush_empty_buffer(self):
         """空缓冲区不产出事件"""
         events, state = flush_buffer(StreamState())
         assert len(events) == 0
-
-    def test_flush_react_thought_prefix(self):
-        """ReAct 模式以 Thought: 开头"""
-        state = StreamState(content_buffer="Thought: 最后的分析")
-        events, state = flush_buffer(state, suppress_final=True)
-        assert len(events) == 1
-        assert events[0]["type"] == "thinking"
-        assert "最后的分析" in events[0]["content"]
-
-
-# ==================== parse_react_final_answer ====================
-
-
-class TestParseReactFinalAnswer:
-    def test_extract_json_final_answer(self):
-        """从 JSON 提取 Final Answer"""
-        raw = 'Thought: 完成\nAction:\n```\n{"action": "Final Answer", "action_input": "答案是42"}\n```'
-        result = parse_react_final_answer(raw)
-        assert result == "答案是42"
-
-    def test_no_final_answer_passthrough(self):
-        """没有 Final Answer 时原样返回"""
-        raw = "普通文本输出"
-        result = parse_react_final_answer(raw)
-        assert result == "普通文本输出"
-
-    def test_strip_markdown_fences(self):
-        """清理 ```json 围栏"""
-        raw = '```json\n{"action": "Final Answer", "action_input": "结果"}\n```'
-        result = parse_react_final_answer(raw)
-        assert result == "结果"
-
-    def test_fallback_cleanup(self):
-        """回退清理 Action:/Thought: 前缀"""
-        raw = "Action: 最终结果"
-        result = parse_react_final_answer(raw)
-        assert "最终结果" in result

@@ -6,12 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from src.agent.stream_parser import (
-    StreamState,
-    parse_react_final_answer,
-    process_react_chunk,
-    process_text_chunk,
-)
+from src.agent.stream_parser import StreamState, process_text_chunk
 from src.agent.workflow_bridge_events import (
     build_workflow_chain_end_result_event,
     extract_graph_final_text,
@@ -41,16 +36,15 @@ class ChainEndHandlingResult:
 def handle_chat_model_start_event(
     state: StreamState,
     *,
-    suppress_final_stream: bool,
+    suppress_final_stream: bool = False,
 ) -> tuple[list[dict[str, Any]], StreamState]:
-    state.in_react_action = False
-    state.react_emitted_len = 0
+    del suppress_final_stream
     state.in_thinking_block = False
     state.content_buffer = ""
 
-    events: list[dict[str, Any]] = []
-    if not suppress_final_stream:
-        events.append({"type": "thinking", "content": "正在分析您的请求..."})
+    events: list[dict[str, Any]] = [
+        {"type": "thinking", "content": "正在分析您的请求..."}
+    ]
     return events, state
 
 
@@ -58,9 +52,10 @@ def handle_chat_model_stream_event(
     event: dict[str, Any],
     state: StreamState,
     *,
-    suppress_final_stream: bool,
+    suppress_final_stream: bool = False,
     redact_stream_event: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], StreamState]:
+    del suppress_final_stream
     chunk = event.get("data", {}).get("chunk")
     if chunk is None:
         return [], state
@@ -81,7 +76,6 @@ def handle_chat_model_stream_event(
         rendered, state = _chunk_text_events(
             chunk_content,
             state,
-            suppress_final_stream=suppress_final_stream,
             redact_stream_event=redact_stream_event,
         )
         events.extend(rendered)
@@ -95,7 +89,6 @@ def handle_chat_model_stream_event(
                 rendered, state = _chunk_text_events(
                     str(item.get("text", "")),
                     state,
-                    suppress_final_stream=suppress_final_stream,
                     redact_stream_event=redact_stream_event,
                 )
                 events.extend(rendered)
@@ -192,9 +185,7 @@ def maybe_workflow_end_events(
     event_name = str(event.get("name") or "")
     is_compose = event_name in COMPOSE_NODE_TO_WORKFLOW
     is_graph_root_complete = bool(
-        chain_end_result.run_completed
-        and context.runtime_input_mode == "messages_graph"
-        and not event.get("parent_ids")
+        chain_end_result.run_completed and not event.get("parent_ids")
     )
     if not is_compose and not is_graph_root_complete:
         return []
@@ -209,11 +200,14 @@ def handle_chain_end_event(
     bridge_map: dict[str, Any],
     redact_value: Callable[[Any], Any],
     redact_text: Callable[[str], str],
-    suppress_final_stream: bool,
+    suppress_final_stream: bool = False,
     has_state_final_output: bool,
-    runtime_input_mode: str,
+    runtime_input_mode: str = "messages_graph",
     workflow_id: str | None = None,
 ) -> ChainEndHandlingResult:
+    del suppress_final_stream
+    del runtime_input_mode
+
     workflow_result_events = build_workflow_chain_end_result_event(
         event,
         bridge_map=bridge_map,
@@ -223,41 +217,13 @@ def handle_chain_end_event(
     if workflow_result_events:
         return ChainEndHandlingResult(events=list(workflow_result_events), handled=True)
 
-    name = event.get("name")
-    if name == "AgentExecutor":
-        out = event.get("data", {}).get("output", {})
-        events: list[dict[str, Any]] = []
-        final_output = ""
-        if isinstance(out, dict) and "output" in out:
-            if suppress_final_stream:
-                final_ans = parse_react_final_answer(str(out["output"] or ""))
-                if not final_ans:
-                    final_ans = str(out["output"] or "")
-                if not final_ans:
-                    final_ans = "(无文本输出)"
-                safe_final_ans = redact_text(final_ans)
-                events.append({"type": "final", "content": safe_final_ans})
-                final_output = safe_final_ans
-            elif not has_state_final_output:
-                final_ans = str(out["output"] or "")
-                if final_ans:
-                    safe_final_ans = redact_text(final_ans)
-                    events.append({"type": "final", "content": safe_final_ans})
-                    final_output = safe_final_ans
-        return ChainEndHandlingResult(
-            events=events,
-            final_output=final_output,
-            run_completed=True,
-            handled=True,
-        )
-
     # Intermediate workflow nodes (compose / entry without bridge) must not be
     # treated as graph root just because parent_ids is missing from the payload.
-    node_name = str(name or "")
+    node_name = str(event.get("name") or "")
     if node_name in COMPOSE_NODE_TO_WORKFLOW or node_name in ENTRY_NODE_TO_WORKFLOW:
         return ChainEndHandlingResult(events=[], handled=True)
 
-    if runtime_input_mode == "messages_graph" and not event.get("parent_ids"):
+    if not event.get("parent_ids"):
         graph_output = event.get("data", {}).get("output", {})
         events: list[dict[str, Any]] = []
         final_output = ""
@@ -297,11 +263,7 @@ def _chunk_text_events(
     text: str,
     state: StreamState,
     *,
-    suppress_final_stream: bool,
     redact_stream_event: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], StreamState]:
-    if suppress_final_stream:
-        events, state = process_react_chunk(text, state)
-    else:
-        events, state = process_text_chunk(text, state, suppress_final_stream)
+    events, state = process_text_chunk(text, state, suppress_final=False)
     return [redact_stream_event(event) for event in events], state

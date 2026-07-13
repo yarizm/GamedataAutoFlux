@@ -117,7 +117,7 @@ Pipeline 与 DAG 并存：`Pipeline.execute()` 默认委托 `DAGExecutor`（经 
 
 ### Agent 系统
 
-LangChain + LangGraph 双运行时，支持运行时切换（`agent.runtime_backend`）。
+LangGraph 单运行时（root StateGraph：路由 + 6 条路径工作流 + `create_agent` general 路径）。`langchain_classic` / AgentExecutor 已移除。
 
 - **工具集**：任务管理、数据浏览/搜索、语义搜索（pgvector）、Pipeline 管理、Cron 管理、报告生成/预检、Steam App ID 解析、游戏标识符发现、系统/就绪诊断
 - **6 条规则图式工作流**（命中后走固定路径 + path bar + `result_card`，非 LLM 路由）：

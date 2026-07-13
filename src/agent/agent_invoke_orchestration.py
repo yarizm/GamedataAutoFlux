@@ -32,7 +32,6 @@ async def prepare_agent_invoke(
     mark_pending_history_recovery: Callable[[str], Awaitable[None]],
     cleanup_stale_sessions: Callable[[], Awaitable[None]],
     get_history: Callable[[str], Awaitable[list[Any]]],
-    uses_legacy_react_parser: Callable[[], bool],
     workflow_node_bridge_map: Callable[[], Mapping[str, Any]],
 ) -> PreparedAgentInvoke:
     if not histories_loaded:
@@ -43,7 +42,7 @@ async def prepare_agent_invoke(
     return PreparedAgentInvoke(
         history=history,
         stream_state=StreamState(),
-        suppress_final_stream=uses_legacy_react_parser(),
+        suppress_final_stream=False,
         workflow_bridges=workflow_node_bridge_map(),
     )
 
@@ -74,7 +73,8 @@ async def run_prepared_agent_invoke(
     user_input: str,
     invoke_state: AgentInvokeState,
     prepared_invoke: PreparedAgentInvoke,
-    runtime_input_mode: str,
+    runtime_input_mode: str = "messages_graph",
+    recursion_limit: int | None = None,
     build_invoke_payload: Callable[..., dict[str, Any]],
     build_workflow_chain_start_events: Callable[..., list[dict[str, Any]]],
     redact_value: Callable[[Any], Any],
@@ -92,6 +92,7 @@ async def run_prepared_agent_invoke(
             invoke_state=invoke_state,
             prepared_invoke=prepared_invoke,
             runtime_input_mode=runtime_input_mode,
+            recursion_limit=recursion_limit,
             build_invoke_payload=build_invoke_payload,
             build_workflow_chain_start_events=build_workflow_chain_start_events,
             redact_value=redact_value,
@@ -129,7 +130,8 @@ async def execute_prepared_agent_invoke(
     user_input: str,
     invoke_state: AgentInvokeState,
     prepared_invoke: PreparedAgentInvoke,
-    runtime_input_mode: str,
+    runtime_input_mode: str = "messages_graph",
+    recursion_limit: int | None = None,
     build_invoke_payload: Callable[..., dict[str, Any]],
     build_workflow_chain_start_events: Callable[..., list[dict[str, Any]]],
     redact_value: Callable[[Any], Any],
@@ -151,9 +153,10 @@ async def execute_prepared_agent_invoke(
     stream_context = AgentInvokeStreamContext(
         stream_state=prepared_invoke.stream_state,
         invoke_state=invoke_state,
-        suppress_final_stream=prepared_invoke.suppress_final_stream,
+        suppress_final_stream=False,
         workflow_bridges=prepared_invoke.workflow_bridges,
-        runtime_input_mode=runtime_input_mode,
+        runtime_input_mode=runtime_input_mode or "messages_graph",
+        recursion_limit=recursion_limit,
     )
     async for rendered_event in stream_agent_executor_events(
         executor,
@@ -170,7 +173,7 @@ async def execute_prepared_agent_invoke(
 
     rendered_events, rendered_final_output, _ = finalize_stream_tail(
         stream_context.stream_state,
-        suppress_final_stream=prepared_invoke.suppress_final_stream,
+        suppress_final_stream=False,
         redact_stream_event=redact_stream_event,
         redact_stream_text=redact_stream_text,
     )

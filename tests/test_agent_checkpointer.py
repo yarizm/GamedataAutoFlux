@@ -150,10 +150,7 @@ async def test_clear_thread_deletes_langgraph_checkpoint(monkeypatch) -> None:
     model = BindToolsFakeModel(responses=[AIMessage(content="first"), AIMessage(content="second")])
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "system",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     graph_runtime.agent_executor = create_agent(
         model=model,
@@ -214,10 +211,7 @@ async def test_langgraph_failure_discards_partial_checkpoint(monkeypatch) -> Non
     )
     graph_runtime = LangGraphAgentRuntime(
         build_openai_tools_system_prompt=lambda tools: "system",
-        build_openai_tools_prompt=lambda tools: None,
-        build_react_prompt=lambda tools: None,
         create_mcp_manager=lambda: None,
-        handle_parsing_error=lambda exc: str(exc),
     )
     graph_runtime.agent_executor = create_agent(
         model=failing_model,
