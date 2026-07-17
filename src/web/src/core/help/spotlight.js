@@ -41,6 +41,10 @@ export function createSpotlight(deps = {}) {
   let bubbleEl = null;
   /** Bumps to cancel in-flight async showStep work. */
   let showToken = 0;
+  /** Steps that actually rendered hole/bubble this run. */
+  let shownCount = 0;
+  /** Toast missing target at most once per tour start. */
+  let didToastMissing = false;
 
   function ensureDom() {
     if (root) return root;
@@ -68,7 +72,11 @@ export function createSpotlight(deps = {}) {
   }
 
   function onBubbleClick(e) {
-    const btn = e.target instanceof Element ? e.target.closest('[data-spot-action]') : null;
+    const target = e?.target;
+    const btn =
+      target && typeof target.closest === 'function'
+        ? target.closest('[data-spot-action]')
+        : null;
     if (!btn || !bubbleEl?.contains(btn)) return;
 
     const action = btn.getAttribute('data-spot-action');
@@ -189,7 +197,9 @@ export function createSpotlight(deps = {}) {
 
     if (index >= steps.length) {
       const completedId = tourId;
-      if (completedId) markTourCompleted(completedId);
+      // Only mark completed if at least one step actually rendered a target.
+      // All-missing / auto-skipped runs finish without polluting completed state.
+      if (completedId && shownCount > 0) markTourCompleted(completedId);
       stop({ completed: true });
       try {
         onComplete?.(completedId);
@@ -205,7 +215,10 @@ export function createSpotlight(deps = {}) {
 
     const el = step.target ? document.querySelector(step.target) : null;
     if (!el) {
-      toast(t('help.tour.missingTarget'));
+      if (!didToastMissing) {
+        didToastMissing = true;
+        toast(t('help.tour.missingTarget'));
+      }
       index += 1;
       await showStep();
       return;
@@ -232,6 +245,7 @@ export function createSpotlight(deps = {}) {
     applyHole(hole);
     renderBubble(step, index === steps.length - 1);
     placeBubble(hole);
+    shownCount += 1;
 
     queueMicrotask(() => {
       bubbleEl
@@ -276,6 +290,8 @@ export function createSpotlight(deps = {}) {
     steps = Array.isArray(tour.steps) ? tour.steps.slice() : [];
     index = 0;
     active = true;
+    shownCount = 0;
+    didToastMissing = false;
     setOpenChrome(true);
     void showStep();
   }

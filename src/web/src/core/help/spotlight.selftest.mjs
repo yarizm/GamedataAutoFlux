@@ -19,6 +19,7 @@ function makeEl(tag = 'div') {
   const attrs = {};
   const style = {};
   const children = [];
+  const elListeners = [];
   const el = {
     tagName: String(tag).toUpperCase(),
     className: '',
@@ -42,11 +43,25 @@ function makeEl(tag = 'div') {
     setAttribute(k, v) { attrs[k] = String(v); },
     getAttribute(k) { return attrs[k] ?? null; },
     removeAttribute(k) { delete attrs[k]; },
-    appendChild(child) { children.push(child); return child; },
-    addEventListener() {},
-    removeEventListener() {},
+    appendChild(child) { children.push(child); child.parentNode = el; return child; },
+    addEventListener(type, fn) { elListeners.push({ type, fn }); },
+    removeEventListener(type, fn) {
+      const i = elListeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) elListeners.splice(i, 1);
+    },
+    dispatchEvent(event) {
+      for (const l of elListeners) {
+        if (l.type === event.type) l.fn(event);
+      }
+      return true;
+    },
     querySelector() { return null; },
-    closest() { return null; },
+    closest(sel) {
+      if (typeof sel === 'string' && sel.includes('data-spot-action') && attrs['data-spot-action'] != null) {
+        return el;
+      }
+      return null;
+    },
     focus() {},
     getBoundingClientRect() {
       return { top: 10, left: 10, width: 100, height: 40, bottom: 50, right: 110 };
@@ -54,7 +69,18 @@ function makeEl(tag = 'div') {
     scrollIntoView() {},
     offsetWidth: 320,
     offsetHeight: 120,
-    contains(node) { return children.includes(node) || node === el; },
+    contains(node) {
+      if (node === el) return true;
+      const walk = (list) => {
+        for (const c of list) {
+          if (c === node) return true;
+          if (c.children && walk(c.children)) return true;
+        }
+        return false;
+      };
+      return walk(children);
+    },
+    _listeners: elListeners,
   };
   return el;
 }
@@ -99,6 +125,26 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
+/** Active spotlight root (last is-open; each createSpotlight may append its own). */
+function activeSpotlightRoot() {
+  const roots = bodyChildren.filter((c) => c.id === 'help-spotlight-root');
+  const open = roots.filter((r) => r.classList.contains('is-open'));
+  return open[open.length - 1] || roots[roots.length - 1] || null;
+}
+
+/** Simulate Next/Done on the active bubble (stub DOM). */
+function clickSpotAction(action) {
+  const root = activeSpotlightRoot();
+  assert(root, 'spotlight root for click');
+  const bubble = root.children.find((c) => (c.className || '').includes('help-spot-bubble'))
+    || root.children[1];
+  assert(bubble, 'bubble for click');
+  const btn = makeEl('button');
+  btn.setAttribute('data-spot-action', action);
+  bubble.appendChild(btn);
+  bubble.dispatchEvent({ type: 'click', target: btn, preventDefault() {} });
+}
+
 // API shape
 const ensured = [];
 const activated = [];
@@ -118,7 +164,7 @@ assert(spot.isActive() === false, 'inactive initially');
 spot.start('__no_such_tour__');
 assert(spot.isActive() === false, 'unknown tour inactive');
 
-// Real tour: all targets missing → skip all → mark completed
+// Real tour: all targets missing → skip all → finish WITHOUT mark
 const tour = getTour('platform-overview');
 assert(tour && tour.steps.length >= 2, 'platform-overview exists');
 clearTourCompleted('platform-overview');
@@ -130,9 +176,9 @@ assert(spot.isActive() === true, 'active after start');
 // Wait for async showStep chain (missing targets advance until complete)
 await new Promise((r) => setTimeout(r, 80));
 
-assert(spot.isActive() === false, 'inactive after auto-complete (all missing)');
-assert(isTourCompleted('platform-overview') === true, 'marked completed after full pass');
-assert(completed === 1, 'onComplete once');
+assert(spot.isActive() === false, 'inactive after auto-finish (all missing)');
+assert(isTourCompleted('platform-overview') === false, 'all-missing does NOT mark completed');
+assert(completed === 1, 'onComplete once even when unmarked');
 // ensure-tab:dashboard should have run for step 2
 assert(ensured.includes('dashboard') || activated.includes('dashboard'), 'ensure-tab:dashboard ran');
 
@@ -168,10 +214,44 @@ assert(
 );
 
 // Root has is-open contract for drawer Esc deferral
-const root = document.getElementById('help-spotlight-root');
-assert(root, 'spotlight root exists after start');
+const rootAfterStop = activeSpotlightRoot() || document.getElementById('help-spotlight-root');
+assert(rootAfterStop, 'spotlight root exists after start');
 // after stop, not open
-assert(root.classList.contains('is-open') === false, 'root not is-open after stop');
+assert(rootAfterStop.classList.contains('is-open') === false, 'root not is-open after stop');
+
+// One real target then missing → mark completed if at least one shown
+clearTourCompleted('page-dashboard');
+let completed3 = 0;
+const spot3 = createSpotlight({
+  ensurePage: async () => {},
+  activateTab: () => {},
+  onComplete: () => { completed3 += 1; },
+});
+
+// Inject fake DOM target with data-tour-id for first step only
+const fakeStats = makeEl('div');
+fakeStats.setAttribute('data-tour-id', 'dashboard-stats');
+document.querySelector = (sel) => {
+  if (typeof sel === 'string' && sel.includes('dashboard-stats')) {
+    return fakeStats;
+  }
+  return null;
+};
+
+spot3.start('page-dashboard');
+assert(spot3.isActive() === true, 'spot3 active after start');
+// Wait for first step to render hole/bubble
+await new Promise((r) => setTimeout(r, 50));
+assert(spot3.isActive() === true, 'spot3 still active after first shown step');
+assert(isTourCompleted('page-dashboard') === false, 'not marked before finish');
+
+// Advance past first (shown) step; remaining targets missing → auto-skip → complete with mark
+clickSpotAction('next');
+await new Promise((r) => setTimeout(r, 80));
+
+assert(spot3.isActive() === false, 'spot3 inactive after finish');
+assert(isTourCompleted('page-dashboard') === true, 'at least one shown → marked completed');
+assert(completed3 === 1, 'spot3 onComplete once');
 
 document.querySelector = realQS;
 void realToastContainer;

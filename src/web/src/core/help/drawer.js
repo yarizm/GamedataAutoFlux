@@ -59,7 +59,7 @@ export function initHelp(deps) {
       '<aside class="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-drawer-title">',
       '  <div class="help-panel-header">',
       '    <h2 id="help-drawer-title" class="help-panel-title"></h2>',
-      '    <button type="button" class="btn btn-ghost btn-sm help-close-btn" data-help-action="close" aria-label="Close">×</button>',
+      '    <button type="button" class="btn btn-ghost btn-sm help-close-btn" data-help-action="close" aria-label="">×</button>',
       '  </div>',
       '  <div class="help-section-tabs" role="tablist"></div>',
       '  <div class="help-panel-body" role="tabpanel"></div>',
@@ -126,9 +126,9 @@ export function initHelp(deps) {
     if (state.titleEl) {
       state.titleEl.textContent = t('help.entry');
     }
-    // Close control: keep a neutral "Close" label (not help.entry)
+    // Close control: reuse common.cancel (Cancel/取消) for i18n aria-label
     if (state.closeBtn) {
-      state.closeBtn.setAttribute('aria-label', 'Close');
+      state.closeBtn.setAttribute('aria-label', t('common.cancel'));
       state.closeBtn.removeAttribute('title');
     }
     if (state.tabsEl) {
