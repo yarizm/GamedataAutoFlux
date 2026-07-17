@@ -4,6 +4,7 @@ import { activateTab, bindNavigation, bindModalOverlayClose, restartAutoRefresh 
 import { initWebSocket } from './core/websocket.js';
 import { applyTranslations, bindLanguageControls, configureI18n, getLanguage, setLanguage, t } from './core/i18n.js';
 import { initTheme, bindThemeControls } from './core/theme.js';
+import { initHelp } from './core/help/drawer.js';
 import {
   getCollectorForPipeline,
   hasStorageStep,
@@ -225,6 +226,7 @@ function handleLanguageChange() {
   for (const page of Object.values(pageInstances)) {
     if (typeof page?.refresh === 'function') page.refresh();
   }
+  if (window.__help?.refresh) window.__help.refresh();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -239,6 +241,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket(store);
   restartAutoRefresh(store);
 
+  const help = initHelp({
+    store,
+    activateTab: (tab) => activateTab(tab, store),
+    ensurePage,
+    onStartTour: () => {
+      // Task 5 will replace via help.setTourHandler
+    },
+  });
+  window.__help = help; // optional debug
+
+  document.getElementById('btn-help')?.addEventListener('click', () => help.toggle());
+
+  // optional shortcut: ? when not in input/textarea/contenteditable
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== '?' && !(e.key === '/' && e.shiftKey)) return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+    e.preventDefault();
+    help.toggle();
+  });
+
   store.subscribe((key, value) => {
     if (key === 'activeTab') loadPage(value);
     else if (key === 'taskUpdate') handleTaskUpdate(value);
@@ -247,4 +270,5 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   loadPage('dashboard');
+  // Never auto-open help on load
 });

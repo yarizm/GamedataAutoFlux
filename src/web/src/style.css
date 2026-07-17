@@ -1186,3 +1186,132 @@ html[data-theme="light"] .CodeMirror {
   border: 1px solid var(--border-subtle);
   border-radius: 0.5rem;
 }
+
+/* ── Help drawer ── */
+#help-drawer-root .help-backdrop {
+  @apply fixed inset-0 z-[80] bg-black/50 opacity-0 pointer-events-none transition-opacity;
+}
+#help-drawer-root.is-open .help-backdrop {
+  @apply opacity-100 pointer-events-auto;
+}
+#help-drawer-root .help-panel {
+  @apply fixed top-0 right-0 z-[81] h-full w-full max-w-md
+    border-l shadow-2xl translate-x-full transition-transform flex flex-col;
+  background-color: var(--bg-elevated, #18181b);
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary);
+}
+#help-drawer-root.is-open .help-panel {
+  @apply translate-x-0;
+}
+html[data-theme="light"] #help-drawer-root .help-panel {
+  background-color: var(--bg-elevated, #fff);
+  border-color: var(--border-strong, #e2e8f0);
+}
+html[data-theme="light"] #help-drawer-root .help-backdrop {
+  background-color: rgba(15, 23, 42, 0.45);
+}
+
+.help-panel-header {
+  @apply flex items-center justify-between gap-3 px-4 py-3 border-b shrink-0;
+  border-color: var(--border-subtle);
+}
+.help-panel-title {
+  @apply text-base font-semibold m-0;
+  color: var(--text-primary);
+}
+.help-section-tabs {
+  @apply flex gap-1 px-3 pt-3 pb-2 border-b shrink-0;
+  border-color: var(--border-subtle);
+}
+.help-section-tab {
+  @apply flex-1 px-2 py-1.5 text-xs rounded-md border border-transparent cursor-pointer transition-colors;
+  color: var(--text-muted);
+  background: transparent;
+}
+.help-section-tab:hover {
+  color: var(--text-primary);
+  background-color: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.help-section-tab.is-active {
+  color: var(--accent);
+  background-color: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.help-panel-body {
+  @apply flex-1 overflow-y-auto px-4 py-4;
+}
+
+.help-map-list {
+  @apply flex flex-col gap-3;
+}
+.help-map-card {
+  @apply rounded-xl border p-3 space-y-2;
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.1));
+  background-color: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+.help-map-card-head {
+  @apply flex items-center justify-between gap-2;
+}
+.help-map-card-title {
+  @apply text-sm font-semibold m-0;
+  color: var(--text-primary);
+}
+.help-map-card-blurb {
+  @apply text-xs m-0 leading-relaxed;
+  color: var(--text-muted);
+}
+.help-map-card .badge-advanced {
+  @apply text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0;
+  color: color-mix(in srgb, var(--warning, #f59e0b) 90%, white);
+  border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+}
+.help-map-open {
+  @apply w-full;
+}
+
+.help-page-summary {
+  @apply text-sm m-0 mb-3 leading-relaxed;
+  color: var(--text-secondary);
+}
+.help-page-points {
+  @apply list-disc pl-5 m-0 mb-4 space-y-1.5 text-sm;
+  color: var(--text-secondary);
+}
+.help-page-next {
+  @apply flex flex-wrap gap-2 mb-4;
+}
+.help-page-tour {
+  @apply pt-1;
+}
+.help-empty {
+  @apply text-sm leading-relaxed;
+  color: var(--text-muted);
+}
+
+.help-tour-list {
+  @apply flex flex-col gap-2;
+}
+.help-tour-row {
+  @apply flex items-center justify-between gap-3 rounded-xl border p-3;
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.1));
+}
+.help-tour-meta {
+  @apply flex flex-col gap-1 min-w-0;
+}
+.help-tour-title {
+  @apply text-sm font-medium;
+  color: var(--text-primary);
+}
+.help-tour-badge {
+  @apply text-[10px] uppercase tracking-wide;
+  color: var(--success, #10b981);
+}
+
+.help-entry-btn {
+  @apply font-medium tracking-wide;
+}
+
+body.help-drawer-open {
+  overflow: hidden;
+}
