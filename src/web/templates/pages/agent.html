@@ -22,7 +22,7 @@
             </div>
             
             <div class="agent-layout grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 h-[calc(100vh-160px)] items-start">
-                <div class="agent-sidebar bg-theme-elevated border border-theme-subtle rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden">
+                <div class="agent-sidebar bg-theme-elevated border border-theme-subtle rounded-2xl p-0 flex flex-col h-full shadow-2xl overflow-hidden" data-tour-id="agent-sessions">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4 flex items-center justify-between">
                         <h3 class="text-theme-primary font-bold tracking-tight text-lg uppercase">会话列表</h3>
                         <button class="agent-sidebar-new btn-ghost px-2 py-1 text-xs border border-violet-500/30 text-violet-400 rounded-md hover:bg-violet-500/20 hover:border-violet-400 transition-colors flex items-center gap-1 shadow-[0_0_8px_rgba(139,92,246,0.2)]" onclick="createAgentSession()">
@@ -36,7 +36,7 @@
                     <div class="agent-session-list flex-1 overflow-y-auto px-2 pb-2 space-y-1" id="agent-session-list"></div>
                 </div>
                 
-                <div class="agent-chat-panel bg-theme-elevated border border-theme-subtle rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+                <div class="agent-chat-panel bg-theme-elevated border border-theme-subtle rounded-2xl flex flex-col h-full shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden" data-tour-id="agent-chat">
                     <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500/30 to-transparent"></div>
                     <div class="agent-messages flex-1 overflow-y-auto p-6 space-y-6" id="agent-messages">
                         <div class="agent-message assistant flex gap-4 max-w-[85%] mr-auto">
@@ -56,7 +56,7 @@
                     </div>
                     
                     <div class="p-6 pt-2 bg-gradient-to-t from-[#050505] to-transparent">
-                        <div id="agent-intent-chips" class="flex flex-wrap gap-2 mb-3 px-1">
+                        <div id="agent-intent-chips" class="flex flex-wrap gap-2 mb-3 px-1" data-tour-id="agent-intent-chips">
                             <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.diagnose" data-i18n="agent.chip.diagnose">任务诊断</button>
                             <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.reportPrecheck" data-i18n="agent.chip.reportPrecheck">报告预检</button>
                             <button type="button" class="agent-intent-chip text-xs px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-400/50 transition-colors" data-template-key="agent.chip.template.reportGenerate" data-i18n="agent.chip.reportGenerate">生成报告</button>

@@ -7,7 +7,7 @@
                         <span class="text-[11px] text-cyan-400 font-bold tracking-widest uppercase">Auto Refresh</span>
                     </div>
                 </div>
-                <div class="flex items-center gap-4 mt-4 sm:mt-0">
+                <div class="flex items-center gap-4 mt-4 sm:mt-0" data-tour-id="tasks-filters">
                     <div class="bg-theme-elevated border border-theme-strong rounded-lg p-1 flex items-center shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
                         <select id="task-status-filter" onchange="loadTasks()" class="bg-transparent border-none text-theme-primary font-medium focus:ring-0 text-sm py-1.5 pl-3 pr-8 h-auto cursor-pointer outline-none transition-colors hover:text-white">
                             <option value="" class="bg-theme-elevated text-theme-secondary">全部状态</option>
@@ -22,11 +22,11 @@
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         </button>
                     </div>
-                    <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task">+ 创建任务</button>
+                    <button class="btn btn-primary" onclick="showCreateTaskModal()" id="btn-create-task" data-tour-id="tasks-create">+ 创建任务</button>
                 </div>
             </div>
 
-            <div class="card mb-0 border-theme-subtle shadow-2xl p-0 overflow-hidden rounded-2xl">
+            <div class="card mb-0 border-theme-subtle shadow-2xl p-0 overflow-hidden rounded-2xl" data-tour-id="tasks-list">
                 <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                     <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="tasks.list">任务列表</h2>
                 </div>
