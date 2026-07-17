@@ -126,9 +126,10 @@ export function initHelp(deps) {
     if (state.titleEl) {
       state.titleEl.textContent = t('help.entry');
     }
+    // Close control: keep a neutral "Close" label (not help.entry)
     if (state.closeBtn) {
-      state.closeBtn.setAttribute('aria-label', t('help.entry'));
-      state.closeBtn.setAttribute('title', t('help.entry'));
+      state.closeBtn.setAttribute('aria-label', 'Close');
+      state.closeBtn.removeAttribute('title');
     }
     if (state.tabsEl) {
       const sections = [

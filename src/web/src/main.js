@@ -5,6 +5,7 @@ import { initWebSocket } from './core/websocket.js';
 import { applyTranslations, bindLanguageControls, configureI18n, getLanguage, setLanguage, t } from './core/i18n.js';
 import { initTheme, bindThemeControls } from './core/theme.js';
 import { initHelp } from './core/help/drawer.js';
+import { createSpotlight } from './core/help/spotlight.js';
 import {
   getCollectorForPipeline,
   hasStorageStep,
@@ -245,11 +246,20 @@ document.addEventListener('DOMContentLoaded', () => {
     store,
     activateTab: (tab) => activateTab(tab, store),
     ensurePage,
-    onStartTour: () => {
-      // Task 5 will replace via help.setTourHandler
+  });
+  const spotlight = createSpotlight({
+    ensurePage,
+    activateTab: (tab) => activateTab(tab, store),
+    onComplete: () => {
+      help.refresh();
     },
   });
+  help.setTourHandler((tourId) => {
+    help.close();
+    spotlight.start(tourId);
+  });
   window.__help = help; // optional debug
+  window.__spotlight = spotlight;
 
   document.getElementById('btn-help')?.addEventListener('click', () => help.toggle());
 
