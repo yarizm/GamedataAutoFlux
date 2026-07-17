@@ -1485,3 +1485,116 @@ html[data-theme="light"] .task-failure-panel {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
 }
+
+/* Unified empty / loading / error states */
+.ui-empty,
+.ui-loading,
+.ui-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 1.75rem 1rem;
+  color: var(--text-muted);
+}
+.ui-empty--compact,
+.ui-loading--compact,
+.ui-error--compact,
+.ui-loading--inline {
+  padding: 0.75rem 0.5rem;
+}
+.ui-empty--table,
+.ui-loading--table,
+.ui-error--table {
+  padding: 2rem 1rem;
+}
+.ui-empty-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 0.25rem;
+}
+.ui-empty-title,
+.ui-error-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ui-empty-hint,
+.ui-error-detail,
+.ui-loading-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 28rem;
+  margin: 0;
+  line-height: 1.5;
+}
+.ui-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.35rem;
+}
+.ui-error-title {
+  color: color-mix(in srgb, var(--danger) 85%, var(--text-primary));
+}
+.ui-spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: ui-spin 0.7s linear infinite;
+}
+.ui-loading {
+  flex-direction: row;
+  gap: 0.65rem;
+}
+.ui-loading--inline {
+  display: inline-flex;
+  padding: 0;
+}
+@keyframes ui-spin {
+  to { transform: rotate(360deg); }
+}
+.table tbody tr.ui-empty-row:hover,
+.table tbody tr.ui-loading-row:hover,
+.table tbody tr.ui-error-row:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.table tbody tr.ui-empty-row td,
+.table tbody tr.ui-loading-row td,
+.table tbody tr.ui-error-row td {
+  padding: 0.25rem 0.5rem 1rem;
+}
+
+/* Section header density consistency */
+.section-header {
+  margin-bottom: 1.25rem;
+}
+.section-header h1 {
+  letter-spacing: -0.02em;
+}
+
+/* Table density: slightly tighter secondary text */
+.table td .text-muted,
+.table td .task-failure-line {
+  max-width: 16rem;
+}
+
+/* Card body empty blocks */
+.card-body > .ui-empty,
+.card-body > .ui-loading,
+.card-body > .ui-error {
+  min-height: 8rem;
+}

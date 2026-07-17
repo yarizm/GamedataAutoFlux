@@ -12,6 +12,11 @@ import {
   summarizeTaskFailure,
 } from '../../core/taskFailure.js';
 import {
+  renderEmptyState,
+  renderErrorState,
+  renderLoadingState,
+} from '../../core/uiState.js';
+import {
   getCollectorForPipeline,
   hasStorageStep,
   loadAvailablePipelines,
@@ -60,6 +65,15 @@ export default {
   async refresh() { await this._load(); },
 
   async _load() {
+    const tbody = document.getElementById('tasks-body');
+    if (tbody) {
+      tbody.innerHTML = renderLoadingState({
+        label: t('common.loading'),
+        variant: 'table',
+        colspan: 8,
+        escapeHtml,
+      });
+    }
     try {
       const filter = document.getElementById('task-status-filter')?.value || '';
       const query = filter ? `?status=${encodeURIComponent(filter)}` : '';
@@ -68,6 +82,15 @@ export default {
       this._renderTable(ordered);
     } catch (err) {
       toast(t('message.loadFailed', { error: err.message }), 'error');
+      if (tbody) {
+        tbody.innerHTML = renderErrorState({
+          message: t('message.loadFailed', { error: err.message }),
+          variant: 'table',
+          colspan: 8,
+          escapeHtml,
+          actionHtml: `<button type="button" class="btn btn-ghost btn-sm" onclick="loadTasks()">${escapeHtml(t('common.refresh'))}</button>`,
+        });
+      }
     }
   },
 
@@ -75,7 +98,14 @@ export default {
     const tbody = document.getElementById('tasks-body');
     if (!tbody) return;
     if (!tasks.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
+      tbody.innerHTML = renderEmptyState({
+        title: t('common.empty.tasks'),
+        hint: t('ui.empty.tasksHint'),
+        variant: 'table',
+        colspan: 8,
+        escapeHtml,
+        actionHtml: `<button type="button" class="btn btn-primary btn-sm" onclick="showCreateTaskModal()">${escapeHtml(t('tasks.create'))}</button>`,
+      });
       return;
     }
     tbody.innerHTML = tasks.map((task) => {
@@ -570,10 +600,18 @@ export default {
     if (modalLogs) modalLogs.dataset.taskId = id;
     const container = document.getElementById('task-logs-content');
     if (!container) return;
-    container.innerHTML = `<p class="text-muted">${t('common.loading')}</p>`;
+    container.innerHTML = renderLoadingState({ label: t('common.loading'), escapeHtml });
     try {
       const data = await api(`/tasks/${id}/logs`);
-      if (!data.logs.length) { container.innerHTML = `<p class="text-muted">${t('common.empty.logs')}</p>`; return; }
+      if (!data.logs.length) {
+        container.innerHTML = renderEmptyState({
+          title: t('common.empty.logs'),
+          hint: t('ui.empty.logsHint'),
+          variant: 'compact',
+          escapeHtml,
+        });
+        return;
+      }
       container.innerHTML = `<div class="terminal-console bg-theme-elevated border border-theme-subtle p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
         const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
         return `<div class="terminal-line log-entry ${statusClass}">
@@ -583,14 +621,20 @@ export default {
           ${log.error ? `<div class="text-rose-400 mt-1 pl-6">-> ${escapeHtml(log.error)}</div>` : ''}
         </div>`;
       }).join('') + `</div>`;
-    } catch (err) { container.innerHTML = `<p style="color:var(--danger)">${escapeHtml(t('message.loadFailed', { error: err.message }))}</p>`; }
+    } catch (err) {
+      container.innerHTML = renderErrorState({
+        message: t('message.loadFailed', { error: err.message }),
+        variant: 'compact',
+        escapeHtml,
+      });
+    }
   },
 
   async _viewDetail(id) {
     window.openModal('modal-task-detail');
     const container = document.getElementById('task-detail-content');
     if (!container) return;
-    container.innerHTML = `<p class="text-muted">${t('common.loading')}</p>`;
+    container.innerHTML = renderLoadingState({ label: t('common.loading'), escapeHtml });
     try {
       const [task, eventsPayload, artifactsPayload, checkpointsPayload] = await Promise.all([
         api(`/tasks/${id}`),

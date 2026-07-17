@@ -1,6 +1,7 @@
 import './style.css';
 import { api, toast, escapeHtml, formatTime, setValue } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
+import { renderEmptyState } from '../../core/uiState.js';
 
 // Page-local state
 let dataGames = [];
@@ -86,7 +87,16 @@ export default {
   _renderGames(games) {
     const container = document.getElementById('data-games-list');
     if (!container) return;
-    if (!games.length) { container.innerHTML = `<p class="text-muted">${escapeHtml(t('data.emptyStored'))}</p>`; return; }
+    if (!games.length) {
+      container.innerHTML = renderEmptyState({
+        title: t('data.emptyStored'),
+        hint: t('ui.empty.dataHint'),
+        variant: 'compact',
+        escapeHtml,
+        actionHtml: `<button type="button" class="btn btn-primary btn-sm" onclick="showCreateTaskModal()">${escapeHtml(t('tasks.create'))}</button>`,
+      });
+      return;
+    }
 
     container.innerHTML = games.map((game) => {
       const activeClass = selectedDataGame?.game_key === game.game_key ? 'active' : '';
@@ -174,7 +184,16 @@ export default {
   _renderRecords(records) {
     const tbody = document.getElementById('data-records-body');
     if (!tbody) return;
-    if (!records.length) { tbody.innerHTML = `<tr><td colspan="6" class="text-muted">${escapeHtml(t('data.noRecordsInCategory'))}</td></tr>`; return; }
+    if (!records.length) {
+      tbody.innerHTML = renderEmptyState({
+        title: t('data.noRecordsInCategory'),
+        hint: t('ui.empty.dataHint'),
+        variant: 'table',
+        colspan: 6,
+        escapeHtml,
+      });
+      return;
+    }
 
     const allChecked = records.length > 0 && records.every(r => selectedDataRecordKeys.has(r.key));
     tbody.innerHTML = records.map((record) => {

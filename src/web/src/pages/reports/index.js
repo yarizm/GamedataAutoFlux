@@ -2,6 +2,7 @@ import { api, toast, escapeHtml, escapeJs, formatTime, setValue, setText } from 
 import { t } from '../../core/i18n.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { renderEmptyState } from '../../core/uiState.js';
 
 function renderSafeMarkdown(content) {
   const text = String(content || '');
@@ -136,7 +137,15 @@ export default {
       const reports = await api('/reports');
       const container = document.getElementById('reports-list');
       if (!container) return;
-      if (!reports.length) { container.innerHTML = `<p class="text-zinc-600 text-sm">暂无历史记录</p>`; return; }
+      if (!reports.length) {
+        container.innerHTML = renderEmptyState({
+          title: t('reports.empty'),
+          hint: t('ui.empty.reportsHint'),
+          variant: 'compact',
+          escapeHtml,
+        });
+        return;
+      }
       container.innerHTML = reports.map((report) => `
         <div class="report-item group flex flex-col p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative min-w-0 overflow-hidden mb-1 hover:bg-white/5">
           <div class="flex items-center justify-between">

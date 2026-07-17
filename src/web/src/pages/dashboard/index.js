@@ -6,6 +6,7 @@ import {
   renderFailureLinesHtml,
   summarizeTaskFailure,
 } from '../../core/taskFailure.js';
+import { renderEmptyState, renderLoadingState } from '../../core/uiState.js';
 
 let dashboardChart = null;
 let echartsModulePromise = null;
@@ -228,7 +229,14 @@ export default {
     if (!tbody) return;
 
     if (tasks.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
+      tbody.innerHTML = renderEmptyState({
+        title: t('common.empty.tasks'),
+        hint: t('ui.empty.tasksHint'),
+        variant: 'table',
+        colspan: 6,
+        escapeHtml,
+        actionHtml: `<button type="button" class="btn btn-primary btn-sm" onclick="showCreateTaskModal()">${escapeHtml(t('tasks.create'))}</button>`,
+      });
       return;
     }
     tbody.innerHTML = tasks.map((task) => {

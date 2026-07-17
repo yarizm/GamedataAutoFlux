@@ -1,5 +1,6 @@
 import { api, toast, escapeHtml, setValue, setChecked } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
+import { renderEmptyState } from '../../core/uiState.js';
 import {
   getCachedPipelineTemplates,
   invalidatePipelineCache,
@@ -34,7 +35,12 @@ export default {
       if (!list) return;
 
       if (!Object.keys(components).length) {
-        list.innerHTML = `<p class="text-muted">${t('pipelines.empty.components')}</p>`;
+        list.innerHTML = renderEmptyState({
+          title: t('pipelines.empty.components'),
+          hint: t('ui.empty.componentsHint'),
+          variant: 'compact',
+          escapeHtml,
+        });
         return;
       }
       const typeLabels = {
@@ -75,7 +81,13 @@ export default {
 
       const entries = Object.entries(pipelines);
       if (!entries.length) {
-        list.innerHTML = `<p class="text-muted text-sm">${t('pipelines.empty.pipelines')}</p>`;
+        list.innerHTML = renderEmptyState({
+          title: t('pipelines.empty.pipelines'),
+          hint: t('ui.empty.pipelinesHint'),
+          variant: 'compact',
+          escapeHtml,
+          actionHtml: `<button type="button" class="btn btn-primary btn-sm" onclick="showCreatePipelineModal()">${escapeHtml(t('pipelines.create'))}</button>`,
+        });
         return;
       }
       list.innerHTML = entries.map(([name, config]) => `

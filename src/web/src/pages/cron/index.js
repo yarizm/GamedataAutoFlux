@@ -1,5 +1,6 @@
 import { api, toast, escapeHtml, formatTime } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
+import { renderEmptyState } from '../../core/uiState.js';
 import {
   getCollectorForPipeline,
   loadAvailablePipelines,
@@ -58,7 +59,13 @@ export default {
       if (!list) return;
 
       if (!jobs.length) {
-        list.innerHTML = `<p class="text-muted">${t('cron.empty')}</p>`;
+        list.innerHTML = renderEmptyState({
+          title: t('cron.empty'),
+          hint: t('ui.empty.cronHint'),
+          variant: 'compact',
+          escapeHtml,
+          actionHtml: `<button type="button" class="btn btn-primary btn-sm" onclick="showCreateCronModal()">${escapeHtml(t('cron.create'))}</button>`,
+        });
         return;
       }
       list.innerHTML = jobs.map((job) => {
