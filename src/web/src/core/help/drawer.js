@@ -230,7 +230,7 @@ export function initHelp(deps) {
           ? `<span class="help-tour-badge">${escapeHtml(t('help.tour.completed'))}</span>`
           : '';
         const actionLabel = escapeHtml(
-          completed ? t('help.tour.replay') : t('help.startPageTour'),
+          completed ? t('help.tour.replay') : t('help.tour.start'),
         );
         return (
           `<div class="help-tour-row" data-tour-id="${escapeHtml(id)}">` +

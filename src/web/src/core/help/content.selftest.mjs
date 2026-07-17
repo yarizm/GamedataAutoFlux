@@ -57,6 +57,7 @@ add('help.section.page');
 add('help.section.tours');
 add('help.openPage');
 add('help.startPageTour');
+add('help.tour.start');
 add('help.tour.back');
 add('help.tour.next');
 add('help.tour.skip');
