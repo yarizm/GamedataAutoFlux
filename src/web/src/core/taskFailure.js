@@ -37,7 +37,13 @@ function truncate(text, max = TITLE_MAX) {
 }
 
 /**
- * @param {{ status?: string, error?: string|null }} task
+ * @param {{
+ *   status?: string,
+ *   error?: string|null,
+ *   error_code?: string|null,
+ *   error_title?: string|null,
+ *   error_suggestion?: string|null,
+ * }} task
  * @returns {null | { title: string, suggestion: string|null, raw: string|null, known: boolean, code: string|null }}
  */
 export function summarizeTaskFailure(task) {
@@ -45,13 +51,31 @@ export function summarizeTaskFailure(task) {
   const status = String(task.status || '').toLowerCase();
   const rawError = task.error != null ? String(task.error) : '';
   const hasError = Boolean(rawError.trim());
+  const backendCode = String(task.error_code || '').trim();
+  const backendTitle = String(task.error_title || '').trim();
+  const backendSuggestion = task.error_suggestion != null
+    ? String(task.error_suggestion).trim()
+    : '';
 
   if (status === 'failed') {
     // always summarize
-  } else if (status === 'cancelled' && hasError) {
-    // optional visibility for cancelled-with-error
+  } else if (status === 'cancelled' && (hasError || backendCode)) {
+    // cancelled-with-error
   } else {
     return null;
+  }
+
+  // Prefer backend structured fields (API/WS contract)
+  if (backendCode || backendTitle) {
+    const fromCode = backendCode ? formatErrorCode(backendCode) : null;
+    const known = Boolean(fromCode?.known) || Boolean(backendTitle);
+    return {
+      title: backendTitle || (fromCode?.known ? fromCode.title : null) || t('tasks.failure.unknown'),
+      suggestion: backendSuggestion || fromCode?.suggestion || null,
+      raw: hasError ? rawError : null,
+      known,
+      code: backendCode || null,
+    };
   }
 
   if (!hasError) {
@@ -64,6 +88,7 @@ export function summarizeTaskFailure(task) {
     };
   }
 
+  // Fallback: heuristic extract from free-text error (legacy tasks)
   const code = extractErrorCode(rawError);
   if (code) {
     const { title, suggestion, known } = formatErrorCode(code);

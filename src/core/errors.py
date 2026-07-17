@@ -166,3 +166,39 @@ def error_summary(error_code: ErrorCode, error_message: str | None = None) -> di
         "severity": error_code.severity,
         "detail": error_message or "",
     }
+
+
+def coerce_error_code(value: str | ErrorCode | None) -> ErrorCode | None:
+    """Parse a known ErrorCode from string; unknown tokens return None."""
+    if value is None:
+        return None
+    if isinstance(value, ErrorCode):
+        return value
+    token = str(value).strip()
+    if not token:
+        return None
+    try:
+        return ErrorCode(token)
+    except ValueError:
+        return None
+
+
+def resolve_error_code(
+    *,
+    error_code: str | ErrorCode | None = None,
+    error_message: str | None = None,
+    exc: Exception | None = None,
+) -> ErrorCode:
+    """
+    Resolve a structured ErrorCode for task/API surfaces.
+
+    Priority: explicit code → classify exception → classify message → unknown.
+    """
+    coerced = coerce_error_code(error_code)
+    if coerced is not None:
+        return coerced
+    if exc is not None:
+        return classify_exception(exc)
+    if error_message:
+        return classify_exception(Exception(error_message))
+    return ErrorCode.unknown

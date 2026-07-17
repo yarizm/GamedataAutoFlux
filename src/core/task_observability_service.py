@@ -294,6 +294,9 @@ class TaskObservabilityService:
             payload={
                 "status": task.status.value,
                 "progress": task.progress,
+                "phase": task.phase,
+                "current_step": task.current_step,
+                "progress_detail": task.progress_detail,
             },
         )
 

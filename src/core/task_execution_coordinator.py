@@ -7,10 +7,37 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
+from src.core.errors import coerce_error_code, resolve_error_code
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.core.task_report_service import TaskReportService
+
+
+def _error_code_from_pipeline_result(result: PipelineResult | None) -> str | None:
+    """Best-effort ErrorCode from pipeline errors / collection results."""
+    if result is None:
+        return None
+    collect_results = getattr(result, "collect_results", None) or []
+    for item in collect_results:
+        code = getattr(item, "error_code", None)
+        if code:
+            coerced = coerce_error_code(code)
+            if coerced is not None:
+                return coerced.value
+        if isinstance(item, dict) and item.get("error_code"):
+            coerced = coerce_error_code(item.get("error_code"))
+            if coerced is not None:
+                return coerced.value
+    for err in getattr(result, "errors", None) or []:
+        text = str(err)
+        # Prefer explicit "error_code=foo" patterns via resolve on message
+        code = resolve_error_code(error_message=text)
+        if code.value != "unknown" or "unknown" in text.lower():
+            # still return even unknown if that's all we have — caller may re-resolve
+            if code.value != "unknown":
+                return code.value
+    return None
 
 PersistTaskFn = Callable[[Task], Awaitable[None]]
 GetLatestCheckpointFn = Callable[[str], Awaitable[Any]]
@@ -151,7 +178,7 @@ class TaskExecutionCoordinator:
         if not result.success:
             error_msg = self._join_safe_error_messages(result.errors)
             task.result = result
-            task.fail(error_msg)
+            task.fail(error_msg, error_code=_error_code_from_pipeline_result(result))
             await self._persist_task(task)
             await self._emit_task_event(
                 task,
@@ -161,6 +188,7 @@ class TaskExecutionCoordinator:
                 payload={
                     "status": task.status.value,
                     "error": error_msg,
+                    "error_code": task.error_code,
                     "errors": self._safe_error_messages(result.errors),
                     "resume_state": result.resume_state,
                 },
@@ -224,7 +252,7 @@ class TaskExecutionCoordinator:
             )
 
         task.result = result
-        task.fail(error_msg)
+        task.fail(error_msg, error_code=_error_code_from_pipeline_result(result))
         await self._persist_task(task)
         await self._emit_task_event(
             task,
@@ -234,6 +262,8 @@ class TaskExecutionCoordinator:
             payload={
                 "status": task.status.value,
                 "error": error_msg,
+                "error_code": task.error_code,
+                "phase": task.phase,
                 "errors": self._safe_error_messages(result.errors),
                 "resume_state": result.resume_state,
             },
@@ -258,7 +288,7 @@ class TaskExecutionCoordinator:
         exc: Exception,
     ) -> tuple[bool, int, PipelineResult | None]:
         error_msg = redact_sensitive_text(str(exc))
-        task.fail(error_msg)
+        task.fail(error_msg, exc=exc)
         if task.retry():
             await self._persist_task(task)
             await self._emit_task_event(
@@ -271,6 +301,7 @@ class TaskExecutionCoordinator:
                     "retry_count": task.retry_count,
                     "max_retries": task.max_retries,
                     "error": error_msg,
+                    "error_code": task.error_code,
                 },
             )
             logger.warning(
@@ -292,6 +323,8 @@ class TaskExecutionCoordinator:
             payload={
                 "status": task.status.value,
                 "error": error_msg,
+                "error_code": task.error_code,
+                "phase": task.phase,
             },
         )
         logger.error("任务最终异常: [{}] {} - {}", task.id, task.name, error_msg)

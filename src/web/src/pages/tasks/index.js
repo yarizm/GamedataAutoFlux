@@ -122,7 +122,14 @@ export default {
             ${failureHtml}
           </div>
         </td>
-        <td>${renderProgress(task.progress)}</td>
+        <td>
+          <div class="flex flex-col items-start gap-0.5">
+            ${renderProgress(task.progress)}
+            ${task.phase || task.current_step
+              ? `<div class="text-[10px] text-muted truncate max-w-[140px]" title="${escapeHtml(task.current_step || task.phase || '')}">${escapeHtml(task.current_step || task.phase || '')}</div>`
+              : ''}
+          </div>
+        </td>
         <td>${task.targets_count}</td>
         <td>${task.duration ? `${task.duration.toFixed(1)}s` : '-'}</td>
         <td>${this._renderActions(task)}</td>

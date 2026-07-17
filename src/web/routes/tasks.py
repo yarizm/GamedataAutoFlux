@@ -57,6 +57,13 @@ class TaskResponse(BaseModel):
     completed_at: str | None
     duration: float | None
     error: str | None
+    # Structured status (backend-owned; frontend prefers these over string heuristics)
+    error_code: str | None = None
+    error_title: str | None = None
+    error_suggestion: str | None = None
+    phase: str | None = None
+    current_step: str | None = None
+    progress_detail: dict[str, Any] | None = None
 
 
 class TaskLogResponse(BaseModel):
@@ -312,6 +319,9 @@ async def get_task_stats():
 
 
 def _task_to_response(task: Task) -> TaskResponse:
+    err_pres = task.derived_error_presentation()
+    # Only expose derived error presentation when task has an error or code
+    show_error = bool(task.error or task.error_code or task.status.value == "failed")
     return TaskResponse(
         id=task.id,
         name=redact_sensitive_text(task.name),
@@ -325,6 +335,12 @@ def _task_to_response(task: Task) -> TaskResponse:
         completed_at=task.completed_at.isoformat() if task.completed_at else None,
         duration=task.duration_seconds,
         error=redact_sensitive_text(task.error) if task.error else None,
+        error_code=err_pres["error_code"] if show_error else None,
+        error_title=err_pres["error_title"] if show_error else None,
+        error_suggestion=err_pres["error_suggestion"] if show_error else None,
+        phase=task.phase,
+        current_step=redact_sensitive_text(task.current_step) if task.current_step else None,
+        progress_detail=task.progress_detail,
     )
 
 

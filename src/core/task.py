@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.errors import ErrorCode, resolve_error_code
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 
 
@@ -26,6 +27,36 @@ class TaskStatus(str, Enum):
     FAILED = "failed"  # 执行失败
     CANCELLED = "cancelled"  # 已取消
     RETRYING = "retrying"  # 重试中
+
+
+# Coarse execution phase for list/detail/WS (string, not strict enum for forward compat)
+PHASE_PENDING = "pending"
+PHASE_RUNNING_COLLECT = "running_collect"
+PHASE_RUNNING_PROCESS = "running_process"
+PHASE_RUNNING_STORE = "running_store"
+PHASE_RUNNING_REPORT = "running_report"
+PHASE_SUCCESS = "success"
+PHASE_FAILED = "failed"
+PHASE_CANCELLED = "cancelled"
+PHASE_RETRYING = "retrying"
+
+
+def infer_phase_from_message(message: str) -> str | None:
+    """Best-effort phase from progress/log message (pipeline English labels)."""
+    m = (message or "").lower()
+    if not m:
+        return None
+    if any(k in m for k in ("collect", "scrap", "fetch", "target")):
+        return PHASE_RUNNING_COLLECT
+    if any(k in m for k in ("process", "clean", "embed", "vector", "transform")):
+        return PHASE_RUNNING_PROCESS
+    if any(k in m for k in ("storage", "store", "persist", "write")):
+        return PHASE_RUNNING_STORE
+    if "report" in m:
+        return PHASE_RUNNING_REPORT
+    if "layer " in m and "done" in m:
+        return PHASE_RUNNING_COLLECT
+    return None
 
 
 class TaskPriority(int, Enum):
@@ -73,6 +104,12 @@ class Task(BaseModel):
     # 状态
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="当前状态")
     progress: float = Field(default=0.0, ge=0.0, le=1.0, description="进度 0.0~1.0")
+    phase: str | None = Field(default=PHASE_PENDING, description="粗粒度执行阶段")
+    current_step: str | None = Field(default=None, description="当前步骤/节点名")
+    progress_detail: dict[str, Any] | None = Field(
+        default=None,
+        description="进度细节（targets/layer 等，可选）",
+    )
 
     # 配置
     pipeline_name: str = Field(default="", description="关联的 Pipeline 名称")
@@ -88,7 +125,8 @@ class Task(BaseModel):
         exclude=True,
         description="Persisted lightweight result summary restored without the full result object",
     )
-    error: str | None = Field(default=None, description="错误信息")
+    error: str | None = Field(default=None, description="错误信息（脱敏人类可读）")
+    error_code: str | None = Field(default=None, description="结构化错误码 ErrorCode 值")
     step_logs: list[TaskStepLog] = Field(default_factory=list, description="步骤日志")
 
     # 调度
@@ -125,6 +163,11 @@ class Task(BaseModel):
         if self.first_started_at is None:
             self.first_started_at = now  # 仅在首次启动时设置，重试不覆盖
         self.progress = 0.0
+        self.phase = PHASE_RUNNING_COLLECT
+        self.current_step = None
+        self.progress_detail = None
+        self.error = None
+        self.error_code = None
 
     def complete(self, result: Any = None) -> None:
         """标记任务成功完成"""
@@ -134,14 +177,27 @@ class Task(BaseModel):
         self.completed_at = datetime.now(timezone.utc)
         self.progress = 1.0
         self.result = result
+        self.phase = PHASE_SUCCESS
+        self.current_step = None
+        self.error = None
+        self.error_code = None
 
-    def fail(self, error: str) -> None:
-        """标记任务失败"""
+    def fail(
+        self,
+        error: str,
+        *,
+        error_code: str | ErrorCode | None = None,
+        exc: Exception | None = None,
+    ) -> None:
+        """标记任务失败；写入结构化 error_code（可推断）。"""
         if self.is_terminal:
             return
         self.status = TaskStatus.FAILED
         self.completed_at = datetime.now(timezone.utc)
         self.error = error
+        code = resolve_error_code(error_code=error_code, error_message=error, exc=exc)
+        self.error_code = code.value
+        self.phase = PHASE_FAILED
 
     def cancel(self) -> None:
         """取消任务"""
@@ -149,6 +205,7 @@ class Task(BaseModel):
             return
         self.status = TaskStatus.CANCELLED
         self.completed_at = datetime.now(timezone.utc)
+        self.phase = PHASE_CANCELLED
 
     def retry(self) -> bool:
         """
@@ -164,13 +221,37 @@ class Task(BaseModel):
         self.retry_count += 1
         self.status = TaskStatus.RETRYING
         self.error = None
+        self.error_code = None
         self.started_at = datetime.now(timezone.utc)
         self.completed_at = None
+        self.phase = PHASE_RETRYING
+        self.current_step = None
         return True
 
-    def update_progress(self, progress: float, message: str = "") -> None:
-        """更新进度"""
+    def update_progress(
+        self,
+        progress: float,
+        message: str = "",
+        *,
+        phase: str | None = None,
+        current_step: str | None = None,
+        progress_detail: dict[str, Any] | None = None,
+    ) -> None:
+        """更新进度；可选写入 phase / current_step / progress_detail。"""
         self.progress = min(max(progress, 0.0), 1.0)
+        if phase:
+            self.phase = phase
+        else:
+            inferred = infer_phase_from_message(message)
+            if inferred and self.status == TaskStatus.RUNNING:
+                self.phase = inferred
+        if current_step is not None:
+            self.current_step = current_step
+        elif message and self.status == TaskStatus.RUNNING:
+            # keep short operator-facing step label
+            self.current_step = message[:120]
+        if progress_detail is not None:
+            self.progress_detail = progress_detail
         if message:
             self.step_logs.append(
                 TaskStepLog(
@@ -234,11 +315,25 @@ class Task(BaseModel):
             "name": redact_sensitive_text(self.name),
             "status": self.status.value,
             "progress": self.progress,
+            "phase": self.phase,
+            "current_step": redact_sensitive_text(self.current_step) if self.current_step else None,
             "collector": redact_sensitive_text(self.collector_name),
             "targets_count": len(self.targets),
             "created_at": self.created_at.isoformat(),
             "duration": self.duration_seconds,
             "error": redact_sensitive_text(self.error) if self.error else None,
+            "error_code": self.error_code,
+        }
+
+    def derived_error_presentation(self) -> dict[str, str | None]:
+        """API/WS 层用：由 error_code 派生中文标题与建议（不落库）。"""
+        if not self.error and not self.error_code and self.status != TaskStatus.FAILED:
+            return {"error_code": None, "error_title": None, "error_suggestion": None}
+        code = resolve_error_code(error_code=self.error_code, error_message=self.error)
+        return {
+            "error_code": code.value,
+            "error_title": code.chinese_label,
+            "error_suggestion": code.suggestion,
         }
 
     @property
@@ -253,8 +348,10 @@ class Task(BaseModel):
         return payload
 
     def to_public_payload(self) -> dict[str, Any]:
-        """导出可公开返回/广播的脱敏任务快照。"""
-        return redact_sensitive(self.to_storage_payload())
+        """导出可公开返回/广播的脱敏任务快照（含派生错误展示字段）。"""
+        payload = redact_sensitive(self.to_storage_payload())
+        payload.update(self.derived_error_presentation())
+        return payload
 
     @classmethod
     def from_storage_payload(cls, payload: dict[str, Any]) -> "Task":

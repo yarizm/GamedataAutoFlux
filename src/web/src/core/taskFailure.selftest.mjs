@@ -56,7 +56,18 @@ const failedKnown = summarizeTaskFailure({
 });
 assert(failedKnown && failedKnown.known === true, 'known failed');
 assert(failedKnown.code === 'rate_limited', 'code rate_limited');
-assert(failedKnown.title && !failedKnown.title.includes('rate_limited') || failedKnown.title.length > 0, 'has title');
+assert(failedKnown.title && failedKnown.title.length > 0, 'has title');
+
+const fromBackend = summarizeTaskFailure({
+  status: 'failed',
+  error: 'raw detail',
+  error_code: 'login_required',
+  error_title: '需要登录',
+  error_suggestion: '重新登录',
+});
+assert(fromBackend && fromBackend.code === 'login_required', 'backend code');
+assert(fromBackend.title === '需要登录', 'backend title preferred');
+assert(fromBackend.suggestion === '重新登录', 'backend suggestion preferred');
 
 const failedPlain = summarizeTaskFailure({
   status: 'failed',

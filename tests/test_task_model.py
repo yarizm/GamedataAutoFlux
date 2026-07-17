@@ -72,6 +72,27 @@ class TestTaskLifecycle:
         assert t.status == TaskStatus.FAILED
         assert t.error == "timeout"
         assert t.completed_at is not None
+        assert t.phase == "failed"
+        assert t.error_code  # classified at least to unknown
+
+    def test_fail_with_explicit_error_code(self):
+        t = Task(name="T")
+        t.start()
+        t.fail("steamdb cookie expired", error_code="login_required")
+        assert t.error_code == "login_required"
+        assert t.phase == "failed"
+        pres = t.derived_error_presentation()
+        assert pres["error_code"] == "login_required"
+        assert pres["error_title"]
+        assert pres["error_suggestion"]
+
+    def test_update_progress_infers_phase(self):
+        t = Task(name="T")
+        t.start()
+        assert t.phase == "running_collect"
+        t.update_progress(0.5, "Storage complete: sqlalchemy")
+        assert t.phase == "running_store"
+        assert t.current_step
 
     def test_cancel(self):
         t = Task(name="T")
