@@ -146,7 +146,27 @@ class TaskService:
         return await self._scheduler.delete_task(task_id)
 
     def get_stats(self) -> dict[str, Any]:
-        return self._scheduler.get_stats()
+        """Scheduler counters plus server-side Dashboard attention digests."""
+        stats = dict(self._scheduler.get_stats())
+        try:
+            from src.core.diagnostics import build_config_diagnostics, build_health_report
+            from src.services.dashboard_attention import build_dashboard_attention
+
+            health = build_health_report(stats)
+            diagnostics = build_config_diagnostics()
+            tasks = self._scheduler.get_all_tasks()
+            stats["attention"] = build_dashboard_attention(
+                tasks,
+                health=health,
+                diagnostics=diagnostics,
+            )
+        except Exception:
+            # Stats must remain available even if diagnostics/attention fails.
+            stats.setdefault(
+                "attention",
+                {"failed_tasks": [], "health_issues": []},
+            )
+        return stats
 
     # ------------------------------------------------------------------
     # Task creation (shared between route and Agent)

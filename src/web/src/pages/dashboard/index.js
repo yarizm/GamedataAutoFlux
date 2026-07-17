@@ -84,25 +84,47 @@ export default {
       const orderedTasks = [...tasks]
         .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
       this._renderRecentTasks(orderedTasks.slice(0, 5));
-      this._renderAttention(orderedTasks, health, diagnostics);
+      // Prefer server-side attention on stats; fallback to client aggregation.
+      this._renderAttention(orderedTasks, health, diagnostics, stats.attention || null);
     } catch (err) {
       console.error('Dashboard refresh failed:', err);
     }
   },
 
-  _renderAttention(tasks, health, diagnostics) {
+  /**
+   * @param {Array} tasks
+   * @param {object|null} health
+   * @param {object|null} diagnostics
+   * @param {{ failed_tasks?: Array, health_issues?: Array }|null} serverAttention
+   */
+  _renderAttention(tasks, health, diagnostics, serverAttention = null) {
     const root = document.getElementById('dashboard-attention');
     if (!root) return;
 
-    const failed = (tasks || [])
-      .filter((task) => String(task.status || '').toLowerCase() === 'failed')
-      .slice(0, 5)
-      .map((task) => ({
+    let failed = [];
+    let healthItems = [];
+
+    const hasServer =
+      serverAttention
+      && (Array.isArray(serverAttention.failed_tasks) || Array.isArray(serverAttention.health_issues));
+
+    if (hasServer) {
+      failed = (serverAttention.failed_tasks || []).slice(0, 5).map((task) => ({
         task,
         failure: summarizeTaskFailure(task),
       }));
+      healthItems = (serverAttention.health_issues || []).slice(0, 5);
+    } else {
+      failed = (tasks || [])
+        .filter((task) => String(task.status || '').toLowerCase() === 'failed')
+        .slice(0, 5)
+        .map((task) => ({
+          task,
+          failure: summarizeTaskFailure(task),
+        }));
+      healthItems = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
+    }
 
-    const healthItems = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
     if (!failed.length && !healthItems.length) {
       root.classList.add('hidden');
       root.hidden = true;
@@ -119,7 +141,7 @@ export default {
           <div class="attention-section-title">${escapeHtml(t('dashboard.attention.failures'))}</div>
           <ul class="attention-list">
             ${failed.map(({ task, failure }) => {
-              const title = failure?.title || t('tasks.failure.unknown');
+              const title = failure?.title || task.error_title || t('tasks.failure.unknown');
               return `<li class="attention-item">
                 <div class="min-w-0 flex-1">
                   <div class="text-sm font-medium text-theme-primary truncate">${escapeHtml(task.name || task.id)}</div>
