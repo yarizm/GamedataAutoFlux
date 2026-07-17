@@ -340,7 +340,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         error_suggestion=err_pres["error_suggestion"] if show_error else None,
         phase=task.phase,
         current_step=redact_sensitive_text(task.current_step) if task.current_step else None,
-        progress_detail=task.progress_detail,
+        progress_detail=redact_sensitive(task.progress_detail) if task.progress_detail else None,
     )
 
 

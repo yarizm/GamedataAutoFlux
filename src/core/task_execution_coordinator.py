@@ -219,7 +219,15 @@ class TaskExecutionCoordinator:
     ) -> tuple[bool, int]:
         error_msg = self._join_safe_error_messages(result.errors)
         retry_suppression_reason = self._retry_suppression_reason(result)
+        error_code = _error_code_from_pipeline_result(result)
+
+        # Align with exception/worker paths: fail first so retry() sees FAILED.
+        task.result = result
+        task.fail(error_msg, error_code=error_code)
+        captured_code = task.error_code
+
         if not retry_suppression_reason and task.retry():
+            task.result = None
             await self._persist_task(task)
             await self._emit_task_event(
                 task,
@@ -231,6 +239,7 @@ class TaskExecutionCoordinator:
                     "retry_count": task.retry_count,
                     "max_retries": task.max_retries,
                     "error": error_msg,
+                    "error_code": captured_code,
                 },
             )
             logger.warning(
@@ -251,8 +260,6 @@ class TaskExecutionCoordinator:
                 error=retry_suppression_reason,
             )
 
-        task.result = result
-        task.fail(error_msg, error_code=_error_code_from_pipeline_result(result))
         await self._persist_task(task)
         await self._emit_task_event(
             task,
@@ -289,6 +296,7 @@ class TaskExecutionCoordinator:
     ) -> tuple[bool, int, PipelineResult | None]:
         error_msg = redact_sensitive_text(str(exc))
         task.fail(error_msg, exc=exc)
+        captured_code = task.error_code
         if task.retry():
             await self._persist_task(task)
             await self._emit_task_event(
@@ -301,7 +309,7 @@ class TaskExecutionCoordinator:
                     "retry_count": task.retry_count,
                     "max_retries": task.max_retries,
                     "error": error_msg,
-                    "error_code": task.error_code,
+                    "error_code": captured_code,
                 },
             )
             logger.warning(

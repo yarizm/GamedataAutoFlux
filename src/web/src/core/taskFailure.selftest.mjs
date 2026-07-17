@@ -69,6 +69,18 @@ assert(fromBackend && fromBackend.code === 'login_required', 'backend code');
 assert(fromBackend.title === '需要登录', 'backend title preferred');
 assert(fromBackend.suggestion === '重新登录', 'backend suggestion preferred');
 
+// Backend unknown must not mask free-text error in list/dashboard titles
+const fromBackendUnknown = summarizeTaskFailure({
+  status: 'failed',
+  error: '连接被对端重置，请稍后重试',
+  error_code: 'unknown',
+  error_title: '未知错误',
+  error_suggestion: '查看详细日志排查原因',
+});
+assert(fromBackendUnknown && fromBackendUnknown.code === 'unknown', 'unknown code kept');
+assert(fromBackendUnknown.title.includes('连接'), 'unknown prefers raw title');
+assert(fromBackendUnknown.known === false, 'unknown not known');
+
 const failedPlain = summarizeTaskFailure({
   status: 'failed',
   error: '连接被对端重置，请稍后重试',

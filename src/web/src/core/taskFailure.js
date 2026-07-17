@@ -65,13 +65,32 @@ export function summarizeTaskFailure(task) {
     return null;
   }
 
-  // Prefer backend structured fields (API/WS contract)
+  // Prefer backend structured fields (API/WS contract).
+  // For unknown/unclassified codes, prefer truncated raw error so list/dashboard
+  // do not hide the real message behind「未知错误」.
   if (backendCode || backendTitle) {
     const fromCode = backendCode ? formatErrorCode(backendCode) : null;
-    const known = Boolean(fromCode?.known) || Boolean(backendTitle);
+    const codeIsUnknown = !backendCode || backendCode === 'unknown' || (fromCode && !fromCode.known);
+    const known = Boolean(fromCode?.known) && backendCode !== 'unknown';
+    let title;
+    if (known && backendTitle && backendCode !== 'unknown') {
+      title = backendTitle;
+    } else if (known && fromCode?.title && backendCode !== 'unknown') {
+      title = fromCode.title;
+    } else if (hasError) {
+      title = truncate(rawError);
+    } else if (backendTitle && backendCode !== 'unknown') {
+      title = backendTitle;
+    } else {
+      title = t('tasks.failure.unknown');
+    }
+    // If backend sent a known-code title that is the generic unknown label while we have raw text, prefer raw
+    if (codeIsUnknown && hasError) {
+      title = truncate(rawError);
+    }
     return {
-      title: backendTitle || (fromCode?.known ? fromCode.title : null) || t('tasks.failure.unknown'),
-      suggestion: backendSuggestion || fromCode?.suggestion || null,
+      title,
+      suggestion: backendSuggestion || fromCode?.suggestion || (codeIsUnknown ? t('error.suggestion.unknown') : null),
       raw: hasError ? rawError : null,
       known,
       code: backendCode || null,
