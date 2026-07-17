@@ -18,6 +18,18 @@ SENSITIVE_KEY_TOKENS = (
     "secret",
 )
 
+# Pagination / resume cursors contain "token" as a substring but are not secrets.
+# Without this, YouTube checkpoint `page_token` is wiped on every append.
+_NON_SENSITIVE_KEY_EXACT = frozenset(
+    {
+        "page_token",
+        "next_page_token",
+        "start_page_token",
+        "pagetoken",
+        "nextpagetoken",
+    }
+)
+
 _TEXT_SECRET_PATTERN = re.compile(
     r"(?P<key_quote>['\"]?)"
     r"\b(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|apikey|token|password|secret|cookie|authorization)[A-Za-z0-9_-]*)\b"
@@ -80,5 +92,9 @@ def _redact_in_place(value: Any) -> Any:
 
 
 def _is_sensitive_key(key: Any) -> bool:
-    key_text = str(key or "").lower()
+    key_text = str(key or "").lower().strip()
+    if not key_text:
+        return False
+    if key_text in _NON_SENSITIVE_KEY_EXACT:
+        return False
     return any(token in key_text for token in SENSITIVE_KEY_TOKENS)

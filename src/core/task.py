@@ -228,6 +228,22 @@ class Task(BaseModel):
         self.current_step = None
         return True
 
+    def requeue_from_terminal(self, *, clear_error: bool = True) -> bool:
+        """FAILED → PENDING without incrementing retry_count (explicit resume/rerun)."""
+        if self.status != TaskStatus.FAILED:
+            return False
+        self.status = TaskStatus.PENDING
+        if clear_error:
+            self.error = None
+            self.error_code = None
+        self.completed_at = None
+        self.phase = PHASE_PENDING
+        self.progress = 0.0
+        self.current_step = None
+        self.progress_detail = None
+        # do NOT touch retry_count
+        return True
+
     def update_progress(
         self,
         progress: float,

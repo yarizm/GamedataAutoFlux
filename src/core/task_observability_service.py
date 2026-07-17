@@ -327,14 +327,64 @@ class TaskObservabilityService:
         event_type: str,
         payload: dict[str, Any] | None,
     ) -> None:
-        """Record lightweight checkpoints from collector events."""
+        """Record lightweight checkpoints from collector / pipeline finalize events."""
         if self._get_task_checkpoint_service() is None:
             return
-        if event_type != "collect" or not isinstance(payload, dict):
+        if not isinstance(payload, dict):
             return
 
         status = str(payload.get("status") or "").strip().lower()
-        if status not in {"succeeded", "failed"}:
+        resume_state = payload.get("resume_state")
+        has_resume_state = isinstance(resume_state, dict)
+        progress_cursor = payload.get("checkpoint_cursor")
+        is_collect_progress = (
+            event_type == "collect"
+            and status == "progress"
+            and isinstance(progress_cursor, dict)
+            and bool(progress_cursor)
+        )
+
+        # Mid-progress deep cursor from collectors via _emit_checkpoint.
+        if is_collect_progress:
+            collector_name = str(payload.get("component") or task.collector_name or "").strip()
+            metadata = get_collector_metadata(collector_name or task.collector_name)
+            if metadata is None or not metadata.supports_checkpoint:
+                return
+            recovery_level = str(metadata.recovery_level or "L0").upper()
+            if recovery_level == "L0":
+                return
+            state = payload.get("checkpoint_state")
+            if not isinstance(state, dict):
+                state = {}
+            stats = payload.get("stats")
+            if not isinstance(stats, dict):
+                stats = {}
+            await self.register_task_checkpoint(
+                task,
+                recovery_level=recovery_level,
+                cursor=progress_cursor,
+                state=state,
+                stats=stats,
+                metadata={
+                    "source": "collect_progress",
+                    "event_type": event_type,
+                    "session_mode": resolve_session_mode(metadata.collector_id),
+                },
+            )
+            return
+
+        # collect complete (counts / lists / resume_state) or finalize events that already
+        # carry honest resume_state (pipeline / error).
+        if event_type == "collect":
+            if status not in {"succeeded", "failed"}:
+                return
+        elif event_type in {"pipeline", "error"} and has_resume_state:
+            if status not in {"succeeded", "failed"}:
+                # error finalize may omit status; treat as failed when resume_state present
+                status = "failed" if event_type == "error" else status
+            if status not in {"succeeded", "failed"}:
+                return
+        else:
             return
 
         collector_name = str(payload.get("component") or task.collector_name or "").strip()
@@ -346,15 +396,20 @@ class TaskObservabilityService:
         if recovery_level == "L0":
             return
 
+        state = resume_state if has_resume_state else None
+        if state is None:
+            state = _build_pipeline_checkpoint_state(task, payload)
+
+        cursor_stage = "collect" if event_type == "collect" else "pipeline"
         await self.register_task_checkpoint(
             task,
             recovery_level=recovery_level,
             cursor={
-                "stage": "collect",
+                "stage": cursor_stage,
                 "component": collector_name,
                 "status": status,
             },
-            state=_build_pipeline_checkpoint_state(task, payload),
+            state=state,
             stats=_pipeline_checkpoint_stats(payload),
             metadata={
                 "source": "pipeline_event",
@@ -373,18 +428,47 @@ def _pipeline_checkpoint_stats(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_pipeline_checkpoint_state(task: Task, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build checkpoint state without inventing a false successful prefix from counts alone."""
+    from src.core.collector_resume import merge_checkpoint_state
+
     targets = [
         str(target.name or "").strip() for target in task.targets if str(target.name or "").strip()
     ]
-    success_count = _safe_int(payload.get("success_count"))
-    failed_count = _safe_int(payload.get("failed_count"))
-    next_target_index = min(len(targets), success_count + failed_count)
+
+    collect_results = payload.get("collect_results")
+    if isinstance(collect_results, list) and collect_results:
+        return merge_checkpoint_state(
+            target_order=targets,
+            previous=None,
+            collect_results=collect_results,
+        )
+
+    successful_raw = payload.get("successful_targets")
+    failed_raw = payload.get("failed_targets")
+    if isinstance(successful_raw, list) or isinstance(failed_raw, list):
+        success_names = {str(n).strip() for n in (successful_raw or []) if str(n or "").strip()}
+        failed_names = {str(n).strip() for n in (failed_raw or []) if str(n or "").strip()}
+        next_index = 0
+        for idx, name in enumerate(targets):
+            if name in failed_names or name not in success_names:
+                next_index = idx
+                break
+            next_index = idx + 1
+        return {
+            "target_order": targets,
+            "next_target_index": min(next_index, len(targets)),
+            "completed_targets": targets[: min(next_index, len(targets))],
+            "successful_targets": [n for n in targets if n in success_names],
+            "failed_targets": [n for n in targets if n in failed_names],
+        }
+
+    # Counts-only payloads must not invent false successful prefixes for failed targets.
     return {
         "target_order": targets,
-        "next_target_index": next_target_index,
-        "completed_targets": targets[:next_target_index],
-        "successful_targets": targets[: min(len(targets), success_count)],
-        "failed_targets": targets[success_count:next_target_index],
+        "next_target_index": 0,
+        "completed_targets": [],
+        "successful_targets": [],
+        "failed_targets": [],
     }
 
 

@@ -3,6 +3,7 @@
 .claude/
 .pytest_cache/
 .playwright-mcp/
+mcps/
 __pycache__/
 *.pyc
 

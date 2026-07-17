@@ -82,6 +82,14 @@ class TaskCheckpointService(ABC):
         checkpoints = await self.list_checkpoints(task_id, limit=1)
         return checkpoints[0] if checkpoints else None
 
+    async def get_checkpoint(self, task_id: str, checkpoint_id: str) -> TaskCheckpoint | None:
+        """Fetch a single checkpoint by id (newest-first list scan)."""
+        checkpoints = await self.list_checkpoints(task_id, limit=1000)
+        for checkpoint in checkpoints:
+            if checkpoint.checkpoint_id == checkpoint_id:
+                return checkpoint
+        return None
+
     async def delete_checkpoints(self, task_id: str) -> None:
         """Delete task checkpoints when the backend supports it."""
         return None
@@ -137,6 +145,13 @@ class InMemoryTaskCheckpointService(TaskCheckpointService):
             checkpoints = list(self._checkpoints.get(task_id, []))
         checkpoints.sort(key=lambda checkpoint: checkpoint.seq, reverse=True)
         return _slice_checkpoints(checkpoints, limit=limit, offset=offset)
+
+    async def get_checkpoint(self, task_id: str, checkpoint_id: str) -> TaskCheckpoint | None:
+        async with self._lock:
+            for checkpoint in self._checkpoints.get(task_id, []):
+                if checkpoint.checkpoint_id == checkpoint_id:
+                    return checkpoint
+        return None
 
     async def delete_checkpoints(self, task_id: str) -> None:
         async with self._lock:

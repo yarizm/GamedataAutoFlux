@@ -245,8 +245,8 @@ _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
         capabilities=["youtube_channel_metadata", "youtube_data_api"],
         requires_session=False,
         session_mode="api_only",
-        supports_checkpoint=False,
-        recovery_level="L0",
+        supports_checkpoint=True,
+        recovery_level="L1",
         credential_profiles=["youtube_api_key"],
         target_schema=CollectorTargetSchema(
             required_fields=[
@@ -262,9 +262,7 @@ _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
                     ],
                     code="missing_youtube_channel_target",
                     field="targets[{index}]",
-                    message=(
-                        "YouTube profiles target needs channel_url, channel_id, or handle."
-                    ),
+                    message=("YouTube profiles target needs channel_url, channel_id, or handle."),
                     skip_if_error=False,
                 )
             ],
@@ -276,8 +274,8 @@ _COLLECTOR_METADATA: dict[str, CollectorMetadata] = {
         capabilities=["youtube_video_comments", "youtube_data_api"],
         requires_session=False,
         session_mode="api_only",
-        supports_checkpoint=False,
-        recovery_level="L0",
+        supports_checkpoint=True,
+        recovery_level="L1",
         credential_profiles=["youtube_api_key"],
         target_schema=CollectorTargetSchema(
             required_fields=["target.params.video_url"],

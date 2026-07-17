@@ -44,6 +44,36 @@ from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 from src.storage.base import BaseStorage, StorageRecord
 
 
+def _build_collect_complete_payload(
+    *,
+    component: str,
+    collect_results: list[CollectResult],
+    task: Task,
+    recovery_context: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Build collect-complete event payload with honest resume_state for checkpoints."""
+    success_count = sum(1 for item in collect_results if getattr(item, "success", False))
+    failed_count = len(collect_results) - success_count
+    resume_state = build_pipeline_resume_state(
+        task,
+        recovery_context=recovery_context if isinstance(recovery_context, dict) else {},
+        collect_results=collect_results,
+        output_records=[],
+    )
+    return {
+        "status": "failed" if failed_count else "succeeded",
+        "component": component,
+        "targets_count": len(collect_results),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "error": error,
+        "successful_targets": list(resume_state.get("successful_targets") or []),
+        "failed_targets": list(resume_state.get("failed_targets") or []),
+        "resume_state": resume_state,
+    }
+
+
 class StepType(str, Enum):
     """Pipeline 步骤类型"""
 
@@ -338,6 +368,8 @@ class Pipeline:
         executor = DAGExecutor()
 
         node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
+        recovery_context = build_pipeline_recovery_context(task, recovery_checkpoint)
+        accumulated_collect_results: list[CollectResult] = []
 
         async def _on_event(task_id, node_spec, phase, *, out=None, error=None):
             event_type = node_type_to_event.get(node_spec.type, node_spec.type)
@@ -348,34 +380,48 @@ class Pipeline:
                 }
                 if node_spec.type == "collector":
                     payload["targets_count"] = len(task.targets)
-                await self._emit_event(task_id, event_type, f"{event_type} started", payload=payload)
+                await self._emit_event(
+                    task_id, event_type, f"{event_type} started", payload=payload
+                )
             elif phase == "complete":
                 records = (out or {}).get("records", []) if node_spec.type != "storage" else []
                 if node_spec.type == "collector":
-                    success_count = sum(1 for r in records if getattr(r, "success", False))
-                    failed_count = len(records) - success_count
-                    payload = {
-                        "status": "succeeded" if not failed_count else "failed",
-                        "component": node_spec.component,
-                        "targets_count": len(records),
-                        "success_count": success_count,
-                        "failed_count": failed_count,
-                        "error": None,
-                    }
+                    step_results = list(records) if isinstance(records, list) else []
+                    accumulated_collect_results.extend(step_results)
+                    success_count = sum(1 for r in step_results if getattr(r, "success", False))
+                    failed_count = len(step_results) - success_count
+                    payload = _build_collect_complete_payload(
+                        component=node_spec.component,
+                        collect_results=accumulated_collect_results,
+                        task=task,
+                        recovery_context=recovery_context,
+                        error=None,
+                    )
+                    # Stats should describe this collector node's batch.
+                    payload["targets_count"] = len(step_results)
+                    payload["success_count"] = success_count
+                    payload["failed_count"] = failed_count
+                    payload["status"] = "succeeded" if not failed_count else "failed"
                     level = "warning" if failed_count else "info"
                     await self._emit_event(
-                        task_id, event_type,
-                        f"Collect complete: {success_count}/{len(records)} succeeded",
-                        level=level, payload=payload,
+                        task_id,
+                        event_type,
+                        f"Collect complete: {success_count}/{len(step_results)} succeeded",
+                        level=level,
+                        payload=payload,
                     )
                 elif node_spec.type == "processor":
                     await self._emit_event(
-                        task_id, event_type, "Process complete",
+                        task_id,
+                        event_type,
+                        "Process complete",
                         payload={"status": "succeeded", "component": node_spec.component},
                     )
                 elif node_spec.type == "storage":
                     await self._emit_event(
-                        task_id, event_type, "Storage complete",
+                        task_id,
+                        event_type,
+                        "Storage complete",
                         payload={
                             "status": "succeeded",
                             "component": node_spec.component,
@@ -384,9 +430,25 @@ class Pipeline:
                     )
             elif phase == "error":
                 await self._emit_event(
-                    task_id, event_type, f"{event_type} failed: {error}",
+                    task_id,
+                    event_type,
+                    f"{event_type} failed: {error}",
                     level="error",
                     payload={"status": "failed", "component": node_spec.component, "error": error},
+                )
+            elif phase == "progress" and node_spec.type == "collector":
+                out_payload = out if isinstance(out, dict) else {}
+                await self._emit_event(
+                    task_id,
+                    event_type,
+                    "collect progress checkpoint",
+                    payload={
+                        "status": "progress",
+                        "component": node_spec.component,
+                        "checkpoint_cursor": out_payload.get("checkpoint_cursor"),
+                        "checkpoint_state": out_payload.get("checkpoint_state") or {},
+                        "stats": out_payload.get("stats") or {},
+                    },
                 )
 
         dag_result = await executor.execute(
@@ -558,6 +620,29 @@ class Pipeline:
 
             await collector.setup(step.config)
             try:
+                from src.core.dag_nodes import build_emit_checkpoint
+
+                # Bridge PipelineEventCallback (level positional) to _emit_event kwargs form.
+                def _pipeline_event(
+                    _task_id: str,
+                    event_type: str,
+                    level: str,
+                    message: str,
+                    payload: dict[str, Any] | None = None,
+                ):
+                    return self._emit_event(
+                        _task_id,
+                        event_type,
+                        message,
+                        level=level or "info",
+                        payload=payload,
+                    )
+
+                collector.config["_emit_checkpoint"] = build_emit_checkpoint(
+                    task_id=task.id,
+                    component=step.component_name,
+                    emit_pipeline_event=_pipeline_event,
+                )
                 collect_results = await collector.collect_batch(targets)
                 all_collect_results.extend(collect_results)
 
@@ -570,19 +655,25 @@ class Pipeline:
                     f"Collect complete: {success_count}/{len(collect_results)} succeeded",
                     error=failed_error or None,
                 )
+                # Prefer cumulative results so multi-collector steps share one honest resume_state.
+                payload = _build_collect_complete_payload(
+                    component=step.component_name,
+                    collect_results=all_collect_results,
+                    task=task,
+                    recovery_context=recovery_context,
+                    error=failed_error or None,
+                )
+                # Stats should describe this step's batch, not the cumulative multi-step total.
+                payload["targets_count"] = len(collect_results)
+                payload["success_count"] = success_count
+                payload["failed_count"] = len(failed_results)
+                payload["status"] = "failed" if failed_results else "succeeded"
                 await self._emit_event(
                     task.id,
                     "collect",
                     f"Collect complete: {success_count}/{len(collect_results)} succeeded",
                     level="warning" if failed_results else "info",
-                    payload={
-                        "status": "failed" if failed_results else "succeeded",
-                        "component": step.component_name,
-                        "targets_count": len(collect_results),
-                        "success_count": success_count,
-                        "failed_count": len(failed_results),
-                        "error": failed_error or None,
-                    },
+                    payload=payload,
                 )
                 result.errors.extend(
                     f"collect:{step.component_name}:{_collect_failure_message(item)}"

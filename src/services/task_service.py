@@ -142,6 +142,112 @@ class TaskService:
             )
         return True
 
+    async def resume(
+        self,
+        task_id: str,
+        *,
+        checkpoint_id: str | None = None,
+        reset_retry_count: bool = False,
+    ) -> Task:
+        """Requeue a FAILED task and continue from preferred/selected checkpoint."""
+        task = self._scheduler.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status != TaskStatus.FAILED:
+            raise ValueError(f"cannot resume task in status {task.status.value}")
+
+        if checkpoint_id:
+            get_cp = getattr(self._scheduler, "get_task_checkpoint", None)
+            if callable(get_cp):
+                selected = await get_cp(task_id, checkpoint_id)
+                if selected is None:
+                    raise ValueError(f"checkpoint not found: {checkpoint_id}")
+
+        if reset_retry_count:
+            task.retry_count = 0
+
+        if not task.requeue_from_terminal():
+            raise ValueError("requeue failed")
+
+        cfg = dict(task.config or {})
+        cfg["resume_mode"] = "resume"
+        if checkpoint_id:
+            cfg["resume_checkpoint_id"] = str(checkpoint_id)
+        else:
+            cfg.pop("resume_checkpoint_id", None)
+        cfg.pop("force_full_rerun", None)
+        task.config = cfg
+
+        await self._scheduler.submit(task, pipeline_name=task.pipeline_name)
+        await self._emit_resume_event(
+            task,
+            event_type="resume_requested",
+            message="任务已请求从检查点续跑",
+            payload={
+                "status": task.status.value,
+                "resume_mode": "resume",
+                "checkpoint_id": str(checkpoint_id) if checkpoint_id else None,
+                "retry_count": task.retry_count,
+            },
+        )
+        return task
+
+    async def rerun(
+        self,
+        task_id: str,
+        *,
+        reset_retry_count: bool = False,
+    ) -> Task:
+        """Requeue a FAILED task and force a full run ignoring checkpoints."""
+        task = self._scheduler.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status != TaskStatus.FAILED:
+            raise ValueError(f"cannot rerun task in status {task.status.value}")
+
+        if reset_retry_count:
+            task.retry_count = 0
+
+        if not task.requeue_from_terminal():
+            raise ValueError("requeue failed")
+
+        cfg = dict(task.config or {})
+        cfg["resume_mode"] = "rerun"
+        cfg["force_full_rerun"] = True
+        cfg.pop("resume_checkpoint_id", None)
+        task.config = cfg
+
+        await self._scheduler.submit(task, pipeline_name=task.pipeline_name)
+        await self._emit_resume_event(
+            task,
+            event_type="rerun_requested",
+            message="任务已请求全量重跑",
+            payload={
+                "status": task.status.value,
+                "resume_mode": "rerun",
+                "force_full_rerun": True,
+                "retry_count": task.retry_count,
+            },
+        )
+        return task
+
+    async def _emit_resume_event(
+        self,
+        task: Task,
+        *,
+        event_type: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        emit = getattr(self._scheduler, "_emit_task_event", None)
+        if not callable(emit):
+            return
+        try:
+            await emit(task, event_type, message, payload=payload or {})
+        except Exception:
+            # Events are best-effort; requeue already succeeded.
+            return
+
     async def delete(self, task_id: str) -> bool:
         return await self._scheduler.delete_task(task_id)
 

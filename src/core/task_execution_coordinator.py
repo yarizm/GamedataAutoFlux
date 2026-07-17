@@ -39,8 +39,10 @@ def _error_code_from_pipeline_result(result: PipelineResult | None) -> str | Non
                 return code.value
     return None
 
+
 PersistTaskFn = Callable[[Task], Awaitable[None]]
 GetLatestCheckpointFn = Callable[[str], Awaitable[Any]]
+GetTaskCheckpointFn = Callable[[str, str], Awaitable[Any]]
 GetEventBusFn = Callable[[], Any]
 EmitCompletedEventFn = Callable[[Task, bool, Any, Pipeline, list[str]], Awaitable[None]]
 GenerateReportFn = Callable[[Task, Pipeline, PipelineResult], Awaitable[None]]
@@ -62,10 +64,12 @@ class TaskExecutionCoordinator:
         join_safe_error_messages: Callable[[list[str]], str],
         retry_suppression_reason: Callable[[PipelineResult], str],
         create_background_task: Callable[[Awaitable[Any]], asyncio.Task],
+        get_task_checkpoint: GetTaskCheckpointFn | None = None,
     ) -> None:
         self._persist_task = persist_task
         self._emit_task_event = emit_task_event
         self._get_latest_task_checkpoint = get_latest_task_checkpoint
+        self._get_task_checkpoint = get_task_checkpoint
         self._get_event_bus = get_event_bus
         self._emit_task_completed_event = emit_task_completed_event
         self._task_report_service = task_report_service
@@ -89,6 +93,8 @@ class TaskExecutionCoordinator:
 
             async with semaphore:
                 task.start()
+                recovery_checkpoint = await self._resolve_recovery_checkpoint(task)
+                self._clear_one_shot_resume_flags(task)
                 await self._persist_task(task)
                 await self._emit_task_event(
                     task,
@@ -103,14 +109,9 @@ class TaskExecutionCoordinator:
                 logger.info("任务开始执行: [{}] {}", task.id, task.name)
 
                 try:
-                    latest_checkpoint = await self._get_latest_task_checkpoint(task.id)
                     result = await pipeline.execute(
                         task,
-                        recovery_checkpoint=(
-                            latest_checkpoint.model_dump(mode="json")
-                            if latest_checkpoint is not None
-                            else None
-                        ),
+                        recovery_checkpoint=recovery_checkpoint,
                     )
 
                     if result.success:
@@ -149,6 +150,38 @@ class TaskExecutionCoordinator:
 
             if should_retry:
                 await asyncio.sleep(backoff)
+
+    async def _resolve_recovery_checkpoint(self, task: Task) -> dict[str, Any] | None:
+        """Resolve recovery checkpoint from one-shot resume/rerun flags or preferred latest."""
+        cfg = task.config if isinstance(task.config, dict) else {}
+        if cfg.get("force_full_rerun"):
+            return None
+
+        checkpoint_id = str(cfg.get("resume_checkpoint_id") or "").strip()
+        if checkpoint_id and self._get_task_checkpoint is not None:
+            selected = await self._get_task_checkpoint(task.id, checkpoint_id)
+            if selected is not None:
+                return selected.model_dump(mode="json")
+            return None
+
+        latest_checkpoint = await self._get_latest_task_checkpoint(task.id)
+        if latest_checkpoint is None:
+            return None
+        return latest_checkpoint.model_dump(mode="json")
+
+    @staticmethod
+    def _clear_one_shot_resume_flags(task: Task) -> None:
+        """Drop resume/rerun tags after start so later auto-retries use preferred checkpoint."""
+        if not isinstance(task.config, dict):
+            return
+        cfg = dict(task.config)
+        changed = False
+        for key in ("force_full_rerun", "resume_checkpoint_id", "resume_mode"):
+            if key in cfg:
+                cfg.pop(key, None)
+                changed = True
+        if changed:
+            task.config = cfg
 
     async def _handle_success(
         self,

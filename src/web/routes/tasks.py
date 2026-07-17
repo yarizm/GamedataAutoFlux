@@ -17,6 +17,8 @@ from src.schemas.tasks import (
     TaskEventResponse,
     TaskEventsResponse,
     TaskPrecheckResponse,
+    TaskRerunRequest,
+    TaskResumeRequest,
 )
 from src.services.session_inventory_sync import sync_session_inventory_via_provider_best_effort
 from src.web.safety import require_explicit_confirmation
@@ -287,6 +289,57 @@ async def cancel_task(task_id: Annotated[str, Path(description="任务 ID")]):
         raise HTTPException(400, f"无法取消任务: {task_id}")
 
     return {"message": f"任务已取消: {task_id}"}
+
+
+@router.post("/tasks/{task_id}/resume", response_model=TaskResponse)
+async def resume_task(
+    task_id: Annotated[str, Path(description="任务 ID")],
+    req: Annotated[TaskResumeRequest | None, Body(description="续跑选项")] = None,
+):
+    """从检查点续跑 FAILED 任务（默认不占用 retry 额度）。"""
+    from src.web.app import get_task_service
+
+    body = req or TaskResumeRequest()
+    try:
+        task = await get_task_service().resume(
+            task_id,
+            checkpoint_id=body.checkpoint_id,
+            reset_retry_count=body.reset_retry_count,
+        )
+    except KeyError:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+    except ValueError as e:
+        msg = str(e)
+        if "status" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+
+    return _task_to_response(task)
+
+
+@router.post("/tasks/{task_id}/rerun", response_model=TaskResponse)
+async def rerun_task(
+    task_id: Annotated[str, Path(description="任务 ID")],
+    req: Annotated[TaskRerunRequest | None, Body(description="重跑选项")] = None,
+):
+    """忽略检查点全量重跑 FAILED 任务（默认不占用 retry 额度）。"""
+    from src.web.app import get_task_service
+
+    body = req or TaskRerunRequest()
+    try:
+        task = await get_task_service().rerun(
+            task_id,
+            reset_retry_count=body.reset_retry_count,
+        )
+    except KeyError:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+    except ValueError as e:
+        msg = str(e)
+        if "status" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+
+    return _task_to_response(task)
 
 
 @router.delete("/tasks/{task_id}")

@@ -104,3 +104,24 @@ class TaskCheckpointsResponse(BaseModel):
     task_id: str
     checkpoints: list[TaskCheckpointResponse] = Field(default_factory=list)
     latest: TaskCheckpointResponse | None = None
+
+
+class TaskResumeRequest(BaseModel):
+    """Explicit resume from preferred or selected checkpoint."""
+
+    checkpoint_id: str | None = Field(
+        default=None, description="Optional checkpoint id to resume from"
+    )
+    reset_retry_count: bool = Field(
+        default=False,
+        description="When true, reset retry_count to 0 before requeue",
+    )
+
+
+class TaskRerunRequest(BaseModel):
+    """Force full rerun ignoring recovery checkpoints."""
+
+    reset_retry_count: bool = Field(
+        default=False,
+        description="When true, reset retry_count to 0 before requeue",
+    )

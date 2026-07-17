@@ -53,6 +53,13 @@ def test_youtube_collectors_define_targets_and_api_key_credentials() -> None:
     assert comments.target_schema.required_fields == ["target.params.video_url"]
 
 
+def test_youtube_metadata_l1() -> None:
+    assert get_collector_metadata("youtube_comments").recovery_level == "L1"
+    assert get_collector_metadata("youtube_profiles").recovery_level == "L1"
+    assert get_collector_metadata("youtube_comments").supports_checkpoint is True
+    assert get_collector_metadata("youtube_profiles").supports_checkpoint is True
+
+
 def test_task_precheck_uses_collector_metadata_for_required_fields() -> None:
     with TestClient(app) as client:
         response = client.post(

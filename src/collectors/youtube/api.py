@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -12,6 +13,7 @@ from loguru import logger
 
 # ── REST 端点 ──────────────────────────────────────────
 
+
 async def videos_list(
     pool,
     ids: list[str],
@@ -19,7 +21,8 @@ async def videos_list(
 ) -> dict:
     """GET /youtube/v3/videos — 批量获取视频详情，单批最多 50 个。"""
     return await pool.request(
-        "GET", "/videos",
+        "GET",
+        "/videos",
         part=parts,
         id=",".join(ids),
         maxResults=min(50, len(ids)),
@@ -32,7 +35,8 @@ async def channels_list(pool, **kwargs) -> dict:
     kwargs 传入 id / forHandle / forUsername 等 YouTube API 参数。
     """
     return await pool.request(
-        "GET", "/channels",
+        "GET",
+        "/channels",
         part="snippet,statistics",
         **kwargs,
     )
@@ -62,42 +66,70 @@ async def fetch_paginated_comments(
     video_id: str,
     max_scan: int = 500,
     top_limit: int = 100,
+    *,
+    start_page_token: str | None = None,
+    seed_comments: list[dict] | None = None,
+    already_scanned: int = 0,
+    on_page: Any | None = None,
 ) -> list[dict]:
-    """分页拉取主楼评论，按点赞降序取前 top_limit 条。"""
-    comments: list[dict] = []
-    page_token: str | None = None
+    """分页拉取主楼评论，按点赞降序取前 top_limit 条。
 
-    while len(comments) < max_scan:
-        data = await comment_threads_list(
-            pool, video_id, page_token=page_token, max_results=100)
+    Resume kwargs:
+      - start_page_token: continue from this nextPageToken
+      - seed_comments: pre-fetched comments (seed path); never pass [] for count-only
+      - already_scanned: prior scan count when not seeding (count-only)
+      - on_page(page_token=next, comments=comments): after each page
+    """
+    comments: list[dict] = list(seed_comments or [])
+    page_token: str | None = start_page_token
+
+    # With seed, max_scan is absolute (including seed). Without seed,
+    # already_scanned counts toward the total so we only fetch remaining.
+    if seed_comments is not None:
+        stop_at = max_scan
+    else:
+        stop_at = max(0, max_scan - int(already_scanned or 0))
+
+    if stop_at <= 0 or len(comments) >= stop_at:
+        comments.sort(key=lambda c: c.get("like_count", 0), reverse=True)
+        return comments[:top_limit]
+
+    while len(comments) < stop_at:
+        data = await comment_threads_list(pool, video_id, page_token=page_token, max_results=100)
 
         for item in data.get("items", []):
             top_comment = item.get("snippet", {}).get("topLevelComment", {})
             snippet = top_comment.get("snippet", {})
             text = (
-                snippet.get("textDisplay")
-                or snippet.get("textOriginal")
-                or ""
-            ).replace("\r", "").replace("\n", " | ").strip()
+                (snippet.get("textDisplay") or snippet.get("textOriginal") or "")
+                .replace("\r", "")
+                .replace("\n", " | ")
+                .strip()
+            )
             if not text:
                 text = "[非文本]"
 
             published_at = format_datetime(snippet.get("publishedAt", ""))
 
-            comments.append({
-                "like_count": int(snippet.get("likeCount", 0) or 0),
-                "text": text,
-                "published_at": published_at,
-            })
+            comments.append(
+                {
+                    "like_count": int(snippet.get("likeCount", 0) or 0),
+                    "text": text,
+                    "published_at": published_at,
+                }
+            )
 
-            if len(comments) >= max_scan:
+            if len(comments) >= stop_at:
                 break
 
         page_token = data.get("nextPageToken")
+        if on_page is not None:
+            await on_page(page_token=page_token, comments=comments)
+
         if not page_token:
             break
 
-    comments.sort(key=lambda c: c["like_count"], reverse=True)
+    comments.sort(key=lambda c: c.get("like_count", 0), reverse=True)
     return comments[:top_limit]
 
 
@@ -109,7 +141,9 @@ UNKNOWN = "未知"
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 
 
-async def _head_no_redirect(client: httpx.AsyncClient, url: str, headers: dict | None = None) -> httpx.Response:
+async def _head_no_redirect(
+    client: httpx.AsyncClient, url: str, headers: dict | None = None
+) -> httpx.Response:
     """发送 HEAD 请求，禁用自动跟随重定向。"""
     return await client.head(url, follow_redirects=False, headers=headers)
 
@@ -137,7 +171,7 @@ async def check_video_type(video_id: str) -> str:
                 logger.debug(f"[check_video_type] {video_id}: status={resp.status_code}")
             except httpx.HTTPError:
                 if attempt < 2:
-                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    await asyncio.sleep(0.5 * (2**attempt))
                     continue
 
     return UNKNOWN
@@ -166,6 +200,7 @@ async def check_video_type_bulk(
 
 # ── 工具函数 ───────────────────────────────────────────
 
+
 def format_duration(iso: str) -> str:
     """PT1H23M45S → 01:23:45。"""
     match = re.fullmatch(
@@ -184,7 +219,7 @@ def format_duration(iso: str) -> str:
 
 def chunked(values: list, size: int) -> list[list]:
     """将列表按 size 分块。"""
-    return [values[i:i + size] for i in range(0, len(values), size)]
+    return [values[i : i + size] for i in range(0, len(values), size)]
 
 
 def extract_video_id(url: str) -> str:

@@ -23,6 +23,7 @@ PersistTaskFn = Callable[[Task], Awaitable[None]]
 EmitTaskEventFn = Callable[..., Awaitable[Any]]
 EmitTaskCompletedEventFn = Callable[[Task, bool, Any, Pipeline | None, list[str]], Awaitable[None]]
 GetLatestCheckpointFn = Callable[[str], Awaitable[Any]]
+GetTaskCheckpointFn = Callable[[str, str], Awaitable[Any]]
 RegisterTaskArtifactFn = Callable[..., Awaitable[Any]]
 RegisterTaskCheckpointFn = Callable[..., Awaitable[Any]]
 GetPipelineFn = Callable[[str], Pipeline | None]
@@ -44,11 +45,13 @@ class WorkerClaimCoordinator:
         register_task_checkpoint: RegisterTaskCheckpointFn,
         get_pipeline: GetPipelineFn,
         get_pipelines: GetPipelinesFn,
+        get_task_checkpoint: GetTaskCheckpointFn | None = None,
     ) -> None:
         self._persist_task = persist_task
         self._emit_task_event = emit_task_event
         self._emit_task_completed_event = emit_task_completed_event
         self._get_latest_task_checkpoint = get_latest_task_checkpoint
+        self._get_task_checkpoint = get_task_checkpoint
         self._register_task_artifact = register_task_artifact
         self._register_task_checkpoint = register_task_checkpoint
         self._get_pipeline = get_pipeline
@@ -152,10 +155,12 @@ class WorkerClaimCoordinator:
                 "execution_backend": "worker_claim",
             },
         )
-        latest_checkpoint = await self._get_latest_task_checkpoint(task.id)
+        latest_checkpoint = await self._resolve_recovery_checkpoint_obj(task)
         latest_checkpoint_payload = (
             latest_checkpoint.to_worker_payload() if latest_checkpoint is not None else None
         )
+        self._clear_one_shot_resume_flags(task)
+        await self._persist_task(task)
         collector_name = selected_collector_name
         collector_metadata = get_collector_metadata(collector_name)
         graph_payload = None
@@ -197,6 +202,31 @@ class WorkerClaimCoordinator:
             if collector_name
             else {},
         }
+
+    async def _resolve_recovery_checkpoint_obj(self, task: Task) -> Any | None:
+        """Resolve recovery checkpoint object honoring resume/rerun one-shot flags."""
+        cfg = task.config if isinstance(task.config, dict) else {}
+        if cfg.get("force_full_rerun"):
+            return None
+
+        checkpoint_id = str(cfg.get("resume_checkpoint_id") or "").strip()
+        if checkpoint_id and self._get_task_checkpoint is not None:
+            return await self._get_task_checkpoint(task.id, checkpoint_id)
+
+        return await self._get_latest_task_checkpoint(task.id)
+
+    @staticmethod
+    def _clear_one_shot_resume_flags(task: Task) -> None:
+        if not isinstance(task.config, dict):
+            return
+        cfg = dict(task.config)
+        changed = False
+        for key in ("force_full_rerun", "resume_checkpoint_id", "resume_mode"):
+            if key in cfg:
+                cfg.pop(key, None)
+                changed = True
+        if changed:
+            task.config = cfg
 
     async def complete_worker_task(
         self,

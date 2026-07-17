@@ -601,6 +601,59 @@ export default {
     catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 
+  _renderFailedTaskActions(taskId, latestCheckpoint) {
+    const id = String(taskId || '');
+    const checkpointSummary = latestCheckpoint ? (() => {
+      const stage = latestCheckpoint.recovery_level
+        || latestCheckpoint.cursor?.stage
+        || latestCheckpoint.cursor?.phase
+        || (latestCheckpoint.seq != null ? `#${latestCheckpoint.seq}` : '-');
+      const collector = latestCheckpoint.collector_name || '-';
+      const time = formatTime(latestCheckpoint.created_at);
+      return `<div class="text-xs text-zinc-400 mt-1">${escapeHtml(t('tasks.checkpointSummary', {
+        stage: String(stage),
+        collector: String(collector),
+        time: String(time),
+      }))}</div>`;
+    })() : '';
+    return `
+      <div class="task-resume-actions border-t border-theme-subtle pt-3 mt-1">
+        ${checkpointSummary}
+        <div class="flex gap-2 mt-3">
+          <button type="button" class="btn btn-primary" data-action="resume-task" data-id="${escapeHtml(id)}" onclick="resumeTask('${escapeJs(id)}')">
+            ${escapeHtml(t('tasks.resume'))}
+          </button>
+          <button type="button" class="btn btn-secondary" data-action="rerun-task" data-id="${escapeHtml(id)}" onclick="rerunTask('${escapeJs(id)}')">
+            ${escapeHtml(t('tasks.rerun'))}
+          </button>
+        </div>
+      </div>`;
+  },
+
+  async _resumeTask(id) {
+    try {
+      await api(`/tasks/${encodeURIComponent(id)}/resume`, { method: 'POST', body: JSON.stringify({}) });
+      toast(t('tasks.resume.ok'), 'success');
+      window.refreshDashboard && window.refreshDashboard();
+      await this.refresh();
+      await this._viewDetail(id);
+    } catch (err) {
+      toast(t('message.createFailed', { error: formatApiError(err) }), 'error');
+    }
+  },
+
+  async _rerunTask(id) {
+    try {
+      await api(`/tasks/${encodeURIComponent(id)}/rerun`, { method: 'POST', body: JSON.stringify({}) });
+      toast(t('tasks.rerun.ok'), 'success');
+      window.refreshDashboard && window.refreshDashboard();
+      await this.refresh();
+      await this._viewDetail(id);
+    } catch (err) {
+      toast(t('message.createFailed', { error: formatApiError(err) }), 'error');
+    }
+  },
+
   async _viewLogs(id) {
     window.openModal('modal-task-logs');
     const modalLogs = document.getElementById('modal-task-logs');
@@ -669,6 +722,8 @@ export default {
             ${log.error?`<div class="text-rose-400 mt-1 pl-4">-> ${escapeHtml(log.error)}</div>`:''}
           </div>`).join('') + `</div>`
         : `<p class="text-muted">${t('common.empty.logs')}</p>`;
+      const latestCheckpoint = checkpointsPayload.latest || null;
+      const failedActionsHtml = task.status === 'failed' ? this._renderFailedTaskActions(task.id, latestCheckpoint) : '';
 
       container.innerHTML = `
         <div class="detail-grid grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -687,6 +742,7 @@ export default {
               }
               return `<div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-zinc-400">-</span></div>`;
             })()}
+            ${failedActionsHtml}
           </div>
           <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl flex flex-col gap-3">
             <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-1">${t('common.description')}</h3>
@@ -851,6 +907,8 @@ window.cancelTask = function (id) { if (window._tasksPage) window._tasksPage._ca
 window.deleteTask = function (id) { if (window._tasksPage) window._tasksPage._deleteTask(id); };
 window.viewTaskLogs = function (id) { if (window._tasksPage) window._tasksPage._viewLogs(id); };
 window.viewTaskDetail = function (id) { if (window._tasksPage) window._tasksPage._viewDetail(id); };
+window.resumeTask = function (id) { if (window._tasksPage) window._tasksPage._resumeTask(id); };
+window.rerunTask = function (id) { if (window._tasksPage) window._tasksPage._rerunTask(id); };
 window.getCollectorForPipeline = function (n) { if (window._tasksPage) return window._tasksPage._getCollector(n); };
 window.hasStorageStep = function () { return false; };
 

@@ -245,15 +245,20 @@ class WorkerAgent:
                 executor = DAGExecutor()
                 on_progress, on_event = self._build_dag_callbacks(task.id)
                 result = await executor.execute(
-                    task, dag,
-                    recovery_checkpoint=latest_checkpoint if isinstance(latest_checkpoint, dict) else None,
+                    task,
+                    dag,
+                    recovery_checkpoint=latest_checkpoint
+                    if isinstance(latest_checkpoint, dict)
+                    else None,
                     on_progress=on_progress,
                     on_event=on_event,
                 )
             else:
                 result = await pipeline.execute(
                     task,
-                    recovery_checkpoint=latest_checkpoint if isinstance(latest_checkpoint, dict) else None,
+                    recovery_checkpoint=latest_checkpoint
+                    if isinstance(latest_checkpoint, dict)
+                    else None,
                 )
             payload = self._serialize_pipeline_result(result)
             if result.success:
@@ -371,22 +376,39 @@ class WorkerAgent:
             node_id = getattr(node_spec, "id", str(node_spec))
             node_type = getattr(node_spec, "type", "node")
             event_type = node_type_to_event.get(node_type, "node")
-            status = {"start": "started", "complete": "succeeded", "error": "failed"}.get(phase, phase)
+            status = {"start": "started", "complete": "succeeded", "error": "failed"}.get(
+                phase, phase
+            )
             level = "error" if phase == "error" else "info"
             payload: dict[str, Any] = {
-                "node_id": node_id, "node_type": node_type,
-                "status": status, "component": getattr(node_spec, "component", ""),
+                "node_id": node_id,
+                "node_type": node_type,
+                "status": status,
+                "component": getattr(node_spec, "component", ""),
             }
             if phase == "complete" and out is not None:
                 if node_type == "storage":
                     payload["stored_count"] = out.get("_stored", 0)
                 else:
                     payload["count"] = len(out.get("records", []))
+            if phase == "progress" and isinstance(out, dict):
+                if out.get("checkpoint_cursor") is not None:
+                    payload["checkpoint_cursor"] = out.get("checkpoint_cursor")
+                payload["checkpoint_state"] = out.get("checkpoint_state") or {}
+                payload["stats"] = out.get("stats") or {}
             if error is not None:
                 payload["error"] = error
+            message = (
+                "collect progress checkpoint"
+                if phase == "progress" and node_type == "collector"
+                else f"{event_type} {status}: {node_id}"
+            )
             await self._append_event(
-                task_id, event_type=event_type, level=level,
-                message=f"{event_type} {status}: {node_id}", payload=payload,
+                task_id,
+                event_type=event_type,
+                level=level,
+                message=message,
+                payload=payload,
             )
 
         return on_progress, on_event

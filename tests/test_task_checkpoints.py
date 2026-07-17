@@ -3,10 +3,62 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
+from src.core.collector_resume import build_collector_cursor, parse_recovery_cursor
 from src.core.scheduler import Scheduler
-from src.core.task import Task
+from src.core.sensitive import redact_sensitive
+from src.core.task import Task, TaskTarget
 from src.services.task_checkpoint_service import InMemoryTaskCheckpointService
 from src.services.task_event_service import InMemoryTaskEventService
+
+
+def test_redact_sensitive_preserves_youtube_page_token() -> None:
+    """Pagination page_token must survive redaction (substring 'token' is not a secret)."""
+    cursor = build_collector_cursor(
+        collector_id="youtube_comments",
+        target_key="video:vid",
+        stage="comments_scan",
+        payload={
+            "page_token": "CDIQAA_real_page",
+            "scanned_count": 100,
+            "api_key": "should-redact",
+            "access_token": "should-redact-too",
+        },
+    )
+    redacted = redact_sensitive(cursor)
+    assert redacted["payload"]["page_token"] == "CDIQAA_real_page"
+    assert redacted["payload"]["scanned_count"] == 100
+    assert redacted["payload"]["api_key"] == "[REDACTED]"
+    assert redacted["payload"]["access_token"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_append_preserves_page_token_for_resume() -> None:
+    """Real persist path must keep YouTube page_token so resume can continue pagination."""
+    service = InMemoryTaskCheckpointService()
+    cursor = build_collector_cursor(
+        collector_id="youtube_comments",
+        target_key="video:abc",
+        stage="comments_scan",
+        payload={"page_token": "NEXT_PAGE_XYZ", "scanned_count": 200},
+    )
+    stored = await service.append(
+        "task-yt-resume",
+        pipeline_name="p",
+        collector_name="youtube_comments",
+        recovery_level="L1",
+        cursor=cursor,
+        state={"target_order": ["v1"], "next_target_index": 0},
+    )
+
+    assert stored.cursor["payload"]["page_token"] == "NEXT_PAGE_XYZ"
+    latest = await service.latest_checkpoint("task-yt-resume")
+    assert latest is not None
+    recovery = latest.model_dump(mode="json")
+    parsed = parse_recovery_cursor(
+        recovery, collector_id="youtube_comments", target_key="video:abc"
+    )
+    assert parsed is not None
+    assert parsed["payload"]["page_token"] == "NEXT_PAGE_XYZ"
 
 
 @pytest.mark.asyncio
@@ -188,6 +240,254 @@ async def test_scheduler_skips_pipeline_checkpoint_for_l0_collector() -> None:
     )
 
     assert await checkpoint_service.list_checkpoints(task.id) == []
+
+
+@pytest.mark.asyncio
+async def test_preferred_checkpoint_skips_empty_shell() -> None:
+    from src.core.collector_resume import build_collector_cursor, select_preferred_checkpoint
+
+    service = InMemoryTaskCheckpointService()
+    await service.append(
+        "task-pref",
+        recovery_level="L1",
+        cursor=build_collector_cursor(
+            collector_id="steam",
+            target_key="app:1",
+            stage="api_reviews",
+            payload={"review_cursor": "KEEP"},
+        ),
+        state={"target_order": ["A"], "next_target_index": 0},
+    )
+    await service.append(
+        "task-pref",
+        recovery_level="L1",
+        cursor={"stage": "collect", "status": "failed", "component": "steam"},
+        state={"target_order": ["A"], "next_target_index": 1, "completed_targets": ["A"]},
+    )
+    listed = await service.list_checkpoints("task-pref")
+    preferred = select_preferred_checkpoint(listed)
+    assert preferred is not None
+    assert preferred.cursor.get("payload", {}).get("review_cursor") == "KEEP"
+
+    scheduler = Scheduler(task_checkpoint_service=service)
+    scheduler_preferred = await scheduler.get_preferred_task_checkpoint("task-pref")
+    assert scheduler_preferred is not None
+    assert scheduler_preferred.cursor.get("payload", {}).get("review_cursor") == "KEEP"
+    # raw latest remains the empty shell
+    latest = await scheduler.get_latest_task_checkpoint("task-pref")
+    assert latest is not None
+    assert latest.cursor.get("stage") == "collect"
+
+
+@pytest.mark.asyncio
+async def test_preferred_checkpoint_composes_deep_cursor_and_target_order_state() -> None:
+    """Scheduler preferred merges deep mid-progress cursor with honest collect-complete state."""
+    from src.core.collector_resume import build_collector_cursor
+
+    service = InMemoryTaskCheckpointService()
+    await service.append(
+        "task-compose",
+        recovery_level="L1",
+        cursor={"stage": "collect", "status": "failed", "component": "steam"},
+        state={
+            "target_order": ["A", "B"],
+            "next_target_index": 1,
+            "completed_targets": ["A"],
+        },
+    )
+    await service.append(
+        "task-compose",
+        recovery_level="L1",
+        cursor=build_collector_cursor(
+            collector_id="steam",
+            target_key="app:1",
+            stage="api_reviews",
+            payload={"review_cursor": "DEEP"},
+        ),
+        state={},  # mid-progress: deep cursor, empty state
+    )
+
+    scheduler = Scheduler(task_checkpoint_service=service)
+    preferred = await scheduler.get_preferred_task_checkpoint("task-compose")
+    assert preferred is not None
+    assert preferred.cursor.get("payload", {}).get("review_cursor") == "DEEP"
+    assert preferred.state.get("target_order") == ["A", "B"]
+    assert preferred.state.get("next_target_index") == 1
+    # raw deep checkpoint still has empty state (compose does not mutate store)
+    listed = await service.list_checkpoints("task-compose")
+    assert listed[0].state == {}
+
+
+@pytest.mark.asyncio
+async def test_get_checkpoint_by_id() -> None:
+    service = InMemoryTaskCheckpointService()
+    first = await service.append("task-get", recovery_level="L1", cursor={"page": 1})
+    second = await service.append("task-get", recovery_level="L1", cursor={"page": 2})
+
+    found = await service.get_checkpoint("task-get", first.checkpoint_id)
+    missing = await service.get_checkpoint("task-get", "does-not-exist")
+    assert found is not None
+    assert found.checkpoint_id == first.checkpoint_id
+    assert found.cursor["page"] == 1
+    assert missing is None
+    assert (await service.get_checkpoint("task-get", second.checkpoint_id)) is second
+
+
+@pytest.mark.asyncio
+async def test_pipeline_checkpoint_counts_only_does_not_invent_success_prefix() -> None:
+    checkpoint_service = InMemoryTaskCheckpointService()
+    event_service = InMemoryTaskEventService()
+    scheduler = Scheduler(
+        task_event_service=event_service,
+        task_checkpoint_service=checkpoint_service,
+    )
+    task = Task(
+        id="pipeline-counts-only",
+        name="Counts Only",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+        targets=[
+            TaskTarget(name="A"),
+            TaskTarget(name="B"),
+            TaskTarget(name="C"),
+        ],
+    )
+    scheduler._tasks[task.id] = task
+
+    await scheduler._on_task_event(
+        task.id,
+        "collect",
+        "info",
+        "采集完成: 2/3 成功",
+        {
+            "status": "failed",
+            "component": "gtrends",
+            "targets_count": 3,
+            "success_count": 2,
+            "failed_count": 1,
+        },
+    )
+
+    checkpoints = await checkpoint_service.list_checkpoints(task.id)
+    assert len(checkpoints) == 1
+    assert checkpoints[0].state == {
+        "target_order": ["A", "B", "C"],
+        "next_target_index": 0,
+        "completed_targets": [],
+        "successful_targets": [],
+        "failed_targets": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_pipeline_checkpoint_resume_state_excludes_failed_target() -> None:
+    """Collect complete with honest resume_state must not mark failed targets completed."""
+    from src.collectors.base import CollectResult, CollectTarget
+    from src.core.pipeline import _build_collect_complete_payload
+
+    checkpoint_service = InMemoryTaskCheckpointService()
+    event_service = InMemoryTaskEventService()
+    scheduler = Scheduler(
+        task_event_service=event_service,
+        task_checkpoint_service=checkpoint_service,
+    )
+    task = Task(
+        id="pipeline-resume-honest",
+        name="Resume Honest",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+        targets=[
+            TaskTarget(name="A"),
+            TaskTarget(name="B"),
+            TaskTarget(name="C"),
+        ],
+    )
+    scheduler._tasks[task.id] = task
+
+    collect_results = [
+        CollectResult(target=CollectTarget(name="A"), success=True, data={"ok": 1}),
+        CollectResult(target=CollectTarget(name="B"), success=False, error="boom"),
+        CollectResult(target=CollectTarget(name="C"), success=True, data={"ok": 1}),
+    ]
+    payload = _build_collect_complete_payload(
+        component="gtrends",
+        collect_results=collect_results,
+        task=task,
+        recovery_context={},
+        error="boom",
+    )
+
+    assert payload["status"] == "failed"
+    assert "B" in payload["failed_targets"]
+    assert "B" not in payload["resume_state"]["completed_targets"]
+    assert payload["resume_state"]["next_target_index"] == 1
+    assert payload["resume_state"]["successful_targets"] == ["A", "C"]
+
+    await scheduler._on_task_event(
+        task.id,
+        "collect",
+        "warning",
+        "Collect complete: 2/3 succeeded",
+        payload,
+    )
+
+    checkpoints = await checkpoint_service.list_checkpoints(task.id)
+    assert len(checkpoints) == 1
+    state = checkpoints[0].state
+    assert "B" not in state["completed_targets"]
+    assert state["completed_targets"] == ["A"]
+    assert state["next_target_index"] == 1
+    assert state["successful_targets"] == ["A", "C"]
+    assert state["failed_targets"] == ["B"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_finalize_event_records_checkpoint_from_resume_state() -> None:
+    checkpoint_service = InMemoryTaskCheckpointService()
+    event_service = InMemoryTaskEventService()
+    scheduler = Scheduler(
+        task_event_service=event_service,
+        task_checkpoint_service=checkpoint_service,
+    )
+    task = Task(
+        id="pipeline-finalize-cp",
+        name="Finalize CP",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+        targets=[
+            TaskTarget(name="A"),
+            TaskTarget(name="B"),
+        ],
+    )
+    scheduler._tasks[task.id] = task
+
+    resume_state = {
+        "target_order": ["A", "B"],
+        "next_target_index": 1,
+        "completed_targets": ["A"],
+        "successful_targets": ["A"],
+        "failed_targets": ["B"],
+        "output_record_keys": ["k1"],
+    }
+    await scheduler._on_task_event(
+        task.id,
+        "pipeline",
+        "warning",
+        "Pipeline partially failed",
+        {
+            "status": "failed",
+            "collect_count": 2,
+            "storage_count": 1,
+            "resume_state": resume_state,
+        },
+    )
+
+    checkpoints = await checkpoint_service.list_checkpoints(task.id)
+    assert len(checkpoints) == 1
+    assert checkpoints[0].cursor.get("stage") == "pipeline"
+    assert checkpoints[0].state["completed_targets"] == ["A"]
+    assert "B" not in checkpoints[0].state["completed_targets"]
+    assert checkpoints[0].state["output_record_keys"] == ["k1"]
 
 
 def test_task_checkpoints_api_returns_latest(monkeypatch) -> None:

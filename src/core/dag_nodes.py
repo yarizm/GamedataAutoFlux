@@ -1,12 +1,17 @@
 """DAG 节点包装层：把现有组件适配为统一节点接口。"""
+
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
+
+from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.dag import NodeSpec, PortSpec
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 from src.storage.base import StorageRecord
@@ -40,8 +45,7 @@ class NodeProtocol:
 
 def _build_collect_targets(task: Task) -> list[CollectTarget]:
     return [
-        CollectTarget(name=t.name, target_type=t.target_type, params=t.params)
-        for t in task.targets
+        CollectTarget(name=t.name, target_type=t.target_type, params=t.params) for t in task.targets
     ]
 
 
@@ -58,6 +62,72 @@ def _flatten_records(value: Any) -> list:
                 flat.append(item)
         return flat
     return [value]
+
+
+def build_emit_checkpoint(
+    *,
+    task_id: str,
+    component: str,
+    emit_pipeline_event: Callable[..., Awaitable[None] | None] | None = None,
+    emit_dag_event: Callable[..., Awaitable[None] | None] | None = None,
+    node_spec: Any | None = None,
+) -> Callable[..., Awaitable[None]]:
+    """Build async ``_emit_checkpoint`` for injection into ``collector.config``.
+
+    Prefer pipeline-style event emission ``(task_id, event_type, level, message, payload)``.
+    When only a DAG lifecycle callback is available, emit phase ``\"progress\"`` with
+    cursor/state/stats in ``out`` so the host can translate to a collect progress event.
+    Mid-write failures are logged and never raise (must not block collection).
+    """
+
+    async def _emit_checkpoint(
+        cursor: dict[str, Any],
+        state: dict[str, Any] | None = None,
+        stats: dict[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(cursor, dict) or not cursor:
+            return
+        checkpoint_state = state if isinstance(state, dict) else {}
+        checkpoint_stats = stats if isinstance(stats, dict) else {}
+        try:
+            if emit_pipeline_event is not None:
+                result = emit_pipeline_event(
+                    task_id,
+                    "collect",
+                    "info",
+                    "collect progress checkpoint",
+                    {
+                        "status": "progress",
+                        "component": component,
+                        "checkpoint_cursor": cursor,
+                        "checkpoint_state": checkpoint_state,
+                        "stats": checkpoint_stats,
+                    },
+                )
+                if asyncio.iscoroutine(result):
+                    await result
+                return
+            if emit_dag_event is not None and node_spec is not None:
+                result = emit_dag_event(
+                    task_id,
+                    node_spec,
+                    "progress",
+                    out={
+                        "checkpoint_cursor": cursor,
+                        "checkpoint_state": checkpoint_state,
+                        "stats": checkpoint_stats,
+                    },
+                )
+                if asyncio.iscoroutine(result):
+                    await result
+        except Exception as exc:
+            logger.warning(
+                "collect progress checkpoint emit failed ({}): {}",
+                component,
+                redact_sensitive_text(str(exc)),
+            )
+
+    return _emit_checkpoint
 
 
 class CollectorNode:
@@ -105,6 +175,13 @@ class CollectorNode:
         if not targets:
             return {"records": []}
 
+        self._collector.config["_emit_checkpoint"] = build_emit_checkpoint(
+            task_id=self._task.id,
+            component=self.spec.component,
+            emit_dag_event=ctx.emit_event,
+            node_spec=self.spec,
+        )
+
         results = await self._collector.collect_batch(targets)
         return {"records": results}
 
@@ -133,13 +210,16 @@ class ProcessorNode:
     async def run(self, ctx: NodeContext) -> dict[str, Any]:
         assert self._processor is not None
         collect_results = [
-            r for r in _flatten_records(ctx.inputs.get("records"))
-            if isinstance(r, CollectResult)
+            r for r in _flatten_records(ctx.inputs.get("records")) if isinstance(r, CollectResult)
         ]
         inputs = [
             ProcessInput(
                 data=r.data,
-                metadata={**r.metadata, "target": r.target.name, "collected_at": r.collected_at.isoformat()},
+                metadata={
+                    **r.metadata,
+                    "target": r.target.name,
+                    "collected_at": r.collected_at.isoformat(),
+                },
                 source=r.target.name,
             )
             for r in collect_results
@@ -192,24 +272,36 @@ class StorageNode:
             for po in process_outputs:
                 if not po.success or po.data is None:
                     continue
-                process_inputs.append(ProcessInput(
-                    data=po.data, metadata=po.metadata, source=po.processor_name or "unknown",
-                ))
+                process_inputs.append(
+                    ProcessInput(
+                        data=po.data,
+                        metadata=po.metadata,
+                        source=po.processor_name or "unknown",
+                    )
+                )
         else:
             for cr in collect_results:
                 if not cr.success or cr.data is None:
                     continue
-                process_inputs.append(ProcessInput(
-                    data=cr.data, metadata=cr.metadata, source=cr.target.name,
-                ))
+                process_inputs.append(
+                    ProcessInput(
+                        data=cr.data,
+                        metadata=cr.metadata,
+                        source=cr.target.name,
+                    )
+                )
 
         storage_context = resolve_storage_resume_context(
-            self._recovery_context, current_data=process_inputs,
+            self._recovery_context,
+            current_data=process_inputs,
         )
         records: list[StorageRecord] = [
             StorageRecord(
                 key=build_storage_record_key(
-                    self._task, pi, index=idx, storage_context=storage_context,
+                    self._task,
+                    pi,
+                    index=idx,
+                    storage_context=storage_context,
                 ),
                 data=pi.data,
                 metadata=_build_storage_metadata(self._task, pi.metadata),

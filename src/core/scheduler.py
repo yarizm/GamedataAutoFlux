@@ -133,7 +133,8 @@ class Scheduler:
         self._task_execution_coordinator = TaskExecutionCoordinator(
             persist_task=self._persist_task,
             emit_task_event=self._emit_task_event,
-            get_latest_task_checkpoint=self.get_latest_task_checkpoint,
+            get_latest_task_checkpoint=self.get_preferred_task_checkpoint,
+            get_task_checkpoint=self.get_task_checkpoint,
             get_event_bus=lambda: self._event_bus,
             emit_task_completed_event=self._emit_task_completed_event,
             task_report_service=self._task_report_service,
@@ -146,7 +147,8 @@ class Scheduler:
             persist_task=self._persist_task,
             emit_task_event=self._emit_task_event,
             emit_task_completed_event=self._emit_task_completed_event,
-            get_latest_task_checkpoint=self.get_latest_task_checkpoint,
+            get_latest_task_checkpoint=self.get_preferred_task_checkpoint,
+            get_task_checkpoint=self.get_task_checkpoint,
             register_task_artifact=self.register_task_artifact,
             register_task_checkpoint=self.register_task_checkpoint,
             get_pipeline=self.get_pipeline,
@@ -719,6 +721,26 @@ class Scheduler:
     async def get_latest_task_checkpoint(self, task_id: str):
         """获取任务最近一次 checkpoint。"""
         return await self._task_observability.get_latest_task_checkpoint(task_id)
+
+    async def get_preferred_task_checkpoint(self, task_id: str):
+        """获取执行恢复用的合成 checkpoint（深 cursor + 最佳 target_order state）。"""
+        service = self._task_checkpoint_service
+        if service is None:
+            return None
+        checkpoints = await service.list_checkpoints(task_id, limit=50)
+        from src.core.collector_resume import compose_recovery_checkpoint
+
+        return compose_recovery_checkpoint(checkpoints)
+
+    async def get_task_checkpoint(self, task_id: str, checkpoint_id: str):
+        """按 checkpoint_id 获取单个 checkpoint。"""
+        service = self._task_checkpoint_service
+        if service is None:
+            return None
+        checkpoint_id = str(checkpoint_id or "").strip()
+        if not checkpoint_id:
+            return None
+        return await service.get_checkpoint(task_id, checkpoint_id)
 
     async def register_task_artifact(
         self,

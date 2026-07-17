@@ -111,7 +111,13 @@ def test_build_pipeline_resume_state_tracks_completed_targets_and_keys() -> None
 
     state = build_pipeline_resume_state(
         task,
-        recovery_context={"collect": {"next_target_index": 2}},
+        recovery_context={
+            "collect": {
+                "next_target_index": 2,
+                "completed_targets": ["A", "B"],
+                "successful_targets": ["A", "B"],
+            }
+        },
         collect_results=collect_results,
         output_records=output_records,
     )
@@ -120,10 +126,36 @@ def test_build_pipeline_resume_state_tracks_completed_targets_and_keys() -> None
         "target_order": ["A", "B", "C"],
         "next_target_index": 3,
         "completed_targets": ["A", "B", "C"],
-        "successful_targets": ["C"],
+        "successful_targets": ["A", "B", "C"],
         "failed_targets": [],
         "output_record_keys": ["task-a:processor:1:2"],
     }
+
+
+def test_build_pipeline_resume_state_does_not_mark_failed_as_completed() -> None:
+    task = Task(
+        id="task-b",
+        name="Task B",
+        pipeline_name="p",
+        targets=[TaskTarget(name="A"), TaskTarget(name="B"), TaskTarget(name="C")],
+    )
+    collect_results = [
+        CollectResult(target=CollectTarget(name="A"), success=True, data={"value": 1}),
+        CollectResult(target=CollectTarget(name="B"), success=False, error="boom"),
+    ]
+
+    state = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=[],
+    )
+
+    assert state["successful_targets"] == ["A"]
+    assert state["failed_targets"] == ["B"]
+    assert state["next_target_index"] == 1
+    assert state["completed_targets"] == ["A"]
+    assert "B" not in state["completed_targets"]
 
 
 def test_non_negative_int_clamps_invalid_values() -> None:

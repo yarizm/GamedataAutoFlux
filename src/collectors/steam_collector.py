@@ -27,9 +27,33 @@ from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from src.collectors.steam.steam_api_client import SteamAPIClient
 from src.collectors.steam.steamdb_scraper import SteamDBScraper, SteamDBScrapeFailed
 from src.collectors.steam.firecrawl_fallback import FirecrawlFallback
+from src.core.collector_resume import (
+    build_collector_cursor,
+    cap_partial_list,
+    parse_recovery_cursor,
+)
 from src.core.errors import ErrorCode, classify_exception
 from src.core.sensitive import redact_sensitive_text
 from src.core.registry import registry
+
+# Stage machine (S1 deep resume)
+_STAGE_RESOLVE = "resolve_app_id"
+_STAGE_API_LIGHT = "api_light"
+_STAGE_API_REVIEWS = "api_reviews"
+_STAGE_STEAMDB = "steamdb"
+_STAGE_DONE = "done"
+
+
+def _reviews_payload_succeeded(reviews_val: Any) -> bool:
+    """True only when reviews is a successful payload dict (not None / pure error blob)."""
+    if not isinstance(reviews_val, dict):
+        return False
+    # Pure error blob: has error and lacks normal review structure fields.
+    if reviews_val.get("error") is not None and not any(
+        k in reviews_val for k in ("reviews", "total_reviews", "review_count_fetched")
+    ):
+        return False
+    return True
 
 
 @registry.register("collector", "steam")
@@ -143,15 +167,29 @@ class SteamCollector(BaseCollector):
     async def collect(self, target: CollectTarget) -> CollectResult:
         """
         执行采集: 官方 API + SteamDB (Playwright→Firecrawl)
-        """
-        app_id = target.params.get("app_id", "")
 
-        # 如果没有 app_id，尝试按名称解析
+        S1 stage machine: resolve_app_id → api_light → api_reviews → steamdb → done.
+        Deep resume via recovery_checkpoint cursor (review_cursor / completed_stages).
+        """
+        last_cursor: dict[str, Any] | None = None
+
+        # ── Stage: resolve_app_id ──
+        app_id = str(target.params.get("app_id", "") or "").strip()
         if not app_id:
             logger.info(f"[Steam] 按名称查找 app_id: {target.name}")
-            resolved = await self._steam_api.resolve_app_id(target.name)
+            try:
+                resolved = await self._steam_api.resolve_app_id(target.name)
+            except Exception as e:
+                safe_error = _safe_log_text(e)
+                logger.error(f"[Steam] resolve_app_id 失败: {safe_error}")
+                return CollectResult(
+                    target=target,
+                    success=False,
+                    error=f"解析 app_id 失败: {safe_error}",
+                    error_code=classify_exception(e).value,
+                )
             if resolved:
-                app_id = resolved
+                app_id = str(resolved)
                 logger.info(f"[Steam] 找到 app_id={app_id} for '{target.name}'")
             else:
                 return CollectResult(
@@ -161,35 +199,214 @@ class SteamCollector(BaseCollector):
                     error_code=ErrorCode.empty_data.value,
                 )
 
-        logger.info(f"[Steam] === 开始采集: {target.name} (app_id={app_id}) ===")
+        target_key = f"app:{app_id}"
+        recovery_cursor = parse_recovery_cursor(
+            self.config.get("recovery_checkpoint") if isinstance(self.config, dict) else None,
+            collector_id="steam",
+            target_key=target_key,
+        )
+        resume_payload: dict[str, Any] = {}
+        if isinstance(recovery_cursor, dict):
+            raw_payload = recovery_cursor.get("payload")
+            if isinstance(raw_payload, dict):
+                resume_payload = dict(raw_payload)
 
-        # ── 阶段1: 官方 API（必执行）──
-        logger.info("[Steam] 阶段1: 官方 API 采集")
+        completed_stages = [
+            str(s).strip()
+            for s in (resume_payload.get("completed_stages") or [])
+            if str(s or "").strip()
+        ]
+        if _STAGE_RESOLVE not in completed_stages:
+            completed_stages.append(_STAGE_RESOLVE)
+
         try:
-            max_reviews = int(target.params.get("max_reviews", self.config.get("max_reviews", 200)))
-            review_language = str(
-                target.params.get("review_language", self.config.get("review_language", "all"))
+            resume_collected = int(resume_payload.get("collected_count") or 0)
+        except (TypeError, ValueError):
+            resume_collected = 0
+        resume_collected = max(0, resume_collected)
+        resume_review_cursor = str(resume_payload.get("review_cursor") or "").strip()
+        raw_partial = resume_payload.get("partial_reviews")
+        partial_source = list(raw_partial) if isinstance(raw_partial, list) else []
+        partial_reviews, partial_was_truncated = cap_partial_list(partial_source)
+        steamdb_done = bool(resume_payload.get("steamdb_done")) or (
+            _STAGE_STEAMDB in completed_stages
+        )
+        reviews_done = _STAGE_API_REVIEWS in completed_stages
+
+        max_reviews = int(target.params.get("max_reviews", self.config.get("max_reviews", 200)))
+        review_language = str(
+            target.params.get("review_language", self.config.get("review_language", "all"))
+        )
+        review_trend_days = int(
+            target.params.get("review_trend_days", self.config.get("review_trend_days", 90))
+        )
+        review_trend_mode = str(
+            target.params.get("review_trend_mode", self.config.get("review_trend_mode", "summary"))
+        )
+        review_summary_concurrency = int(
+            target.params.get(
+                "review_summary_concurrency",
+                self.config.get("review_summary_concurrency", 4),
             )
-            review_trend_days = int(
-                target.params.get("review_trend_days", self.config.get("review_trend_days", 90))
+        )
+        max_review_trend_reviews = int(
+            target.params.get(
+                "max_review_trend_reviews",
+                self.config.get("max_review_trend_reviews", 10000),
             )
-            review_trend_mode = str(
-                target.params.get(
-                    "review_trend_mode", self.config.get("review_trend_mode", "summary")
+        )
+        review_filter = str(resume_payload.get("review_filter") or "recent")
+
+        def _base_payload(
+            *,
+            stage_list: list[str],
+            review_cursor: str = "",
+            collected_count: int = 0,
+            partial: list[Any] | None = None,
+            steamdb: bool = False,
+            extra: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            capped, truncated = cap_partial_list(list(partial or []))
+            body: dict[str, Any] = {
+                "app_id": str(app_id),
+                "completed_stages": list(stage_list),
+                "review_cursor": review_cursor,
+                "review_language": review_language,
+                "review_filter": review_filter,
+                "collected_count": int(collected_count),
+                "max_reviews": int(max_reviews),
+                "partial_reviews": capped,
+                "steamdb_done": bool(steamdb),
+            }
+            if truncated:
+                body["partial_reviews_truncated"] = True
+            if extra:
+                body.update(extra)
+            return body
+
+        async def _emit(
+            stage: str,
+            payload: dict[str, Any],
+            *,
+            state: dict[str, Any] | None = None,
+            stats: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            nonlocal last_cursor
+            cursor = build_collector_cursor(
+                collector_id="steam",
+                target_key=target_key,
+                stage=stage,
+                payload=payload,
+            )
+            last_cursor = cursor
+            emit_fn = self.config.get("_emit_checkpoint") if isinstance(self.config, dict) else None
+            if callable(emit_fn):
+                try:
+                    await emit_fn(cursor, state=state, stats=stats)
+                except Exception as emit_err:
+                    logger.warning(
+                        "[Steam] checkpoint emit failed: {}",
+                        _safe_log_text(emit_err),
+                    )
+            return cursor
+
+        async def _emit_failure_cursor() -> None:
+            if last_cursor is not None:
+                await _emit(
+                    str(last_cursor.get("stage") or _STAGE_API_REVIEWS),
+                    dict(last_cursor.get("payload") or {}),
                 )
+                return
+            # Best-effort mid-fail cursor so resume can at least see completed stages.
+            await _emit(
+                _STAGE_API_REVIEWS if not reviews_done else _STAGE_STEAMDB,
+                _base_payload(
+                    stage_list=completed_stages,
+                    review_cursor=resume_review_cursor,
+                    collected_count=resume_collected,
+                    partial=partial_reviews,
+                    steamdb=steamdb_done,
+                ),
             )
-            review_summary_concurrency = int(
-                target.params.get(
-                    "review_summary_concurrency",
-                    self.config.get("review_summary_concurrency", 4),
-                )
+
+        logger.info(f"[Steam] === 开始采集: {target.name} (app_id={app_id}) ===")
+        if recovery_cursor:
+            logger.info(
+                "[Steam] resume cursor stage={} completed={} review_cursor={} collected={}",
+                recovery_cursor.get("stage"),
+                completed_stages,
+                resume_review_cursor or "*",
+                resume_collected,
             )
-            max_review_trend_reviews = int(
-                target.params.get(
-                    "max_review_trend_reviews",
-                    self.config.get("max_review_trend_reviews", 10000),
-                )
+
+        # ── Stage: api_light + api_reviews (via collect_all; light re-fetch OK) ──
+        # Resume kwargs: never pass seed_reviews=[] — only non-empty seed or already_collected.
+        # Seed only when partial is complete vs collected_count; else count-only (cursor+count).
+        start_cursor = "*"
+        already_collected = 0
+        seed_reviews: list[dict[str, Any]] | None = None
+        if reviews_done:
+            # Reviews already finished in a prior run — skip expensive re-pull.
+            already_collected = max_reviews
+            seed_reviews = None
+            start_cursor = "*"
+        else:
+            if resume_review_cursor and resume_review_cursor != "*":
+                start_cursor = resume_review_cursor
+            seed_candidate = [r for r in partial_reviews if isinstance(r, dict)]
+            partial_complete = (
+                bool(seed_candidate)
+                and resume_collected <= len(seed_candidate)
+                and not (partial_was_truncated and resume_collected > len(seed_candidate))
             )
+            if partial_complete:
+                # Full partial list relative to collected_count — seed it.
+                seed_reviews = seed_candidate
+                already_collected = 0
+            else:
+                # Count-only / incomplete / truncated partial: do not seed.
+                seed_reviews = None
+                already_collected = resume_collected
+
+        # Track whether on_page saw a seed-based list (for collected_count accounting).
+        using_seed = seed_reviews is not None
+        base_already = already_collected
+
+        async def on_page(
+            *,
+            cursor: str,
+            reviews: list[Any],
+            query_summary: dict[str, Any] | None = None,
+        ) -> None:
+            if using_seed:
+                count = len(reviews)
+                # Seed path: partial list is complete so far (all_reviews including seed).
+                partial_for_emit: list[Any] = [r for r in reviews if isinstance(r, dict)]
+            else:
+                count = base_already + len(reviews)
+                # Count-only path: emit empty partial so resume never mis-seeds on a
+                # short newly-fetched list (resume_collected > len(partial)).
+                partial_for_emit = []
+            stages = list(completed_stages)
+            if _STAGE_API_LIGHT not in stages:
+                stages.append(_STAGE_API_LIGHT)
+            await _emit(
+                _STAGE_API_REVIEWS,
+                _base_payload(
+                    stage_list=stages,
+                    review_cursor=str(cursor or ""),
+                    collected_count=count,
+                    partial=partial_for_emit,
+                    steamdb=False,
+                ),
+                stats={
+                    "collected_count": count,
+                    "query_summary": query_summary or {},
+                },
+            )
+
+        logger.info("[Steam] 阶段: 官方 API 采集 (api_light + api_reviews)")
+        try:
             steam_data = await self._steam_api.collect_all(
                 app_id,
                 max_reviews=max_reviews,
@@ -198,10 +415,15 @@ class SteamCollector(BaseCollector):
                 max_review_trend_reviews=max_review_trend_reviews,
                 review_trend_mode=review_trend_mode,
                 review_summary_concurrency=review_summary_concurrency,
+                start_cursor=start_cursor,
+                already_collected=already_collected,
+                seed_reviews=seed_reviews,
+                on_page=None if reviews_done else on_page,
             )
         except Exception as e:
             safe_error = _safe_log_text(e)
             logger.error(f"[Steam] 官方 API 采集失败: {safe_error}")
+            await _emit_failure_cursor()
             steam_data = {
                 "source": "steam_api",
                 "error": safe_error,
@@ -213,6 +435,7 @@ class SteamCollector(BaseCollector):
             for key in ("details", "current_players", "reviews", "achievements", "news")
         )
         if not steam_api_ok:
+            await _emit_failure_cursor()
             return CollectResult(
                 target=target,
                 success=False,
@@ -221,23 +444,100 @@ class SteamCollector(BaseCollector):
                 metadata={
                     "collector": "steam",
                     "data_sources": _list_sources(steam_data, None),
+                    "target_key": target_key,
                 },
                 raw_data=steam_data,
             )
 
-        # ── 阶段2: SteamDB（可选）──
-        skip_steamdb = target.params.get("skip_steamdb", False)
+        if _STAGE_API_LIGHT not in completed_stages:
+            completed_stages.append(_STAGE_API_LIGHT)
+        # Only mark api_reviews complete when reviews payload actually succeeded.
+        # Light-only success (reviews=None / pure error) leaves stage incomplete so resume re-tries.
+        reviews_ok = _reviews_payload_succeeded(steam_data.get("reviews"))
+        if reviews_ok and not reviews_done and _STAGE_API_REVIEWS not in completed_stages:
+            completed_stages.append(_STAGE_API_REVIEWS)
+            reviews_done = True
+
+        reviews_blob = (
+            steam_data.get("reviews") if isinstance(steam_data.get("reviews"), dict) else {}
+        )
+        review_items = reviews_blob.get("reviews") if isinstance(reviews_blob, dict) else None
+        if not isinstance(review_items, list):
+            review_items = []
+        try:
+            fetched_n = int(reviews_blob.get("review_count_fetched") or 0)
+        except (TypeError, ValueError):
+            fetched_n = 0
+        if using_seed:
+            final_review_count = fetched_n or len(review_items)
+        elif base_already:
+            final_review_count = base_already + (fetched_n or len(review_items))
+        else:
+            final_review_count = fetched_n or len(review_items) or resume_collected
+
+        # Count-only path: keep partial empty (cursor+count only). Seed path: full list.
+        if using_seed and reviews_ok:
+            partial_after_api: list[Any] = (
+                [r for r in review_items if isinstance(r, dict)]
+                if review_items
+                else list(partial_reviews)
+            )
+        elif reviews_ok and not base_already:
+            # Fresh full pull (no already_collected) — list is complete for max_reviews.
+            partial_after_api = [r for r in review_items if isinstance(r, dict)]
+        else:
+            # Count-only mid-run / reviews failed: do not store incomplete partials.
+            partial_after_api = []
+
+        # Prefer on_page progress when reviews not completed (cursor advanced mid-run).
+        emit_review_cursor = ""
+        emit_collected = final_review_count or resume_collected
+        if not reviews_done:
+            last_payload = last_cursor.get("payload") if isinstance(last_cursor, dict) else None
+            if isinstance(last_payload, dict):
+                emit_review_cursor = str(
+                    last_payload.get("review_cursor") or resume_review_cursor or ""
+                )
+                try:
+                    emit_collected = int(last_payload.get("collected_count") or emit_collected)
+                except (TypeError, ValueError):
+                    pass
+                if using_seed and isinstance(last_payload.get("partial_reviews"), list):
+                    partial_after_api = list(last_payload.get("partial_reviews") or [])
+            else:
+                emit_review_cursor = resume_review_cursor
+
+        await _emit(
+            _STAGE_STEAMDB if not steamdb_done else _STAGE_DONE,
+            _base_payload(
+                stage_list=completed_stages,
+                review_cursor=emit_review_cursor,
+                collected_count=emit_collected,
+                partial=partial_after_api,
+                steamdb=steamdb_done,
+            ),
+            stats={"collected_count": emit_collected},
+        )
+
+        # ── Stage: steamdb (optional; skip when already done or skip_steamdb) ──
+        skip_steamdb_param = bool(target.params.get("skip_steamdb", False))
+        skip_steamdb = skip_steamdb_param or steamdb_done
         steamdb_data: dict[str, Any] | None = None
         steamdb_warning: str | None = None
 
-        if not skip_steamdb:
+        if skip_steamdb:
+            if steamdb_done:
+                logger.info("[Steam] 跳过 SteamDB（checkpoint steamdb_done）")
+            elif skip_steamdb_param:
+                logger.info("[Steam] 跳过 SteamDB（skip_steamdb=true）")
+        else:
             requested_time_slice = target.params.get("steamdb_time_slice", "monthly_peak_1y")
             steamdb_cookie = str(target.params.get("steamdb_cookie", "") or "")
             steamdb_headers = _clean_headers(target.params.get("steamdb_headers", {}))
             firecrawl_cookie = str(target.params.get("firecrawl_cookie", "") or "")
             firecrawl_headers = _clean_headers(target.params.get("firecrawl_headers", {}))
             if self._steamdb:
-                logger.info("[Steam] 阶段2: SteamDB Playwright 采集")
+                logger.info("[Steam] 阶段: SteamDB Playwright 采集")
                 try:
                     steamdb_data = await self._steamdb.scrape(
                         app_id,
@@ -278,6 +578,24 @@ class SteamCollector(BaseCollector):
                     headers=firecrawl_headers,
                 )
 
+            steamdb_done = True
+            if _STAGE_STEAMDB not in completed_stages:
+                completed_stages.append(_STAGE_STEAMDB)
+
+        # done
+        if _STAGE_DONE not in completed_stages:
+            completed_stages.append(_STAGE_DONE)
+        await _emit(
+            _STAGE_DONE,
+            _base_payload(
+                stage_list=completed_stages,
+                review_cursor="",
+                collected_count=final_review_count or resume_collected,
+                partial=[],
+                steamdb=True if skip_steamdb_param or steamdb_done else steamdb_done,
+            ),
+        )
+
         # ── 合并结果 ──
         merged_data = {
             "game_name": target.name,
@@ -289,7 +607,6 @@ class SteamCollector(BaseCollector):
             _apply_steamdb_time_slice(steamdb_data, requested_time_slice)
             merged_data["steamdb"] = steamdb_data
 
-        # 提取关键快照指标
         details = steam_data.get("details") or {}
         reviews = steam_data.get("reviews") or {}
         review_score_percent = reviews.get("review_score_percent", 0)
@@ -314,12 +631,22 @@ class SteamCollector(BaseCollector):
 
         logger.info(f"[Steam] === 采集完成: {target.name} ===")
 
+        resume_meta: dict[str, Any] = {}
+        if recovery_cursor:
+            resume_meta["resume"] = {
+                "resumed": True,
+                "target_key": target_key,
+                "stage": recovery_cursor.get("stage"),
+            }
+
         return CollectResult(
             target=target,
             data=merged_data,
             metadata={
                 "collector": "steam",
                 "data_sources": _list_sources(steam_data, steamdb_data),
+                "target_key": target_key,
+                **resume_meta,
                 **({"warnings": [steamdb_warning]} if steamdb_warning else {}),
             },
             success=True,

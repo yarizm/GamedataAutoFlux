@@ -145,6 +145,11 @@ class SteamAPIClient:
         max_review_trend_reviews: int = 10000,
         review_trend_mode: str = "summary",
         review_summary_concurrency: int = 4,
+        *,
+        start_cursor: str = "*",
+        already_collected: int = 0,
+        seed_reviews: list[dict[str, Any]] | None = None,
+        on_page: Any | None = None,
     ) -> dict[str, Any]:
         """
         分页采集评论 (支持 cursor 翻页)。
@@ -157,11 +162,15 @@ class SteamAPIClient:
             review_trend_mode,
             review_trend_days,
         )
-        all_reviews, query_summary, _ = await self._fetch_review_pages(
+        all_reviews, query_summary, _, _ = await self._fetch_review_pages(
             app_id,
             max_reviews=max_reviews,
             language=language,
             filter_name="recent",
+            start_cursor=start_cursor,
+            already_collected=already_collected,
+            seed_reviews=seed_reviews,
+            on_page=on_page,
         )
         logger.debug(
             "[SteamAPI] reviews sample fetched app_id={} count={}", app_id, len(all_reviews)
@@ -230,7 +239,7 @@ class SteamAPIClient:
             trend_fetch_limit = max(max_review_trend_reviews, 0)
             if trend_total and trend_total < trend_fetch_limit:
                 trend_fetch_limit = trend_total
-            trend_reviews, _, trend_exhausted = (
+            trend_reviews, _, trend_exhausted, _ = (
                 await self._fetch_review_pages(
                     app_id,
                     max_reviews=trend_fetch_limit,
@@ -239,7 +248,7 @@ class SteamAPIClient:
                     day_range=review_trend_days,
                 )
                 if trend_fetch_limit
-                else ([], {}, True)
+                else ([], {}, True, "*")
             )
             trend_complete = bool(
                 trend_total == 0 or len(trend_reviews) >= trend_total or trend_exhausted
@@ -290,13 +299,30 @@ class SteamAPIClient:
         language: str,
         filter_name: str = "recent",
         day_range: int | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        start_cursor: str = "*",
+        already_collected: int = 0,
+        seed_reviews: list[dict[str, Any]] | None = None,
+        on_page: Any | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool, str]:
+        """Paginate appreviews. Returns (reviews, summary, complete_flag, last_cursor)."""
         url = f"{self.STORE_BASE}/appreviews/{app_id}"
-        all_reviews: list[dict[str, Any]] = []
+        all_reviews: list[dict[str, Any]] = list(seed_reviews or [])
         query_summary: dict[str, Any] = {}
-        cursor = "*"
+        cursor = start_cursor or "*"
+        last_cursor = cursor
         seen_cursors: set[str] = set()
-        max_pages = max(1, (max_reviews + 99) // 100)
+        # Target length of all_reviews: with seed, max_reviews is absolute
+        # (including seed). Without seed, already_collected counts toward the
+        # total so we only fetch the remaining items into all_reviews.
+        if seed_reviews is not None:
+            stop_at = max_reviews
+        else:
+            stop_at = max(0, max_reviews - int(already_collected or 0))
+        remaining = max(0, stop_at - len(all_reviews))
+        if remaining == 0:
+            # Already at/over the requested cap — not API-exhausted.
+            return all_reviews, query_summary, False, last_cursor
+        max_pages = max(1, (remaining + 99) // 100)
 
         for _ in range(max_pages):
             params: dict[str, Any] = {
@@ -317,7 +343,7 @@ class SteamAPIClient:
 
             reviews = data.get("reviews", []) if isinstance(data, dict) else []
             if not reviews:
-                return all_reviews, query_summary, True
+                return all_reviews, query_summary, True, last_cursor
 
             for r in reviews:
                 all_reviews.append(
@@ -333,17 +359,31 @@ class SteamAPIClient:
                         "language": r.get("language", ""),
                     }
                 )
-                if len(all_reviews) >= max_reviews:
-                    return all_reviews, query_summary, False
+                if len(all_reviews) >= stop_at:
+                    break
 
             next_cursor = data.get("cursor", "") if isinstance(data, dict) else ""
+            if next_cursor:
+                last_cursor = next_cursor
+
+            if on_page is not None:
+                await on_page(
+                    cursor=next_cursor or last_cursor,
+                    reviews=all_reviews,
+                    query_summary=query_summary,
+                )
+
+            if len(all_reviews) >= stop_at:
+                # Hit the requested cap (possibly mid-stream).
+                return all_reviews, query_summary, False, last_cursor
+
             if not next_cursor or next_cursor in seen_cursors:
-                return all_reviews, query_summary, True
+                return all_reviews, query_summary, True, last_cursor
             seen_cursors.add(cursor)
             cursor = next_cursor
             await asyncio.sleep(self._delay)
 
-        return all_reviews, query_summary, False
+        return all_reviews, query_summary, False, last_cursor
 
     async def get_review_summary(
         self,
@@ -582,6 +622,10 @@ class SteamAPIClient:
         max_review_trend_reviews: int = 10000,
         review_trend_mode: str = "summary",
         review_summary_concurrency: int = 4,
+        start_cursor: str = "*",
+        already_collected: int = 0,
+        seed_reviews: list[dict[str, Any]] | None = None,
+        on_page: Any | None = None,
     ) -> dict[str, Any]:
         """
         一次性采集所有官方 API 数据。
@@ -601,6 +645,10 @@ class SteamAPIClient:
                 max_review_trend_reviews=max_review_trend_reviews,
                 review_trend_mode=review_trend_mode,
                 review_summary_concurrency=review_summary_concurrency,
+                start_cursor=start_cursor,
+                already_collected=already_collected,
+                seed_reviews=seed_reviews,
+                on_page=on_page,
             ),
             "achievements": self.get_achievements(app_id),
             "news": self.get_news(app_id, count=5),

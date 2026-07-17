@@ -148,32 +148,29 @@ def build_pipeline_resume_state(
     collect_results: list[CollectResult],
     output_records: list[StorageRecord],
 ) -> dict[str, Any]:
+    from src.core.collector_resume import merge_checkpoint_state
+
     target_order = [
         str(target.name or "").strip() for target in task.targets if str(target.name or "").strip()
     ]
-    collect_context = recovery_context.get("collect", {})
-    base_index = non_negative_int(collect_context.get("next_target_index"))
+    collect_context = (
+        recovery_context.get("collect", {}) if isinstance(recovery_context, dict) else {}
+    )
+    if not isinstance(collect_context, dict):
+        collect_context = {}
 
-    successful_targets = [
-        str(result.target.name or "").strip()
-        for result in collect_results
-        if result.success and str(result.target.name or "").strip()
-    ]
-    failed_targets = [
-        str(result.target.name or "").strip()
-        for result in collect_results
-        if not result.success and str(result.target.name or "").strip()
-    ]
-    next_target_index = min(len(target_order), base_index + len(collect_results))
+    # Prefer explicit success lists; fall back to completed_targets as success prefix only.
+    previous_success = collect_context.get("successful_targets")
+    if not isinstance(previous_success, list):
+        previous_success = collect_context.get("completed_targets") or []
 
-    return {
-        "target_order": target_order,
-        "next_target_index": next_target_index,
-        "completed_targets": target_order[:next_target_index],
-        "successful_targets": successful_targets,
-        "failed_targets": failed_targets,
-        "output_record_keys": [record.key for record in output_records],
-    }
+    merged = merge_checkpoint_state(
+        target_order=target_order,
+        previous={"successful_targets": list(previous_success)},
+        collect_results=collect_results,
+    )
+    merged["output_record_keys"] = [record.key for record in output_records]
+    return merged
 
 
 def non_negative_int(value: Any, *, default: int = 0) -> int:
