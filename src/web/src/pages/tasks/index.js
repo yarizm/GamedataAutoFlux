@@ -40,15 +40,18 @@ function safeArtifactDownloadUrl(value) {
 }
 
 let currentWizardStep = 1;
+let lastCreatedTask = null; // { id, name }
 
 export default {
   init(container, store) {
     this.container = container;
     this.store = store;
+    this._submitting = false;
     this._unsub = store.subscribe((key, value) => {
       if (key === 'refresh' && value === 'tasks') this.refresh();
     });
     this.refresh();
+    this._renderPathBanner();
     return this;
   },
 
@@ -117,6 +120,13 @@ export default {
       .then(() => this._updateTargetFields());
     window.openModal('modal-create-task');
     currentWizardStep = 1;
+    this._submitting = false;
+    this._setSubmitLoading(false);
+    const precheckEl = document.getElementById('task-precheck');
+    if (precheckEl) {
+      precheckEl.style.display = 'none';
+      precheckEl.innerHTML = '';
+    }
     this._updateWizardUI();
   },
 
@@ -139,40 +149,11 @@ export default {
     return buildTargetsShared(formState);
   },
 
-  // ── Wizard UI ──
-
-  _updateWizardUI() {
-    document.querySelectorAll('#task-wizard-steps .wizard-step').forEach((el) => {
-      const s = parseInt(el.dataset.step);
-      el.classList.remove('active', 'done');
-      if (s < currentWizardStep) el.classList.add('done');
-      if (s === currentWizardStep) el.classList.add('active');
-    });
-    document.querySelectorAll('.wizard-panel').forEach((el) => {
-      el.style.display = parseInt(el.dataset.panel) === currentWizardStep ? '' : 'none';
-    });
-    const back = document.getElementById('btn-wizard-back');
-    const next = document.getElementById('btn-wizard-next');
-    const submit = document.getElementById('btn-submit-task');
-    if (back) back.style.display = currentWizardStep > 1 ? '' : 'none';
-    if (next) next.style.display = currentWizardStep < 3 ? '' : 'none';
-    if (submit) submit.style.display = currentWizardStep === 3 ? '' : 'none';
-  },
-
-  _wizardNext() {
-    if (currentWizardStep === 1) {
-      const pipeline = document.getElementById('task-pipeline')?.value;
-      if (!pipeline) { toast(t('message.selectPipeline'), 'error'); return; }
-      this._updateTargetFields();
-    }
-    if (currentWizardStep < 3) { currentWizardStep++; this._updateWizardUI(); }
-  },
-
-  _wizardPrev() { if (currentWizardStep > 1) { currentWizardStep--; this._updateWizardUI(); } },
-
-  // ── Create / Cancel / Delete ──
-
-  async _createTask() {
+  /**
+   * Build create/precheck payload from the wizard form.
+   * @returns {Promise<{ payload: object, meta: object } | null>}
+   */
+  async _buildCreatePayload() {
     const getVal = (id) => document.getElementById(id)?.value.trim() || '';
     const getNum = (id, fallback) => document.getElementById(id)?.value || fallback;
     const getChecked = (id) => document.getElementById(id)?.checked || false;
@@ -187,7 +168,10 @@ export default {
     const steamAppId = getVal('task-app-id');
     const steamDiscussionsAppId = getVal('task-steam-discussions-app-id');
 
-    if (!name || !pipelineName) { toast(t('message.taskNamePipelineRequired'), 'error'); return; }
+    if (!name || !pipelineName) {
+      toast(t('message.taskNamePipelineRequired'), 'error');
+      return null;
+    }
 
     let collector = '';
     try {
@@ -195,7 +179,7 @@ export default {
       collector = this._getCollector(pipelineName);
     } catch (err) {
       toast(t('message.pipelineLoadFailed', { error: err.message }), 'error');
-      return;
+      return null;
     }
 
     let targets = this._buildTargets({
@@ -226,10 +210,13 @@ export default {
         if (parsed) targets = parsed;
       } catch {
         toast(t('message.targetsJsonInvalid'), 'error');
-        return;
+        return null;
       }
     }
-    if (!targets.length) { toast(t('message.targetRequired'), 'error'); return; }
+    if (!targets.length) {
+      toast(t('message.targetRequired'), 'error');
+      return null;
+    }
 
     const enableReport = getChecked('task-enable-report');
     const reportPromptRaw = getVal('task-report-prompt');
@@ -247,23 +234,183 @@ export default {
     } : {};
     if (dataGroup) config.data_group = { id: dataGroup, name: dataGroup };
 
-    const payload = { name, pipeline_name: pipelineName, targets, description, config };
+    return {
+      payload: { name, pipeline_name: pipelineName, targets, description, config },
+      meta: {
+        name,
+        pipelineName,
+        collector: collector || '-',
+        targetsCount: targets.length,
+        enableReport,
+        primarySubject,
+      },
+    };
+  },
 
+  _renderSubmitSummary(meta) {
+    const el = document.getElementById('task-submit-summary');
+    if (!el || !meta) return;
+    el.innerHTML = `
+      <div class="task-submit-summary-inner">
+        <div class="text-[11px] uppercase tracking-widest text-muted font-bold mb-2">${escapeHtml(t('tasks.submitSummary'))}</div>
+        <div class="task-submit-summary-grid">
+          <span>${escapeHtml(t('common.name'))}</span><strong>${escapeHtml(meta.name || '-')}</strong>
+          <span>${escapeHtml(t('cron.pipeline'))}</span><strong>${escapeHtml(meta.pipelineName || '-')}</strong>
+          <span>${escapeHtml(t('tasks.collector'))}</span><strong>${escapeHtml(meta.collector || '-')}</strong>
+          <span>${escapeHtml(t('tasks.targetCount'))}</span><strong>${escapeHtml(String(meta.targetsCount ?? 0))}</strong>
+          <span>${escapeHtml(t('tasks.enableReport'))}</span><strong>${meta.enableReport ? escapeHtml(t('common.ok')) : escapeHtml(t('common.none'))}</strong>
+        </div>
+        <p class="text-[11px] text-muted mt-2 mb-0">${escapeHtml(t('tasks.submitHint'))}</p>
+      </div>`;
+  },
+
+  _renderPathBanner() {
+    const el = document.getElementById('tasks-path-banner');
+    if (!el) return;
+    if (!lastCreatedTask?.id) {
+      el.hidden = true;
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.hidden = false;
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="tasks-path-banner-inner">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-bold text-theme-primary">${escapeHtml(t('tasks.path.createdTitle'))}</div>
+          <div class="text-xs text-muted truncate">${escapeHtml(lastCreatedTask.name || lastCreatedTask.id)} · <code>${escapeHtml(lastCreatedTask.id)}</code></div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="viewTaskDetail('${escapeJs(lastCreatedTask.id)}')">${escapeHtml(t('common.details'))}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="viewTaskLogs('${escapeJs(lastCreatedTask.id)}')">${escapeHtml(t('common.logs'))}</button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="activateTab('data')">${escapeHtml(t('tasks.path.openData'))}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="dismissTaskPathBanner()" aria-label="${escapeHtml(t('common.cancel'))}">×</button>
+        </div>
+      </div>`;
+  },
+
+  _dismissPathBanner() {
+    lastCreatedTask = null;
+    this._renderPathBanner();
+  },
+
+  // ── Wizard UI ──
+
+  _updateWizardUI() {
+    document.querySelectorAll('#task-wizard-steps .wizard-step').forEach((el) => {
+      const s = parseInt(el.dataset.step, 10);
+      el.classList.remove('active', 'done');
+      if (s < currentWizardStep) el.classList.add('done');
+      if (s === currentWizardStep) el.classList.add('active');
+    });
+    document.querySelectorAll('.wizard-panel').forEach((el) => {
+      el.style.display = parseInt(el.dataset.panel, 10) === currentWizardStep ? '' : 'none';
+    });
+    const back = document.getElementById('btn-wizard-back');
+    const next = document.getElementById('btn-wizard-next');
+    const submit = document.getElementById('btn-submit-task');
+    if (back) back.style.display = currentWizardStep > 1 ? '' : 'none';
+    if (next) next.style.display = currentWizardStep < 3 ? '' : 'none';
+    if (submit) submit.style.display = currentWizardStep === 3 ? '' : 'none';
+    if (currentWizardStep === 3) {
+      this._buildCreatePayload().then((built) => {
+        if (built) this._renderSubmitSummary(built.meta);
+      }).catch(() => {});
+    }
+  },
+
+  async _wizardNext() {
+    if (currentWizardStep === 1) {
+      const name = document.getElementById('task-name')?.value.trim();
+      const pipeline = document.getElementById('task-pipeline')?.value;
+      if (!name) { toast(t('message.taskNameRequired'), 'error'); return; }
+      if (!pipeline) { toast(t('message.selectPipeline'), 'error'); return; }
+      this._updateTargetFields();
+    }
+    // Step 2 → 3: do not hard-block on targets (advanced JSON lives on step 3).
+    // Submit/precheck still require at least one target.
+    if (currentWizardStep < 3) {
+      currentWizardStep += 1;
+      this._updateWizardUI();
+    }
+  },
+
+  _wizardPrev() {
+    if (currentWizardStep > 1) {
+      currentWizardStep -= 1;
+      this._updateWizardUI();
+    }
+  },
+
+  _setSubmitLoading(loading) {
+    this._submitting = Boolean(loading);
+    const submit = document.getElementById('btn-submit-task');
+    const precheckBtn = document.getElementById('btn-task-precheck');
+    if (submit) {
+      submit.disabled = this._submitting;
+      submit.textContent = this._submitting ? t('tasks.submitting') : t('common.submit');
+    }
+    if (precheckBtn) precheckBtn.disabled = this._submitting;
+  },
+
+  async _runPrecheckOnly() {
+    const built = await this._buildCreatePayload();
+    if (!built) return null;
+    this._renderSubmitSummary(built.meta);
     try {
-      const precheck = await api('/tasks/precheck', { method: 'POST', body: JSON.stringify(payload) });
+      const precheck = await api('/tasks/precheck', { method: 'POST', body: JSON.stringify(built.payload) });
       this._renderPrecheck(precheck);
-      if (!precheck.can_submit) { toast(t('message.taskPrecheckFailed'), 'error'); return; }
-      if (precheck.status === 'warning') {
-        const warningText = (precheck.issues || []).filter(i => i.level === 'warning').map(i => i.message).join('\n');
-        if (!confirm(t('confirm.taskWarnings', { warnings: warningText }))) return;
+      if (!precheck.can_submit) {
+        toast(t('message.taskPrecheckFailed'), 'error');
+      } else if (precheck.status === 'warning') {
+        toast(t('tasks.precheckWarningToast'), 'info');
+      } else {
+        toast(t('tasks.precheckOkToast'), 'success');
       }
-      await api('/tasks', { method: 'POST', body: JSON.stringify(payload) });
-      toast(t('message.taskCreated'), 'success');
-      window.closeModal('modal-create-task');
-      window.refreshDashboard && window.refreshDashboard();
-      this.refresh();
+      return precheck;
     } catch (err) {
       toast(t('message.createFailed', { error: formatApiError(err) }), 'error');
+      return null;
+    }
+  },
+
+  // ── Create / Cancel / Delete ──
+
+  async _createTask() {
+    if (this._submitting) return;
+    const built = await this._buildCreatePayload();
+    if (!built) return;
+
+    this._renderSubmitSummary(built.meta);
+    this._setSubmitLoading(true);
+    try {
+      const precheck = await api('/tasks/precheck', { method: 'POST', body: JSON.stringify(built.payload) });
+      this._renderPrecheck(precheck);
+      if (!precheck.can_submit) {
+        toast(t('message.taskPrecheckFailed'), 'error');
+        return;
+      }
+      if (precheck.status === 'warning') {
+        const warningText = (precheck.issues || []).filter((i) => i.level === 'warning').map((i) => i.message).join('\n');
+        if (!confirm(t('confirm.taskWarnings', { warnings: warningText }))) return;
+      }
+      const created = await api('/tasks', { method: 'POST', body: JSON.stringify(built.payload) });
+      const taskId = created?.id || '';
+      lastCreatedTask = { id: taskId, name: created?.name || built.meta.name };
+      toast(t('message.taskCreatedWithId', { id: taskId || '-' }), 'success');
+      window.closeModal('modal-create-task');
+      window.refreshDashboard && window.refreshDashboard();
+      await this.refresh();
+      this._renderPathBanner();
+      if (taskId) {
+        // Open detail so demo path is immediate
+        await this._viewDetail(taskId);
+      }
+    } catch (err) {
+      toast(t('message.createFailed', { error: formatApiError(err) }), 'error');
+    } finally {
+      this._setSubmitLoading(false);
     }
   },
 

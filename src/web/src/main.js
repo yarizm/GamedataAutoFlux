@@ -112,6 +112,8 @@ function installGlobalBridge() {
   window.wizardNext = action('tasks', '_wizardNext', { activate: true });
   window.wizardPrev = action('tasks', '_wizardPrev', { activate: true });
   window.createTask = action('tasks', '_createTask', { activate: true });
+  window.runTaskPrecheck = action('tasks', '_runPrecheckOnly', { activate: true });
+  window.dismissTaskPathBanner = action('tasks', '_dismissPathBanner', { activate: true });
   window.cancelTask = action('tasks', '_cancelTask');
   window.deleteTask = action('tasks', '_deleteTask');
   window.viewTaskLogs = action('tasks', '_viewLogs', { activate: true });
