@@ -1356,3 +1356,93 @@ html[data-theme="light"] .help-spot-bubble {
 .help-spot-back-spacer {
   @apply inline-block w-0;
 }
+
+/* Dashboard attention + task failure visibility */
+.attention-banner {
+  margin-bottom: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #f43f5e 25%, transparent);
+  background: color-mix(in srgb, #f43f5e 12%, transparent);
+  box-shadow: 0 0 30px rgba(244, 63, 94, 0.08);
+}
+html[data-theme="light"] .attention-banner {
+  background: color-mix(in srgb, #f43f5e 8%, #fff);
+  border-color: color-mix(in srgb, #f43f5e 28%, transparent);
+  box-shadow: none;
+}
+.attention-banner.hidden,
+.attention-banner[hidden] {
+  display: none !important;
+}
+.attention-banner-inner {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.attention-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.attention-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #f43f5e;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.8);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.attention-banner-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.attention-banner-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 1024px) {
+  .attention-banner-body {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.attention-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.attention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  padding: 0.5rem 0.75rem;
+}
+.task-failure-line {
+  min-width: 0;
+}
+.task-failure-panel {
+  width: 100%;
+}
+html[data-theme="light"] .task-failure-panel {
+  background-color: color-mix(in srgb, #f43f5e 8%, #fff);
+  border-color: color-mix(in srgb, #f43f5e 25%, transparent);
+}

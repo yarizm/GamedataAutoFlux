@@ -1,6 +1,11 @@
 import { api, toast, escapeHtml, escapeJs, formatTime, setText } from '../../core/api.js';
 import { renderBadge, renderProgress } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
+import {
+  collectHealthAttentionItems,
+  renderFailureLinesHtml,
+  summarizeTaskFailure,
+} from '../../core/taskFailure.js';
 
 let dashboardChart = null;
 let echartsModulePromise = null;
@@ -55,10 +60,12 @@ export default {
 
   async refresh() {
     try {
-      const [stats, components, tasks] = await Promise.all([
+      const [stats, components, tasks, health, diagnostics] = await Promise.all([
         api('/tasks/stats/summary'),
         api('/components'),
         api('/tasks'),
+        api('/health').catch(() => null),
+        api('/diagnostics/config').catch(() => null),
       ]);
 
       const counts = stats.status_counts || {};
@@ -73,13 +80,90 @@ export default {
 
       this._renderChart(stats);
 
-      const recentTasks = [...tasks]
-        .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
-        .slice(0, 5);
-      this._renderRecentTasks(recentTasks);
+      const orderedTasks = [...tasks]
+        .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+      this._renderRecentTasks(orderedTasks.slice(0, 5));
+      this._renderAttention(orderedTasks, health, diagnostics);
     } catch (err) {
       console.error('Dashboard refresh failed:', err);
     }
+  },
+
+  _renderAttention(tasks, health, diagnostics) {
+    const root = document.getElementById('dashboard-attention');
+    if (!root) return;
+
+    const failed = (tasks || [])
+      .filter((task) => String(task.status || '').toLowerCase() === 'failed')
+      .slice(0, 5)
+      .map((task) => ({
+        task,
+        failure: summarizeTaskFailure(task),
+      }));
+
+    const healthItems = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
+    if (!failed.length && !healthItems.length) {
+      root.classList.add('hidden');
+      root.hidden = true;
+      root.innerHTML = '';
+      return;
+    }
+
+    root.hidden = false;
+    root.classList.remove('hidden');
+    root.setAttribute('aria-label', t('dashboard.attention.title'));
+
+    const failureBlock = failed.length
+      ? `<div class="attention-section">
+          <div class="attention-section-title">${escapeHtml(t('dashboard.attention.failures'))}</div>
+          <ul class="attention-list">
+            ${failed.map(({ task, failure }) => {
+              const title = failure?.title || t('tasks.failure.unknown');
+              return `<li class="attention-item">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-theme-primary truncate">${escapeHtml(task.name || task.id)}</div>
+                  <div class="text-[11px] text-rose-400/90 truncate" title="${escapeHtml(failure?.raw || title)}">${escapeHtml(title)}</div>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm shrink-0" onclick="viewTaskDetail('${escapeJs(task.id)}')">${escapeHtml(t('common.details'))}</button>
+              </li>`;
+            }).join('')}
+          </ul>
+        </div>`
+      : '';
+
+    const healthBlock = healthItems.length
+      ? `<div class="attention-section">
+          <div class="attention-section-title flex items-center justify-between gap-2">
+            <span>${escapeHtml(t('dashboard.attention.health'))}</span>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="activateTab('system')">${escapeHtml(t('dashboard.attention.openSystem'))}</button>
+          </div>
+          <ul class="attention-list">
+            ${healthItems.map((item) => {
+              const tone = item.severity === 'warning' ? 'text-amber-400' : 'text-rose-400';
+              return `<li class="attention-item">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-theme-primary truncate">${escapeHtml(item.name)}
+                    <span class="text-[10px] font-mono uppercase ${tone} ml-1">${escapeHtml(item.status)}</span>
+                  </div>
+                  <div class="text-[11px] text-muted truncate" title="${escapeHtml(item.message)}">${escapeHtml(item.message)}</div>
+                </div>
+              </li>`;
+            }).join('')}
+          </ul>
+        </div>`
+      : '';
+
+    root.innerHTML = `
+      <div class="attention-banner-inner">
+        <div class="attention-banner-header">
+          <span class="attention-dot" aria-hidden="true"></span>
+          <h2 class="attention-banner-title">${escapeHtml(t('dashboard.attention.title'))}</h2>
+        </div>
+        <div class="attention-banner-body">
+          ${failureBlock}
+          ${healthBlock}
+        </div>
+      </div>`;
   },
 
   _renderChart(stats) {
@@ -147,16 +231,23 @@ export default {
       tbody.innerHTML = `<tr><td colspan="6" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
       return;
     }
-    tbody.innerHTML = tasks.map((task) => `
+    tbody.innerHTML = tasks.map((task) => {
+      const failureHtml = renderFailureLinesHtml(summarizeTaskFailure(task), escapeHtml);
+      return `
       <tr>
         <td><code>${task.id}</code></td>
         <td>${escapeHtml(task.name)}</td>
-        <td>${renderBadge(task.status)}</td>
+        <td>
+          <div class="flex flex-col items-start gap-0.5">
+            ${renderBadge(task.status)}
+            ${failureHtml}
+          </div>
+        </td>
         <td>${renderProgress(task.progress)}</td>
         <td>${formatTime(task.created_at)}</td>
         <td>${renderTaskActions(task)}</td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   },
 };
 

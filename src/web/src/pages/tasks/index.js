@@ -7,6 +7,11 @@ import {
   formatPrecheckIssue,
 } from '../../core/formatError.js';
 import {
+  renderFailureDetailHtml,
+  renderFailureLinesHtml,
+  summarizeTaskFailure,
+} from '../../core/taskFailure.js';
+import {
   getCollectorForPipeline,
   hasStorageStep,
   loadAvailablePipelines,
@@ -70,18 +75,26 @@ export default {
       tbody.innerHTML = `<tr><td colspan="8" class="text-muted">${t('common.empty.tasks')}</td></tr>`;
       return;
     }
-    tbody.innerHTML = tasks.map((task) => `
+    tbody.innerHTML = tasks.map((task) => {
+      const failure = summarizeTaskFailure(task);
+      const failureHtml = renderFailureLinesHtml(failure, escapeHtml);
+      return `
       <tr class="group">
         <td><code>${task.id}</code></td>
         <td class="max-w-[200px] truncate" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
         <td class="max-w-[150px] truncate" title="${escapeHtml(task.pipeline_name || '-')}">${escapeHtml(task.pipeline_name || '-')}</td>
-        <td>${renderBadge(task.status)}</td>
+        <td>
+          <div class="flex flex-col items-start gap-0.5">
+            ${renderBadge(task.status)}
+            ${failureHtml}
+          </div>
+        </td>
         <td>${renderProgress(task.progress)}</td>
         <td>${task.targets_count}</td>
         <td>${task.duration ? `${task.duration.toFixed(1)}s` : '-'}</td>
         <td>${this._renderActions(task)}</td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   },
 
   _renderActions(task) {
@@ -469,7 +482,13 @@ export default {
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Pipeline</span><span class="text-zinc-200">${escapeHtml(task.pipeline_name||'-')}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.progress')}</span><span class="text-zinc-200">${Math.round(task.progress*100)}%</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Retry</span><span class="text-zinc-200">${task.retry_count}/${task.max_retries}</span></div>
-            <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-rose-400 truncate max-w-[200px]" title="${escapeHtml(task.error||'-')}">${escapeHtml(task.error||'-')}</span></div>
+            ${(() => {
+              const failure = summarizeTaskFailure(task);
+              if (failure) {
+                return `<div class="detail-kv flex flex-col gap-1 text-sm"><span class="text-zinc-500">${escapeHtml(t('common.error'))}</span>${renderFailureDetailHtml(failure, escapeHtml)}</div>`;
+              }
+              return `<div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.error')}</span><span class="text-zinc-400">-</span></div>`;
+            })()}
           </div>
           <div class="detail-card bg-theme-elevated border border-theme-subtle p-4 rounded-xl flex flex-col gap-3">
             <h3 class="text-theme-primary font-bold border-b border-theme-strong pb-2 mb-1">${t('common.description')}</h3>
