@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskStatus
 
 
+def _as_utc_aware(value: datetime | None) -> datetime:
+    """Normalize naive/aware datetimes so sort never raises TypeError."""
+    if value is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _task_sort_key(task: Task) -> datetime:
-    return task.completed_at or task.created_at
+    return _as_utc_aware(task.completed_at or task.created_at)
 
 
 def build_failed_task_digests(

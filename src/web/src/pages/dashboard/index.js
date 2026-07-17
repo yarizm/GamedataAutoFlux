@@ -104,25 +104,44 @@ export default {
     let failed = [];
     let healthItems = [];
 
-    const hasServer =
-      serverAttention
-      && (Array.isArray(serverAttention.failed_tasks) || Array.isArray(serverAttention.health_issues));
-
-    if (hasServer) {
-      failed = (serverAttention.failed_tasks || []).slice(0, 5).map((task) => ({
+    const clientFailed = (tasks || [])
+      .filter((task) => String(task.status || '').toLowerCase() === 'failed')
+      .slice(0, 5)
+      .map((task) => ({
         task,
         failure: summarizeTaskFailure(task),
       }));
-      healthItems = (serverAttention.health_issues || []).slice(0, 5);
+    const clientHealth = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
+
+    const serverFailedList = Array.isArray(serverAttention?.failed_tasks)
+      ? serverAttention.failed_tasks
+      : null;
+    const serverHealthList = Array.isArray(serverAttention?.health_issues)
+      ? serverAttention.health_issues
+      : null;
+
+    // Prefer server lists when present; if server returns empty failed_tasks but
+    // the task list still has failures, fall back so manufactured empty attention
+    // cannot hide real failed work.
+    if (serverFailedList !== null) {
+      failed = serverFailedList.slice(0, 5).map((task) => ({
+        task,
+        failure: summarizeTaskFailure(task),
+      }));
+      if (!failed.length && clientFailed.length) {
+        failed = clientFailed;
+      }
     } else {
-      failed = (tasks || [])
-        .filter((task) => String(task.status || '').toLowerCase() === 'failed')
-        .slice(0, 5)
-        .map((task) => ({
-          task,
-          failure: summarizeTaskFailure(task),
-        }));
-      healthItems = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
+      failed = clientFailed;
+    }
+
+    if (serverHealthList !== null) {
+      healthItems = serverHealthList.slice(0, 5);
+      if (!healthItems.length && clientHealth.length) {
+        healthItems = clientHealth;
+      }
+    } else {
+      healthItems = clientHealth;
     }
 
     if (!failed.length && !healthItems.length) {

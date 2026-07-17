@@ -148,24 +148,49 @@ class TaskService:
     def get_stats(self) -> dict[str, Any]:
         """Scheduler counters plus server-side Dashboard attention digests."""
         stats = dict(self._scheduler.get_stats())
+        tasks = self._scheduler.get_all_tasks()
+        health: dict[str, Any] | None = None
+        diagnostics: dict[str, Any] | None = None
+
         try:
             from src.core.diagnostics import build_config_diagnostics, build_health_report
-            from src.services.dashboard_attention import build_dashboard_attention
 
             health = build_health_report(stats)
             diagnostics = build_config_diagnostics()
-            tasks = self._scheduler.get_all_tasks()
+        except Exception:
+            # Diagnostics optional; still build failed-task digests below.
+            health = None
+            diagnostics = None
+
+        try:
+            from src.services.dashboard_attention import build_dashboard_attention
+
             stats["attention"] = build_dashboard_attention(
                 tasks,
                 health=health,
                 diagnostics=diagnostics,
             )
         except Exception:
-            # Stats must remain available even if diagnostics/attention fails.
-            stats.setdefault(
-                "attention",
-                {"failed_tasks": [], "health_issues": []},
-            )
+            # Never invent empty failed_tasks when digests fail mid-flight.
+            # Prefer partial failed digests alone over wiping real failures.
+            try:
+                from src.services.dashboard_attention import (
+                    build_failed_task_digests,
+                    build_health_attention_items,
+                )
+
+                stats["attention"] = {
+                    "failed_tasks": build_failed_task_digests(tasks),
+                    "health_issues": build_health_attention_items(
+                        health,
+                        diagnostics,
+                    ),
+                }
+            except Exception:
+                stats.setdefault(
+                    "attention",
+                    {"failed_tasks": [], "health_issues": []},
+                )
         return stats
 
     # ------------------------------------------------------------------
