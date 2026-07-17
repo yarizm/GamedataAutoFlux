@@ -65,58 +65,52 @@ add('help.tour.replay');
 add('help.tour.completed');
 add('help.tour.missingTarget');
 
-// dynamic import i18n if available
-try {
-  if (typeof globalThis.localStorage === 'undefined') {
-    const store = new Map();
-    globalThis.localStorage = {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => { store.set(k, String(v)); },
-      removeItem: (k) => { store.delete(k); },
-    };
-  }
-  if (typeof globalThis.document === 'undefined') {
-    globalThis.document = {
-      documentElement: { lang: '' },
-      querySelectorAll: () => [],
-      createTreeWalker: () => ({ currentNode: null, nextNode: () => false }),
-    };
-  }
-  if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
-  if (typeof globalThis.window.dispatchEvent !== 'function') {
-    globalThis.window.dispatchEvent = () => true;
-  }
-  if (typeof globalThis.window.addEventListener !== 'function') {
-    globalThis.window.addEventListener = () => {};
-  }
-  if (typeof globalThis.CustomEvent === 'undefined') {
-    globalThis.CustomEvent = class CustomEvent {
-      constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
-    };
-  }
-  if (typeof globalThis.NodeFilter === 'undefined') {
-    globalThis.NodeFilter = { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 };
-  }
+// DOM stubs for i18n module side effects under Node
+if (typeof globalThis.localStorage === 'undefined') {
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: (k) => { store.delete(k); },
+  };
+}
+if (typeof globalThis.document === 'undefined') {
+  globalThis.document = {
+    documentElement: { lang: '' },
+    querySelectorAll: () => [],
+    createTreeWalker: () => ({ currentNode: null, nextNode: () => false }),
+  };
+}
+if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
+if (typeof globalThis.window.dispatchEvent !== 'function') {
+  globalThis.window.dispatchEvent = () => true;
+}
+if (typeof globalThis.window.addEventListener !== 'function') {
+  globalThis.window.addEventListener = () => {};
+}
+if (typeof globalThis.CustomEvent === 'undefined') {
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+  };
+}
+if (typeof globalThis.NodeFilter === 'undefined') {
+  globalThis.NodeFilter = { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 };
+}
 
-  const { messages } = await import('../i18n.js');
-  const missing = { 'zh-CN': [], 'en-US': [] };
-  for (const lang of ['zh-CN', 'en-US']) {
-    const bag = messages[lang] || {};
-    for (const k of keys) {
-      if (!(k in bag)) missing[lang].push(k);
-    }
+const { messages } = await import('../i18n.js');
+const missing = { 'zh-CN': [], 'en-US': [] };
+for (const lang of ['zh-CN', 'en-US']) {
+  const bag = messages[lang] || {};
+  for (const k of keys) {
+    if (!(k in bag)) missing[lang].push(k);
   }
-  if (missing['zh-CN'].length || missing['en-US'].length) {
-    // Task 2: keys land in Task 3 — warn and continue. Task 3 must hard-fail here.
-    console.warn(
-      'i18n check skipped: Missing i18n keys',
-      `zh=${missing['zh-CN'].length}`,
-      `en=${missing['en-US'].length}`,
-    );
-  }
-} catch (err) {
-  // i18n not ready yet: structure-only pass is OK only if run before Task 3
-  console.warn('i18n check skipped:', err.message || err);
+}
+if (missing['zh-CN'].length || missing['en-US'].length) {
+  const zh = missing['zh-CN'].join(', ') || '(none)';
+  const en = missing['en-US'].join(', ') || '(none)';
+  throw new Error(
+    `Missing i18n keys\nzh-CN (${missing['zh-CN'].length}): ${zh}\nen-US (${missing['en-US'].length}): ${en}`,
+  );
 }
 
 console.log('HELP_CONTENT_SELFTEST_OK');
