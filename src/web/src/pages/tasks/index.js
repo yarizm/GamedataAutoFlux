@@ -17,6 +17,7 @@ import {
   renderLoadingState,
 } from '../../core/uiState.js';
 import {
+  describePipeline,
   getCollectorForPipeline,
   hasStorageStep,
   loadAvailablePipelines,
@@ -25,7 +26,9 @@ import {
 } from '../../core/pipelines.js';
 import {
   buildTargets as buildTargetsShared,
+  buildTargetsFromMetadata,
   parseAdvancedTargetsJson,
+  renderMetadataTargetForm,
   updateTargetFieldPanels,
 } from '../../core/targetForm.js';
 
@@ -173,6 +176,14 @@ export default {
 
   _updateTargetFields() {
     const pipelineName = document.getElementById('task-pipeline')?.value || '';
+    const descriptor = describePipeline(pipelineName);
+    const targetMetadata = descriptor?.metadata;
+    if (targetMetadata) {
+      const guideEl = document.getElementById('task-target-guide');
+      if (guideEl) {
+        guideEl.innerHTML = renderMetadataTargetForm('task', targetMetadata);
+      }
+    }
     const collector = this._getCollector(pipelineName);
     updateTargetFieldPanels('task', collector);
 
@@ -183,6 +194,13 @@ export default {
   },
 
   _buildTargets(formState) {
+    const pipelineName = document.getElementById('task-pipeline')?.value || '';
+    const descriptor = describePipeline(pipelineName);
+    const targetMetadata = descriptor?.metadata;
+    if (targetMetadata) {
+      const metaTargets = buildTargetsFromMetadata('task', targetMetadata);
+      if (metaTargets && metaTargets.length) return metaTargets;
+    }
     return buildTargetsShared(formState);
   },
 
@@ -891,6 +909,14 @@ export default {
       return sessionState.health || 'blocked / local_profile_missing';
     }
     return sessionState.health || '-';
+  },
+
+  async handleRoute(params) {
+    if (params?.id) {
+      await this._viewDetail(params.id);
+    } else if (params?.modal === 'create') {
+      this._showCreateModal(params.pipeline || '');
+    }
   },
 };
 

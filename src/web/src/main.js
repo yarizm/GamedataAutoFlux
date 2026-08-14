@@ -1,10 +1,18 @@
 import './style.css';
 import { createStore } from './core/store.js';
-import { activateTab, bindNavigation, bindModalOverlayClose, restartAutoRefresh } from './core/router.js';
+import {
+  activateTab,
+  bindNavigation,
+  bindModalOverlayClose,
+  initRouter,
+  navigate,
+  restartAutoRefresh,
+} from './core/router.js';
 import { initWebSocket } from './core/websocket.js';
 import { applyTranslations, bindLanguageControls, configureI18n, getLanguage, setLanguage, t } from './core/i18n.js';
 import { initTheme, bindThemeControls } from './core/theme.js';
 import { initHelp } from './core/help/drawer.js';
+import { initInlineGuides } from './core/help/inlineGuide.js';
 import { createSpotlight } from './core/help/spotlight.js';
 import {
   getCollectorForPipeline,
@@ -16,6 +24,8 @@ import {
 
 export const store = createStore({
   activeTab: 'dashboard',
+  routeParams: {},
+  wsStatus: 'disconnected',
   language: getLanguage(),
 });
 
@@ -28,17 +38,43 @@ const pages = {
   cron: () => import('./pages/cron/index.js'),
   dag: () => import('./pages/dag/index.js'),
   agent: () => import('./pages/agent/index.js'),
+  plugins: () => import('./pages/plugins/index.js'),
   system: () => import('./pages/system/index.js'),
 };
 
 const pageInstances = {};
 const pageLoadPromises = {};
+let inlineGuides = null;
 
 function updateHeader(tab) {
   const activeLink = document.querySelector(`.nav-link[data-tab="${tab}"]`);
   const headerTitle = document.getElementById('header-title');
   if (activeLink && headerTitle) {
     headerTitle.textContent = activeLink.textContent.trim();
+  }
+}
+
+function updateWebSocketIndicator(status) {
+  const dot = document.getElementById('ws-status-dot');
+  const text = document.getElementById('ws-status-text');
+  const container = document.getElementById('ws-status-container');
+  if (!dot || !text) return;
+
+  if (status === 'connected') {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]';
+    text.setAttribute('data-i18n', 'common.systemOnline');
+    text.textContent = t('common.systemOnline') || 'System Online';
+    if (container) container.title = `${t('common.systemOnline') || 'System Online'} (WebSocket)`;
+  } else if (status === 'connecting') {
+    dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-ping shadow-[0_0_8px_rgba(245,158,11,0.8)]';
+    text.setAttribute('data-i18n', 'common.connecting');
+    text.textContent = t('common.connecting') || 'Connecting...';
+    if (container) container.title = `${t('common.connecting') || 'Connecting...'} (WebSocket)`;
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]';
+    text.setAttribute('data-i18n', 'common.offline');
+    text.textContent = t('common.offline') || 'Offline';
+    if (container) container.title = `${t('common.offline') || 'Offline'} (WebSocket)`;
   }
 }
 
@@ -68,18 +104,29 @@ export async function ensurePage(tab) {
   return pageLoadPromises[tab];
 }
 
-async function loadPage(tab) {
+async function loadPage(tab, params = {}) {
   updateHeader(tab);
   const alreadyLoaded = Boolean(pageInstances[tab]);
   const page = await ensurePage(tab);
-  if (alreadyLoaded && page?.refresh) page.refresh();
+  if (page) {
+    if (typeof page.handleRoute === 'function') {
+      try {
+        await page.handleRoute(params);
+      } catch (err) {
+        console.error(`Page ${tab}.handleRoute error:`, err);
+      }
+    }
+    if (alreadyLoaded && page.refresh) {
+      page.refresh();
+    }
+  }
   applyTranslations(document);
 }
 
 export async function runPageAction(tab, method, args = [], options = {}) {
   const { activate = false } = options;
   if (activate && store.get('activeTab') !== tab) {
-    activateTab(tab, store);
+    navigate(tab, {}, { store });
   }
   const page = await ensurePage(tab);
   const fn = page?.[method];
@@ -95,9 +142,11 @@ function action(tab, method, options = {}) {
 }
 
 function installGlobalBridge() {
+  window._globalStore = store;
   window.ensurePage = ensurePage;
   window.runPageAction = runPageAction;
-  window.activateTab = (tab) => activateTab(tab, store);
+  window.activateTab = (tab, customStore, params, options) => activateTab(tab, customStore || store, params, options);
+  window.navigate = (tab, params, options) => navigate(tab, params, { ...options, store });
   window.t = t;
   window.getLanguage = getLanguage;
   window.setLanguage = setLanguage;
@@ -225,11 +274,31 @@ function handleStatsUpdate() {
 
 function handleLanguageChange() {
   applyTranslations(document);
+  inlineGuides?.refresh();
   updateHeader(store.get('activeTab'));
+  updateWebSocketIndicator(store.get('wsStatus'));
   for (const page of Object.values(pageInstances)) {
     if (typeof page?.refresh === 'function') page.refresh();
   }
   if (window.__help?.refresh) window.__help.refresh();
+}
+
+async function runSpotlightAction(actionName) {
+  switch (actionName) {
+    case 'task-tour-open':
+      return runPageAction('tasks', '_beginGuidedCreate', [], { activate: true });
+    case 'task-tour-step-1':
+      return runPageAction('tasks', '_showGuidedWizardStep', [1], { activate: true });
+    case 'task-tour-step-2':
+      return runPageAction('tasks', '_showGuidedWizardStep', [2], { activate: true });
+    case 'task-tour-step-3':
+      return runPageAction('tasks', '_showGuidedWizardStep', [3], { activate: true });
+    case 'task-tour-close':
+      return runPageAction('tasks', '_endGuidedCreate');
+    default:
+      console.warn(`Unknown spotlight action: ${actionName}`);
+      return undefined;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -241,24 +310,26 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAvailablePipelines().catch((err) => console.error('Load pipeline cache failed:', err));
   bindNavigation(store);
   bindModalOverlayClose();
+  inlineGuides = initInlineGuides();
   initWebSocket(store);
   restartAutoRefresh(store);
 
   const help = initHelp({
     store,
-    activateTab: (tab) => activateTab(tab, store),
+    activateTab: (tab) => navigate(tab, {}, { store }),
     ensurePage,
   });
   const spotlight = createSpotlight({
     ensurePage,
-    activateTab: (tab) => activateTab(tab, store),
+    activateTab: (tab) => navigate(tab, {}, { store }),
+    runAction: runSpotlightAction,
     onComplete: () => {
       help.refresh();
     },
   });
   help.setTourHandler((tourId) => {
     help.close();
-    spotlight.start(tourId);
+    void spotlight.start(tourId);
   });
   window.__help = help; // optional debug
   window.__spotlight = spotlight;
@@ -275,12 +346,31 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   store.subscribe((key, value) => {
-    if (key === 'activeTab') loadPage(value);
-    else if (key === 'taskUpdate') handleTaskUpdate(value);
-    else if (key === 'statsUpdate') handleStatsUpdate(value);
-    else if (key === 'language') handleLanguageChange();
+    if (key === 'activeTab') {
+      const params = store.get('routeParams') || {};
+      loadPage(value, params);
+    } else if (key === 'routeParams') {
+      const activeTab = store.get('activeTab');
+      const page = pageInstances[activeTab];
+      if (page && typeof page.handleRoute === 'function') {
+        try {
+          page.handleRoute(value);
+        } catch (err) {
+          console.error(`Page ${activeTab}.handleRoute error:`, err);
+        }
+      }
+    } else if (key === 'wsStatus') {
+      updateWebSocketIndicator(value);
+    } else if (key === 'taskUpdate') {
+      handleTaskUpdate(value);
+    } else if (key === 'statsUpdate') {
+      handleStatsUpdate(value);
+    } else if (key === 'language') {
+      handleLanguageChange();
+    }
   });
 
-  loadPage('dashboard');
-  // Never auto-open help on load
+  // Initialize router from current window.location.hash
+  const initialRoute = initRouter(store);
+  loadPage(initialRoute.tab, initialRoute.params);
 });

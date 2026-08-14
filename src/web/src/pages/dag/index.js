@@ -173,10 +173,14 @@ function clearGraph() {
   savedListApi?.refresh();
 }
 
-function addNode(type, component) {
+function addNode(type, component, definition = null) {
   nodeCounter[type] = (nodeCounter[type] || 0) + 1;
   const id = `${type}_${nodeCounter[type]}`;
-  const ports = defaultPortsForType(type);
+  const fallbackPorts = defaultPortsForType(type);
+  const ports = {
+    ports_in: Array.isArray(definition?.ports_in) ? definition.ports_in : fallbackPorts.ports_in,
+    ports_out: Array.isArray(definition?.ports_out) ? definition.ports_out : fallbackPorts.ports_out,
+  };
   const node = {
     id,
     type,
@@ -190,6 +194,7 @@ function addNode(type, component) {
   };
   editorState.nodes.push(node);
   canvasApi?.addNodeToCanvas(node);
+  canvasApi?.selectNode?.(node.id);
 }
 
 async function deleteSaved(name) {
@@ -366,7 +371,7 @@ export default {
     });
 
     paletteApi = mountPalette(container.querySelector('#dag-palette'), {
-      onAdd: (type, component) => addNode(type, component),
+      onAdd: (type, component, definition) => addNode(type, component, definition),
     });
 
     savedListApi = mountSavedList(container.querySelector('#dag-saved-list'), {
@@ -432,5 +437,17 @@ export default {
     }
     refreshInspector();
     applyDagTheme();
+  },
+
+  async handleRoute(params) {
+    if (params?.name) {
+      const name = params.name;
+      if (savedListApi) {
+        const saved = await Promise.resolve(savedListApi.refresh?.());
+        if (saved?.[name]) {
+          loadPayload(name, saved[name], { quiet: true });
+        }
+      }
+    }
   },
 };

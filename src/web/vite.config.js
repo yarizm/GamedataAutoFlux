@@ -22,8 +22,10 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/echarts')) return 'echarts';
-          if (id.includes('node_modules/marked') || id.includes('node_modules/dompurify')) return 'vendor';
+          if (id.includes('node_modules/echarts')) return 'vendor-charts';
+          if (id.includes('node_modules/drawflow')) return 'vendor-dag';
+          if (id.includes('node_modules/codemirror')) return 'vendor-editors';
+          if (id.includes('node_modules/marked') || id.includes('node_modules/dompurify')) return 'vendor-utils';
         },
       },
     },
