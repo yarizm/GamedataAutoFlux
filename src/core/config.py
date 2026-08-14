@@ -19,12 +19,25 @@ from loguru import logger
 
 
 # 项目启动时自动加载 .env 文件
+def _resolve_root_dir() -> Path:
+    configured = os.getenv("AUTOFLUX_PROJECT_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    source_root = Path(__file__).resolve().parent.parent.parent
+    if (source_root / "config").is_dir():
+        return source_root
+    return Path.cwd().resolve()
+
+
+_ROOT_DIR = _resolve_root_dir()
+
+
 def _load_dotenv() -> None:
     """尝试加载项目根目录的 .env 文件到环境变量"""
     try:
         from dotenv import load_dotenv as _load
 
-        env_file = Path(__file__).resolve().parent.parent.parent / ".env"
+        env_file = _ROOT_DIR / ".env"
         if env_file.exists():
             _load(env_file)
             logger.info(f".env 文件已加载: {env_file}")
@@ -35,7 +48,6 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
-_ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 _CONFIG_DIR = _ROOT_DIR / "config"
 _DEFAULT_SETTINGS_FILE = _CONFIG_DIR / "settings.yaml"
 

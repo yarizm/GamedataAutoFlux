@@ -18,7 +18,10 @@ services:
     restart: unless-stopped
 
   autoflux:
-    build: .
+    build:
+      context: .
+      args:
+        AUTOFLUX_PLUGINS: ${AUTOFLUX_PLUGINS:-}
     image: gamedata-autoflux:latest
     container_name: autoflux_app
     depends_on:

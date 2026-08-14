@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GamedataAutoFlux</title>
     <meta name="description" content="游戏数据采集与分析工作流">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
@@ -55,6 +56,8 @@
 
         {% include 'pages/agent.html' %}
 
+        {% include 'pages/plugins.html' %}
+
         {% include 'pages/system.html' %}
             </div>
         </main>
@@ -72,30 +75,51 @@
                 <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span><span data-i18n="tasks.wizard.report">报告选项与提交</span></div>
             </div>
             <div class="modal-body">
+                <section class="inline-guide-shell task-inline-guide"
+                         data-inline-guide="task-create-quickstart"
+                         data-inline-guide-version="v1"
+                         data-tour-id="task-create-quickstart">
+                    <header class="inline-guide-header">
+                        <div>
+                            <strong data-i18n="tasks.guide.title">三步创建采集任务</strong>
+                            <small data-i18n="tasks.guide.subtitle">选择执行方案、填写插件参数，最后预检并确认提交。</small>
+                        </div>
+                        <button type="button" class="btn btn-ghost btn-sm" data-inline-guide-toggle aria-expanded="true">收起说明</button>
+                    </header>
+                    <ol class="task-guide-steps" data-inline-guide-body>
+                        <li><span>1</span><span data-i18n="tasks.guide.step1">选择执行方案并查看用途</span></li>
+                        <li><span>2</span><span data-i18n="tasks.guide.step2">按插件说明填写本次目标</span></li>
+                        <li><span>3</span><span data-i18n="tasks.guide.step3">运行预检并核对提交摘要</span></li>
+                    </ol>
+                </section>
                 <!-- Step 1: Basic Info -->
                 <div class="wizard-panel" data-panel="1">
                     <div class="form-group">
                         <label for="task-name">任务名称</label>
-                        <input type="text" id="task-name" placeholder="例如：TapTap 每日检查">
+                        <input type="text" id="task-name" data-i18n-placeholder="tasks.namePlaceholder" placeholder="例如：TapTap 每日检查">
                     </div>
                     <div class="form-group">
                         <label for="task-data-group" data-i18n="prompt.dataGroup">数据分组</label>
                         <input type="text" id="task-data-group" placeholder="Example: delta-force-april">
                     </div>
-                    <div class="form-group">
-                        <label for="task-pipeline" data-i18n="cron.pipeline">流水线</label>
+                    <div class="form-group" data-tour-id="task-plan-select">
+                        <label for="task-pipeline" data-i18n="tasks.executionPlan">执行方案</label>
                         <select id="task-pipeline" onchange="updateTaskTargetFields()">
-                            <option value="" data-i18n="tasks.selectPipeline">-- 选择流水线 --</option>
+                            <option value="" data-i18n="tasks.selectPipeline">-- 选择执行方案 --</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label for="task-target-name" data-i18n="tasks.targetName">目标名称</label>
-                        <input type="text" id="task-target-name" placeholder="Counter-Strike 2 / Mobile Legends">
-                    </div>
+                    <div id="task-pipeline-preview" class="execution-plan-preview" data-tour-id="task-plan-preview" hidden></div>
                 </div>
 
                 <!-- Step 2: Collector-specific fields -->
-                <div class="wizard-panel" data-panel="2" style="display:none;">
+                <div class="wizard-panel" data-panel="2" data-tour-id="task-target-fields" style="display:none;">
+                    <div id="task-target-guide" class="task-target-guide" hidden></div>
+                    <div class="form-group" id="task-target-common">
+                        <label for="task-target-name" data-i18n="tasks.targetName">目标名称</label>
+                        <input type="text" id="task-target-name" placeholder="Counter-Strike 2 / Mobile Legends">
+                        <small id="task-target-name-help" class="metadata-target-help" hidden></small>
+                    </div>
+                    <div id="task-metadata-target-fields" hidden></div>
                     <div id="task-steam-fields">
                         <div class="form-group">
                             <label for="task-app-id">Steam App ID</label>
@@ -223,7 +247,7 @@
                 </div>
 
                 <!-- Step 3: Report options + submit -->
-                <div class="wizard-panel" data-panel="3" style="display:none;">
+                <div class="wizard-panel" data-panel="3" data-tour-id="task-precheck-submit" style="display:none;">
                 <div id="task-submit-summary" class="task-submit-summary mb-4"></div>
                 <div class="form-group">
                     <label for="task-targets" data-i18n="tasks.advancedTargets">高级目标 (JSON，可选覆盖)</label>
@@ -267,7 +291,7 @@
     <div class="modal-overlay" id="modal-create-pipeline">
         <div class="modal">
             <div class="modal-header">
-                <h2 data-i18n="pipelines.modal.create">创建流水线</h2>
+                <h2 data-i18n="pipelines.modal.create">创建执行方案</h2>
                 <button class="btn-close" onclick="closeModal('modal-create-pipeline')">&times;</button>
             </div>
             <div class="modal-body">
@@ -278,7 +302,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2" data-i18n="pipelines.name">流水线名称</label>
+                    <label for="pipeline-name" class="uppercase tracking-widest text-[11px] text-zinc-500 font-bold mb-2" data-i18n="pipelines.name">执行方案名称</label>
                     <input type="text" id="pipeline-name" class="bg-zinc-800 border-white/5 focus:border-violet-500/50 font-mono text-sm" placeholder="例如：taptap_daily_flow">
                 </div>
                 <div class="form-group">
@@ -313,7 +337,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('modal-create-pipeline')" data-i18n="common.cancel">取消</button>
-                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline" data-i18n="pipelines.deploy">部署流水线</button>
+                <button class="btn btn-primary" onclick="createPipeline()" id="btn-submit-pipeline" data-i18n="pipelines.deploy">保存执行方案</button>
             </div>
         </div>
     </div>
@@ -332,9 +356,9 @@
                         <input type="text" id="cron-name" placeholder="例如：daily_taptap">
                     </div>
                     <div class="form-group">
-                        <label for="cron-pipeline" data-i18n="cron.pipeline">流水线</label>
+                        <label for="cron-pipeline" data-i18n="cron.pipeline">执行方案</label>
                         <select id="cron-pipeline" onchange="window.updateCronTargetFields && window.updateCronTargetFields()">
-                            <option value="" data-i18n="tasks.selectPipeline">-- 选择流水线 --</option>
+                            <option value="" data-i18n="tasks.selectPipeline">-- 选择执行方案 --</option>
                         </select>
                     </div>
                 </div>
@@ -427,7 +451,7 @@
                         <div class="text-sm font-bold text-theme-primary uppercase tracking-tight" data-i18n="cron.collectParams">采集参数</div>
                         <span id="cron-collector-badge" class="text-[10px] font-mono uppercase tracking-widest text-amber-400/80">采集器: —</span>
                     </div>
-                    <p class="text-xs text-zinc-500" id="cron-target-helper" data-i18n="cron.targetHelper">请先选择流水线，将显示对应采集参数。</p>
+                    <p class="text-xs text-zinc-500" id="cron-target-helper" data-i18n="cron.targetHelper">请先选择执行方案，将显示对应采集参数。</p>
 
                     <div id="cron-target-common">
                         <div class="form-group">

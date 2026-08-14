@@ -13,11 +13,14 @@ from src.core.collector_metadata import (
     fallback_collector_metadata,
     get_collector_metadata,
 )
+from src.core.collector_validators import validate_collector_config
 from src.core.pipeline import Pipeline
+from src.core.pipeline_availability import inspect_pipeline_availability
 from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec, dag_to_pipeline
+from src.core.dag_nodes import dag_node_catalog_payload, get_dag_node
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
-from src.web.safety import require_explicit_confirmation, validate_dynamic_playwright_config
+from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["pipelines"])
 
@@ -95,7 +98,9 @@ class CronJobRequest(BaseModel):
 
     name: str = Field(..., description="Cron job name")
     pipeline_name: str = Field(..., description="Pipeline name")
-    cron_expr: str = Field(default="", description="Five-field cron expression (optional if schedule provided)")
+    cron_expr: str = Field(
+        default="", description="Five-field cron expression (optional if schedule provided)"
+    )
     schedule: dict[str, Any] = Field(
         default_factory=dict,
         description="Visual schedule: {mode: preset|cron, preset: {...}, cron_expr, timezone}",
@@ -125,6 +130,14 @@ async def list_components():
     return registry.list_components()
 
 
+@router.get("/plugins")
+async def list_plugins():
+    """Return installed collector plugin activation diagnostics."""
+    from src.core.plugin_system import plugin_manager
+
+    return plugin_manager.payload()
+
+
 @router.get("/components/metadata")
 async def list_component_metadata():
     components = registry.list_components()
@@ -135,6 +148,7 @@ async def list_component_metadata():
     return {
         "components": components,
         "collectors": collector_metadata,
+        "dag_nodes": dag_node_catalog_payload(components),
     }
 
 
@@ -144,18 +158,28 @@ async def list_pipeline_templates():
 
 
 @router.get("/pipelines")
-async def list_pipelines():
+async def list_pipelines(
+    available_only: Annotated[
+        bool,
+        Query(description="Only return pipelines whose components are currently active"),
+    ] = False,
+):
     scheduler = _get_scheduler()
 
     pipelines = {}
     for pipeline in scheduler.get_all_pipelines():
-        pipelines[pipeline.name] = pipeline.to_config()
+        config = pipeline.to_config()
+        if not available_only or inspect_pipeline_availability(config).available:
+            pipelines[pipeline.name] = config
     # 合并 DAG 图定义
     try:
         dag_repo = _get_dag_repo()
         for dag in await dag_repo.list_all():
-            if dag.name not in pipelines:
-                pipelines[dag.name] = dag.to_storage()
+            config = dag.to_storage()
+            if dag.name not in pipelines and (
+                not available_only or inspect_pipeline_availability(config).available
+            ):
+                pipelines[dag.name] = config
     except Exception:
         pass
     return pipelines
@@ -193,8 +217,7 @@ async def create_pipeline(
             raise HTTPException(400, str(exc))
 
         if step.type == "collector":
-            if step.name == "dynamic_playwright":
-                validate_dynamic_playwright_config(step.config)
+            _validate_collector_config_or_400(step.name, step.config)
             pipeline.add_collector(step.name, step.config)
         elif step.type == "processor":
             pipeline.add_processor(step.name, step.config)
@@ -247,14 +270,36 @@ async def delete_dag(
 
 
 def _build_dag_from_request(req: CreateDagRequest) -> DAG:
+    for node in req.nodes:
+        if node.type in {"collector", "processor", "storage"}:
+            if not node.component:
+                raise HTTPException(400, f"DAG node '{node.id}' component is required")
+            try:
+                registry.get(node.type, node.component)
+            except KeyError as exc:
+                raise HTTPException(
+                    400,
+                    {
+                        "code": "dag_component_unavailable",
+                        "node_id": node.id,
+                        "component_type": node.type,
+                        "component": node.component,
+                        "message": str(exc),
+                    },
+                ) from exc
+            _validate_node_ports_or_400(node)
+        elif node.type != "composite":
+            raise HTTPException(400, f"Unsupported DAG node type: {node.type}")
+        if node.type == "collector":
+            _validate_collector_config_or_400(node.component, node.config)
     nodes = [
         NodeSpec(
             id=n.id,
             type=n.type,
             component=n.component,
             config=n.config,
-            ports_in=[PortSpec(name=p.name, required=p.required, type_hint=p.type_hint) for p in n.ports_in],
-            ports_out=[PortSpec(name=p.name, required=p.required, type_hint=p.type_hint) for p in n.ports_out],
+            ports_in=_resolved_node_ports(n, direction="in"),
+            ports_out=_resolved_node_ports(n, direction="out"),
             is_param_port=set(n.is_param_port),
             subgraph_name=n.subgraph_name,
             ui=dict(n.ui or {}),
@@ -263,12 +308,83 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
     ]
     edges = [
         DagEdge(
-            from_node=e.from_node, from_port=e.from_port,
-            to_node=e.to_node, to_port=e.to_port, condition=e.condition,
+            from_node=e.from_node,
+            from_port=e.from_port,
+            to_node=e.to_node,
+            to_port=e.to_port,
+            condition=e.condition,
         )
         for e in req.edges
     ]
     return DAG(name=req.name, nodes=nodes, edges=edges, ui=dict(req.ui or {}))
+
+
+def _validate_node_ports_or_400(node: NodeSpecConfig) -> None:
+    definition = get_dag_node(node.type, node.component)
+    if definition is None:
+        return
+    for direction, supplied, declared in (
+        ("input", node.ports_in, definition.ports_in),
+        ("output", node.ports_out, definition.ports_out),
+    ):
+        if not supplied:
+            continue
+        allowed = {item.name for item in declared}
+        unknown = sorted({item.name for item in supplied} - allowed)
+        if unknown:
+            raise HTTPException(
+                400,
+                {
+                    "code": "dag_port_undeclared",
+                    "node_id": node.id,
+                    "component": node.component,
+                    "direction": direction,
+                    "ports": unknown,
+                    "message": (
+                        f"DAG node '{node.id}' uses undeclared {direction} ports: "
+                        + ", ".join(unknown)
+                    ),
+                },
+            )
+
+
+def _resolved_node_ports(
+    node: NodeSpecConfig,
+    *,
+    direction: str,
+) -> list[PortSpec]:
+    supplied = node.ports_in if direction == "in" else node.ports_out
+    if supplied:
+        return [
+            PortSpec(name=item.name, required=item.required, type_hint=item.type_hint)
+            for item in supplied
+        ]
+    definition = get_dag_node(node.type, node.component)
+    if definition is None:
+        return []
+    declared = definition.ports_in if direction == "in" else definition.ports_out
+    return [
+        PortSpec(name=item.name, required=item.required, type_hint=item.type_hint)
+        for item in declared
+    ]
+
+
+def _validate_collector_config_or_400(
+    collector_id: str,
+    config: dict[str, Any],
+) -> None:
+    issues = validate_collector_config(collector_id, config)
+    if not issues:
+        return
+    first = issues[0]
+    raise HTTPException(
+        400,
+        {
+            "code": first.code,
+            "field": first.field,
+            "message": first.message,
+        },
+    )
 
 
 @router.delete("/pipelines/{name}")

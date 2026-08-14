@@ -1,14 +1,51 @@
 <section class="tab-content" id="tab-pipelines">
             <div class="section-header">
-                <h1 class="text-3xl font-black tracking-tighter text-theme-primary" data-i18n="pipelines.title">流水线配置</h1>
-                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline">
+                <div>
+                    <h1 class="text-3xl font-black tracking-tighter text-theme-primary" data-i18n="pipelines.title">执行方案（Pipeline）</h1>
+                    <p class="text-sm text-muted mt-1" data-i18n="pipelines.subtitle">定义数据怎样被采集、处理和保存；执行方案本身不会立即运行。</p>
+                </div>
+                <button class="btn btn-primary" onclick="showCreatePipelineModal()" id="btn-create-pipeline" data-tour-id="pipelines-create">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                    <span data-i18n="pipelines.create">+ 创建流水线</span>
+                    <span data-i18n="pipelines.create">+ 创建执行方案</span>
                 </button>
             </div>
 
+            <section class="inline-guide-shell card rounded-2xl mb-6"
+                     data-inline-guide="pipelines-quickstart"
+                     data-inline-guide-version="v1"
+                     data-tour-id="pipelines-concept">
+                <header class="inline-guide-header">
+                    <div>
+                        <strong data-i18n="pipelines.guide.title">执行方案如何工作</strong>
+                        <small data-i18n="pipelines.guide.subtitle">先定义可复用流程，再在任务中填写本次采集目标。</small>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-inline-guide-toggle aria-expanded="true">收起说明</button>
+                </header>
+                <div class="execution-concept-map" data-inline-guide-body>
+                    <div class="execution-concept-step">
+                        <span>1</span>
+                        <div><strong data-i18n="pipelines.concept.plan">执行方案</strong><small data-i18n="pipelines.concept.planHint">可复用的步骤或 DAG 图</small></div>
+                    </div>
+                    <div class="execution-concept-arrow">→</div>
+                    <div class="execution-concept-step">
+                        <span>2</span>
+                        <div><strong data-i18n="pipelines.concept.task">任务</strong><small data-i18n="pipelines.concept.taskHint">填写本次目标参数并运行</small></div>
+                    </div>
+                    <div class="execution-concept-arrow">→</div>
+                    <div class="execution-concept-step">
+                        <span>3</span>
+                        <div><strong data-i18n="pipelines.concept.result">数据结果</strong><small data-i18n="pipelines.concept.resultHint">查看记录、日志和报告</small></div>
+                    </div>
+                    <div class="execution-concept-dag">
+                        <strong data-i18n="pipelines.concept.dag">DAG 是高级执行方案</strong>
+                        <small data-i18n="pipelines.concept.dagHint">需要分支、串联多个采集器或字段映射时使用。</small>
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="activateTab('dag')" data-i18n="pipelines.openDag">打开 DAG 编辑器</button>
+                    </div>
+                </div>
+            </section>
+
             <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
-                <div class="card border-theme-subtle shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl">
+                <div class="card border-theme-subtle shadow-2xl mb-0 sticky top-4 p-0 overflow-hidden rounded-2xl" data-tour-id="pipelines-components">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
                         <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="pipelines.components">可用组件</h2>
                     </div>
@@ -17,12 +54,12 @@
                     </div>
                 </div>
 
-                <div class="card border-theme-subtle shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl">
+                <div class="card border-theme-subtle shadow-2xl mb-0 p-0 overflow-hidden rounded-2xl" data-tour-id="pipelines-list">
                     <div class="card-header pb-3 border-b border-white/5 px-6 pt-6 mb-4">
-                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="pipelines.configured">已配置流水线</h2>
+                        <h2 class="text-theme-primary font-bold tracking-tight text-lg uppercase" data-i18n="pipelines.configured">已配置执行方案</h2>
                     </div>
                     <div class="card-body px-6 pb-6" id="pipelines-list">
-                        <p class="text-zinc-600 text-sm" data-i18n="pipelines.empty.pipelines">暂无流水线</p>
+                        <p class="text-zinc-600 text-sm" data-i18n="pipelines.empty.pipelines">暂无执行方案</p>
                     </div>
                 </div>
             </div>

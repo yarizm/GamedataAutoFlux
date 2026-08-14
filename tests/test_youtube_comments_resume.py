@@ -9,9 +9,9 @@ import httpx
 import pytest
 
 from src.collectors.base import CollectTarget
-from src.collectors.youtube.api import fetch_paginated_comments
-from src.collectors.youtube.client_pool import YouTubeQuotaExhausted
-from src.collectors.youtube.comments import YouTubeCommentCollector
+from autoflux_plugin_youtube.api import fetch_paginated_comments
+from autoflux_plugin_youtube.client_pool import YouTubeQuotaExhausted
+from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 from src.core.collector_metadata import get_collector_metadata
 from src.core.collector_resume import build_collector_cursor
 from src.core.errors import ErrorCode
@@ -185,11 +185,11 @@ async def test_collector_resumes_comments_with_token_and_emits(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     collector._pool = AsyncMock()
     collector.config["_emit_checkpoint"] = fake_emit
@@ -255,11 +255,11 @@ async def test_collector_uses_nonempty_seed(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     seed = [{"like_count": 3, "text": "seed", "published_at": ""}]
     collector._pool = AsyncMock()
@@ -306,11 +306,11 @@ async def test_incomplete_partial_does_not_enter_seed_mode(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     short_partial = [{"like_count": 1, "text": "only-one", "published_at": ""}]
     collector._pool = AsyncMock()
@@ -374,11 +374,11 @@ async def test_count_only_on_page_emits_empty_partial(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     collector._pool = AsyncMock()
     collector.config["_emit_checkpoint"] = fake_emit
@@ -438,11 +438,11 @@ async def test_quota_exhausted_emits_and_fails(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     collector._pool = AsyncMock()
     collector.config["_emit_checkpoint"] = fake_emit
@@ -495,11 +495,11 @@ async def test_network_error_fails_target_not_soft_pass(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     collector._pool = AsyncMock()
     collector.config["_emit_checkpoint"] = fake_emit
@@ -542,11 +542,11 @@ async def test_comments_disabled_soft_ok(monkeypatch):
         return _channel_payload()
 
     monkeypatch.setattr(
-        "src.collectors.youtube.comments.api.fetch_paginated_comments",
+        "autoflux_plugin_youtube.comments.api.fetch_paginated_comments",
         fake_fetch,
     )
-    monkeypatch.setattr("src.collectors.youtube.comments.api.videos_list", fake_videos)
-    monkeypatch.setattr("src.collectors.youtube.comments.api.channels_list", fake_channels)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.videos_list", fake_videos)
+    monkeypatch.setattr("autoflux_plugin_youtube.comments.api.channels_list", fake_channels)
 
     collector._pool = AsyncMock()
     target = CollectTarget(

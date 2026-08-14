@@ -1,4 +1,4 @@
-from src.collectors.html_trimmer import trim_html
+from autoflux_plugin_smart_web.html_trimmer import trim_html
 
 
 def test_removes_script_and_style():

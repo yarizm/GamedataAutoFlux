@@ -8,7 +8,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_collect_video_basic(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -62,7 +62,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_collect_with_comments(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -125,7 +125,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_collect_zero_comments(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -169,7 +169,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_collect_invalid_url(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
         from src.core.errors import ErrorCode
 
         collector = YouTubeCommentCollector()
@@ -188,7 +188,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_check_video_type(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -226,7 +226,7 @@ class TestYouTubeCommentCollector:
         )
 
         with patch(
-            "src.collectors.youtube.comments.api.check_video_type",
+            "autoflux_plugin_youtube.comments.api.check_video_type",
             new_callable=AsyncMock,
         ) as mock_check:
             mock_check.return_value = "Shorts"
@@ -239,7 +239,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_live_stream_excluded(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -284,7 +284,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_live_stream_marked(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -329,7 +329,7 @@ class TestYouTubeCommentCollector:
     @pytest.mark.asyncio
     async def test_fetch_shorts_related(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.comments import YouTubeCommentCollector
+        from autoflux_plugin_youtube.comments import YouTubeCommentCollector
 
         collector = YouTubeCommentCollector()
         collector._pool = AsyncMock()
@@ -390,12 +390,12 @@ class TestYouTubeCommentCollector:
         )
 
         with patch(
-            "src.collectors.youtube.comments.api.check_video_type",
+            "autoflux_plugin_youtube.comments.api.check_video_type",
             new_callable=AsyncMock,
         ) as mock_check:
             mock_check.return_value = "Shorts"
             with patch(
-                "src.collectors.youtube.comments.httpx.AsyncClient",
+                "autoflux_plugin_youtube.comments.httpx.AsyncClient",
                 new=FakeClient,
             ):
                 result = await collector.collect(target)

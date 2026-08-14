@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import random
 import re
@@ -116,7 +117,12 @@ class GameIdentifierResolver:
 
     # ---- 生命周期 ---------------------------------------------------------
 
-    async def setup(self) -> None:
+    async def setup(
+        self,
+        *,
+        cdp_config_key: str = "",
+        cdp_default_port: int = 9222,
+    ) -> None:
         if self._browser is not None:
             return
         _load_cache()
@@ -126,16 +132,17 @@ class GameIdentifierResolver:
             from playwright.async_api import async_playwright
 
             self._pw = await async_playwright().start()
-            cdp_port = int(get_config("qimai.cdp_port", 9222))
-            try:
-                self._browser = await self._pw.chromium.connect_over_cdp(
-                    f"http://127.0.0.1:{cdp_port}"
-                )
-                self._browser_is_cdp = True
-                logger.info(f"[GameResolver] 已通过 CDP 端口 {cdp_port} 连接浏览器")
-                return
-            except Exception as exc:
-                logger.debug(f"[GameResolver] CDP 连接失败，启动新浏览器: {exc}")
+            if cdp_config_key:
+                cdp_port = int(get_config(cdp_config_key, cdp_default_port))
+                try:
+                    self._browser = await self._pw.chromium.connect_over_cdp(
+                        f"http://127.0.0.1:{cdp_port}"
+                    )
+                    self._browser_is_cdp = True
+                    logger.info(f"[GameResolver] 已通过 CDP 端口 {cdp_port} 连接浏览器")
+                    return
+                except Exception as exc:
+                    logger.debug(f"[GameResolver] CDP 连接失败，启动新浏览器: {exc}")
 
             try:
                 self._browser = await self._pw.chromium.launch(
@@ -192,28 +199,41 @@ class GameIdentifierResolver:
     async def resolve_all(
         self, game_name: str, platforms: list[str] | None = None
     ) -> GameIdentifiers:
-        await self.setup()
-        if platforms is None:
-            platforms = ["steam", "taptap", "monitor", "official_site", "gtrends"]
-        if "qimai" not in platforms and self._browser_is_cdp:
-            platforms.append("qimai")
+        from src.core.identifier_resolvers import list_identifier_resolvers
+        from src.core.registry import registry
 
-        resolvers: dict[str, Any] = {
-            "steam": self.resolve_steam,
-            "taptap": self.resolve_taptap,
-            "qimai": self.resolve_qimai,
-            "monitor": self.resolve_monitor_name,
-            "official_site": self.resolve_official_site,
-            "gtrends": self.resolve_gtrends,
+        installed_collectors = set(registry.list_components("collector").get("collector", []))
+        available = {
+            spec.platform: spec
+            for spec in list_identifier_resolvers()
+            if installed_collectors.intersection(spec.collector_ids)
         }
+        if platforms is None:
+            platforms = list(available)
+        else:
+            platforms = [platform for platform in platforms if platform in available]
+
+        browser_specs = [available[platform] for platform in platforms if available[platform].requires_shared_browser]
+        if browser_specs:
+            cdp_spec = next((spec for spec in browser_specs if spec.cdp_config_key), browser_specs[0])
+            await self.setup(
+                cdp_config_key=cdp_spec.cdp_config_key,
+                cdp_default_port=cdp_spec.cdp_default_port,
+            )
+        else:
+            _load_cache()
 
         results: dict[str, IdentifierResult | None] = {}
         tasks = {}
         for platform in platforms:
-            resolver = resolvers.get(platform)
-            if resolver is None:
-                continue
-            tasks[platform] = asyncio.create_task(self._safe_resolve(resolver, game_name, platform))
+            spec = available[platform]
+            tasks[platform] = asyncio.create_task(
+                self._safe_resolve(
+                    lambda name, callback=spec.resolve: callback(self, name),
+                    game_name,
+                    platform,
+                )
+            )
 
         for platform, task in tasks.items():
             try:
@@ -222,10 +242,30 @@ class GameIdentifierResolver:
                 logger.warning(f"[GameResolver] {platform} 解析失败: {exc}")
                 results[platform] = None
 
-        kwargs: dict[str, Any] = {"game_name": game_name}
-        for platform in platforms:
+        kwargs: dict[str, Any] = {
+            "game_name": game_name,
+            "platforms": {
+                platform: result for platform, result in results.items() if result is not None
+            },
+        }
+        for platform in set(GameIdentifiers.model_fields) & set(platforms):
             kwargs[platform] = results.get(platform)
         return GameIdentifiers(**kwargs)
+
+    async def resolve_platform(self, platform: str, game_name: str) -> IdentifierResult | None:
+        """Resolve one platform through its installed plugin registration."""
+
+        from src.core.identifier_resolvers import get_identifier_resolver
+
+        spec = get_identifier_resolver(platform)
+        if spec is None:
+            return None
+        if spec.requires_shared_browser:
+            await self.setup(
+                cdp_config_key=spec.cdp_config_key,
+                cdp_default_port=spec.cdp_default_port,
+            )
+        return await spec.resolve(self, game_name)
 
     # ---- Steam ------------------------------------------------------------
 
@@ -406,7 +446,7 @@ class GameIdentifierResolver:
             cached = _names_cache.get(_cache_key("qimai", game_name))
         if cached:
             return cached[1]
-        await self.setup()
+        await self.setup(cdp_config_key="qimai.cdp_port")
 
         if not self._browser_is_cdp:
             logger.debug("[GameResolver] Qimai 需要 CDP 会话，跳过")
@@ -475,15 +515,18 @@ class GameIdentifierResolver:
     # ---- Monitor (SullyGnome) ---------------------------------------------
 
     async def resolve_monitor_name(self, game_name: str) -> IdentifierResult | None:
+        from src.core.registry import registry
+
         with _cache_lock:
             cached = _names_cache.get(_cache_key("monitor", game_name))
         if cached:
             return cached[1]
 
         # 检查覆盖表
-        from src.collectors.monitor_collector import _resolve_sully_siteurl_override
+        collector_module = importlib.import_module(registry.get("collector", "monitor").__module__)
+        resolve_override = getattr(collector_module, "_resolve_sully_siteurl_override")
 
-        override = _resolve_sully_siteurl_override(0, game_name, None)
+        override = resolve_override(0, game_name, None)
         if override:
             result = IdentifierResult(
                 platform="monitor",
@@ -502,9 +545,8 @@ class GameIdentifierResolver:
             return result
 
         # 搜索变体
-        from src.collectors.monitor_collector import _generate_search_variants
-
-        search_names = _generate_search_variants(game_name, None)
+        generate_variants = getattr(collector_module, "_generate_search_variants")
+        search_names = generate_variants(game_name, None)
 
         candidates: list[IdentifierCandidate] = []
         seen_siteurls: set[str] = set()
@@ -648,16 +690,16 @@ class GameIdentifierResolver:
     async def verify_identifier(
         self, platform: str, identifier: str, game_name: str
     ) -> dict[str, Any]:
-        if platform == "steam":
-            return await self._verify_steam(identifier, game_name)
-        if platform == "taptap":
-            return await self._verify_taptap(identifier, game_name)
-        if platform == "qimai":
-            return await self._verify_qimai(identifier, game_name)
-        if platform == "monitor":
-            return await self._verify_monitor(identifier, game_name)
-        if platform == "official_site":
-            return await self._verify_official_site(identifier, game_name)
+        from src.core.identifier_resolvers import get_identifier_resolver
+
+        spec = get_identifier_resolver(platform)
+        if spec and spec.verify:
+            if spec.requires_shared_browser:
+                await self.setup(
+                    cdp_config_key=spec.cdp_config_key,
+                    cdp_default_port=spec.cdp_default_port,
+                )
+            return await spec.verify(self, identifier, game_name)
         return {"valid": False, "error": f"Unknown platform: {platform}"}
 
     async def _verify_steam(self, app_id: str, game_name: str) -> dict[str, Any]:

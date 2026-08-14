@@ -2,9 +2,12 @@ import { api, toast, escapeHtml, setValue, setChecked } from '../../core/api.js'
 import { t } from '../../core/i18n.js';
 import { renderEmptyState } from '../../core/uiState.js';
 import {
+  describePipeline,
+  getTargetRequirementLabels,
   getCachedPipelineTemplates,
   invalidatePipelineCache,
   loadAvailablePipelines,
+  loadComponentMetadata,
   loadPipelineTemplates,
   loadPipelines,
   populatePipelineSelect,
@@ -24,13 +27,25 @@ export default {
   destroy() {},
 
   async refresh() {
-    await Promise.all([this._loadComponents(), this._loadTemplates(), this._loadPipelines()]);
+    await Promise.all([
+      this._loadComponents(),
+      this._loadTemplates(),
+      loadAvailablePipelines(),
+    ]);
+    await this._loadPipelines();
   },
 
   async _loadComponents() {
     try {
-      const components = await api('/components');
+      const metadataPayload = await loadComponentMetadata();
+      const components = metadataPayload.components || {};
       availableComponents = components;
+      const definitions = new Map(
+        (metadataPayload.dag_nodes || []).map((item) => [
+          `${item.type}:${item.component}`,
+          item,
+        ]),
+      );
       const list = this.container.querySelector('#components-list');
       if (!list) return;
 
@@ -52,7 +67,14 @@ export default {
         <div class="component-group mb-6">
           <h3 class="text-[10px] font-bold tracking-widest uppercase text-zinc-500 mb-3 border-b border-theme-strong pb-1">${escapeHtml(typeLabels[type] || type)}</h3>
           <div class="flex flex-wrap gap-2">
-            ${names.map((name) => `<span class="component-tag type-${escapeHtml(type)}">${escapeHtml(name)}</span>`).join('')}
+            ${names.map((name) => {
+              const definition = definitions.get(`${type}:${name}`) || {};
+              return `<div class="pipeline-component-card">
+                <span class="component-tag type-${escapeHtml(type)}">${escapeHtml(definition.display_name || name)}</span>
+                <code>${escapeHtml(name)}</code>
+                <small>${escapeHtml(definition.description || t('dag.descriptionMissing'))}</small>
+              </div>`;
+            }).join('')}
           </div>
         </div>
       `).join('');
@@ -90,23 +112,61 @@ export default {
         });
         return;
       }
-      list.innerHTML = entries.map(([name, config]) => `
+      list.innerHTML = entries.map(([name, config]) => {
+        const descriptor = describePipeline(name) || {
+          kind: 'linear',
+          steps: config.steps || [],
+          targetDetails: [],
+          description: '',
+        };
+        const kindLabel = descriptor.kind === 'dag'
+          ? t('pipelines.plan.dag')
+          : t('pipelines.plan.linear');
+        const required = descriptor.targetDetails.flatMap(
+          (metadata) => getTargetRequirementLabels(metadata),
+        );
+        return `
         <div class="pipeline-item group bg-zinc-800 border border-theme-subtle rounded-xl p-4 mb-4 relative overflow-hidden transition-all duration-300 hover:border-theme-strong hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-bold text-theme-primary text-sm tracking-tight">${escapeHtml(name)}</span>
-            <button class="btn btn-danger h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]" data-delete="${escapeHtml(name)}">${t('common.delete')}</button>
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="execution-plan-kind">${escapeHtml(kindLabel)}</span>
+                <span class="font-bold text-theme-primary text-sm tracking-tight">${escapeHtml(descriptor.displayName || name)}</span>
+                ${descriptor.displayName && descriptor.displayName !== name
+                  ? `<code class="pipeline-plan-id">${escapeHtml(name)}</code>`
+                  : ''}
+              </div>
+              <p class="pipeline-purpose">${escapeHtml(descriptor.description || t('pipelines.plan.noDescription'))}</p>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <button class="btn btn-primary btn-sm" data-run-plan="${escapeHtml(name)}">${escapeHtml(t('pipelines.useForTask'))}</button>
+              <button class="btn btn-danger h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]" data-delete="${escapeHtml(name)}" data-kind="${escapeHtml(descriptor.kind)}">${t('common.delete')}</button>
+            </div>
           </div>
           <div class="pipeline-steps flex items-center flex-wrap gap-2">
-            ${(config.steps || []).map((step, index) => `
+            ${descriptor.steps.map((step, index) => `
               ${index > 0 ? '<svg class="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>' : ''}
               <span class="component-tag type-${escapeHtml(step.type)}">${escapeHtml(step.name)}</span>
             `).join('')}
           </div>
+          <div class="pipeline-target-summary">
+            <strong>${escapeHtml(t('pipelines.taskInput'))}</strong>
+            ${required.length
+              ? required.map((item) => `<code>${escapeHtml(item)}</code>`).join('')
+              : `<span>${escapeHtml(t('pipelines.taskInputGeneric'))}</span>`}
+          </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
       list.querySelectorAll('[data-delete]').forEach(btn => {
-        btn.addEventListener('click', () => this._deletePipeline(btn.dataset.delete));
+        btn.addEventListener('click', () => this._deletePipeline(
+          btn.dataset.delete,
+          btn.dataset.kind,
+        ));
+      });
+      list.querySelectorAll('[data-run-plan]').forEach((btn) => {
+        btn.addEventListener('click', () => window.showCreateTaskModal?.(btn.dataset.runPlan));
       });
     } catch (err) { console.error('Load pipelines failed:', err); }
   },
@@ -194,10 +254,11 @@ export default {
     } catch (err) { toast(t('message.createFailed', { error: err.message }), 'error'); }
   },
 
-  async _deletePipeline(name) {
+  async _deletePipeline(name, kind = 'linear') {
     if (!confirm(t('confirm.deletePipeline', { name }))) return;
     try {
-      await api(`/pipelines/${encodeURIComponent(name)}?confirm=true`, { method: 'DELETE' });
+      const resource = kind === 'dag' ? 'dags' : 'pipelines';
+      await api(`/${resource}/${encodeURIComponent(name)}?confirm=true`, { method: 'DELETE' });
       toast(t('message.pipelineDeleted'), 'success');
       invalidatePipelineCache();
       await this.refresh();

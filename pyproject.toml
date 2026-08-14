@@ -1,9 +1,13 @@
 [project]
 name = "gamedata-autoflux"
 version = "0.1.0"
-description = "可复用、可扩展的游戏行业数据监控与分析工作流框架"
+description = "可自定义、插件化的数据采集与工作流平台"
 requires-python = ">=3.12"
 dependencies = [
+    # Managed plugin wheel builds
+    "setuptools>=75.0",
+    "wheel>=0.45.0",
+    "packaging>=24.0",
     # Web framework
     "fastapi>=0.136.1",
     "uvicorn[standard]>=0.32.0",
@@ -25,16 +29,10 @@ dependencies = [
     "jinja2>=3.1.0",
     # HTTP client (for collectors)
     "httpx>=0.27.0",
-    # browser automation (SteamDB scraping)
-    "playwright>=1.40.0",
-    # AI-driven web scraping (fallback)
-    "firecrawl-py>=1.0.0",
     # Utilities
     "python-multipart>=0.0.9",
     "aiofiles>=23.2.0",
     "tenacity>=8.0.0",
-    # Google Trends
-    "pytrends>=4.9.2",
     # Excel report generation
     "openpyxl>=3.1.0",
     # WebSocket support
@@ -72,6 +70,20 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.plugin_manager" = ["catalog.json"]
+"src.web" = [
+    "templates/*.html",
+    "templates/components/*.html",
+    "templates/pages/*.html",
+    "static/*.css",
+    "static/*.js",
+    "static/*.svg",
+    "static/core/*.js",
+    "static/dist/.vite/*.json",
+    "static/dist/assets/*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

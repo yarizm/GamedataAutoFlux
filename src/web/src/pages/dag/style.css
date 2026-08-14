@@ -205,7 +205,7 @@
   display: block;
   width: 100%;
   text-align: left;
-  padding: 0.5rem 0.75rem;
+  padding: 0.65rem 0.75rem;
   border-radius: 0.5rem;
   background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
   border: 1px solid var(--border-subtle);
@@ -213,6 +213,56 @@
   color: var(--text-secondary);
   transition: border-color 0.15s, background 0.15s;
   cursor: pointer;
+}
+
+.dag-palette-item-head,
+.dag-palette-item-meta,
+.dag-palette-capabilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.dag-palette-item-head strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.dag-palette-item-description {
+  display: -webkit-box;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.dag-palette-item-meta {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.dag-palette-item-meta span + span::before {
+  content: '·';
+  margin-right: 0.35rem;
+}
+
+.dag-palette-capabilities {
+  margin-top: 0.35rem;
+}
+
+.dag-palette-capabilities code,
+#dag-inspector .insp-capability {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  color: var(--text-secondary);
+  font-size: 9px;
+  padding: 0.08rem 0.35rem;
 }
 
 .dag-palette-item:hover {
@@ -232,6 +282,33 @@
 
 #dag-inspector .insp-field {
   margin-bottom: 0.75rem;
+}
+
+#dag-inspector .insp-description {
+  border-left: 2px solid color-mix(in srgb, var(--info) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  padding-left: 0.55rem;
+}
+
+#dag-inspector .insp-description.is-missing {
+  border-left-color: color-mix(in srgb, var(--warning) 65%, transparent);
+  color: var(--warning);
+}
+
+#dag-inspector .insp-node-meta,
+#dag-inspector .insp-capabilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+#dag-inspector .insp-node-meta {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 #dag-inspector input[type='text'],
@@ -380,4 +457,155 @@
 }
 .dag-saved-del:hover {
   color: var(--danger);
+}
+
+/* First-run guidance and schema-driven node configuration */
+.dag-onboarding {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem;
+}
+.dag-inline-guide {
+  margin-bottom: 1rem;
+  border-radius: 0.85rem;
+}
+.dag-onboarding > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+.dag-onboarding > div > span {
+  display: grid;
+  grid-row: 1 / 3;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--info) 35%, transparent);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  color: var(--info);
+  font-size: 10px;
+  font-weight: 800;
+}
+.dag-onboarding strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dag-onboarding small {
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.dag-onboarding > b {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.insp-usage {
+  margin-bottom: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--info) 25%, var(--border-subtle));
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--info) 7%, var(--bg-elevated));
+  padding: 0.6rem 0.7rem;
+}
+.insp-usage strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+.insp-usage ol {
+  margin: 0.4rem 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.insp-param-list li small {
+  display: block;
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+.insp-config-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+.insp-config-field > label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.insp-config-field > small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+.insp-config-check {
+  display: flex !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+.insp-config-check input {
+  width: auto !important;
+}
+.insp-config-empty {
+  border-radius: 0.45rem;
+  background: var(--bg-elevated);
+  padding: 0.55rem;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.insp-advanced-config {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.65rem;
+}
+.insp-advanced-config > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+@media (max-width: 1200px) {
+  .dag-onboarding {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dag-onboarding > b {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .dag-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .dag-layout > aside,
+  .dag-layout > main {
+    width: 100%;
+  }
+  .dag-layout #dag-canvas-wrap {
+    height: 52vh !important;
+    min-height: 24rem;
+  }
+  .dag-onboarding strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
 }

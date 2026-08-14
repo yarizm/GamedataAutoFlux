@@ -14,6 +14,7 @@ from src.core.collector_metadata import (
     collector_metadata_payload,
     get_collector_metadata,
 )
+from src.core.collector_validators import validate_collector_config
 from src.core.config import get as get_config
 from src.core.dag_validate import (
     collector_uses_from_upstream,
@@ -21,9 +22,8 @@ from src.core.dag_validate import (
 )
 from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.diagnostics import build_session_readiness_summary
+from src.core.pipeline_availability import inspect_pipeline_availability
 from src.schemas.tasks import CollectorReadiness, TaskPrecheckIssue, TaskPrecheckResponse
-
-_APP_ID_RE = re.compile(r"^\d+$")
 
 
 class TaskPrecheckService:
@@ -190,9 +190,7 @@ class TaskPrecheckService:
             else {}
         )
         session_readiness = (
-            session_readiness_by_collector.get(resolved_collector, {})
-            if resolved_collector
-            else {}
+            session_readiness_by_collector.get(resolved_collector, {}) if resolved_collector else {}
         )
 
         from_upstream_by_collector = {
@@ -208,10 +206,15 @@ class TaskPrecheckService:
         # Target validation targets root collectors; fallback to primary.
         target_collector = root_collectors[0] if root_collectors else resolved_collector
         target_metadata = get_collector_metadata(target_collector)
+        definition = pipeline if pipeline is not None else template
+        pipeline_availability = (
+            inspect_pipeline_availability(definition) if definition is not None else None
+        )
 
         return {
             "pipeline": pipeline,
             "template": template,
+            "pipeline_availability": pipeline_availability,
             "collector_entries": collector_entries,
             "resolved_collectors": resolved_collectors,
             "resolved_collector": resolved_collector,
@@ -333,6 +336,21 @@ class TaskPrecheckService:
                     "pipeline_name",
                     f"Pipeline not found: {pipeline_name}",
                     category="config",
+                )
+            )
+        elif (
+            context.get("pipeline_availability") is not None
+            and not context["pipeline_availability"].available
+        ):
+            missing = ", ".join(context["pipeline_availability"].missing_labels())
+            issues.append(
+                self._issue(
+                    "error",
+                    "pipeline_components_unavailable",
+                    "pipeline_name",
+                    f"Pipeline requires inactive or uninstalled components: {missing}",
+                    category="runtime",
+                    suggested_action="Install and enable the plugins that provide these components.",
                 )
             )
         if not context["resolved_collector"]:
@@ -731,19 +749,7 @@ class TaskPrecheckService:
     ) -> list[str]:
         if collector_metadata is not None:
             return list(collector_metadata.target_schema.required_fields)
-        return {
-            "steam": ["target.name", "target.params.app_id (recommended)"],
-            "steam_discussions": ["target.params.app_id or target.params.forum_url"],
-            "taptap": ["target.params.app_id or target.params.url"],
-            "gtrends": ["target.name"],
-            "monitor": [
-                "target.params.app_id or target.params.siteurl",
-                "target.params.twitch_name (optional)",
-            ],
-            "qimai": ["target.params.app_id"],
-            "official_site": ["target.params.official_url"],
-            "dynamic_playwright": ["target.name"],
-        }.get(collector_name, ["target.name or target.params"])
+        return ["target.name or target.params"]
 
     @staticmethod
     def _validate_target(
@@ -771,125 +777,12 @@ class TaskPrecheckService:
                             message=rule.message,
                             collector_id=collector_name,
                             category="target",
+                            suggested_action=rule.suggested_action,
                         )
                     )
-            issues.extend(
-                TaskPrecheckService._validate_target_formats(
-                    index, target, collector_name, has_presence_error=any(
-                        i.level == "error" for i in issues
-                    )
-                )
-            )
             return issues
 
-        if collector_name == "steam":
-            if not name and not str(params.get("app_id") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_steam_target",
-                        field=field,
-                        message="Steam target needs a game name or app_id.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-            elif not str(params.get("app_id") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_steam_app_id",
-                        field=field,
-                        message="Steam app_id is recommended to avoid wrong game matches.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "steam_discussions":
-            if not str(params.get("app_id") or params.get("forum_url") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_discussion_target",
-                        field=field,
-                        message="Steam discussions need app_id or forum_url.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "taptap":
-            if not str(params.get("app_id") or params.get("url") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_taptap_target",
-                        field=field,
-                        message="TapTap target needs app_id or url.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "gtrends":
-            if not name:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_keyword",
-                        field=field,
-                        message="Google Trends target needs a keyword name.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "monitor":
-            if not str(params.get("app_id") or params.get("siteurl") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_monitor_app_id",
-                        field=field,
-                        message="Monitor target requires app_id or siteurl.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "qimai":
-            if not str(params.get("app_id") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_qimai_app_id",
-                        field=field,
-                        message="Qimai target needs app_id.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "official_site":
-            if not str(params.get("official_url") or "").strip():
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_official_url",
-                        field=field,
-                        message="Official site target needs official_url.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif collector_name == "dynamic_playwright":
-            if not name:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_target_name",
-                        field=field,
-                        message="Dynamic Playwright target should have a game name.",
-                        collector_id=collector_name,
-                        category="target",
-                    )
-                )
-        elif not name and not params:
+        if not name and not params:
             issues.append(
                 TaskPrecheckIssue(
                     level="warning",
@@ -901,107 +794,50 @@ class TaskPrecheckService:
                 )
             )
 
-        issues.extend(
-            TaskPrecheckService._validate_target_formats(
-                index,
-                target,
-                collector_name,
-                has_presence_error=any(i.level == "error" for i in issues),
-            )
-        )
-        return issues
-
-    @staticmethod
-    def _validate_target_formats(
-        index: int,
-        target: dict[str, Any],
-        collector_name: str,
-        *,
-        has_presence_error: bool,
-    ) -> list[TaskPrecheckIssue]:
-        """Static format checks (no network). Skip when presence already failed."""
-        if has_presence_error:
-            return []
-        issues: list[TaskPrecheckIssue] = []
-        params = target.get("params", {}) if isinstance(target.get("params"), dict) else {}
-        field_base = f"targets[{index}]"
-
-        app_id = str(params.get("app_id") or "").strip()
-        if app_id and collector_name in {
-            "steam",
-            "steam_discussions",
-            "taptap",
-            "qimai",
-            "monitor",
-        }:
-            if not _APP_ID_RE.match(app_id):
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="invalid_app_id_format",
-                        field=f"{field_base}.params.app_id",
-                        message=f"app_id should be numeric, got '{app_id}'.",
-                        collector_id=collector_name,
-                        category="target",
-                        suggested_action="Use a numeric platform app id.",
-                    )
-                )
-
-        for url_key in ("official_url", "url", "forum_url", "siteurl"):
-            # siteurl for monitor may be a slug, not a URL — skip format for siteurl
-            if url_key == "siteurl":
-                continue
-            raw = str(params.get(url_key) or "").strip()
-            if not raw:
-                continue
-            if collector_name == "official_site" and url_key == "official_url":
-                parsed = urlsplit(raw)
-                if not parsed.scheme or not parsed.netloc:
-                    issues.append(
-                        TaskPrecheckIssue(
-                            level="error",
-                            code="invalid_official_url",
-                            field=f"{field_base}.params.official_url",
-                            message="official_url must be an absolute URL (http/https).",
-                            collector_id=collector_name,
-                            category="target",
-                            suggested_action="Provide a full URL including scheme.",
-                        )
-                    )
-
-        if collector_name in {"youtube_profiles", "youtube_comments"}:
-            for url_key in ("video_url", "channel_url"):
-                raw = str(params.get(url_key) or "").strip()
-                if not raw or not raw.startswith("http"):
-                    continue
-                host = (urlsplit(raw).hostname or "").lower()
-                if host.endswith("youtube.com") or host == "youtu.be":
-                    continue
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="invalid_youtube_url_host",
-                        field=f"{field_base}.params.{url_key}",
-                        message=f"{url_key} does not look like a YouTube URL.",
-                        collector_id=collector_name,
-                        category="target",
-                        suggested_action="Use a youtube.com or youtu.be URL.",
-                    )
-                )
-
         return issues
 
     @staticmethod
     def _target_rule_passes(target: dict[str, Any], rule: TargetValidationRule) -> bool:
-        present = [
-            TaskPrecheckService._target_field_present(target, field) for field in rule.fields
-        ]
+        values = [TaskPrecheckService._target_field_value(target, field) for field in rule.fields]
+        present = [str(value or "").strip() != "" for value in values]
+        if rule.optional and not any(present):
+            return True
+
+        if rule.check == "regex":
+            checks = [
+                bool(re.fullmatch(rule.pattern, str(value or "").strip()))
+                for value, is_present in zip(values, present)
+                if is_present
+            ]
+        elif rule.check == "absolute_url":
+            checks = []
+            for value, is_present in zip(values, present):
+                if not is_present:
+                    continue
+                parsed = urlsplit(str(value).strip())
+                checks.append(parsed.scheme in {"http", "https"} and bool(parsed.netloc))
+        elif rule.check == "url_host":
+            checks = []
+            allowed = {host.lower() for host in rule.allowed_hosts}
+            for value, is_present in zip(values, present):
+                if not is_present:
+                    continue
+                host = (urlsplit(str(value).strip()).hostname or "").lower()
+                checks.append(any(host == item or host.endswith(f".{item}") for item in allowed))
+        else:
+            checks = present
+
         if rule.mode == "all":
-            return all(present)
-        return any(present)
+            return bool(checks) and all(checks)
+        return any(checks)
 
     @staticmethod
     def _target_field_present(target: dict[str, Any], field_path: str) -> bool:
+        value = TaskPrecheckService._target_field_value(target, field_path)
+        return str(value or "").strip() != ""
+
+    @staticmethod
+    def _target_field_value(target: dict[str, Any], field_path: str) -> Any:
         if field_path == "target.name":
             value = target.get("name")
         elif field_path == "target.target_type":
@@ -1011,7 +847,7 @@ class TaskPrecheckService:
             value = params.get(field_path.removeprefix("target.params."))
         else:
             value = None
-        return str(value or "").strip() != ""
+        return value
 
     @staticmethod
     def _collector_config_checks(
@@ -1074,15 +910,20 @@ class TaskPrecheckService:
             )
             if issue is not None:
                 issues.append(issue)
-        if collector_name == "dynamic_playwright" and not any(
-            issue.level == "error" for issue in issues
-        ):
-            safety_issue = TaskPrecheckService._dynamic_playwright_config_safety_issue(
-                config,
-                field_prefix=field_prefix,
-            )
-            if safety_issue is not None:
-                issues.append(safety_issue)
+        if not any(issue.level == "error" for issue in issues):
+            for validation_issue in validate_collector_config(collector_name, config):
+                suffix = f".{validation_issue.field}" if validation_issue.field else ""
+                issues.append(
+                    TaskPrecheckIssue(
+                        level=validation_issue.level,
+                        code=validation_issue.code,
+                        field=f"{field_prefix}{suffix}",
+                        message=validation_issue.message,
+                        collector_id=collector_name,
+                        category="config",
+                        suggested_action=validation_issue.suggested_action,
+                    )
+                )
         return issues
 
     @staticmethod
@@ -1140,28 +981,6 @@ class TaskPrecheckService:
         return None
 
     @staticmethod
-    def _dynamic_playwright_config_safety_issue(
-        config: dict[str, Any],
-        *,
-        field_prefix: str,
-    ) -> TaskPrecheckIssue | None:
-        from fastapi import HTTPException
-        from src.web.safety import validate_dynamic_playwright_config
-
-        try:
-            validate_dynamic_playwright_config(config)
-        except HTTPException as exc:
-            return TaskPrecheckIssue(
-                level="error",
-                code="unsafe_dynamic_playwright_config",
-                field=f"{field_prefix}.url",
-                message=str(exc.detail or "dynamic_playwright config is unsafe."),
-                collector_id="dynamic_playwright",
-                category="config",
-            )
-        return None
-
-    @staticmethod
     def _schema_type_matches(value: Any, expected_type: str) -> bool:
         if expected_type == "number":
             return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -1190,147 +1009,81 @@ class TaskPrecheckService:
                 credential_status,
             )
 
-        issues: list[TaskPrecheckIssue] = []
-        if collector_name == "steam":
-            steam_key = str(get_config("steam.api_key", "") or "").strip()
-            credential_status["steam.api_key"] = "configured" if steam_key else "missing"
-            if not steam_key:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_steam_api_key",
-                        field="steam.api_key",
-                        message="Steam API Key is missing; official Steam APIs may be unavailable.",
-                        collector_id=collector_name,
-                        category="credential",
-                        suggested_action="Set steam.api_key in settings or .env.",
-                    )
-                )
-            if bool(get_config("steam.steamdb.enabled", False)) and bool(
-                get_config("steam.steamdb.cdp_enabled", False)
-            ):
-                credential_status["steam.steamdb.browser_session"] = "requires_login_session"
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="steamdb_login_session",
-                        field="steam.steamdb",
-                        message="SteamDB may require a logged-in browser session.",
-                        collector_id=collector_name,
-                        category="credential",
-                    )
-                )
-        elif collector_name in {"taptap", "official_site", "qimai", "dynamic_playwright"}:
-            playwright_available = importlib.util.find_spec("playwright") is not None
-            credential_status["playwright"] = "available" if playwright_available else "missing"
-            if not playwright_available:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_playwright",
-                        field="playwright",
-                        message="Playwright is not importable; browser-backed collection may fail.",
-                        collector_id=collector_name,
-                        category="credential",
-                        suggested_action="pip install playwright && playwright install chromium",
-                    )
-                )
-        else:
-            credential_status.setdefault("credentials", "not_required")
-        return issues
+        credential_status.setdefault("credentials", "not_declared")
+        return []
 
     @staticmethod
     def _credential_checks_from_metadata(
         collector_metadata: CollectorMetadata,
         credential_status: dict[str, str],
     ) -> list[TaskPrecheckIssue]:
+        if collector_metadata.credential_requirements:
+            return TaskPrecheckService._credential_checks_from_requirements(
+                collector_metadata,
+                credential_status,
+            )
+        status = "not_declared" if collector_metadata.credential_profiles else "not_required"
+        credential_status.setdefault("credentials", status)
+        return []
+
+    @staticmethod
+    def _credential_checks_from_requirements(
+        collector_metadata: CollectorMetadata,
+        credential_status: dict[str, str],
+    ) -> list[TaskPrecheckIssue]:
+        """Evaluate plugin-declared config, module, and runtime requirements."""
+
         issues: list[TaskPrecheckIssue] = []
-        collector_name = collector_metadata.collector_id
-        profiles = set(collector_metadata.credential_profiles)
-        if not profiles:
-            credential_status.setdefault("credentials", "not_required")
-            return issues
+        for requirement in collector_metadata.credential_requirements:
+            if requirement.when_all and not all(
+                get_config(key, None) == expected for key, expected in requirement.when_all.items()
+            ):
+                continue
 
-        if "steam_api_key" in profiles:
-            steam_key = str(get_config("steam.api_key", "") or "").strip()
-            credential_status["steam.api_key"] = "configured" if steam_key else "missing"
-            if not steam_key:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_steam_api_key",
-                        field="steam.api_key",
-                        message="Steam API Key is missing; official Steam APIs may be unavailable.",
-                        collector_id=collector_name,
-                        category="credential",
-                        suggested_action="Set steam.api_key in settings or .env.",
-                    )
+            status_key = requirement.status_key or requirement.config_key or requirement.module
+            available = True
+            if requirement.kind == "config_value":
+                value = str(get_config(requirement.config_key, "") or "").strip()
+                available = bool(value) and (
+                    requirement.allow_placeholder or not value.startswith("${")
                 )
+            elif requirement.kind == "config_list":
+                raw = get_config(requirement.config_key, []) or []
+                values = [raw] if isinstance(raw, str) else list(raw)
+                available = any(
+                    str(value).strip()
+                    and (requirement.allow_placeholder or not str(value).strip().startswith("${"))
+                    for value in values
+                )
+            elif requirement.kind == "python_module":
+                available = importlib.util.find_spec(requirement.module) is not None
+            elif requirement.kind == "notice":
+                available = False
 
-        if (
-            "steamdb_optional_browser_session" in profiles
-            and bool(get_config("steam.steamdb.enabled", False))
-            and bool(get_config("steam.steamdb.cdp_enabled", False))
-        ):
-            credential_status["steam.steamdb.browser_session"] = "requires_login_session"
+            if available and requirement.kind in {"config_value", "config_list"}:
+                status = "configured"
+            elif available:
+                status = "available"
+            elif requirement.kind == "notice":
+                status = "requires_login_session"
+            else:
+                status = "missing"
+            credential_status[status_key or requirement.requirement_id] = status
+            if available:
+                continue
             issues.append(
                 TaskPrecheckIssue(
-                    level="warning",
-                    code="steamdb_login_session",
-                    field="steam.steamdb",
-                    message="SteamDB may require a logged-in browser session.",
-                    collector_id=collector_name,
+                    level=requirement.level,
+                    code=requirement.code,
+                    field=requirement.field or status_key,
+                    message=requirement.message,
+                    collector_id=collector_metadata.collector_id,
                     category="credential",
+                    suggested_action=requirement.suggested_action,
                 )
             )
-
-        if "youtube_api_key" in profiles:
-            raw_keys = get_config("youtube.api_keys", []) or []
-            if isinstance(raw_keys, str):
-                raw_keys = [raw_keys]
-            youtube_keys = [
-                str(key).strip()
-                for key in raw_keys
-                if str(key).strip() and not str(key).strip().startswith("${")
-            ]
-            credential_status["youtube.api_keys"] = (
-                "configured" if youtube_keys else "missing"
-            )
-            if not youtube_keys:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="error",
-                        code="missing_youtube_api_key",
-                        field="youtube.api_keys",
-                        message=(
-                            "YouTube API keys are missing; configure youtube.api_keys "
-                            "before running YouTube collectors."
-                        ),
-                        collector_id=collector_name,
-                        category="credential",
-                        suggested_action="Configure youtube.api_keys in settings.yaml / .env.",
-                    )
-                )
-
-        if "playwright_runtime" in profiles:
-            playwright_available = importlib.util.find_spec("playwright") is not None
-            credential_status["playwright"] = "available" if playwright_available else "missing"
-            if not playwright_available:
-                issues.append(
-                    TaskPrecheckIssue(
-                        level="warning",
-                        code="missing_playwright",
-                        field="playwright",
-                        message="Playwright is not importable; browser-backed collection may fail.",
-                        collector_id=collector_name,
-                        category="credential",
-                        suggested_action="pip install playwright && playwright install chromium",
-                    )
-                )
-
-        if "local_browser_profile" in profiles:
-            credential_status["browser_profile"] = "local_profile_required"
-
+        if not collector_metadata.credential_requirements:
+            credential_status.setdefault("credentials", "not_required")
         return issues
 
     @staticmethod

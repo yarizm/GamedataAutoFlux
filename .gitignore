@@ -3,6 +3,7 @@
 .claude/
 .pytest_cache/
 .playwright-mcp/
+.playwright-cli/
 mcps/
 __pycache__/
 *.pyc
@@ -17,7 +18,13 @@ data/
 !src/web/src/pages/data/style.css
 logs/
 outputs/
+output/
 docs/
+!docs/
+docs/*
+!docs/collector-plugins.md
+!docs/plugin-center-development-plan.md
+!docs/plugin-release.md
 tmp/
 scratch*
 node_modules/
@@ -27,6 +34,7 @@ gamedata_autoflux.egg-info/
 
 
 *.db
+*.sqlite3
 /Steam数据计划.md
 /【原始需求文档】监控需求.xlsx
 /原始计划.md

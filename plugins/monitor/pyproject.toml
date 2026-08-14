@@ -1,0 +1,27 @@
+[project]
+name = "autoflux-plugin-monitor"
+version = "0.1.0"
+description = "Smart monitor collector for GamedataAutoFlux"
+license = "MIT"
+authors = [{ name = "Autoflux Contributors" }]
+requires-python = ">=3.12"
+dependencies = [
+    "gamedata-autoflux>=0.1.0",
+    "autoflux-plugin-smart-web>=0.1.0",
+    "httpx>=0.27.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yarizm/GamedataAutoFlux"
+Repository = "https://github.com/yarizm/GamedataAutoFlux"
+Issues = "https://github.com/yarizm/GamedataAutoFlux/issues"
+
+[project.entry-points."gamedata_autoflux.plugins"]
+monitor = "autoflux_plugin_monitor:plugin"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

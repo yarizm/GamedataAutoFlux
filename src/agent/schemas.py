@@ -239,7 +239,7 @@ class IdentifierResult(BaseModel):
 
 
 class GameIdentifiers(BaseModel):
-    """一个游戏在所有平台的标识符汇总"""
+    """A target's identifiers, including plugin-defined platforms."""
 
     game_name: str = Field(..., description="输入的游戏名")
     steam: IdentifierResult | None = Field(None)
@@ -248,20 +248,27 @@ class GameIdentifiers(BaseModel):
     monitor: IdentifierResult | None = Field(None)
     official_site: IdentifierResult | None = Field(None)
     gtrends: IdentifierResult | None = Field(None)
+    platforms: dict[str, IdentifierResult] = Field(default_factory=dict)
 
     def found_platforms(self) -> list[str]:
-        found = []
+        found: list[str] = []
         for key in ("steam", "taptap", "qimai", "monitor", "official_site", "gtrends"):
             val = getattr(self, key, None)
             if val is not None:
                 found.append(key)
+        for key in self.platforms:
+            if key not in found:
+                found.append(key)
         return found
 
     def high_confidence(self) -> list[str]:
-        result = []
+        result: list[str] = []
         for key in ("steam", "taptap", "qimai", "monitor", "official_site", "gtrends"):
             val = getattr(self, key, None)
             if val is not None and val.confidence == IdentifierConfidence.HIGH:
+                result.append(key)
+        for key, val in self.platforms.items():
+            if key not in result and val.confidence == IdentifierConfidence.HIGH:
                 result.append(key)
         return result
 

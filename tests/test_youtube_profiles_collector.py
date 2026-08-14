@@ -8,7 +8,7 @@ class TestYouTubeProfileCollector:
     @pytest.mark.asyncio
     async def test_collect_by_channel_id(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.profiles import YouTubeProfileCollector
+        from autoflux_plugin_youtube.profiles import YouTubeProfileCollector
 
         collector = YouTubeProfileCollector()
         collector._pool = AsyncMock()
@@ -40,7 +40,7 @@ class TestYouTubeProfileCollector:
     @pytest.mark.asyncio
     async def test_collect_by_handle(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.profiles import YouTubeProfileCollector
+        from autoflux_plugin_youtube.profiles import YouTubeProfileCollector
 
         collector = YouTubeProfileCollector()
         collector._pool = AsyncMock()
@@ -66,7 +66,7 @@ class TestYouTubeProfileCollector:
     @pytest.mark.asyncio
     async def test_collect_by_direct_handle_in_params(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.profiles import YouTubeProfileCollector
+        from autoflux_plugin_youtube.profiles import YouTubeProfileCollector
 
         collector = YouTubeProfileCollector()
         collector._pool = AsyncMock()
@@ -91,7 +91,7 @@ class TestYouTubeProfileCollector:
     @pytest.mark.asyncio
     async def test_collect_not_found(self):
         from src.collectors.base import CollectTarget
-        from src.collectors.youtube.profiles import YouTubeProfileCollector
+        from autoflux_plugin_youtube.profiles import YouTubeProfileCollector
 
         collector = YouTubeProfileCollector()
         collector._pool = AsyncMock()

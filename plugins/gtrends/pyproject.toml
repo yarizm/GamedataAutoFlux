@@ -1,0 +1,28 @@
+[project]
+name = "autoflux-plugin-gtrends"
+version = "0.1.0"
+description = "Google Trends collector for GamedataAutoFlux"
+license = "MIT"
+authors = [{ name = "Autoflux Contributors" }]
+requires-python = ">=3.12"
+dependencies = [
+    "gamedata-autoflux>=0.1.0",
+    "pytrends>=4.9.2",
+    "urllib3>=2.0.0",
+    "firecrawl-py>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yarizm/GamedataAutoFlux"
+Repository = "https://github.com/yarizm/GamedataAutoFlux"
+Issues = "https://github.com/yarizm/GamedataAutoFlux/issues"
+
+[project.entry-points."gamedata_autoflux.plugins"]
+gtrends = "autoflux_plugin_gtrends:plugin"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

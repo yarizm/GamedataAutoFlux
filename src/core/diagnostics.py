@@ -24,7 +24,7 @@ def build_health_report(scheduler_stats: dict[str, Any] | None = None) -> dict[s
         _execution_backend_check(),
         _dependency_check("fastapi", required=True),
         _dependency_check("uvicorn", required=True),
-        _dependency_check("playwright", required=True),
+        _plugin_activation_check(),
         _llm_provider_check(),
         _agent_runtime_compatibility_check(),
     ]
@@ -50,12 +50,10 @@ def build_config_diagnostics() -> dict[str, Any]:
         _execution_backend_check(),
         _dependency_check("pyyaml", import_name="yaml", required=True),
         _dependency_check("python-dotenv", import_name="dotenv", required=False),
-        _dependency_check("playwright", required=True),
         _dependency_check("langchain-openai", import_name="langchain_openai", required=False),
         _llm_provider_check(),
         _agent_runtime_compatibility_check(),
-        _steam_config_check(),
-        _steamdb_config_check(),
+        _plugin_activation_check(),
         _scheduler_config_check(),
     ]
     return {
@@ -86,28 +84,22 @@ def build_collector_session_diagnostics(collector_id: str) -> dict[str, Any]:
     profiles = set(metadata.credential_profiles)
     effective_mode = str(session_contract["effective_mode"])
 
-    if "playwright_runtime" in profiles:
-        checks.append(_dependency_check("playwright", required=True))
-    if "youtube_api_key" in profiles:
-        checks.append(_youtube_api_keys_check())
-    if "steamdb_optional_browser_session" in profiles:
-        checks.append(_steamdb_session_check(optional=True))
-    if "local_browser_profile" in profiles and effective_mode == "local_profile":
-        checks.extend(_local_profile_session_checks(metadata.collector_id))
-    if metadata.collector_id == "qimai" and effective_mode == "managed_state":
-        checks.append(
-            _storage_state_check("session:qimai_storage_state", "qimai.storage_state_path")
-        )
-    if (
-        "local_browser_profile" in profiles
-        and effective_mode != "local_profile"
-        and session_contract["override_status"] != "applied"
-    ):
+    for requirement in metadata.credential_requirements:
+        check = _credential_requirement_check(requirement)
+        if check is not None:
+            checks.append(check)
+    for spec in metadata.session_checks:
+        if spec.session_modes and effective_mode not in spec.session_modes:
+            continue
+        if not _config_conditions_match(spec.when_all):
+            continue
+        checks.append(_declared_session_check(spec))
+    if str(session_contract["override_status"]).startswith("ignored_"):
         checks.append(
             _check(
                 "session_mode_override",
                 "warning",
-                "Collector declares a local browser profile, but the effective session mode is not local_profile.",
+                "Configured session mode is invalid or unsupported; using the plugin default.",
                 configured_mode=session_contract["configured_mode"],
                 effective_mode=effective_mode,
                 override_status=session_contract["override_status"],
@@ -326,6 +318,29 @@ def _dependency_check(
     )
 
 
+def _plugin_activation_check() -> dict[str, Any]:
+    """Summarize installed collector entry-point activation."""
+
+    from src.core.plugin_system import plugin_manager
+
+    payload = plugin_manager.payload()
+    failed = [item for item in payload["plugins"] if item["state"] == "failed"]
+    if failed:
+        return _check(
+            "collector_plugins",
+            "error",
+            f"{len(failed)} collector plugin(s) failed to activate",
+            plugins=payload["plugins"],
+        )
+    active = int(payload["active"])
+    message = (
+        f"{active} collector plugin(s) active"
+        if active
+        else "Core-only deployment: no collector plugins installed"
+    )
+    return _check("collector_plugins", "ok", message, plugins=payload["plugins"])
+
+
 def _llm_provider_check() -> dict[str, Any]:
     provider = str(get_config("llm.provider", "") or "").strip()
     raw_llm = get_raw_section("llm")
@@ -374,197 +389,129 @@ def _llm_provider_check() -> dict[str, Any]:
     )
 
 
-def _steam_config_check() -> dict[str, Any]:
-    api_key = str(get_config("steam.api_key", "") or "").strip()
-    if api_key:
-        return _check("steam.api_key", "ok", "Steam API Key is configured")
-    return _check(
-        "steam.api_key",
-        "warning",
-        "Steam API Key is not configured; some official Steam APIs may be unavailable",
-    )
+def _credential_requirement_check(requirement: Any) -> dict[str, Any] | None:
+    if not _config_conditions_match(requirement.when_all):
+        return None
 
-
-def _youtube_api_keys_check() -> dict[str, Any]:
-    raw_keys = get_config("youtube.api_keys", []) or []
-    if isinstance(raw_keys, str):
-        raw_keys = [raw_keys]
-    api_keys = [
-        str(key).strip()
-        for key in raw_keys
-        if str(key).strip() and not str(key).strip().startswith("${")
-    ]
-    if api_keys:
-        return _check(
-            "youtube.api_keys",
-            "ok",
-            "YouTube API keys are configured",
-            configured_count=len(api_keys),
-        )
-    return _check(
-        "youtube.api_keys",
-        "error",
-        "YouTube API keys are not configured",
-        configured_count=0,
-    )
-
-
-def _steamdb_config_check() -> dict[str, Any]:
-    enabled = bool(get_config("steam.steamdb.enabled", False))
-    if not enabled:
-        return _check("steam.steamdb", "ok", "SteamDB collection is disabled")
-    cdp_enabled = bool(get_config("steam.steamdb.cdp_enabled", False))
-    cdp_port = get_config("steam.steamdb.cdp_port", 9222)
-    profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
-
-    if not cdp_enabled:
-        return _check(
-            "steam.steamdb",
-            "ok",
-            "SteamDB collection is enabled without CDP. Expect captchas.",
-            cdp_enabled=False,
+    check_name = requirement.status_key or f"credential:{requirement.requirement_id}"
+    if requirement.kind == "python_module":
+        return _dependency_check(
+            requirement.module,
+            required=requirement.level == "error",
         )
 
-    if _is_cdp_endpoint_reachable(cdp_port):
-        return _check(
-            "steam.steamdb",
-            "ok",
-            "SteamDB CDP 浏览器已连接并就绪",
-            cdp_enabled=True,
-            cdp_port=cdp_port,
-            profile_dir=profile_dir,
-        )
-
-    return _check(
-        "steam.steamdb",
-        "warning",
-        "未检测到 SteamDB 浏览器运行。请先启动登录浏览器以开放 CDP 端口。",
-        cdp_enabled=True,
-        cdp_port=cdp_port,
-        profile_dir=profile_dir,
-        action="open_steamdb_browser",
-    )
-
-
-def _steamdb_session_check(*, optional: bool) -> dict[str, Any]:
-    enabled = bool(get_config("steam.steamdb.enabled", False))
-    cdp_enabled = bool(get_config("steam.steamdb.cdp_enabled", False))
-    cdp_port = get_config("steam.steamdb.cdp_port", 9222)
-    profile_dir = str(get_config("steam.steamdb.cdp_profile_dir", "") or "").strip()
-
-    if not enabled:
-        return _check(
-            "session:steamdb",
-            "ok",
-            "SteamDB collection is disabled",
-            optional=optional,
-        )
-    if not cdp_enabled:
-        return _check(
-            "session:steamdb",
-            "warning",
-            "SteamDB CDP session is disabled; SteamDB pages may hit captcha or rate limits",
-            optional=optional,
-            cdp_enabled=False,
-        )
-    if _is_cdp_endpoint_reachable(cdp_port):
-        return _check(
-            "session:steamdb",
-            "ok",
-            "SteamDB CDP browser is reachable",
-            optional=optional,
-            cdp_port=cdp_port,
-            profile_dir=profile_dir,
-        )
-    return _check(
-        "session:steamdb",
-        "warning" if optional else "error",
-        "SteamDB CDP browser is not reachable; launch and log in before SteamDB collection",
-        optional=optional,
-        cdp_port=cdp_port,
-        profile_dir=profile_dir,
-        action="open_steamdb_browser",
-    )
-
-
-def _local_profile_session_checks(collector_id: str) -> list[dict[str, Any]]:
-    if collector_id == "qimai":
-        profile_dir = _resolve_project_path(
-            str(get_config("qimai.user_data_dir", "") or "data/qimai_profile")
-        )
-        cdp_enabled = bool(get_config("qimai.cdp_enabled", True))
-        cdp_required = bool(get_config("qimai.cdp_required", False))
-        cdp_port = get_config("qimai.cdp_port", 9222)
-
-        checks = [_profile_dir_check("session:qimai_profile", profile_dir)]
-        if cdp_enabled:
-            checks.append(
-                _cdp_session_check(
-                    "session:qimai_cdp",
-                    cdp_port=cdp_port,
-                    required=cdp_required,
-                    message_prefix="Qimai",
-                )
+    raw_value = get_config(requirement.config_key, None) if requirement.config_key else None
+    if requirement.kind == "config_list":
+        raw_items = raw_value if isinstance(raw_value, list) else [raw_value]
+        values = [
+            str(item).strip()
+            for item in raw_items
+            if _configured_value(item, allow_placeholder=requirement.allow_placeholder)
+        ]
+        if values:
+            return _check(
+                check_name,
+                "ok",
+                f"Configured credential list is available: {requirement.config_key}",
+                configured_count=len(values),
             )
-        return checks
-
-    profile_dir = _resolve_project_path(f"data/{collector_id}_profile")
-    return [_profile_dir_check(f"session:{collector_id}_profile", profile_dir)]
-
-
-def _profile_dir_check(name: str, profile_dir: Path) -> dict[str, Any]:
-    details = {
-        "profile_dir": str(profile_dir),
-        "exists": profile_dir.exists(),
-    }
-    if profile_dir.exists() and profile_dir.is_dir():
-        return _check(name, "ok", "Browser profile directory exists", **details)
-    return _check(
-        name,
-        "warning",
-        "Browser profile directory is missing; run the login helper before collection",
-        **details,
-    )
-
-
-def _storage_state_check(name: str, config_key: str) -> dict[str, Any]:
-    storage_state_path = _resolve_project_path(str(get_config(config_key, "") or ""))
-    details = {
-        "storage_state_path": str(storage_state_path),
-        "exists": storage_state_path.exists(),
-    }
-    if storage_state_path.exists() and storage_state_path.is_file():
-        return _check(name, "ok", "Storage state file exists", **details)
-    return _check(
-        name,
-        "warning",
-        "Storage state file is missing; export a logged-in browser storage state before collection",
-        **details,
-    )
-
-
-def _cdp_session_check(
-    name: str,
-    *,
-    cdp_port: Any,
-    required: bool,
-    message_prefix: str,
-) -> dict[str, Any]:
-    if _is_cdp_endpoint_reachable(cdp_port):
         return _check(
-            name,
-            "ok",
-            f"{message_prefix} CDP browser is reachable",
-            cdp_port=cdp_port,
-            required=required,
+            check_name,
+            requirement.level,
+            requirement.message,
+            configured_count=0,
+            action=requirement.suggested_action,
         )
+
+    if requirement.kind == "config_value":
+        if _configured_value(raw_value, allow_placeholder=requirement.allow_placeholder):
+            return _check(
+                check_name,
+                "ok",
+                f"Configured value is available: {requirement.config_key}",
+            )
+        return _check(
+            check_name,
+            requirement.level,
+            requirement.message,
+            action=requirement.suggested_action,
+        )
+
+    if requirement.kind == "notice":
+        return _check(
+            check_name,
+            requirement.level,
+            requirement.message,
+            action=requirement.suggested_action,
+        )
+    return None
+
+
+def _declared_session_check(spec: Any) -> dict[str, Any]:
+    required = bool(spec.required)
+    if spec.required_config_key:
+        required = bool(get_config(spec.required_config_key, required))
+    details = {
+        "required": required,
+        "action": spec.suggested_action,
+    }
+
+    if spec.kind in {"path_directory", "path_file"}:
+        raw_path = str(get_config(spec.config_key, spec.default_value) or spec.default_value or "")
+        path = _resolve_project_path(raw_path)
+        exists = path.is_dir() if spec.kind == "path_directory" else path.is_file()
+        details.update(
+            {
+                spec.detail_key or "path": str(path),
+                "exists": exists,
+                "session_role": "account",
+            }
+        )
+        return _check(
+            spec.check_id,
+            "ok" if exists else spec.level,
+            spec.ok_message if exists else spec.message,
+            **details,
+        )
+
+    if spec.kind == "http_endpoint":
+        value = get_config(spec.config_key, spec.default_value)
+        endpoint = str(spec.endpoint_template or "{value}").format(value=value)
+        reachable = _is_http_endpoint_reachable(endpoint)
+        details.update(
+            {
+                spec.detail_key or "endpoint_value": value,
+                "endpoint": endpoint,
+                "reachable": reachable,
+                "session_role": "endpoint",
+            }
+        )
+        failure_level = "error" if required else spec.level
+        return _check(
+            spec.check_id,
+            "ok" if reachable else failure_level,
+            spec.ok_message if reachable else spec.message,
+            **details,
+        )
+
     return _check(
-        name,
-        "error" if required else "warning",
-        f"{message_prefix} CDP browser is not reachable",
-        cdp_port=cdp_port,
-        required=required,
+        spec.check_id,
+        spec.level,
+        spec.message,
+        session_role="notice",
+        **details,
     )
+
+
+def _config_conditions_match(conditions: dict[str, Any]) -> bool:
+    return all(get_config(key, expected) == expected for key, expected in conditions.items())
+
+
+def _configured_value(value: Any, *, allow_placeholder: bool) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    return allow_placeholder or not (normalized.startswith("${") and normalized.endswith("}"))
 
 
 def _resolve_project_path(value: str) -> Path:
@@ -574,13 +521,11 @@ def _resolve_project_path(value: str) -> Path:
     return get_root_dir() / path
 
 
-def _is_cdp_endpoint_reachable(port: Any, *, timeout: float = 0.25) -> bool:
+def _is_http_endpoint_reachable(endpoint: str, *, timeout: float = 0.25) -> bool:
     try:
         import urllib.request
 
-        safe_port = int(port)
-        url = f"http://127.0.0.1:{safe_port}/json/version"
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(endpoint, timeout=timeout) as response:
             return response.status == 200
     except Exception:
         return False

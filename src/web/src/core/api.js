@@ -9,7 +9,11 @@ export async function api(path, options = {}) {
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(err.detail || `HTTP ${resp.status}`);
+    const detail = err.detail;
+    const message = detail && typeof detail === 'object'
+      ? (detail.message || detail.code)
+      : detail;
+    throw new Error(message || `HTTP ${resp.status}`);
   }
 
   return resp.json();

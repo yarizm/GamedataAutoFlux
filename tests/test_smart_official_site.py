@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.collectors.official_site_collector import (
+from autoflux_plugin_official_site.collector import (
     _resolve_collector_mode,
     _should_fallback_to_smart,
 )
@@ -47,8 +47,8 @@ async def test_smart_mode_uses_llm_extraction():
 
     html = "<html><body><article><h1>Patch 2.0</h1><p>2026-06-01</p></article></body></html>"
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
-        from src.collectors.llm_extractor import extract_items_from_html
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+        from autoflux_plugin_smart_web.llm_extractor import extract_items_from_html
 
         items = await extract_items_from_html(html, "https://example.com")
 

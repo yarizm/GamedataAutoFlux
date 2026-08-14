@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.collectors.llm_extractor import (
+from autoflux_plugin_smart_web.llm_extractor import (
     extract_items_from_html,
     verify_game_candidate,
     _parse_llm_json,
@@ -67,7 +67,7 @@ async def test_extract_items_from_html_success():
         )
     )
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         items = await extract_items_from_html(
             "<html><body>test</body></html>", "https://example.com"
         )
@@ -81,7 +81,7 @@ async def test_extract_items_from_html_success():
 async def test_extract_items_from_html_llm_returns_invalid():
     mock_llm = _make_mock_llm("I can't extract that")
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         items = await extract_items_from_html(
             "<html><body>test</body></html>", "https://example.com"
         )
@@ -108,7 +108,7 @@ async def test_extract_items_from_html_fallback_on_truncation():
     )
 
     with patch(
-        "src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_bad, mock_good]
+        "autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_bad, mock_good]
     ):
         items = await extract_items_from_html(
             "<html><body>test</body></html>", "https://example.com"
@@ -131,7 +131,7 @@ async def test_verify_game_candidate_match():
         {"displaytext": "Delta Force", "siteurl": "delta_force"},
     ]
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await verify_game_candidate(candidates, "Delta Force", 2507950, None)
 
     assert result["matched_index"] == 1
@@ -144,7 +144,7 @@ async def test_verify_game_candidate_no_match():
         json.dumps({"matched_index": -1, "confidence": 0.0, "reason": "No match found"})
     )
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await verify_game_candidate([], "Unknown Game", 999999, None)
 
     assert result["matched_index"] == -1

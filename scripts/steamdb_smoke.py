@@ -7,7 +7,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from src.collectors.steam.steamdb_scraper import SteamDBScraper
+from autoflux_plugin_steam.steam.steamdb_scraper import SteamDBScraper
 
 
 async def main() -> None:
@@ -15,7 +15,11 @@ async def main() -> None:
     parser.add_argument("--app-id", default="730")
     parser.add_argument("--time-slice", default="daily_precise_90d")
     parser.add_argument("--cdp-port", type=int, default=9222)
-    parser.add_argument("--cdp-optional", action="store_true", help="Fall back to a new browser when CDP is not reachable.")
+    parser.add_argument(
+        "--cdp-optional",
+        action="store_true",
+        help="Fall back to a new browser when CDP is not reachable.",
+    )
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 

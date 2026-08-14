@@ -1,12 +1,21 @@
-"""DAG 节点包装层：把现有组件适配为统一节点接口。"""
+"""DAG execution adapters and plugin-owned editor node definitions.
+
+The execution adapters wrap collector, processor, and storage components in a
+uniform runtime interface.  The declarative catalog at the end of the module
+describes the same components to the DAG editor.  Collector plugins receive a
+conventional editor node automatically, while advanced plugins may override
+ports and schemas through :class:`src.core.plugin_system.PluginSpec`.
+"""
 
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.dag import NodeSpec, PortSpec
@@ -19,7 +28,7 @@ from src.storage.base import StorageRecord
 
 @dataclass
 class NodeContext:
-    inputs: dict[str, Any]  # 端口名 -> 上游数据（多入边时为 list）
+    inputs: dict[str, Any]
     task: Task
     config: dict[str, Any]
     recovery_checkpoint: dict[str, Any] = field(default_factory=dict)
@@ -45,12 +54,14 @@ class NodeProtocol:
 
 def _build_collect_targets(task: Task) -> list[CollectTarget]:
     return [
-        CollectTarget(name=t.name, target_type=t.target_type, params=t.params) for t in task.targets
+        CollectTarget(name=target.name, target_type=target.target_type, params=target.params)
+        for target in task.targets
     ]
 
 
 def _flatten_records(value: Any) -> list:
-    """端口值规整为扁平 list（多入边汇合时可能是 list-of-lists）。"""
+    """Normalize a port value to a flat list after fan-in edges."""
+
     if value is None:
         return []
     if isinstance(value, list):
@@ -72,13 +83,7 @@ def build_emit_checkpoint(
     emit_dag_event: Callable[..., Awaitable[None] | None] | None = None,
     node_spec: Any | None = None,
 ) -> Callable[..., Awaitable[None]]:
-    """Build async ``_emit_checkpoint`` for injection into ``collector.config``.
-
-    Prefer pipeline-style event emission ``(task_id, event_type, level, message, payload)``.
-    When only a DAG lifecycle callback is available, emit phase ``\"progress\"`` with
-    cursor/state/stats in ``out`` so the host can translate to a collect progress event.
-    Mid-write failures are logged and never raise (must not block collection).
-    """
+    """Build the checkpoint callback injected into collector configuration."""
 
     async def _emit_checkpoint(
         cursor: dict[str, Any],
@@ -120,7 +125,7 @@ def build_emit_checkpoint(
                 )
                 if asyncio.iscoroutine(result):
                     await result
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - checkpoint emission is best effort
             logger.warning(
                 "collect progress checkpoint emit failed ({}): {}",
                 component,
@@ -131,9 +136,15 @@ def build_emit_checkpoint(
 
 
 class CollectorNode:
-    """组件级节点：包装采集器。"""
+    """Runtime node wrapping one registered collector."""
 
-    def __init__(self, spec: NodeSpec, *, task: Task, recovery_checkpoint: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        spec: NodeSpec,
+        *,
+        task: Task,
+        recovery_checkpoint: dict[str, Any],
+    ) -> None:
         self.spec = spec
         self.node_id = spec.id
         self.input_ports = spec.ports_in
@@ -143,11 +154,11 @@ class CollectorNode:
         self._collector: BaseCollector | None = None
 
     async def setup(self) -> None:
-        cls_ = registry.get("collector", self.spec.component)
+        collector_type = registry.get("collector", self.spec.component)
         config = dict(self.spec.config)
         if self._recovery_context:
             config["recovery_checkpoint"] = self._recovery_context
-        self._collector = cls_(config=config)
+        self._collector = collector_type(config=config)
 
     async def run(self, ctx: NodeContext) -> dict[str, Any]:
         assert self._collector is not None
@@ -164,13 +175,12 @@ class CollectorNode:
             node_config=node_config,
         )
 
-        # 仅根 collector（无 from_upstream）消费 pipeline 级 resume
         if not node_config.get("from_upstream"):
-            collect_ctx = (self._recovery_context or {}).get("collect", {})
-            if collect_ctx:
+            collect_context = (self._recovery_context or {}).get("collect", {})
+            if collect_context:
                 from src.core.pipeline_recovery import apply_collect_resume_context
 
-                targets = apply_collect_resume_context(targets, collect_ctx)
+                targets = apply_collect_resume_context(targets, collect_context)
 
         if not targets:
             return {"records": []}
@@ -181,7 +191,6 @@ class CollectorNode:
             emit_dag_event=ctx.emit_event,
             node_spec=self.spec,
         )
-
         results = await self._collector.collect_batch(targets)
         return {"records": results}
 
@@ -192,9 +201,15 @@ class CollectorNode:
 
 
 class ProcessorNode:
-    """组件级节点：包装处理器。"""
+    """Runtime node wrapping one registered processor."""
 
-    def __init__(self, spec: NodeSpec, *, task: Task, recovery_checkpoint: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        spec: NodeSpec,
+        *,
+        task: Task,
+        recovery_checkpoint: dict[str, Any],
+    ) -> None:
         self.spec = spec
         self.node_id = spec.id
         self.input_ports = spec.ports_in
@@ -204,26 +219,28 @@ class ProcessorNode:
         self._processor: BaseProcessor | None = None
 
     async def setup(self) -> None:
-        cls_ = registry.get("processor", self.spec.component)
-        self._processor = cls_(config=self.spec.config)
+        processor_type = registry.get("processor", self.spec.component)
+        self._processor = processor_type(config=self.spec.config)
 
     async def run(self, ctx: NodeContext) -> dict[str, Any]:
         assert self._processor is not None
         collect_results = [
-            r for r in _flatten_records(ctx.inputs.get("records")) if isinstance(r, CollectResult)
+            result
+            for result in _flatten_records(ctx.inputs.get("records"))
+            if isinstance(result, CollectResult)
         ]
         inputs = [
             ProcessInput(
-                data=r.data,
+                data=result.data,
                 metadata={
-                    **r.metadata,
-                    "target": r.target.name,
-                    "collected_at": r.collected_at.isoformat(),
+                    **result.metadata,
+                    "target": result.target.name,
+                    "collected_at": result.collected_at.isoformat(),
                 },
-                source=r.target.name,
+                source=result.target.name,
             )
-            for r in collect_results
-            if r.success and r.data is not None
+            for result in collect_results
+            if result.success and result.data is not None
         ]
         await self._processor.setup()
         outputs = await self._processor.process_batch(inputs)
@@ -236,9 +253,15 @@ class ProcessorNode:
 
 
 class StorageNode:
-    """组件级节点：包装存储，sink 节点无输出。复用 pipeline 的 key/metadata helper。"""
+    """Runtime sink node wrapping the configured storage implementation."""
 
-    def __init__(self, spec: NodeSpec, *, task: Task, recovery_checkpoint: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        spec: NodeSpec,
+        *,
+        task: Task,
+        recovery_checkpoint: dict[str, Any],
+    ) -> None:
         self.spec = spec
         self.node_id = spec.id
         self.input_ports = spec.ports_in
@@ -263,31 +286,30 @@ class StorageNode:
         )
 
         raw = _flatten_records(ctx.inputs.get("records"))
-        collect_results = [r for r in raw if isinstance(r, CollectResult)]
-        process_outputs = [r for r in raw if isinstance(r, ProcessOutput)]
+        collect_results = [item for item in raw if isinstance(item, CollectResult)]
+        process_outputs = [item for item in raw if isinstance(item, ProcessOutput)]
 
-        # 构造 ProcessInput 列表以复用 build_storage_record_key/resolve_storage_resume_context
         process_inputs: list[ProcessInput] = []
         if process_outputs:
-            for po in process_outputs:
-                if not po.success or po.data is None:
+            for output in process_outputs:
+                if not output.success or output.data is None:
                     continue
                 process_inputs.append(
                     ProcessInput(
-                        data=po.data,
-                        metadata=po.metadata,
-                        source=po.processor_name or "unknown",
+                        data=output.data,
+                        metadata=output.metadata,
+                        source=output.processor_name or "unknown",
                     )
                 )
         else:
-            for cr in collect_results:
-                if not cr.success or cr.data is None:
+            for result in collect_results:
+                if not result.success or result.data is None:
                     continue
                 process_inputs.append(
                     ProcessInput(
-                        data=cr.data,
-                        metadata=cr.metadata,
-                        source=cr.target.name,
+                        data=result.data,
+                        metadata=result.metadata,
+                        source=result.target.name,
                     )
                 )
 
@@ -299,15 +321,15 @@ class StorageNode:
             StorageRecord(
                 key=build_storage_record_key(
                     self._task,
-                    pi,
-                    index=idx,
+                    process_input,
+                    index=index,
                     storage_context=storage_context,
                 ),
-                data=pi.data,
-                metadata=_build_storage_metadata(self._task, pi.metadata),
-                source=pi.source,
+                data=process_input.data,
+                metadata=_build_storage_metadata(self._task, process_input.metadata),
+                source=process_input.source,
             )
-            for idx, pi in enumerate(process_inputs)
+            for index, process_input in enumerate(process_inputs)
         ]
         await self._storage.save_batch(records)
         return {"_stored": len(records), "output_records": records}
@@ -316,3 +338,237 @@ class StorageNode:
         if self._storage is not None:
             await self._storage.close()
             self._storage = None
+
+
+SUPPORTED_DAG_NODE_TYPES = ("collector", "processor", "storage")
+
+
+class DagPortDefinition(BaseModel):
+    """One typed input or output port exposed in the DAG editor."""
+
+    name: str
+    required: bool = True
+    type_hint: str = "records"
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("DAG port name is required")
+        return normalized
+
+
+class DagOutputField(BaseModel):
+    """One record field that downstream nodes may map from this node."""
+
+    key: str
+    label: str = ""
+    type_hint: str = ""
+    description: str = ""
+
+    @field_validator("key")
+    @classmethod
+    def _validate_key(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("DAG output field key is required")
+        return normalized
+
+
+class DagNodeDefinition(BaseModel):
+    """Declarative node definition contributed by a plugin or the core."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    node_type: str = Field(alias="type")
+    component: str
+    display_name: str = ""
+    description: str = ""
+    ports_in: list[DagPortDefinition] = Field(default_factory=list)
+    ports_out: list[DagPortDefinition] = Field(default_factory=list)
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+    output_fields: list[DagOutputField] = Field(default_factory=list)
+
+    @field_validator("node_type")
+    @classmethod
+    def _validate_node_type(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if normalized not in SUPPORTED_DAG_NODE_TYPES:
+            raise ValueError(
+                "DAG node type must be collector, processor, or storage"
+            )
+        return normalized
+
+    @field_validator("component")
+    @classmethod
+    def _validate_component(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("DAG node component is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_definition(self) -> DagNodeDefinition:
+        _require_unique((item.name for item in self.ports_in), "input port")
+        _require_unique((item.name for item in self.ports_out), "output port")
+        _require_unique((item.key for item in self.output_fields), "output field")
+        _validate_config_schema(self.config_schema)
+        return self
+
+    def to_payload(self, *, owner: str) -> dict[str, Any]:
+        payload = self.model_dump(mode="json", by_alias=True)
+        payload["owner"] = owner
+        return payload
+
+
+_DAG_NODES: dict[tuple[str, str], tuple[DagNodeDefinition, str]] = {}
+_CORE_DAG_NODE_COPY: dict[tuple[str, str], tuple[str, str]] = {
+    ("processor", "cleaner"): (
+        "Data Cleaner",
+        "Normalizes collected records, removes empty values, and prepares data for storage.",
+    ),
+    ("processor", "vectorizer"): (
+        "Vectorizer",
+        "Transforms collected text into vector representations for downstream semantic use.",
+    ),
+    ("storage", "sqlalchemy"): (
+        "SQLAlchemy Storage",
+        "Persists processed records through the configured SQLAlchemy database backend.",
+    ),
+    ("storage", "sqlalchemy_scheduler"): (
+        "SQLAlchemy Scheduler Storage",
+        "Persists scheduler execution records through the configured SQLAlchemy backend.",
+    ),
+}
+
+
+def register_dag_node(definition: DagNodeDefinition, *, owner: str) -> None:
+    """Register a validated node without allowing cross-plugin replacement."""
+
+    normalized_owner = str(owner or "").strip()
+    if not normalized_owner:
+        raise ValueError("DAG node owner is required")
+    normalized = definition.model_copy(deep=True)
+    key = (normalized.node_type, normalized.component)
+    current = _DAG_NODES.get(key)
+    if current and current[1] != normalized_owner:
+        raise ValueError(
+            f"DAG node '{key[0]}:{key[1]}' already belongs to plugin "
+            f"'{current[1]}'"
+        )
+    _DAG_NODES[key] = (normalized, normalized_owner)
+
+
+def get_dag_node(node_type: str, component: str) -> DagNodeDefinition | None:
+    entry = _DAG_NODES.get((str(node_type or "").strip(), str(component or "").strip()))
+    return entry[0].model_copy(deep=True) if entry else None
+
+
+def dag_node_catalog_payload(
+    components: dict[str, list[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return definitions for every currently executable DAG component."""
+
+    if components is None:
+        from src.core.registry import registry
+
+        components = registry.list_components()
+
+    payload: list[dict[str, Any]] = []
+    for node_type in SUPPORTED_DAG_NODE_TYPES:
+        for component in components.get(node_type, []):
+            entry = _DAG_NODES.get((node_type, component))
+            if entry:
+                definition, owner = entry
+            else:
+                display_name, description = _CORE_DAG_NODE_COPY.get(
+                    (node_type, component),
+                    (component, ""),
+                )
+                definition = default_dag_node(
+                    node_type,
+                    component,
+                    display_name=display_name,
+                    description=description,
+                )
+                owner = "core"
+            payload.append(definition.to_payload(owner=owner))
+    return payload
+
+
+def default_dag_node(
+    node_type: str,
+    component: str,
+    *,
+    display_name: str = "",
+    description: str = "",
+    config_schema: dict[str, Any] | None = None,
+    output_fields: list[DagOutputField] | None = None,
+) -> DagNodeDefinition:
+    """Build the conventional node contract used by most components."""
+
+    if node_type == "storage":
+        ports_in = [DagPortDefinition(name="records", required=True)]
+        ports_out: list[DagPortDefinition] = []
+    elif node_type == "collector":
+        ports_in = [DagPortDefinition(name="records", required=False)]
+        ports_out = [DagPortDefinition(name="records", required=True)]
+    else:
+        ports_in = [DagPortDefinition(name="records", required=True)]
+        ports_out = [DagPortDefinition(name="records", required=True)]
+    return DagNodeDefinition(
+        type=node_type,
+        component=component,
+        display_name=display_name or component,
+        description=description,
+        ports_in=ports_in,
+        ports_out=ports_out,
+        config_schema=deepcopy(config_schema or {}),
+        output_fields=[item.model_copy(deep=True) for item in (output_fields or [])],
+    )
+
+
+def snapshot_dag_nodes() -> dict[tuple[str, str], tuple[DagNodeDefinition, str]]:
+    return {
+        key: (definition.model_copy(deep=True), owner)
+        for key, (definition, owner) in _DAG_NODES.items()
+    }
+
+
+def restore_dag_nodes(
+    snapshot: dict[tuple[str, str], tuple[DagNodeDefinition, str]],
+) -> None:
+    _DAG_NODES.clear()
+    _DAG_NODES.update(
+        {
+            key: (definition.model_copy(deep=True), owner)
+            for key, (definition, owner) in snapshot.items()
+        }
+    )
+
+
+def _require_unique(values: Any, label: str) -> None:
+    normalized = [str(value or "").strip() for value in values]
+    duplicates = sorted({value for value in normalized if normalized.count(value) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate DAG {label}s: {', '.join(duplicates)}")
+
+
+def _validate_config_schema(schema: dict[str, Any]) -> None:
+    if not schema:
+        return
+    if schema.get("type", "object") != "object":
+        raise ValueError("DAG node config_schema must describe an object")
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError("DAG node config_schema.properties must be an object")
+    required = schema.get("required", [])
+    if not isinstance(required, list) or any(not isinstance(item, str) for item in required):
+        raise ValueError("DAG node config_schema.required must be a string array")
+    unknown = sorted(set(required) - set(properties))
+    if unknown:
+        raise ValueError(
+            "DAG node config_schema.required references unknown properties: "
+            + ", ".join(unknown)
+        )

@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 
 from src.collectors.base import CollectTarget
-from src.collectors.official_site_collector import OfficialSiteCollector
+from autoflux_plugin_official_site.collector import OfficialSiteCollector
 
 
 DEFAULT_GAMES = [
@@ -36,7 +36,7 @@ DEFAULT_GAMES = [
 
 def _load_recipes() -> dict[str, dict[str, Any]]:
     settings = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8")) or {}
-    recipes = ((settings.get("official_site") or {}).get("recipes") or {})
+    recipes = (settings.get("official_site") or {}).get("recipes") or {}
     return {str(name): params for name, params in recipes.items() if isinstance(params, dict)}
 
 

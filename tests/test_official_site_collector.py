@@ -1,7 +1,7 @@
 import asyncio
 
 from src.collectors.base import CollectTarget
-from src.collectors.official_site_collector import (
+from autoflux_plugin_official_site.collector import (
     FetchResult,
     OfficialSiteCollector,
     _classify_category,
@@ -178,7 +178,12 @@ def test_collect_uses_config_recipe_when_url_is_missing(monkeypatch):
         collector.collect(
             CollectTarget(
                 name="Arc Raiders",
-                params={"max_pages": 20, "max_depth": 1, "use_playwright": "never"},
+                params={
+                    "max_pages": 20,
+                    "max_depth": 1,
+                    "since_days": 36500,
+                    "use_playwright": "never",
+                },
             )
         )
     )

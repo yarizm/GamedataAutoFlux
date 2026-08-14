@@ -1,4 +1,4 @@
-from src.collectors.dynamic_playwright_collector import (
+from autoflux_plugin_dynamic_playwright.collector import (
     DynamicPlaywrightCollector,
     _safe_log_text,
 )
@@ -21,7 +21,7 @@ def test_dynamic_playwright_safe_log_text_redacts_embedded_secrets() -> None:
 def test_dynamic_playwright_validate_config_redacts_invalid_mode_log(monkeypatch) -> None:
     captured: list[str] = []
     monkeypatch.setattr(
-        "src.collectors.dynamic_playwright_collector.logger.error",
+        "autoflux_plugin_dynamic_playwright.collector.logger.error",
         lambda message: captured.append(str(message)),
     )
 

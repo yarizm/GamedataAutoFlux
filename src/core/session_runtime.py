@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from src.core.collector_metadata import (
+    SessionAccountSpec,
     collector_metadata_payload,
     fallback_collector_metadata,
     get_collector_metadata,
     required_worker_capabilities,
+    resolve_session_account,
     resolve_session_mode,
     worker_binding_mode,
 )
@@ -24,7 +26,8 @@ def build_collector_session_runtime(
     metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
     normalized_checks = checks or []
     session_mode = resolve_session_mode(metadata.collector_id)
-    account = _session_account_summary(metadata.collector_id)
+    account_spec = resolve_session_account(metadata, session_mode=session_mode)
+    account = _session_account_summary(account_spec)
     binding = worker_binding_mode(metadata.collector_id)
     lease = _session_lease_summary(
         metadata.collector_id,
@@ -32,10 +35,10 @@ def build_collector_session_runtime(
         worker_binding=binding,
     )
     state = _session_state_summary(
-        metadata.collector_id,
         checks=normalized_checks,
         requires_session=metadata.requires_session,
         session_mode=session_mode,
+        account_spec=account_spec,
     )
     return {
         "account": account,
@@ -47,39 +50,19 @@ def build_collector_session_runtime(
     }
 
 
-def _session_account_summary(collector_id: str) -> dict[str, Any]:
-    if collector_id == "qimai":
-        configured_mode = str(get_config("qimai.session_mode", "") or "").strip().lower()
-        profile_dir = str(get_config("qimai.user_data_dir", "") or "data/qimai_profile").strip()
-        storage_state_path = str(
-            get_config("qimai.storage_state_path", "") or "data/qimai_storage_state.json"
-        ).strip()
-        if configured_mode == "managed_state":
-            return {
-                "account_id": "managed:qimai_storage_state",
-                "account_kind": "managed_state",
-                "locator": storage_state_path,
-                "locator_label": "storage_state_path",
-            }
-        return {
-            "account_id": "local:qimai_profile",
-            "account_kind": "local_profile",
-            "locator": profile_dir,
-            "locator_label": "user_data_dir",
-        }
-
-    if collector_id == "steam":
-        enabled = bool(get_config("steam.steamdb.enabled", False))
-        profile_dir = str(
-            get_config("steam.steamdb.cdp_profile_dir", "") or "data/steamdb_profile"
+def _session_account_summary(account: SessionAccountSpec | None) -> dict[str, Any]:
+    if account is not None:
+        locator = str(
+            get_config(account.locator_config_key, account.default_locator)
+            or account.default_locator
+            or ""
         ).strip()
         return {
-            "account_id": "local:steamdb_profile" if enabled else "",
-            "account_kind": "local_profile" if enabled else "not_required",
-            "locator": profile_dir if enabled else "",
-            "locator_label": "cdp_profile_dir" if enabled else "",
+            "account_id": account.account_id,
+            "account_kind": account.account_kind,
+            "locator": locator,
+            "locator_label": account.locator_label,
         }
-
     return {
         "account_id": "",
         "account_kind": "not_required",
@@ -89,48 +72,44 @@ def _session_account_summary(collector_id: str) -> dict[str, Any]:
 
 
 def _session_state_summary(
-    collector_id: str,
     *,
     checks: list[dict[str, Any]],
     requires_session: bool,
     session_mode: str,
+    account_spec: SessionAccountSpec | None,
 ) -> dict[str, Any]:
-    profile_check_name = f"session:{collector_id}_profile"
-    profile_ready = any(
-        check.get("name") == profile_check_name and check.get("status") == "ok" for check in checks
-    )
-    profile_missing = any(
-        check.get("name") == profile_check_name and check.get("status") in {"warning", "error"}
-        for check in checks
-    )
-    cdp_status = next(
+    readiness_name = account_spec.readiness_check if account_spec else ""
+    readiness_status = next(
         (
             str(check.get("status") or "")
             for check in checks
-            if str(check.get("name") or "").endswith("_cdp")
-            or check.get("name") == "session:steamdb"
+            if readiness_name and check.get("name") == readiness_name
         ),
         "not_configured",
     )
-    storage_state_ready = any(
-        check.get("name") == f"session:{collector_id}_storage_state" and check.get("status") == "ok"
+    endpoint_statuses = [
+        str(check.get("status") or "")
+        for check in checks
+        if isinstance(check.get("details"), dict)
+        and check["details"].get("session_role") == "endpoint"
+    ]
+    cdp_status = _worst_status(endpoint_statuses, default="not_configured")
+    required_endpoint_error = any(
+        check.get("status") == "error"
+        and isinstance(check.get("details"), dict)
+        and check["details"].get("session_role") == "endpoint"
+        and bool(check["details"].get("required"))
         for check in checks
     )
-    storage_state_missing = any(
-        check.get("name") == f"session:{collector_id}_storage_state"
-        and check.get("status") in {"warning", "error"}
-        for check in checks
-    )
+    account_kind = account_spec.account_kind if account_spec else ""
+    profile_ready = account_kind == "local_profile" and readiness_status == "ok"
+    storage_state_ready = account_kind == "managed_state" and readiness_status == "ok"
 
     if not requires_session:
         health = "ready"
-    elif session_mode == "managed_state" and storage_state_ready:
+    elif readiness_status == "ok" and not required_endpoint_error:
         health = "ready"
-    elif session_mode == "managed_state" and storage_state_missing:
-        health = "blocked"
-    elif profile_ready and cdp_status not in {"error"}:
-        health = "ready"
-    elif profile_missing or cdp_status == "error":
+    elif readiness_status in {"warning", "error"} or required_endpoint_error:
         health = "blocked"
     else:
         health = "degraded"
@@ -143,6 +122,11 @@ def _session_state_summary(
         "storage_state_ready": storage_state_ready,
         "cdp_status": cdp_status,
     }
+
+
+def _worst_status(statuses: list[str], *, default: str) -> str:
+    priority = {"error": 3, "warning": 2, "ok": 1}
+    return max(statuses, key=lambda item: priority.get(item, 0), default=default)
 
 
 def _session_lease_summary(

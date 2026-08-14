@@ -2,13 +2,22 @@ from fastapi.testclient import TestClient
 import pytest
 
 from src.core.collector_metadata import (
+    CollectorMetadata,
+    CollectorTargetField,
+    CollectorTargetSchema,
+    SessionAccountSpec,
+    SessionCheckSpec,
     collector_metadata_payload,
     get_collector_metadata,
     list_collector_metadata,
+    register_collector_metadata,
     required_worker_capabilities,
     resolve_session_mode,
+    restore_collector_metadata,
+    snapshot_collector_metadata,
     worker_binding_mode,
 )
+from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.pipeline import Pipeline
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
 from src.core.scheduler import Scheduler
@@ -51,6 +60,55 @@ def test_youtube_collectors_define_targets_and_api_key_credentials() -> None:
         "target.params.channel_url or target.params.channel_id or target.params.handle"
     ]
     assert comments.target_schema.required_fields == ["target.params.video_url"]
+    assert profiles.target_schema.target_type == "youtube_channel"
+    assert profiles.target_schema.fields[0].model_dump() == {
+        "key": "channel_url",
+        "label": "YouTube 频道链接",
+        "description": "每行填写一个频道 URL、频道 ID 或 @handle。",
+        "location": "params",
+        "input_type": "textarea_lines",
+        "required": True,
+        "placeholder": "https://www.youtube.com/@OpenAI",
+        "default": None,
+        "options": [],
+        "minimum": None,
+        "maximum": None,
+        "multiple": True,
+    }
+
+
+def test_target_schema_serializes_operator_facing_form_contract() -> None:
+    schema = CollectorTargetSchema(
+        target_type="article",
+        default_params={"limit": 20},
+        fields=[
+            CollectorTargetField(
+                key="feed_url",
+                label="Feed URL",
+                description="Public feed to collect.",
+                input_type="url",
+                required=True,
+                placeholder="https://example.com/feed",
+            ),
+            CollectorTargetField(
+                key="limit",
+                label="Limit",
+                description="Maximum records for this run.",
+                input_type="number",
+                default=20,
+                minimum=1,
+                maximum=100,
+            ),
+        ],
+    )
+
+    payload = schema.model_dump(mode="json")
+
+    assert payload["target_type"] == "article"
+    assert payload["default_params"] == {"limit": 20}
+    assert payload["fields"][0]["input_type"] == "url"
+    assert payload["fields"][1]["minimum"] == 1
+    assert payload["fields"][1]["maximum"] == 100
 
 
 def test_youtube_metadata_l1() -> None:
@@ -682,6 +740,14 @@ def test_components_metadata_endpoint_keeps_legacy_components_shape() -> None:
     assert isinstance(legacy_payload["collector"], list)
     assert metadata_payload["components"] == legacy_payload
     assert metadata_payload["collectors"]["qimai"]["requires_session"] is True
+    steam_fields = metadata_payload["collectors"]["steam"]["target_schema"]["fields"]
+    assert {field["key"] for field in steam_fields} == {
+        "name",
+        "app_id",
+        "skip_steamdb",
+        "steamdb_time_slice",
+    }
+    assert all(field["description"] for field in steam_fields)
 
 
 def test_unknown_collector_metadata_returns_none() -> None:
@@ -712,3 +778,67 @@ def test_qimai_session_mode_can_be_overridden_to_managed_state(monkeypatch) -> N
     assert payload["configured_session_mode"] == "managed_state"
     assert payload["session_mode_source"] == "config"
     assert payload["session_mode_override_status"] == "applied"
+
+
+def test_third_party_session_contract_needs_no_core_platform_branch(monkeypatch, tmp_path) -> None:
+    profile_dir = tmp_path / "portal_profile"
+    profile_dir.mkdir()
+    metadata_snapshot = snapshot_collector_metadata()
+    metadata = CollectorMetadata(
+        collector_id="custom_portal",
+        display_name="Custom Portal",
+        requires_session=True,
+        session_mode="local_profile",
+        supported_session_modes=["local_profile"],
+        session_accounts=[
+            SessionAccountSpec(
+                account_id="local:custom_portal",
+                account_kind="local_profile",
+                session_modes=["local_profile"],
+                locator_config_key="custom_portal.profile_dir",
+                locator_label="profile_dir",
+                readiness_check="session:custom_portal_login",
+                worker_capability="session:custom_portal_login",
+            )
+        ],
+        session_checks=[
+            SessionCheckSpec(
+                check_id="session:custom_portal_login",
+                kind="path_directory",
+                session_modes=["local_profile"],
+                config_key="custom_portal.profile_dir",
+                detail_key="profile_dir",
+                required=True,
+                level="warning",
+                message="Custom portal login profile is missing",
+                ok_message="Custom portal login profile is ready",
+            )
+        ],
+    )
+    values = {"custom_portal.profile_dir": str(profile_dir)}
+
+    def fake_get_config(key: str, default=None):
+        return values.get(key, default)
+
+    monkeypatch.setattr("src.core.collector_metadata.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
+    monkeypatch.setattr("src.core.session_runtime.get_config", fake_get_config)
+    try:
+        register_collector_metadata(metadata, owner="test-custom-portal")
+        diagnostics = build_collector_session_diagnostics("custom_portal")
+    finally:
+        restore_collector_metadata(metadata_snapshot)
+
+    assert diagnostics["status"] == "ok"
+    assert diagnostics["session_account"] == {
+        "account_id": "local:custom_portal",
+        "account_kind": "local_profile",
+        "locator": str(profile_dir),
+        "locator_label": "profile_dir",
+    }
+    assert diagnostics["required_worker_capabilities"] == [
+        "session:custom_portal_login",
+        "session_mode:local_profile",
+    ]
+    assert diagnostics["session_state"]["health"] == "ready"
+    assert diagnostics["checks"][-1]["name"] == "session:custom_portal_login"

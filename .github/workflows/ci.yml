@@ -27,10 +27,18 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Compile sources
-        run: python -m compileall src/
+        run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
 
-      - name: Ruff (src)
-        run: ruff check src/
+      - name: Ruff (core and plugins)
+        run: >
+          ruff check
+          src/
+          plugins/
+          scripts/check_core_package.py
+          scripts/check_plugin_release.py
+
+      - name: Validate first-party plugin releases
+        run: python scripts/check_plugin_release.py
 
       - name: Agent workflow suite
         # Path workflows (report/review/pipeline/readiness/cron/multisource) + meta/routing
@@ -60,3 +68,6 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Verify packaged core runtime resources
+        run: python scripts/check_core_package.py

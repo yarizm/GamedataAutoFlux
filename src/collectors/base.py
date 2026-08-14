@@ -580,16 +580,6 @@ def _collector_config_key(collector: BaseCollector) -> str:
     explicit = collector.config.get("collector_name") or collector.config.get("collector")
     if explicit:
         return str(explicit)
-
-    class_name = collector.__class__.__name__
-    known_names = {
-        "SteamCollector": "steam",
-        "SteamDiscussionsCollector": "steam_discussions",
-        "TapTapCollector": "taptap",
-        "QimaiCollector": "qimai",
-        "OfficialSiteCollector": "official_site",
-        "MonitorCollector": "monitor",
-        "GoogleTrendsCollector": "gtrends",
-        "DynamicPlaywrightCollector": "dynamic_playwright",
-    }
-    return known_names.get(class_name, "")
+    registered_name = getattr(collector.__class__, "__autoflux_component_name__", "")
+    declared_name = getattr(collector.__class__, "collector_id", "")
+    return str(registered_name or declared_name or "")

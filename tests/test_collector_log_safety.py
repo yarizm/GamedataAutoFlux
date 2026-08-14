@@ -2,48 +2,48 @@ import httpx
 import pytest
 
 from src.collectors.base import CollectTarget
-from src.collectors.official_site_collector import (
+from autoflux_plugin_official_site.collector import (
     FetchResult,
     OfficialSiteCollector,
     _safe_log_text as official_site_safe_log_text,
 )
-from src.collectors.steam_discussions_collector import (
+from autoflux_plugin_steam.discussions import (
     SteamDiscussionsCollector,
     _safe_log_text as steam_discussions_safe_log_text,
 )
-from src.collectors.steam_collector import (
+from autoflux_plugin_steam.collector import (
     SteamCollector,
     _safe_log_text as steam_collector_safe_log_text,
 )
-from src.collectors.steam.steam_api_client import (
+from autoflux_plugin_steam.steam.steam_api_client import (
     _safe_log_text as steam_api_safe_log_text,
 )
-from src.collectors.steam.steamdb_scraper import (
+from autoflux_plugin_steam.steam.steamdb_scraper import (
     SteamDBScraper,
     _safe_log_text as steamdb_safe_log_text,
 )
-from src.collectors.gtrends.firecrawl_fallback import (
+from autoflux_plugin_gtrends.gtrends.firecrawl_fallback import (
     _safe_log_text as gtrends_firecrawl_safe_log_text,
 )
-from src.collectors.monitor_collector import (
+from autoflux_plugin_monitor.collector import (
     MonitorCollector,
     _safe_log_text as monitor_safe_log_text,
 )
-from src.collectors.qimai_collector import (
+from autoflux_plugin_qimai.collector import (
     QimaiCollector,
     _safe_log_text as qimai_safe_log_text,
 )
-from src.collectors.steam.firecrawl_fallback import (
+from autoflux_plugin_steam.steam.firecrawl_fallback import (
     _safe_log_text as steam_firecrawl_safe_log_text,
 )
-from src.collectors.taptap_collector import (
+from autoflux_plugin_taptap.collector import (
     TapTapCollector,
     _safe_log_text as taptap_safe_log_text,
 )
-from src.collectors.taptap.firecrawl_fallback import (
+from autoflux_plugin_taptap.taptap.firecrawl_fallback import (
     _safe_log_text as taptap_firecrawl_safe_log_text,
 )
-from src.collectors.taptap.playwright_scraper import (
+from autoflux_plugin_taptap.taptap.playwright_scraper import (
     TapTapPlaywrightFailed,
     TapTapPlaywrightScraper,
     _safe_log_text as taptap_playwright_safe_log_text,
@@ -102,7 +102,7 @@ async def test_taptap_retry_log_redacts_url_and_error(monkeypatch) -> None:
                 request=request,
             )
 
-    monkeypatch.setattr("src.collectors.taptap_collector.logger.warning", capture_warning)
+    monkeypatch.setattr("autoflux_plugin_taptap.collector.logger.warning", capture_warning)
     collector = TapTapCollector({"request_retries": 2, "request_delay": 0})
     collector._client = FailingClient()
 
@@ -126,7 +126,7 @@ async def test_steam_firecrawl_fallback_error_is_redacted(monkeypatch) -> None:
         async def scrape(self, *args, **kwargs):
             raise RuntimeError("firecrawl failed api_key=firecrawl-secret")
 
-    monkeypatch.setattr("src.collectors.steam_collector.logger.error", capture_error)
+    monkeypatch.setattr("autoflux_plugin_steam.collector.logger.error", capture_error)
     collector = SteamCollector({})
     collector._firecrawl = FailingFirecrawl()
 
@@ -167,8 +167,8 @@ async def test_official_site_httpx_log_and_error_are_redacted(monkeypatch) -> No
                 request=request,
             )
 
-    monkeypatch.setattr("src.collectors.official_site_collector.logger.debug", capture_debug)
-    monkeypatch.setattr("src.collectors.official_site_collector.httpx.AsyncClient", FailingClient)
+    monkeypatch.setattr("autoflux_plugin_official_site.collector.logger.debug", capture_debug)
+    monkeypatch.setattr("autoflux_plugin_official_site.collector.httpx.AsyncClient", FailingClient)
 
     collector = OfficialSiteCollector({"playwright_enabled": False})
     result = await collector._fetch_with_httpx("https://example.com/news?access_token=url-secret")
@@ -239,9 +239,9 @@ async def test_steamdb_sales_navigation_error_is_redacted(monkeypatch) -> None:
     async def fail_navigation(*args, **kwargs):
         raise RuntimeError("navigation failed access_token=nav-secret")
 
-    monkeypatch.setattr("src.collectors.steam.steamdb_scraper.logger.info", capture_info)
+    monkeypatch.setattr("autoflux_plugin_steam.steam.steamdb_scraper.logger.info", capture_info)
     monkeypatch.setattr(
-        "src.collectors.steam.steamdb_scraper._navigate_by_click_async",
+        "autoflux_plugin_steam.steam.steamdb_scraper._navigate_by_click_async",
         fail_navigation,
     )
 
@@ -270,7 +270,7 @@ async def test_taptap_playwright_visit_log_and_error_are_redacted(monkeypatch) -
             raise RuntimeError("page failed token=page-secret")
 
     monkeypatch.setattr(
-        "src.collectors.taptap.playwright_scraper.logger.info",
+        "autoflux_plugin_taptap.taptap.playwright_scraper.logger.info",
         capture_info,
     )
 
@@ -305,7 +305,7 @@ async def test_monitor_retry_log_redacts_url_and_error(monkeypatch) -> None:
                 request=request,
             )
 
-    monkeypatch.setattr("src.collectors.monitor_collector.logger.warning", capture_warning)
+    monkeypatch.setattr("autoflux_plugin_monitor.collector.logger.warning", capture_warning)
     collector = MonitorCollector({"request_delay": 0})
     collector._client = FailingClient()
 
@@ -328,7 +328,7 @@ async def test_monitor_metric_failure_redacts_warning_and_raw_error(monkeypatch)
     async def fail_metric(**kwargs):
         raise RuntimeError("metric failed token=metric-secret")
 
-    monkeypatch.setattr("src.collectors.monitor_collector.logger.warning", capture_warning)
+    monkeypatch.setattr("autoflux_plugin_monitor.collector.logger.warning", capture_warning)
     collector = MonitorCollector()
     collector._metric_concurrency = 1
     monkeypatch.setattr(collector, "_collect_twitch_metric", fail_metric)
@@ -366,8 +366,8 @@ async def test_qimai_collect_failure_redacts_error_and_logs(monkeypatch) -> None
     async def fail_scrape(app_id: str, country: str):
         raise RuntimeError("qimai failed token=qimai-secret")
 
-    monkeypatch.setattr("src.collectors.qimai_collector.logger.error", capture_error)
-    monkeypatch.setattr("src.collectors.qimai_collector.logger.info", capture_info)
+    monkeypatch.setattr("autoflux_plugin_qimai.collector.logger.error", capture_error)
+    monkeypatch.setattr("autoflux_plugin_qimai.collector.logger.info", capture_info)
     collector = QimaiCollector()
     monkeypatch.setattr(collector, "_should_use_threaded_playwright", lambda: False)
     monkeypatch.setattr(collector, "_scrape_async", fail_scrape)
@@ -401,7 +401,7 @@ async def test_steam_discussions_retry_log_redacts_url_and_error(monkeypatch) ->
             )
 
     monkeypatch.setattr(
-        "src.collectors.steam_discussions_collector.logger.warning",
+        "autoflux_plugin_steam.discussions.logger.warning",
         capture_warning,
     )
     collector = SteamDiscussionsCollector({"request_delay": 0})

@@ -7,8 +7,6 @@ WebUI 后端，提供任务管理、Pipeline 配置和报告生成 API。
 from __future__ import annotations
 
 import asyncio
-import importlib
-import pkgutil
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -179,23 +177,25 @@ def _configure_windows_event_loop_policy() -> None:
 
 
 def _auto_discover_plugins():
-    """自动发现并导入所有已注册的插件（采集器、处理器、存储）"""
-    plugin_packages = ["src.collectors", "src.processors", "src.storage"]
-    for package_name in plugin_packages:
-        try:
-            package = importlib.import_module(package_name)
-            package_path = Path(package.__file__).parent
-            for _, module_name, _ in pkgutil.iter_modules([str(package_path)]):
-                if module_name == "base":
-                    continue
-                full_name = f"{package_name}.{module_name}"
-                try:
-                    importlib.import_module(full_name)
-                    logger.debug(f"插件已加载: {full_name}")
-                except Exception as e:
-                    logger.warning(f"插件加载失败: {full_name} - {e}")
-        except Exception as e:
-            logger.warning(f"包扫描失败: {package_name} - {e}")
+    """Load core components and validate installed plugin entry points."""
+    from src.core.plugin_system import plugin_manager
+    from src.plugin_manager.environment import prepare_managed_environment
+    from src.plugin_manager.store import plugin_state_store
+
+    managed_site_packages = prepare_managed_environment()
+    disabled_distributions = {
+        item.distribution
+        for item in plugin_state_store.list_managed_plugins()
+        if item.desired_state == "disabled"
+    }
+    statuses = plugin_manager.load_installed(
+        disabled_distributions=disabled_distributions,
+    )
+    if managed_site_packages is not None:
+        plugin_state_store.mark_runtime_reconciled(
+            status.name for status in statuses if status.state == "active"
+        )
+        plugin_state_store.mark_generation_reconciled()
 
 
 @asynccontextmanager
@@ -267,28 +267,26 @@ async def lifespan(app: FastAPI):
     event_bus.on("task_updated", WebSocketBroadcastHook(manager).handle)
     event_bus.on("task_event", WebSocketTaskEventHook(manager).handle)
 
-    # ── YouTube Pipeline 模板 ──
-    from src.core.pipeline import Pipeline
-
-    scheduler.register_pipeline(
-        Pipeline("youtube_profiles_pipeline")
-        .add_collector("youtube_profiles")
-        .add_storage("sqlalchemy")
-    )
-    scheduler.register_pipeline(
-        Pipeline("youtube_comments_pipeline")
-        .add_collector("youtube_comments")
-        .add_storage("sqlalchemy")
-    )
-
     await scheduler.start()
+    from src.plugin_manager.operations import PluginOperationService
+    from src.plugin_manager.references import PluginReferenceScanner
+
+    app.state.plugin_operations = PluginOperationService(
+        reference_scanner=PluginReferenceScanner(
+            scheduler=scheduler,
+            dag_repository=get_dag_repository(),
+        )
+    )
+    await app.state.plugin_operations.start()
     # 自动迁移检测：旧 pipeline 快照转 graph，只转不删
     try:
         from src.services.pipeline_dag_migration import migrate_pipelines_to_dag
 
         migration = await migrate_pipelines_to_dag(session_factory)
         if migration["migrated"]:
-            logger.info(f"自动迁移 {len(migration['migrated'])} 个 pipeline 到 DAG: {migration['migrated']}")
+            logger.info(
+                f"自动迁移 {len(migration['migrated'])} 个 pipeline 到 DAG: {migration['migrated']}"
+            )
         if migration["failed"]:
             logger.warning(f"自动迁移失败的 pipeline: {migration['failed']}")
     except Exception as exc:
@@ -301,6 +299,8 @@ async def lifespan(app: FastAPI):
 
     # 关闭
     logger.info("GamedataAutoFlux 关闭中...")
+    if getattr(app.state, "plugin_operations", None) is not None:
+        await app.state.plugin_operations.stop()
     await scheduler.stop()
 
     # 注销所有 EventBus handlers，防止重复注册
@@ -366,6 +366,7 @@ def create_app() -> FastAPI:
     from src.web.routes.workers import router as workers_router
     from src.web.routes.targets import router as targets_router
     from src.web.routes.youtube_export import router as youtube_export_router
+    from src.web.routes.plugin_manager import router as plugin_manager_router
     from src.web.safety import require_admin
 
     admin_dependencies = [Depends(require_admin)]
@@ -378,6 +379,7 @@ def create_app() -> FastAPI:
     app.include_router(workers_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(targets_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(youtube_export_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(plugin_manager_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(health_router, prefix="/api")
 
     # 注册页面路由

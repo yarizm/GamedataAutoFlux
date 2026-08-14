@@ -8,15 +8,20 @@ import time
 from pathlib import Path
 
 from src.collectors.base import CollectTarget
-from src.collectors.official_site_collector import OfficialSiteCollector
+from autoflux_plugin_official_site.collector import OfficialSiteCollector
 
 
 def _summarize(data: dict) -> dict:
-    counts = {section: len((data.get(section) or {}).get("items", [])) for section in ("news", "patch_notes", "events")}
+    counts = {
+        section: len((data.get(section) or {}).get("items", []))
+        for section in ("news", "patch_notes", "events")
+    }
     all_items = []
     for section in ("news", "patch_notes", "events"):
         all_items.extend((data.get(section) or {}).get("items", []))
-    dates = sorted([item.get("date") for item in all_items if isinstance(item, dict) and item.get("date")])
+    dates = sorted(
+        [item.get("date") for item in all_items if isinstance(item, dict) and item.get("date")]
+    )
     samples = []
     for section in ("news", "patch_notes", "events"):
         for item in (data.get(section) or {}).get("items", [])[:3]:

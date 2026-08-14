@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget, _sleep_before_retry
-from src.collectors.gtrends_collector import GoogleTrendsCollector
+from autoflux_plugin_gtrends.collector import GoogleTrendsCollector
 
 
 class DummyCollector(BaseCollector):
@@ -33,7 +33,7 @@ class TrackingCollector(BaseCollector):
 
 
 class TapTapCollector(TrackingCollector):
-    pass
+    collector_id = "taptap"
 
 
 class FlakyCollector(BaseCollector):

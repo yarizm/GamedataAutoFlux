@@ -1,11 +1,38 @@
 """Shared test fixtures for GamedataAutoFlux."""
 
+import os
+import sys
 import pytest
 from datetime import datetime
+from pathlib import Path
 
-from src.core.task import Task, TaskTarget
-from src.core.pipeline import Pipeline
-from src.storage.base import StorageRecord
+
+# The repository test suite exercises every first-party plugin without
+# installing them into the active interpreter. Production discovery still uses
+# package entry points; this is the explicit development-module escape hatch.
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PLUGIN_NAMES = (
+    "smart_web",
+    "steam",
+    "taptap",
+    "gtrends",
+    "qimai",
+    "youtube",
+    "official_site",
+    "monitor",
+    "dynamic_playwright",
+)
+for _plugin_name in reversed(_PLUGIN_NAMES):
+    sys.path.insert(0, str(_PROJECT_ROOT / "plugins" / _plugin_name / "src"))
+
+os.environ.setdefault(
+    "AUTOFLUX_PLUGIN_MODULES",
+    ",".join(f"autoflux_plugin_{name}" for name in _PLUGIN_NAMES if name != "smart_web"),
+)
+
+from src.core.task import Task, TaskTarget  # noqa: E402
+from src.core.pipeline import Pipeline  # noqa: E402
+from src.storage.base import StorageRecord  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +41,7 @@ def isolated_db_config(tmp_path, monkeypatch):
     db_path = tmp_path / "test_autoflux.db"
     test_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
     monkeypatch.setenv("DATABASE_URL", test_url)
+    monkeypatch.setenv("AUTOFLUX_PLUGIN_MANAGER_DIR", str(tmp_path / "plugin-manager"))
 
     from src.core.config import load_settings
 

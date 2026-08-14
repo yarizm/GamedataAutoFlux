@@ -9,7 +9,7 @@ class _ConcreteYouTubeCollector:
 
     @classmethod
     def _create(cls, config=None):
-        from src.collectors.youtube.base import BaseYouTubeCollector
+        from autoflux_plugin_youtube.base import BaseYouTubeCollector
 
         class _Concrete(BaseYouTubeCollector):
             async def collect(self, target):
@@ -30,7 +30,7 @@ class TestBaseYouTubeCollector:
             }
         }
 
-        with patch("src.collectors.youtube.base.get_settings", return_value=mock_settings):
+        with patch("autoflux_plugin_youtube.base.get_settings", return_value=mock_settings):
             collector = _ConcreteYouTubeCollector._create()
             await collector.setup()
 
@@ -48,7 +48,7 @@ class TestBaseYouTubeCollector:
             }
         }
 
-        with patch("src.collectors.youtube.base.get_settings", return_value=mock_settings):
+        with patch("autoflux_plugin_youtube.base.get_settings", return_value=mock_settings):
             collector = _ConcreteYouTubeCollector._create()
             await collector.setup()
 
@@ -59,7 +59,7 @@ class TestBaseYouTubeCollector:
     async def test_setup_raises_on_no_valid_keys(self):
         mock_settings = {"youtube": {"api_keys": ["${UNRESOLVED}"]}}
 
-        with patch("src.collectors.youtube.base.get_settings", return_value=mock_settings):
+        with patch("autoflux_plugin_youtube.base.get_settings", return_value=mock_settings):
             collector = _ConcreteYouTubeCollector._create()
             with pytest.raises(ValueError, match="API Key"):
                 await collector.setup()
@@ -68,7 +68,7 @@ class TestBaseYouTubeCollector:
     async def test_config_api_key_overrides_settings(self):
         mock_settings = {"youtube": {"api_keys": ["settings_key"]}}
 
-        with patch("src.collectors.youtube.base.get_settings", return_value=mock_settings):
+        with patch("autoflux_plugin_youtube.base.get_settings", return_value=mock_settings):
             collector = _ConcreteYouTubeCollector._create(config={"api_key": "config_key"})
             await collector.setup()
 
@@ -79,7 +79,7 @@ class TestBaseYouTubeCollector:
     async def test_teardown_closes_pool(self):
         mock_settings = {"youtube": {"api_keys": ["key1"]}}
 
-        with patch("src.collectors.youtube.base.get_settings", return_value=mock_settings):
+        with patch("autoflux_plugin_youtube.base.get_settings", return_value=mock_settings):
             collector = _ConcreteYouTubeCollector._create()
             await collector.setup()
             assert collector._pool._client is not None

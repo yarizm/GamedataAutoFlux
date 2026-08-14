@@ -1,4 +1,4 @@
-from src.collectors.qimai_collector import (
+from autoflux_plugin_qimai.collector import (
     _find_app_rank_in_payloads,
     _normalize_series,
     _sanitize_qimai_metric_series,

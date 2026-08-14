@@ -21,10 +21,9 @@ __pycache__/
 .env.*
 !.env.example
 
-# Node (frontend build should be pre-compiled into src/web/static/dist/)
+# Node dependencies are rebuilt in the frontend stage.
 node_modules/
 src/web/node_modules/
-src/web/src/
 
 # Runtime data directories (mounted as volumes)
 data/

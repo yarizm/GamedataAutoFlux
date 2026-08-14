@@ -13,11 +13,33 @@
                 </div>
             </div>
 
+            <section class="inline-guide-shell dag-inline-guide"
+                     data-inline-guide="dag-quickstart"
+                     data-inline-guide-version="v1"
+                     data-tour-id="dag-quickstart">
+                <header class="inline-guide-header">
+                    <div>
+                        <strong data-i18n="dag.guide.title">DAG 四步上手</strong>
+                        <small data-i18n="dag.guide.subtitle">点击节点加入画布，连接端口，再配置固定值或上游映射。</small>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-inline-guide-toggle aria-expanded="true">收起说明</button>
+                </header>
+                <div class="dag-onboarding" data-inline-guide-body>
+                    <div><span>1</span><strong data-i18n="dag.onboarding.collector">添加采集器</strong><small data-i18n="dag.onboarding.collectorHint">决定从哪里采集；目标参数在创建任务时填写</small></div>
+                    <b>→</b>
+                    <div><span>2</span><strong data-i18n="dag.onboarding.processor">连接处理节点</strong><small data-i18n="dag.onboarding.processorHint">可选：清洗或转换 records</small></div>
+                    <b>→</b>
+                    <div><span>3</span><strong data-i18n="dag.onboarding.storage">连接存储节点</strong><small data-i18n="dag.onboarding.storageHint">保存结果后校验并命名 DAG</small></div>
+                    <b>→</b>
+                    <div><span>4</span><strong data-i18n="dag.onboarding.task">创建任务</strong><small data-i18n="dag.onboarding.taskHint">选择这个 DAG，再填写本次运行目标</small></div>
+                </div>
+            </section>
+
             <div id="dag-validate-bar" class="text-xs text-muted mb-2 px-1"></div>
 
             <div class="dag-layout grid grid-cols-12 gap-4">
                 <aside class="col-span-3 space-y-4">
-                    <div class="card rounded-2xl p-4 mb-0">
+                    <div class="card rounded-2xl p-4 mb-0" data-tour-id="dag-palette">
                         <div class="flex items-center justify-between mb-3">
                             <h2 class="font-bold tracking-tight text-sm uppercase" data-i18n="dag.saved">已保存</h2>
                             <button type="button" class="text-muted hover:text-[var(--info)] text-[10px]" id="btn-dag-refresh-list" data-i18n="dag.refresh" data-i18n-title="dag.refreshList" title="刷新列表">刷新</button>
@@ -35,7 +57,7 @@
                     </div>
                 </aside>
 
-                <main class="col-span-6 card rounded-2xl p-0 overflow-hidden mb-0">
+                <main class="col-span-6 card rounded-2xl p-0 overflow-hidden mb-0" data-tour-id="dag-canvas">
                     <div class="card-header px-4 pt-4 pb-2 border-b flex items-center justify-between mb-0">
                         <h2 class="font-bold tracking-tight text-sm uppercase" data-i18n="dag.canvas">画布</h2>
                         <span class="text-muted text-[10px]" data-i18n="dag.canvasHint">空白处/中键/空格+拖 平移 · 滚轮缩放 · 端口连线 · 右侧映射上游字段</span>
@@ -47,7 +69,7 @@
                 </main>
 
                 <aside class="col-span-3">
-                    <div class="card rounded-2xl p-4 mb-0" id="dag-inspector">
+                    <div class="card rounded-2xl p-4 mb-0" id="dag-inspector" data-tour-id="dag-inspector">
                         <p class="text-muted text-xs" data-i18n="dag.selectHint">选中节点或边以编辑属性</p>
                     </div>
                 </aside>

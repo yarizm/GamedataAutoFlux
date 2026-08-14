@@ -1,0 +1,23 @@
+[project]
+name = "autoflux-plugin-youtube"
+version = "0.1.0"
+description = "YouTube collectors for GamedataAutoFlux"
+license = "MIT"
+authors = [{ name = "Autoflux Contributors" }]
+requires-python = ">=3.12"
+dependencies = ["gamedata-autoflux>=0.1.0", "httpx>=0.27.0", "loguru>=0.7.0"]
+
+[project.urls]
+Homepage = "https://github.com/yarizm/GamedataAutoFlux"
+Repository = "https://github.com/yarizm/GamedataAutoFlux"
+Issues = "https://github.com/yarizm/GamedataAutoFlux/issues"
+
+[project.entry-points."gamedata_autoflux.plugins"]
+youtube = "autoflux_plugin_youtube:plugin"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

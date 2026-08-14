@@ -3,6 +3,7 @@
  * Field element IDs use a prefix: task-* or cron-*.
  */
 
+import { escapeHtml } from './api.js';
 import { t } from './i18n.js';
 
 export const COLLECTOR_FIELD_KEYS = [
@@ -27,6 +28,173 @@ export const COLLECTOR_TIPS = {
   steam: 'Steam：游戏名 + App ID（推荐填写 App ID）。',
   gtrends: 'Google Trends：填写关键词作为目标名称。',
 };
+
+function metadataFieldId(prefix, field) {
+  const safeKey = String(field?.key || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+  return `${prefix}-metadata-${safeKey}`;
+}
+
+function renderMetadataInput(prefix, field) {
+  const id = metadataFieldId(prefix, field);
+  const common = [
+    `id="${escapeHtml(id)}"`,
+    `data-target-key="${escapeHtml(field.key)}"`,
+    `data-target-location="${escapeHtml(field.location || 'params')}"`,
+    `data-target-input="${escapeHtml(field.input_type || 'text')}"`,
+    field.required ? 'required' : '',
+  ].filter(Boolean).join(' ');
+  const placeholder = field.placeholder
+    ? ` placeholder="${escapeHtml(field.placeholder)}"`
+    : '';
+  const defaultValue = field.default ?? '';
+
+  if (field.input_type === 'boolean') {
+    return `<label class="metadata-target-checkbox">
+      <input type="checkbox" ${common} ${defaultValue ? 'checked' : ''}>
+      <span>${escapeHtml(field.label)}</span>
+    </label>`;
+  }
+  if (field.input_type === 'select') {
+    return `<select ${common}>
+      ${(field.options || []).map((option) => {
+        const value = String(option.value ?? '');
+        const label = String(option.label ?? value);
+        return `<option value="${escapeHtml(value)}" ${value === String(defaultValue) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('')}
+    </select>`;
+  }
+  if (field.input_type === 'textarea' || field.input_type === 'textarea_lines') {
+    return `<textarea ${common} rows="${field.input_type === 'textarea_lines' ? '5' : '3'}"${placeholder}>${escapeHtml(defaultValue)}</textarea>`;
+  }
+  const type = ['url', 'number', 'date'].includes(field.input_type)
+    ? field.input_type
+    : 'text';
+  const bounds = [
+    field.minimum != null ? `min="${escapeHtml(String(field.minimum))}"` : '',
+    field.maximum != null ? `max="${escapeHtml(String(field.maximum))}"` : '',
+  ].filter(Boolean).join(' ');
+  return `<input type="${type}" ${common} ${bounds}${placeholder} value="${escapeHtml(defaultValue)}">`;
+}
+
+/**
+ * Render plugin-owned target fields. Returns false for legacy metadata without
+ * a field contract so the existing compatibility form can remain available.
+ */
+export function renderMetadataTargetForm(prefix, metadata) {
+  const container = document.getElementById(`${prefix}-metadata-target-fields`);
+  if (!container) return false;
+  const schema = metadata?.target_schema || {};
+  const fields = Array.isArray(schema.fields) ? schema.fields : [];
+  const commonLabel = document.querySelector(`label[for="${prefix}-target-name"]`);
+  const commonInput = document.getElementById(`${prefix}-target-name`);
+  const commonHelp = document.getElementById(`${prefix}-target-name-help`);
+  if (!fields.length) {
+    container.innerHTML = '';
+    container.hidden = true;
+    if (commonLabel) commonLabel.textContent = t('tasks.targetName');
+    if (commonInput) commonInput.placeholder = t('tasks.targetName');
+    if (commonHelp) {
+      commonHelp.textContent = '';
+      commonHelp.hidden = true;
+    }
+    return false;
+  }
+
+  const nameField = fields.find((field) => field.location === 'name');
+  if (commonLabel && nameField?.label) {
+    commonLabel.innerHTML = `${escapeHtml(nameField.label)}${nameField.required ? ' <span class="target-required">*</span>' : ''}`;
+  } else if (commonLabel) {
+    commonLabel.textContent = t('tasks.targetName');
+  }
+  if (commonInput && nameField?.placeholder) {
+    commonInput.placeholder = nameField.placeholder;
+  } else if (commonInput) {
+    commonInput.placeholder = t('tasks.targetName');
+  }
+  if (commonHelp) {
+    commonHelp.textContent = nameField?.description || '';
+    commonHelp.hidden = !nameField?.description;
+  }
+
+  const paramFields = fields.filter((field) => field.location !== 'name');
+  container.hidden = false;
+  container.innerHTML = paramFields.map((field) => `
+    <div class="form-group metadata-target-field">
+      ${field.input_type === 'boolean'
+        ? renderMetadataInput(prefix, field)
+        : `<label for="${escapeHtml(metadataFieldId(prefix, field))}">${escapeHtml(field.label)}${field.required ? ' <span class="target-required">*</span>' : ''}</label>
+          ${renderMetadataInput(prefix, field)}`}
+      <small class="metadata-target-help">${escapeHtml(field.description || '')}</small>
+    </div>
+  `).join('');
+  return true;
+}
+
+function readMetadataFieldValue(prefix, field) {
+  if (field.location === 'name') {
+    return document.getElementById(`${prefix}-target-name`)?.value?.trim?.() || '';
+  }
+  const element = document.getElementById(metadataFieldId(prefix, field));
+  if (!element) return '';
+  if (field.input_type === 'boolean') return Boolean(element.checked);
+  const raw = element.value?.trim?.() ?? element.value ?? '';
+  if (raw === '') return '';
+  if (field.input_type === 'number') return Number(raw);
+  return raw;
+}
+
+/**
+ * Build targets using the plugin's declarative field contract.
+ * Returns null when the plugin does not provide such a contract.
+ */
+export function buildTargetsFromMetadata(prefix, metadata) {
+  const schema = metadata?.target_schema || {};
+  const fields = Array.isArray(schema.fields) ? schema.fields : [];
+  if (!fields.length) return null;
+
+  const nameField = fields.find((field) => field.location === 'name');
+  const targetName = String(
+    nameField
+      ? readMetadataFieldValue(prefix, nameField)
+      : document.getElementById(`${prefix}-target-name`)?.value?.trim?.() || '',
+  );
+  const params = { ...(schema.default_params || {}) };
+  let identityValue = targetName;
+  let repeatedField = null;
+  let repeatedValues = [];
+
+  for (const field of fields) {
+    if (field.location === 'name') continue;
+    const value = readMetadataFieldValue(prefix, field);
+    if (field.input_type === 'textarea_lines' || field.multiple) {
+      repeatedField = field;
+      repeatedValues = String(value || '')
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (repeatedValues.length) identityValue ||= repeatedValues[0];
+      continue;
+    }
+    if (value === '' || value == null) continue;
+    params[field.key] = value;
+    if (field.default == null) identityValue ||= String(value);
+  }
+
+  if (repeatedField) {
+    if (!repeatedValues.length) return [];
+    return repeatedValues.map((value) => ({
+      name: value,
+      target_type: schema.target_type || 'game',
+      params: { ...params, [repeatedField.key]: value },
+    }));
+  }
+  if (!identityValue) return [];
+  return [{
+    name: targetName || identityValue,
+    target_type: schema.target_type || 'game',
+    params,
+  }];
+}
 
 /**
  * Show/hide collector-specific panels and update helper text.

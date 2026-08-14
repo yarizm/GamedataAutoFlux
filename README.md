@@ -1,10 +1,19 @@
 # GamedataAutoFlux
 
-基于 Python 的游戏数据采集与分析系统，提供 FastAPI WebUI，用于配置 Pipeline、执行任务、浏览数据和生成 Excel 报告。支持分布式 Worker 节点扩展。
+GamedataAutoFlux 是可自定义、可编排、可分布式运行的插件化数据采集平台；游戏数据是
+当前首批插件集合，而不是核心边界。
+
+> 平台采集能力已拆分为独立 Python 插件。核心安装不再携带任何平台采集器；
+> 部署者按需安装 `plugins/` 下的包即可。完整说明见
+> [`docs/collector-plugins.md`](docs/collector-plugins.md)。
+
+平台提供 FastAPI WebUI、执行方案（Pipeline）与 DAG 编排、任务调度、数据浏览、
+插件中心和可选的分布式 Worker；采集能力由已安装插件动态贡献。
 
 ## 核心功能
 
-- **多数据源采集**：Steam（官方 API + SteamDB + Discussions）、TapTap、七麦数据、Google Trends、YouTube Data API、官网新闻、动态 Playwright 网页采集
+- **按需采集插件**：首批官方插件覆盖 Steam、TapTap、七麦、Google Trends、YouTube、官网新闻和动态 Playwright 网页
+- **可视化插件中心**：安装、启停、升级、卸载和回滚使用隔离 generation，安装后动态贡献采集器、任务字段与 DAG 节点
 - **Pipeline 编排**：DAG 执行引擎支持多源并行汇合、条件分支/故障转移、节点间数据依赖传递、可复用子图；兼容 Builder 模式三段式 Pipeline，支持断点恢复
 - **AI Agent 对话助手**：LangChain + LangGraph 驱动，支持 Playwright MCP 浏览器工具，自然语言操控全系统
 - **Smart Collector**：LLM 辅助 HTML 提取/验证，低于置信度阈值自动降级
@@ -27,7 +36,7 @@ docker-compose up -d
 
 ### 方式二：本地运行
 
-环境要求：Python >= 3.12、Chromium/Chrome/Edge（Playwright 需要）
+环境要求：Python >= 3.12；只有浏览器型插件需要 Chromium/Chrome/Edge。
 
 ```powershell
 cd GamedataAutoFlux
@@ -36,11 +45,18 @@ python -m venv .venv
 # source .venv/bin/activate     # Linux/macOS
 
 pip install -e .[dev]
-playwright install chromium
 
 # 启动服务
 autoflux
 # 或 python -m src.web.app
+```
+
+启动后可在“插件中心”按需安装官方插件，也可以按
+[`docs/collector-plugins.md`](docs/collector-plugins.md) 使用 `pip` 安装本地插件包。
+安装 Steam、TapTap、七麦、官网或 Dynamic Playwright 等浏览器型插件时，还需执行：
+
+```powershell
+playwright install chromium
 ```
 
 ### 启动 Worker Agent（可选）
@@ -98,9 +114,10 @@ Pipeline 与 DAG 并存：`Pipeline.execute()` 默认委托 `DAGExecutor`（经 
 | 错误分类 | `src/core/errors.py` | 9 种错误码，自动推断 + 中文说明 + 修复建议 |
 | 脱敏 | `src/core/sensitive.py` | 全局递归脱敏，覆盖 API Key / Cookie / Token |
 
-### 采集器
+### 第一方采集器插件
 
-所有采集器继承 `BaseCollector`（`src/collectors/base.py`），生命周期 `setup() → collect_batch() → teardown()`，内置并发控制、超时、自动重试。
+已安装插件中的采集器继承 `BaseCollector`（`src/collectors/base.py`），生命周期
+`setup() → collect_batch() → teardown()`，内置并发控制、超时和自动重试。
 
 | 采集器 | 数据源 | 特点 |
 |--------|--------|------|
@@ -160,7 +177,7 @@ LLM 分析文本 + openpyxl 输出 Excel。提取器插件化（`src/reporting/e
 ### Web 层
 
 - **后端**：FastAPI，所有 API 挂载 `/api`，管理路由需 X-API-Key（本地免认证）
-- **前端**：Vite + Tailwind 4 + ECharts，纯 JS SPA（无框架），8 个页面模块
+- **前端**：Vite + Tailwind 4 + ECharts，纯 JS SPA（无框架），10 个页面模块
 - **安全**：SSRF 防护（禁止 localhost/内网 IP）、DNS rebinding 二次校验、敏感字段脱敏
 - **WebSocket**：任务状态和结构化事件实时推送
 
@@ -197,12 +214,13 @@ python scripts/qimai_login.py
 |------|------|
 | `config/` | settings.yaml + logging.yaml |
 | `src/` | 全部源码 |
+| `plugins/` | 第一方采集插件与内部共享插件包 |
 | `scripts/` | 工具脚本（登录、smoke test、批量报告） |
 | `tests/` | pytest 测试（含 Agent workflow 与集成测试） |
 | `data/` | 浏览器 profile、报告输出、缓存 |
 | `logs/` | 运行日志 |
 | `tmp/` | 临时文件（Excel 报告等） |
-| `docs/` | 设计文档（过程产物，默认不随功能提交） |
+| `docs/` | 随功能维护的插件规范、发布流程和开发方案；其他过程文档默认忽略 |
 
 ## 测试
 
@@ -215,7 +233,8 @@ pytest tests/test_worker_agent.py
 
 测试隔离：`conftest.py` 的 `isolated_db_config` fixture 为每个测试创建临时 SQLite 数据库。
 
-CI（`.github/workflows/ci.yml`）：`compileall` → `ruff` → Agent workflow 套件 → `pytest -m "not integration"` → 前端 `npm ci && npm run build`。
+CI（`.github/workflows/ci.yml`）：核心与插件 `compileall` / `ruff` → 插件发布校验 →
+Agent workflow 套件 → `pytest -m "not integration"` → 前端构建 → 核心 wheel 资源校验。
 
 ## 注意事项
 

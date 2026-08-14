@@ -21,14 +21,16 @@ function nextFrame() {
  * @param {{
  *   ensurePage?: (tab: string) => Promise<any>,
  *   activateTab?: (tab: string) => void,
+ *   runAction?: (actionName: string) => Promise<any>,
  *   onComplete?: (tourId?: string) => void,
  *   onStop?: () => void,
  * }} deps
- * @returns {{ start: (tourId: string) => void, stop: () => void, isActive: () => boolean }}
+ * @returns {{ start: (tourId: string) => Promise<void>, stop: () => Promise<void>, isActive: () => boolean }}
  */
 export function createSpotlight(deps = {}) {
   const ensurePage = deps.ensurePage;
   const activateTab = deps.activateTab;
+  const runAction = typeof deps.runAction === 'function' ? deps.runAction : null;
   const onComplete = typeof deps.onComplete === 'function' ? deps.onComplete : null;
   const onStop = typeof deps.onStop === 'function' ? deps.onStop : null;
 
@@ -45,6 +47,8 @@ export function createSpotlight(deps = {}) {
   let shownCount = 0;
   /** Toast missing target at most once per tour start. */
   let didToastMissing = false;
+  let activeTour = null;
+  let cleanupPromise = Promise.resolve();
 
   function ensureDom() {
     if (root) return root;
@@ -94,7 +98,7 @@ export function createSpotlight(deps = {}) {
     }
     if (action === 'skip') {
       // Skip entire tour without marking completed
-      stop();
+      void stop();
     }
   }
 
@@ -177,6 +181,18 @@ export function createSpotlight(deps = {}) {
   async function runBefore(step) {
     const before = step?.before;
     if (!before || typeof before !== 'string') return;
+    if (before.startsWith('action:')) {
+      const actionName = before.slice('action:'.length).trim();
+      if (!actionName || !runAction) return;
+      try {
+        await runAction(actionName);
+      } catch (err) {
+        console.error(`spotlight action failed: ${actionName}`, err);
+      }
+      await nextFrame();
+      await nextFrame();
+      return;
+    }
     if (!before.startsWith('ensure-tab:')) return;
 
     const tab = before.slice('ensure-tab:'.length).trim();
@@ -192,6 +208,29 @@ export function createSpotlight(deps = {}) {
     await nextFrame();
   }
 
+  async function runCleanup(tour) {
+    const cleanup = tour?.cleanup;
+    if (!cleanup || typeof cleanup !== 'string') return;
+    if (!cleanup.startsWith('action:') || !runAction) return;
+    const actionName = cleanup.slice('action:'.length).trim();
+    if (!actionName) return;
+    try {
+      await runAction(actionName);
+    } catch (err) {
+      console.error(`spotlight cleanup failed: ${actionName}`, err);
+    }
+  }
+
+  function isVisibleTarget(el) {
+    if (!el || el.hidden) return false;
+    if (typeof el.closest === 'function' && el.closest('[hidden]')) return false;
+    if (typeof window.getComputedStyle === 'function') {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+    }
+    return true;
+  }
+
   async function showStep() {
     const token = ++showToken;
 
@@ -200,7 +239,7 @@ export function createSpotlight(deps = {}) {
       // Only mark completed if at least one step actually rendered a target.
       // All-missing / auto-skipped runs finish without polluting completed state.
       if (completedId && shownCount > 0) markTourCompleted(completedId);
-      stop({ completed: true });
+      await stop({ completed: true });
       try {
         onComplete?.(completedId);
       } catch (err) {
@@ -214,7 +253,7 @@ export function createSpotlight(deps = {}) {
     if (token !== showToken || !active) return;
 
     const el = step.target ? document.querySelector(step.target) : null;
-    if (!el) {
+    if (!isVisibleTarget(el)) {
       if (!didToastMissing) {
         didToastMissing = true;
         toast(t('help.tour.missingTarget'));
@@ -279,35 +318,43 @@ export function createSpotlight(deps = {}) {
   /**
    * @param {string} id
    */
-  function start(id) {
+  async function start(id) {
     const tour = getTour(id);
     if (!tour) return;
 
     // Clear any existing run without mark / onStop (restart)
-    stop({ silent: true });
+    await stop({ silent: true });
 
     tourId = tour.id;
+    activeTour = tour;
     steps = Array.isArray(tour.steps) ? tour.steps.slice() : [];
     index = 0;
     active = true;
     shownCount = 0;
     didToastMissing = false;
     setOpenChrome(true);
-    void showStep();
+    await showStep();
   }
 
   /**
    * @param {{ completed?: boolean, silent?: boolean }} [opts]
    */
-  function stop(opts = {}) {
+  async function stop(opts = {}) {
     const wasActive = active;
+    const tourToClean = activeTour;
     showToken += 1;
     active = false;
     tourId = null;
+    activeTour = null;
     steps = [];
     index = 0;
 
     if (root) setOpenChrome(false);
+
+    if (tourToClean) {
+      cleanupPromise = cleanupPromise.then(() => runCleanup(tourToClean));
+      await cleanupPromise;
+    }
 
     if (wasActive && !opts.completed && !opts.silent) {
       try {
@@ -337,7 +384,7 @@ export function createSpotlight(deps = {}) {
     if (!active) return;
     e.preventDefault();
     // stop mid-way: no markTourCompleted
-    stop();
+    void stop();
   });
 
   window.addEventListener('resize', repositionActive);

@@ -55,6 +55,8 @@ class ComponentRegistry:
         """
 
         def decorator(cls_: Type) -> Type:
+            setattr(cls_, "__autoflux_component_type__", component_type)
+            setattr(cls_, "__autoflux_component_name__", name)
             if component_type not in self._registry:
                 self._registry[component_type] = {}
 

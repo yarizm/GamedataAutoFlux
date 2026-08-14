@@ -2,7 +2,15 @@
 
 from fastapi.testclient import TestClient
 
+from src.core.collector_validators import (
+    CollectorConfigIssue,
+    register_collector_config_validator,
+    restore_collector_config_validators,
+    snapshot_collector_config_validators,
+)
 from src.web.app import app
+from src.core.pipeline import Pipeline
+from src.web import app as web_app
 
 
 def test_list_pipelines():
@@ -11,6 +19,53 @@ def test_list_pipelines():
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, dict)
+
+
+def test_list_available_pipelines_excludes_inactive_plugin_components():
+    pipeline_name = "__inactive_plugin_pipeline__"
+    with TestClient(app) as client:
+        web_app.scheduler._pipelines[pipeline_name] = Pipeline(pipeline_name).add_collector(
+            "__collector_from_uninstalled_plugin__"
+        )
+        try:
+            all_response = client.get("/api/pipelines")
+            available_response = client.get("/api/pipelines?available_only=true")
+        finally:
+            web_app.scheduler._pipelines.pop(pipeline_name, None)
+
+    assert all_response.status_code == 200
+    assert pipeline_name in all_response.json()
+    assert available_response.status_code == 200
+    assert pipeline_name not in available_response.json()
+
+
+def test_task_precheck_rejects_pipeline_with_inactive_plugin_components():
+    pipeline_name = "__inactive_plugin_precheck__"
+    missing_collector = "__collector_from_uninstalled_plugin__"
+    with TestClient(app) as client:
+        web_app.scheduler._pipelines[pipeline_name] = Pipeline(pipeline_name).add_collector(
+            missing_collector
+        )
+        try:
+            response = client.post(
+                "/api/tasks/precheck",
+                json={
+                    "name": "inactive plugin pipeline",
+                    "pipeline_name": pipeline_name,
+                    "collector_name": missing_collector,
+                    "targets": [{"name": "test", "target_type": "default", "params": {}}],
+                },
+            )
+        finally:
+            web_app.scheduler._pipelines.pop(pipeline_name, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["can_submit"] is False
+    assert any(
+        issue["code"] == "pipeline_components_unavailable"
+        for issue in payload["issues"]
+    )
 
 
 def test_list_pipeline_templates():
@@ -22,6 +77,61 @@ def test_list_pipeline_templates():
         for template in data:
             assert "id" in template
             assert "name" in template
+
+
+def test_list_collector_plugins():
+    with TestClient(app) as client:
+        response = client.get("/api/plugins")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["entry_point_group"] == "gamedata_autoflux.plugins"
+        assert payload["active"] >= 1
+        assert payload["failed"] == 0
+        assert all(item["state"] == "active" for item in payload["plugins"])
+        assert all(item["capabilities"] for item in payload["plugins"])
+
+
+def test_component_metadata_exposes_plugin_owned_dag_nodes() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/components/metadata")
+
+    assert response.status_code == 200
+    payload = response.json()
+    steam = next(
+        item
+        for item in payload["dag_nodes"]
+        if item["type"] == "collector" and item["component"] == "steam"
+    )
+    assert steam["owner"] == "autoflux-plugin-steam"
+    assert steam["display_name"] == "Steam"
+    assert steam["ports_out"] == [
+        {"name": "records", "required": True, "type_hint": "records"}
+    ]
+    assert {item["key"] for item in steam["output_fields"]} == {
+        "game_name",
+        "app_id",
+    }
+
+
+def test_create_dag_rejects_component_from_uninstalled_plugin() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/dags",
+            json={
+                "name": "__missing_plugin_component__",
+                "nodes": [
+                    {
+                        "id": "missing",
+                        "type": "collector",
+                        "component": "not_installed_collector",
+                    }
+                ],
+                "edges": [],
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "dag_component_unavailable"
 
 
 def test_create_and_delete_pipeline():
@@ -67,6 +177,41 @@ def test_create_pipeline_missing_steps():
     with TestClient(app) as client:
         resp = client.post("/api/pipelines", json={"name": "bad_pipeline"})
         assert resp.status_code == 422  # validation error
+
+
+def test_pipeline_api_runs_validator_registered_by_any_collector_plugin() -> None:
+    validator_snapshot = snapshot_collector_config_validators()
+
+    def validate(config: dict):
+        if config.get("tenant"):
+            return []
+        return [
+            CollectorConfigIssue(
+                code="missing_tenant",
+                field="tenant",
+                message="A tenant is required by this collector plugin.",
+            )
+        ]
+
+    register_collector_config_validator("steam", validate, owner="test-third-party-validator")
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/pipelines",
+                json={
+                    "name": "__test_plugin_validator__",
+                    "steps": [{"type": "collector", "name": "steam", "config": {}}],
+                },
+            )
+    finally:
+        restore_collector_config_validators(validator_snapshot)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "missing_tenant",
+        "field": "tenant",
+        "message": "A tenant is required by this collector plugin.",
+    }
 
 
 def test_create_and_get_dag():

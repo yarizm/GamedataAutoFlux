@@ -6,7 +6,7 @@
 import pytest
 
 from src.collectors.base import CollectTarget
-from src.collectors.official_site_collector import OfficialSiteCollector
+from autoflux_plugin_official_site.collector import OfficialSiteCollector
 
 
 def _integration_enabled() -> bool:
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.asyncio
 async def test_smart_mode_extracts_from_lol_news():
     """用 LLM 从 League of Legends 新闻页提取。"""
-    from src.collectors.llm_extractor import extract_items_from_html
+    from autoflux_plugin_smart_web.llm_extractor import extract_items_from_html
     import httpx
 
     url = "https://www.leagueoflegends.com/en-us/news/game-updates/"

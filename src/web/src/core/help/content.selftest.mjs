@@ -6,8 +6,8 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
-assert(MAIN_TABS.length === 9, '9 tabs');
-assert(mapCards.length === 9, '9 map cards');
+assert(MAIN_TABS.length === 10, '10 tabs');
+assert(mapCards.length === 10, '10 map cards');
 const mapTabs = mapCards.map((c) => c.tab);
 for (const tab of MAIN_TABS) {
   assert(mapTabs.includes(tab), `map missing ${tab}`);
@@ -21,16 +21,30 @@ assert(mapCards.find((c) => c.tab === 'dag')?.badge === 'advanced', 'dag advance
 assert(mapCards[0].tab === 'dashboard', 'map starts dashboard');
 assert(mapCards[mapCards.length - 1].tab === 'system', 'map ends system');
 
-const requiredTours = ['platform-overview', 'page-dashboard', 'page-tasks', 'page-agent'];
+const requiredTours = [
+  'platform-overview',
+  'page-dashboard',
+  'page-pipelines',
+  'page-tasks',
+  'page-dag',
+  'page-agent',
+];
 for (const id of requiredTours) {
   const tour = getTour(id);
   assert(tour, `tour ${id}`);
   assert(tour.steps.length >= 2, `tour steps ${id}`);
   for (const step of tour.steps) {
     assert(step.target && step.titleKey && step.bodyKey, `step fields ${id}`);
+    if (step.before) {
+      assert(
+        step.before.startsWith('ensure-tab:') || step.before.startsWith('action:'),
+        `before directive ${id}`,
+      );
+    }
   }
+  if (tour.cleanup) assert(tour.cleanup.startsWith('action:'), `cleanup directive ${id}`);
 }
-for (const tab of ['dashboard', 'tasks', 'agent']) {
+for (const tab of ['dashboard', 'pipelines', 'tasks', 'dag', 'agent']) {
   const tid = pageHelp[tab].tourId;
   assert(tid && getTour(tid), `page tour link ${tab}`);
 }
@@ -65,6 +79,8 @@ add('help.tour.done');
 add('help.tour.replay');
 add('help.tour.completed');
 add('help.tour.missingTarget');
+add('help.inline.expand');
+add('help.inline.collapse');
 
 // DOM stubs for i18n module side effects under Node
 if (typeof globalThis.localStorage === 'undefined') {

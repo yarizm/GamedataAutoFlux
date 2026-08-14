@@ -2,7 +2,7 @@
 // i18n keys are resolved by callers; this module has no UI.
 
 export const MAIN_TABS = [
-  'dashboard', 'tasks', 'pipelines', 'data', 'reports', 'cron', 'dag', 'agent', 'system',
+  'dashboard', 'tasks', 'pipelines', 'data', 'reports', 'cron', 'dag', 'agent', 'plugins', 'system',
 ];
 
 export const mapCards = [
@@ -14,6 +14,7 @@ export const mapCards = [
   { id: 'reports', tab: 'reports', titleKey: 'help.map.reports.title', blurbKey: 'help.map.reports.blurb' },
   { id: 'cron', tab: 'cron', titleKey: 'help.map.cron.title', blurbKey: 'help.map.cron.blurb' },
   { id: 'agent', tab: 'agent', titleKey: 'help.map.agent.title', blurbKey: 'help.map.agent.blurb' },
+  { id: 'plugins', tab: 'plugins', titleKey: 'help.map.plugins.title', blurbKey: 'help.map.plugins.blurb' },
   { id: 'system', tab: 'system', titleKey: 'help.map.system.title', blurbKey: 'help.map.system.blurb' },
 ];
 
@@ -47,6 +48,7 @@ export const pageHelp = {
       { labelKey: 'help.page.pipelines.next.tasks', action: { type: 'tab', tab: 'tasks' } },
       { labelKey: 'help.page.pipelines.next.dag', action: { type: 'tab', tab: 'dag' } },
     ],
+    tourId: 'page-pipelines',
   },
   data: {
     summaryKey: 'help.page.data.summary',
@@ -75,6 +77,7 @@ export const pageHelp = {
     nextSteps: [
       { labelKey: 'help.page.dag.next.pipelines', action: { type: 'tab', tab: 'pipelines' } },
     ],
+    tourId: 'page-dag',
   },
   agent: {
     summaryKey: 'help.page.agent.summary',
@@ -84,6 +87,13 @@ export const pageHelp = {
       { labelKey: 'help.page.agent.next.tasks', action: { type: 'tab', tab: 'tasks' } },
     ],
     tourId: 'page-agent',
+  },
+  plugins: {
+    summaryKey: 'help.page.plugins.summary',
+    points: ['help.page.plugins.p1', 'help.page.plugins.p2', 'help.page.plugins.p3'],
+    nextSteps: [
+      { labelKey: 'help.page.plugins.next.system', action: { type: 'tab', tab: 'system' } },
+    ],
   },
   system: {
     summaryKey: 'help.page.system.summary',
@@ -154,6 +164,7 @@ export const tours = {
   'page-tasks': {
     id: 'page-tasks',
     titleKey: 'help.tour.pageTasks.title',
+    cleanup: 'action:task-tour-close',
     steps: [
       {
         target: '[data-tour-id="tasks-create"]',
@@ -162,16 +173,88 @@ export const tours = {
         before: 'ensure-tab:tasks',
       },
       {
-        target: '[data-tour-id="tasks-list"]',
+        target: '[data-tour-id="task-plan-select"]',
         titleKey: 'help.tour.pageTasks.s2.title',
         bodyKey: 'help.tour.pageTasks.s2.body',
-        before: 'ensure-tab:tasks',
+        before: 'action:task-tour-open',
       },
       {
-        target: '[data-tour-id="tasks-filters"]',
+        target: '[data-tour-id="task-plan-preview"]',
         titleKey: 'help.tour.pageTasks.s3.title',
         bodyKey: 'help.tour.pageTasks.s3.body',
+        before: 'action:task-tour-step-1',
+      },
+      {
+        target: '[data-tour-id="task-target-fields"][data-tour-ready="true"]',
+        titleKey: 'help.tour.pageTasks.s4.title',
+        bodyKey: 'help.tour.pageTasks.s4.body',
+        before: 'action:task-tour-step-2',
+      },
+      {
+        target: '[data-tour-id="task-precheck-submit"]',
+        titleKey: 'help.tour.pageTasks.s5.title',
+        bodyKey: 'help.tour.pageTasks.s5.body',
+        before: 'action:task-tour-step-3',
+      },
+    ],
+  },
+  'page-pipelines': {
+    id: 'page-pipelines',
+    titleKey: 'help.tour.pagePipelines.title',
+    steps: [
+      {
+        target: '[data-tour-id="pipelines-concept"]',
+        titleKey: 'help.tour.pagePipelines.s1.title',
+        bodyKey: 'help.tour.pagePipelines.s1.body',
+        before: 'ensure-tab:pipelines',
+      },
+      {
+        target: '[data-tour-id="pipelines-components"]',
+        titleKey: 'help.tour.pagePipelines.s2.title',
+        bodyKey: 'help.tour.pagePipelines.s2.body',
+        before: 'ensure-tab:pipelines',
+      },
+      {
+        target: '[data-tour-id="pipelines-list"]',
+        titleKey: 'help.tour.pagePipelines.s3.title',
+        bodyKey: 'help.tour.pagePipelines.s3.body',
+        before: 'ensure-tab:pipelines',
+      },
+      {
+        target: '[data-tour-id="tasks-create"]',
+        titleKey: 'help.tour.pagePipelines.s4.title',
+        bodyKey: 'help.tour.pagePipelines.s4.body',
         before: 'ensure-tab:tasks',
+      },
+    ],
+  },
+  'page-dag': {
+    id: 'page-dag',
+    titleKey: 'help.tour.pageDag.title',
+    steps: [
+      {
+        target: '[data-tour-id="dag-quickstart"]',
+        titleKey: 'help.tour.pageDag.s1.title',
+        bodyKey: 'help.tour.pageDag.s1.body',
+        before: 'ensure-tab:dag',
+      },
+      {
+        target: '[data-tour-id="dag-palette"]',
+        titleKey: 'help.tour.pageDag.s2.title',
+        bodyKey: 'help.tour.pageDag.s2.body',
+        before: 'ensure-tab:dag',
+      },
+      {
+        target: '[data-tour-id="dag-canvas"]',
+        titleKey: 'help.tour.pageDag.s3.title',
+        bodyKey: 'help.tour.pageDag.s3.body',
+        before: 'ensure-tab:dag',
+      },
+      {
+        target: '[data-tour-id="dag-inspector"]',
+        titleKey: 'help.tour.pageDag.s4.title',
+        bodyKey: 'help.tour.pageDag.s4.body',
+        before: 'ensure-tab:dag',
       },
     ],
   },

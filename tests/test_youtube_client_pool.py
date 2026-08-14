@@ -9,22 +9,22 @@ class TestYouTubeClientPool:
     """Tests for YouTubeClientPool initialization and key management."""
 
     def test_init_filters_empty_keys(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["  ", "valid_key", "${UNRESOLVED}"])
         assert pool._keys == ["valid_key"]
 
     def test_init_raises_on_all_invalid_keys(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         with pytest.raises(ValueError, match="API Key"):
             YouTubeClientPool(api_keys=["${UNRESOLVED}"])
 
     def test_current_key_returns_first_valid(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1", "key2"])
         assert pool.current_key == "key1"
 
     def test_init_uses_configurable_base_url(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
 
         pool = YouTubeClientPool(
             api_keys=["key1"],
@@ -35,7 +35,7 @@ class TestYouTubeClientPool:
 
     @pytest.mark.asyncio
     async def test_setup_creates_client(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
         assert pool._client is not None
@@ -43,7 +43,7 @@ class TestYouTubeClientPool:
 
     @pytest.mark.asyncio
     async def test_close_cleans_up(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
         await pool.close()
@@ -51,7 +51,7 @@ class TestYouTubeClientPool:
 
     @pytest.mark.asyncio
     async def test_next_key_cycles(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1", "key2"])
         assert pool.current_key == "key1"
         result = await pool._next_key()
@@ -66,7 +66,7 @@ class TestQuotaDetection:
     """Tests for _is_quota_exhausted."""
 
     def test_quota_exceeded_reason_flag(self):
-        from src.collectors.youtube.client_pool import _is_quota_exhausted
+        from autoflux_plugin_youtube.client_pool import _is_quota_exhausted
         resp = MagicMock(spec=httpx.Response)
         resp.json.return_value = {
             "error": {"errors": [{"reason": "quotaExceeded"}]}
@@ -74,7 +74,7 @@ class TestQuotaDetection:
         assert _is_quota_exhausted(resp) is True
 
     def test_daily_limit_exceeded_flag(self):
-        from src.collectors.youtube.client_pool import _is_quota_exhausted
+        from autoflux_plugin_youtube.client_pool import _is_quota_exhausted
         resp = MagicMock(spec=httpx.Response)
         resp.json.return_value = {
             "error": {"errors": [{"reason": "dailyLimitExceeded"}]}
@@ -82,7 +82,7 @@ class TestQuotaDetection:
         assert _is_quota_exhausted(resp) is True
 
     def test_not_quota_error(self):
-        from src.collectors.youtube.client_pool import _is_quota_exhausted
+        from autoflux_plugin_youtube.client_pool import _is_quota_exhausted
         resp = MagicMock(spec=httpx.Response)
         resp.json.return_value = {
             "error": {"errors": [{"reason": "forbidden"}]}
@@ -90,7 +90,7 @@ class TestQuotaDetection:
         assert _is_quota_exhausted(resp) is False
 
     def test_malformed_body_returns_false(self):
-        from src.collectors.youtube.client_pool import _is_quota_exhausted
+        from autoflux_plugin_youtube.client_pool import _is_quota_exhausted
         resp = MagicMock(spec=httpx.Response)
         resp.json.side_effect = ValueError
         assert _is_quota_exhausted(resp) is False
@@ -101,7 +101,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_successful_request(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
 
@@ -119,7 +119,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_429_rate_limit_retries(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
 
@@ -141,7 +141,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_429_quota_switches_key(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1", "key2"])
         await pool.setup()
 
@@ -165,7 +165,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_quota_rotation_can_reach_fourth_key(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
 
         pool = YouTubeClientPool(api_keys=["key1", "key2", "key3", "key4"])
         await pool.setup()
@@ -197,7 +197,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_500_retries_with_backoff(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
 
@@ -220,7 +220,7 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_connect_error_retries(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         await pool.setup()
 
@@ -241,14 +241,14 @@ class TestRequestMethod:
 
     @pytest.mark.asyncio
     async def test_request_raises_if_not_setup(self):
-        from src.collectors.youtube.client_pool import YouTubeClientPool
+        from autoflux_plugin_youtube.client_pool import YouTubeClientPool
         pool = YouTubeClientPool(api_keys=["key1"])
         with pytest.raises(RuntimeError, match="setup"):
             await pool.request("GET", "/channels", part="snippet", id="UC123")
 
     @pytest.mark.asyncio
     async def test_all_keys_exhausted_raises(self):
-        from src.collectors.youtube.client_pool import (
+        from autoflux_plugin_youtube.client_pool import (
             YouTubeClientPool,
             YouTubeQuotaExhausted,
         )

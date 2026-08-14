@@ -1,0 +1,20 @@
+[project]
+name = "autoflux-plugin-smart-web"
+version = "0.1.0"
+description = "Shared smart-web extraction helpers for GamedataAutoFlux plugins"
+license = "MIT"
+authors = [{ name = "Autoflux Contributors" }]
+requires-python = ">=3.12"
+dependencies = ["langchain-openai>=0.2.0", "loguru>=0.7.0"]
+
+[project.urls]
+Homepage = "https://github.com/yarizm/GamedataAutoFlux"
+Repository = "https://github.com/yarizm/GamedataAutoFlux"
+Issues = "https://github.com/yarizm/GamedataAutoFlux/issues"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -21,65 +21,42 @@ from loguru import logger
 
 async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> list[dict]:
     """在创建任务前自动发现缺失的平台标识符（仅 HIGH 置信度时自动填充）。"""
+    from src.core.identifier_resolvers import list_identifier_resolvers
     from src.services.game_resolver import GameIdentifierResolver
 
-    needs_resolve = any(
-        pipeline_name.startswith(prefix)
-        for prefix in ("steam", "taptap", "monitor", "qimai", "official_site")
-    )
-    if not needs_resolve:
+    specs = [
+        spec
+        for spec in list_identifier_resolvers()
+        if any(pipeline_name.startswith(prefix) for prefix in spec.pipeline_prefixes)
+        and spec.output_target_param
+    ]
+    if not specs:
         return targets
 
     resolver = GameIdentifierResolver()
-    try:
-        await resolver.setup()
-    except (NotImplementedError, RuntimeError, OSError) as e:
-        logger.warning(f"标识符自动填充跳过 (Playwright/浏览器不可用): {_safe_error_text(e)}")
-        return targets
-
     try:
         for target in targets:
             params = dict(target.get("params", {}) or {})
             name = str(target.get("name", "") or "").strip()
             if not name:
                 continue
-
-            if pipeline_name.startswith("steam") and not params.get("app_id"):
-                result = await resolver.resolve_steam(name)
+            for spec in specs:
+                if any(params.get(key) for key in spec.existing_target_params):
+                    continue
+                try:
+                    result = await resolver.resolve_platform(spec.platform, name)
+                except (NotImplementedError, RuntimeError, OSError) as exc:
+                    logger.warning(
+                        "标识符自动填充跳过 {}: {}",
+                        spec.platform,
+                        _safe_error_text(exc),
+                    )
+                    continue
                 if result and result.confidence == IdentifierConfidence.HIGH:
-                    params["app_id"] = int(result.identifier)
-                    target["params"] = params
-
-            elif (
-                pipeline_name.startswith("taptap")
-                and not params.get("app_id")
-                and not params.get("url")
-            ):
-                result = await resolver.resolve_taptap(name)
-                if result and result.confidence == IdentifierConfidence.HIGH:
-                    params["app_id"] = result.identifier
-                    target["params"] = params
-
-            elif pipeline_name.startswith("monitor") and not params.get("siteurl"):
-                result = await resolver.resolve_monitor_name(name)
-                if result and result.confidence == IdentifierConfidence.HIGH:
-                    params["siteurl"] = result.identifier
-                    target["params"] = params
-
-            elif (
-                pipeline_name.startswith("qimai")
-                and not params.get("app_id")
-                and not params.get("qimai_app_id")
-            ):
-                result = await resolver.resolve_qimai(name)
-                if result and result.confidence == IdentifierConfidence.HIGH:
-                    params["qimai_app_id"] = result.identifier
-                    target["params"] = params
-
-            elif pipeline_name.startswith("official_site") and not params.get("official_url"):
-                result = await resolver.resolve_official_site(name)
-                if result and result.confidence == IdentifierConfidence.HIGH:
-                    params["official_url"] = result.identifier
+                    value = result.identifier
+                    if spec.output_value_type == "integer":
+                        value = int(value)
+                    params[spec.output_target_param] = value
                     target["params"] = params
     finally:
         await resolver.teardown()
@@ -275,6 +252,7 @@ class SearchGameIdentifiersTool(BaseTool):
     args_schema: Type[BaseModel] = SearchGameIdentifiersInput
 
     async def _arun(self, game_name: str, platforms: list[str] | None = None) -> str:
+        from src.core.identifier_resolvers import list_identifier_resolvers
         from src.services.game_resolver import GameIdentifierResolver
 
         resolver = GameIdentifierResolver()
@@ -282,10 +260,12 @@ class SearchGameIdentifiersTool(BaseTool):
             result = await resolver.resolve_all(game_name, platforms)
             data = result.model_dump(mode="json", exclude_none=True)
             high = result.high_confidence()
+            searched = platforms or [spec.platform for spec in list_identifier_resolvers()]
+            found = set(result.found_platforms())
             missing = [
-                p
-                for p in ("steam", "taptap", "qimai", "monitor", "official_site")
-                if getattr(result, p, None) is None
+                platform
+                for platform in searched
+                if platform not in found
             ]
             return _format_result(
                 "ok",
@@ -320,7 +300,6 @@ class VerifyGameIdentifierTool(BaseTool):
 
         resolver = GameIdentifierResolver()
         try:
-            await resolver.setup()
             result = await resolver.verify_identifier(platform, identifier, game_name)
             return json.dumps(result, ensure_ascii=False)
         except Exception as e:

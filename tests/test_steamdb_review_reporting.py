@@ -1,4 +1,4 @@
-from src.collectors.steam.steamdb_scraper import _extract_review_stats_from_text
+from autoflux_plugin_steam.steam.steamdb_scraper import _extract_review_stats_from_text
 from src.reporting.data_extractor import extract_from_records
 
 

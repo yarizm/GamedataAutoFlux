@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from src.collectors.base import CollectTarget
-from src.collectors.steam.steam_api_client import SteamAPIClient
-from src.collectors.steam_collector import SteamCollector
+from autoflux_plugin_steam.steam.steam_api_client import SteamAPIClient
+from autoflux_plugin_steam.collector import SteamCollector
 from src.core.collector_metadata import get_collector_metadata
 from src.core.collector_resume import build_collector_cursor
 

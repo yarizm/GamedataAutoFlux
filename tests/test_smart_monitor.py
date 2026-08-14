@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.collectors.monitor_collector import (
+from autoflux_plugin_monitor.collector import (
     _resolve_mode,
     _choose_best_sully_siteurl,
 )
@@ -37,7 +37,7 @@ async def test_smart_mode_uses_llm_verification():
         {"displaytext": "Delta Force", "siteurl": "delta_force_hawk_ops"},
     ]
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await _choose_best_sully_siteurl(
             candidates, ["Delta Force"], mode="smart", game_name="Delta Force", app_id=2507950
         )
@@ -60,7 +60,7 @@ async def test_smart_mode_low_confidence_returns_none():
         {"displaytext": "Some Other Game", "siteurl": "some_other"},
     ]
 
-    with patch("src.collectors.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
+    with patch("autoflux_plugin_smart_web.llm_extractor._get_extraction_llms", return_value=[mock_llm]):
         result = await _choose_best_sully_siteurl(
             candidates,
             ["Delta Force"],

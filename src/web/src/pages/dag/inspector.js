@@ -3,6 +3,7 @@ import { t } from '../../core/i18n.js';
 import {
   AUTO_UPSTREAM_FIELDS,
   getCachedCollectorMeta,
+  getCachedDagNodeDefinition,
   inputParamsFromMetadata,
   loadCollectorMetaMap,
   outputFieldsForComponent,
@@ -62,7 +63,7 @@ export function mountInspector(el, opts = {}) {
     // param keys (code) stay English; only chrome labels are translated
     const inHtml = inputs.length
       ? inputs.map((p) =>
-        `<li><code>${escapeHtml(p.key)}</code>${p.required ? ' <span style="color:var(--warning)">*</span>' : ''} <span class="text-muted">${escapeHtml(p.label || '')}</span></li>`,
+        `<li><code>${escapeHtml(p.key)}</code>${p.required ? ' <span style="color:var(--warning)">*</span>' : ''} <span class="text-muted">${escapeHtml(p.label || '')}</span>${p.description ? `<small>${escapeHtml(p.description)}</small>` : ''}</li>`,
       ).join('')
       : `<li class="text-muted">${escapeHtml(t('dag.noDeclaredInputs'))}</li>`;
     const outHtml = outs.map((p) =>
@@ -158,6 +159,79 @@ export function mountInspector(el, opts = {}) {
     `;
   }
 
+  function renderNodeUsage(node) {
+    const usageKeys = {
+      collector: ['dag.usage.collector1', 'dag.usage.collector2', 'dag.usage.collector3'],
+      processor: ['dag.usage.processor1', 'dag.usage.processor2'],
+      storage: ['dag.usage.storage1', 'dag.usage.storage2'],
+    };
+    const keys = usageKeys[node.type] || [];
+    return `
+      <div class="insp-usage">
+        <strong>${escapeHtml(t('dag.howToUse'))}</strong>
+        <ol>${keys.map((key) => `<li>${escapeHtml(t(key))}</li>`).join('')}</ol>
+      </div>`;
+  }
+
+  function renderConfigFields(node, definition) {
+    const schema = definition?.config_schema || {};
+    const properties = schema.properties && typeof schema.properties === 'object'
+      ? schema.properties
+      : {};
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const supported = Object.entries(properties).filter(([, property]) => (
+      property
+      && typeof property === 'object'
+      && ['string', 'number', 'integer', 'boolean'].includes(property.type || 'string')
+    ));
+    if (!supported.length) {
+      const message = node.type === 'collector'
+        ? t('dag.noFixedCollectorConfig')
+        : t('dag.noFixedConfig');
+      return `<div class="insp-config-empty">${escapeHtml(message)}</div>`;
+    }
+
+    return `<div class="insp-config-grid">${supported.map(([key, property]) => {
+      const value = node.config?.[key] ?? property.default ?? '';
+      let input = '';
+      if (property.type === 'boolean') {
+        input = `<label class="insp-config-check">
+          <input type="checkbox" data-config-field="${escapeHtml(key)}" data-config-type="boolean" ${value ? 'checked' : ''}>
+          <span>${escapeHtml(property.title || key)}</span>
+        </label>`;
+      } else if (Array.isArray(property.enum)) {
+        input = `<select data-config-field="${escapeHtml(key)}" data-config-type="${escapeHtml(property.type || 'string')}">
+          ${property.enum.map((option) => `<option value="${escapeHtml(String(option))}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(String(option))}</option>`).join('')}
+        </select>`;
+      } else {
+        const inputType = ['number', 'integer'].includes(property.type) ? 'number' : 'text';
+        input = `<input type="${inputType}" data-config-field="${escapeHtml(key)}" data-config-type="${escapeHtml(property.type || 'string')}" value="${escapeHtml(String(value))}" ${property.minimum != null ? `min="${escapeHtml(String(property.minimum))}"` : ''} ${property.maximum != null ? `max="${escapeHtml(String(property.maximum))}"` : ''}>`;
+      }
+      return `<div class="insp-config-field">
+        ${property.type === 'boolean' ? input : `<label>${escapeHtml(property.title || key)}${required.has(key) ? ' <span class="target-required">*</span>' : ''}</label>${input}`}
+        <small>${escapeHtml(property.description || key)}</small>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  function bindConfigFields(node) {
+    el.querySelectorAll('[data-config-field]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const key = input.dataset.configField;
+        const type = input.dataset.configType || 'string';
+        const nextConfig = { ...(node.config || {}) };
+        let value = type === 'boolean' ? Boolean(input.checked) : input.value;
+        if (type === 'number' || type === 'integer') {
+          value = value === '' ? '' : Number(value);
+        }
+        if (value === '') delete nextConfig[key];
+        else nextConfig[key] = value;
+        node.config = nextConfig;
+        opts.onUpdateNode?.(node.id, { config: nextConfig });
+      });
+    });
+  }
+
   function bindUpstreamControls(node) {
     const upstreamEl = el.querySelector('#insp-upstream');
     const body = el.querySelector('#insp-upstream-body');
@@ -226,6 +300,21 @@ export function mountInspector(el, opts = {}) {
 
   function renderNode(node) {
     const configText = JSON.stringify(node.config || {}, null, 2);
+    const collectorMeta = node.type === 'collector'
+      ? getCachedCollectorMeta(node.component)
+      : null;
+    const definition = getCachedDagNodeDefinition(node.type, node.component);
+    const description = definition?.description || collectorMeta?.description || '';
+    const owner = definition?.owner || 'core';
+    const capabilities = Array.isArray(collectorMeta?.capabilities)
+      ? collectorMeta.capabilities
+      : [];
+    const recoveryLevel = collectorMeta?.recovery_level || '';
+    const capabilityHtml = capabilities.length
+      ? capabilities.map((capability) =>
+        `<code class="insp-capability">${escapeHtml(capability)}</code>`,
+      ).join('')
+      : `<span class="text-muted text-[10px]">${escapeHtml(t('dag.capabilitiesNone'))}</span>`;
 
     el.innerHTML = `
       <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(t('dag.node'))}</h2>
@@ -238,16 +327,38 @@ export function mountInspector(el, opts = {}) {
         <div class="insp-ro"><span class="font-mono" style="color:var(--text-muted)">[${escapeHtml(node.type)}]</span> ${escapeHtml(node.component)}</div>
       </div>
       <div class="insp-field">
+        <label>${escapeHtml(t('dag.nodeDescription'))}</label>
+        <div class="insp-description ${description ? '' : 'is-missing'}">${escapeHtml(description || t('dag.descriptionMissing'))}</div>
+        <div class="insp-node-meta">
+          <span>${escapeHtml(t('dag.providedBy', { owner }))}</span>
+          ${recoveryLevel ? `<span>${escapeHtml(t('dag.recoveryLevel', { level: recoveryLevel }))}</span>` : ''}
+        </div>
+      </div>
+      ${renderNodeUsage(node)}
+      ${node.type === 'collector' ? `
+        <div class="insp-field">
+          <label>${escapeHtml(t('dag.capabilities'))}</label>
+          <div class="insp-capabilities">${capabilityHtml}</div>
+        </div>
+      ` : ''}
+      <div class="insp-field">
         <label for="insp-label">${escapeHtml(t('dag.label'))}</label>
         <input id="insp-label" type="text" value="${escapeHtml(node.label || '')}" placeholder="${escapeHtml(t('dag.labelPlaceholder'))}" />
       </div>
       ${renderInputsBlock(node)}
       ${renderUpstreamMapper(node)}
       <div class="insp-field">
-        <label for="insp-config">${escapeHtml(t('dag.configJson'))}</label>
-        <textarea id="insp-config" spellcheck="false">${escapeHtml(configText)}</textarea>
-        <div id="insp-config-err" class="insp-error hidden"></div>
+        <label>${escapeHtml(t('dag.nodeConfig'))}</label>
+        ${renderConfigFields(node, definition)}
       </div>
+      <details class="insp-advanced-config">
+        <summary>${escapeHtml(t('dag.advancedConfig'))}</summary>
+        <div class="insp-field mt-2">
+          <label for="insp-config">${escapeHtml(t('dag.configJson'))}</label>
+          <textarea id="insp-config" spellcheck="false">${escapeHtml(configText)}</textarea>
+          <div id="insp-config-err" class="insp-error hidden"></div>
+        </div>
+      </details>
     `;
 
     const labelEl = el.querySelector('#insp-label');
@@ -261,6 +372,7 @@ export function mountInspector(el, opts = {}) {
     });
 
     bindUpstreamControls(node);
+    bindConfigFields(node);
 
     const configEl = el.querySelector('#insp-config');
     const errEl = el.querySelector('#insp-config-err');
@@ -314,8 +426,8 @@ export function mountInspector(el, opts = {}) {
    */
   function render(sel) {
     selection = sel || { kind: null };
-    // ensure meta loaded then re-render once for collectors
-    if (selection.kind === 'node' && selection.node?.type === 'collector') {
+    // Ensure collector and DAG-node metadata are loaded, then re-render.
+    if (selection.kind === 'node' && selection.node) {
       loadCollectorMetaMap().then(() => {
         if (selection.kind === 'node' && selection.node) {
           renderNode(selection.node);

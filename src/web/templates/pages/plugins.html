@@ -1,0 +1,115 @@
+<section class="tab-content" id="tab-plugins">
+    <div class="section-header plugins-section-header">
+        <div>
+            <h1 data-i18n="plugins.title">插件中心</h1>
+            <p class="plugins-page-subtitle" data-i18n="plugins.subtitle">查看当前插件来源、运行状态与贡献组件</p>
+        </div>
+        <button class="btn" id="btn-refresh-plugins" type="button" data-i18n="common.refresh">刷新</button>
+    </div>
+
+    <div class="plugins-m1-banner" role="status">
+        <div>
+            <strong id="plugins-mode-title" data-i18n="plugins.managed.title">托管插件安装已启用</strong>
+            <p id="plugins-mode-body" data-i18n="plugins.managed.body">可从官方目录或本地 wheel 安装插件；安装写入独立 generation，不修改核心 Python 环境。</p>
+        </div>
+        <span class="plugins-mode-badge" id="plugins-mode-badge">MANAGED</span>
+    </div>
+
+    <div class="plugins-restart-banner" id="plugins-restart-banner" role="status" hidden>
+        <strong data-i18n="plugins.restart.title">插件变更正在等待服务重启</strong>
+        <span data-i18n="plugins.restart.body">当前 generation 已准备完成，重启后运行状态会自动收敛。</span>
+        <small id="plugins-restart-instructions"></small>
+    </div>
+
+    <div class="plugins-stats" aria-label="Plugin summary">
+        <article class="plugin-stat-card">
+            <span class="plugin-stat-value" id="plugins-stat-total">—</span>
+            <span class="plugin-stat-label" data-i18n="plugins.stat.total">已发现</span>
+        </article>
+        <article class="plugin-stat-card plugin-stat-active">
+            <span class="plugin-stat-value" id="plugins-stat-active">—</span>
+            <span class="plugin-stat-label" data-i18n="plugins.stat.active">运行中</span>
+        </article>
+        <article class="plugin-stat-card plugin-stat-failed">
+            <span class="plugin-stat-value" id="plugins-stat-failed">—</span>
+            <span class="plugin-stat-label" data-i18n="plugins.stat.failed">激活失败</span>
+        </article>
+        <article class="plugin-stat-card">
+            <span class="plugin-stat-value" id="plugins-stat-development">—</span>
+            <span class="plugin-stat-label" data-i18n="plugins.stat.development">开发态来源</span>
+        </article>
+    </div>
+
+    <section class="card plugins-catalog-card">
+        <div class="card-header plugins-catalog-header">
+            <div>
+                <h2 data-i18n="plugins.catalog.title">官方插件目录</h2>
+                <p data-i18n="plugins.catalog.subtitle">按需安装采集能力；未选择的插件不会进入托管环境。</p>
+            </div>
+            <div class="plugins-upload-controls">
+                <input id="plugins-wheel-input" type="file" accept=".whl" hidden>
+                <label class="btn btn-sm" for="plugins-wheel-input" data-i18n="plugins.upload.choose">选择 wheel</label>
+                <button class="btn btn-sm btn-primary" id="btn-upload-plugin" type="button" disabled data-i18n="plugins.upload.install">安装本地 wheel</button>
+                <span id="plugins-wheel-name" data-i18n="plugins.upload.none">未选择文件</span>
+            </div>
+        </div>
+        <div class="plugins-catalog-grid" id="plugins-catalog-list" aria-live="polite">
+            <div class="plugins-loading" data-i18n="common.loading">加载中...</div>
+        </div>
+    </section>
+
+    <section class="card plugins-operations-card">
+        <div class="card-header">
+            <div>
+                <h2 data-i18n="plugins.operations.title">插件操作</h2>
+                <p data-i18n="plugins.operations.subtitle">所有变更串行执行，刷新页面后仍可恢复进度。</p>
+            </div>
+            <button class="btn btn-sm" id="btn-rollback-plugin-generation" type="button" hidden data-i18n="plugins.rollback.action">回滚上一 Generation</button>
+        </div>
+        <div id="plugins-operations" aria-live="polite">
+            <div class="plugins-loading" data-i18n="common.loading">加载中...</div>
+        </div>
+    </section>
+
+    <div class="plugins-toolbar card">
+        <div class="plugins-search-wrap">
+            <label for="plugins-search" data-i18n="plugins.search.label">搜索插件</label>
+            <input id="plugins-search" type="search" data-i18n-placeholder="plugins.search.placeholder" placeholder="名称、包名或采集器">
+        </div>
+        <div>
+            <label for="plugins-source-filter" data-i18n="plugins.filter.source">来源</label>
+            <select id="plugins-source-filter">
+                <option value="" data-i18n="plugins.filter.allSources">全部来源</option>
+                <option value="managed" data-i18n="plugins.source.managed">托管</option>
+                <option value="external" data-i18n="plugins.source.external">外部环境</option>
+                <option value="development" data-i18n="plugins.source.development">开发态</option>
+            </select>
+        </div>
+        <div>
+            <label for="plugins-state-filter" data-i18n="plugins.filter.state">运行状态</label>
+            <select id="plugins-state-filter">
+                <option value="" data-i18n="plugins.filter.allStates">全部状态</option>
+                <option value="active" data-i18n="plugins.state.active">运行中</option>
+                <option value="failed" data-i18n="plugins.state.failed">失败</option>
+                <option value="not_loaded" data-i18n="plugins.state.notLoaded">未加载</option>
+                <option value="inactive" data-i18n="plugins.state.inactive">未激活</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="plugins-grid" id="plugins-list" aria-live="polite">
+        <div class="plugins-loading" data-i18n="common.loading">加载中...</div>
+    </div>
+
+    <section class="card plugins-environment-card">
+        <div class="card-header">
+            <div>
+                <h2 data-i18n="plugins.environment.title">运行环境</h2>
+                <p data-i18n="plugins.environment.subtitle">插件发现路径与当前部署能力</p>
+            </div>
+        </div>
+        <div class="plugins-environment-grid" id="plugins-environment">
+            <div class="plugins-loading" data-i18n="common.loading">加载中...</div>
+        </div>
+    </section>
+</section>

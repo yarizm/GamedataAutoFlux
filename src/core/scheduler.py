@@ -383,6 +383,16 @@ class Scheduler:
                     f"Pipeline/DAG '{name}' 不存在。可用: {list(self._pipelines.keys())}"
                 )
 
+        from src.core.pipeline_availability import inspect_pipeline_availability
+
+        availability = inspect_pipeline_availability(pipeline)
+        if not availability.available:
+            missing = ", ".join(availability.missing_labels())
+            raise ValueError(
+                f"Pipeline/DAG '{pipeline.name}' requires inactive or uninstalled "
+                f"components: {missing}"
+            )
+
         task.pipeline_name = pipeline.name
         if task.max_retries is None:  # 未显式设置，使用调度器默认值
             task.max_retries = self._default_retries

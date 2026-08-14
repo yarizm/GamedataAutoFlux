@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from src.collectors.base import CollectTarget
-from src.collectors.qimai_collector import QimaiCollector
+from autoflux_plugin_qimai.collector import QimaiCollector
 
 
 async def main() -> None:

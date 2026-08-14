@@ -161,7 +161,7 @@ assert(typeof spot.isActive === 'function', 'isActive');
 assert(spot.isActive() === false, 'inactive initially');
 
 // Unknown tour no-op
-spot.start('__no_such_tour__');
+await spot.start('__no_such_tour__');
 assert(spot.isActive() === false, 'unknown tour inactive');
 
 // Real tour: all targets missing → skip all → finish WITHOUT mark
@@ -170,11 +170,7 @@ assert(tour && tour.steps.length >= 2, 'platform-overview exists');
 clearTourCompleted('platform-overview');
 assert(isTourCompleted('platform-overview') === false, 'not completed before');
 
-spot.start('platform-overview');
-assert(spot.isActive() === true, 'active after start');
-
-// Wait for async showStep chain (missing targets advance until complete)
-await new Promise((r) => setTimeout(r, 80));
+await spot.start('platform-overview');
 
 assert(spot.isActive() === false, 'inactive after auto-finish (all missing)');
 assert(isTourCompleted('platform-overview') === false, 'all-missing does NOT mark completed');
@@ -200,10 +196,10 @@ document.querySelector = (sel) => {
   return null;
 };
 
-spot2.start('page-dashboard');
+await spot2.start('page-dashboard');
 assert(spot2.isActive() === true, 'spot2 active');
 // stop mid-way (like Esc / skip)
-spot2.stop();
+await spot2.stop();
 assert(spot2.isActive() === false, 'spot2 stopped');
 assert(isTourCompleted('page-dashboard') === false, 'mid-stop does not mark');
 
@@ -238,7 +234,7 @@ document.querySelector = (sel) => {
   return null;
 };
 
-spot3.start('page-dashboard');
+await spot3.start('page-dashboard');
 assert(spot3.isActive() === true, 'spot3 active after start');
 // Wait for first step to render hole/bubble
 await new Promise((r) => setTimeout(r, 50));
@@ -252,6 +248,56 @@ await new Promise((r) => setTimeout(r, 80));
 assert(spot3.isActive() === false, 'spot3 inactive after finish');
 assert(isTourCompleted('page-dashboard') === true, 'at least one shown → marked completed');
 assert(completed3 === 1, 'spot3 onComplete once');
+
+// action:<name> before hooks and cleanup run on stop/restart/Esc/completion.
+const actionCalls = [];
+const taskTargets = new Map([
+  ['tasks-create', makeEl('button')],
+  ['task-plan-select', makeEl('div')],
+  ['task-plan-preview', makeEl('div')],
+  ['task-target-fields', makeEl('div')],
+  ['task-precheck-submit', makeEl('div')],
+]);
+document.querySelector = (sel) => {
+  for (const [id, el] of taskTargets) {
+    if (String(sel).includes(id)) return el;
+  }
+  return null;
+};
+const spot4 = createSpotlight({
+  ensurePage: async () => {},
+  activateTab: () => {},
+  runAction: async (name) => { actionCalls.push(name); },
+});
+
+await spot4.start('page-tasks');
+clickSpotAction('next');
+await new Promise((r) => setTimeout(r, 30));
+assert(actionCalls.includes('task-tour-open'), 'action before hook ran');
+await spot4.stop();
+assert(actionCalls.at(-1) === 'task-tour-close', 'manual stop cleanup ran');
+
+await spot4.start('page-tasks');
+const cleanupBeforeRestart = actionCalls.filter((name) => name === 'task-tour-close').length;
+await spot4.start('page-tasks');
+assert(
+  actionCalls.filter((name) => name === 'task-tour-close').length === cleanupBeforeRestart + 1,
+  'restart cleanup ran',
+);
+
+for (const listener of listeners.document.filter((item) => item.type === 'keydown')) {
+  listener.fn({ key: 'Escape', preventDefault() {} });
+}
+await new Promise((r) => setTimeout(r, 20));
+assert(actionCalls.at(-1) === 'task-tour-close', 'Esc cleanup ran');
+
+await spot4.start('page-tasks');
+for (let i = 0; i < 5; i += 1) {
+  clickSpotAction(i === 4 ? 'done' : 'next');
+  await new Promise((r) => setTimeout(r, 30));
+}
+assert(actionCalls.at(-1) === 'task-tour-close', 'completion cleanup ran');
+assert(spot4.isActive() === false, 'completion stopped');
 
 document.querySelector = realQS;
 void realToastContainer;

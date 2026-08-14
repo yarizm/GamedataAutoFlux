@@ -12,6 +12,7 @@ from src.agent.schemas import (
     DeletePipelineInput,
 )
 from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
+from src.core.collector_validators import validate_collector_config
 
 
 class ListPipelineTemplatesTool(BaseTool):
@@ -63,7 +64,6 @@ class CreatePipelineTool(BaseTool):
     async def _arun(self, name: str, steps: list[dict]) -> str:
         from src.core.pipeline import Pipeline, StepType
         from src.web.app import scheduler
-        from src.web.safety import validate_dynamic_playwright_config
 
         pipeline = Pipeline(name)
         for step in steps:
@@ -71,13 +71,9 @@ class CreatePipelineTool(BaseTool):
             step_name = step["name"]
             step_config = step.get("config", {})
             if step_type == StepType.COLLECTOR:
-                if step_name == "dynamic_playwright":
-                    try:
-                        validate_dynamic_playwright_config(step_config)
-                    except Exception as e:
-                        return _format_result(
-                            "error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}"
-                        )
+                issues = validate_collector_config(step_name, step_config)
+                if issues:
+                    return _format_result("error", issues[0].message)
                 pipeline.add_collector(step_name, config=step_config)
             elif step_type == StepType.PROCESSOR:
                 pipeline.add_processor(step_name, config=step_config)
@@ -142,7 +138,6 @@ class CreateDynamicPipelineTool(BaseTool):
     ) -> str:
         from src.core.pipeline import Pipeline
         from src.web.app import scheduler
-        from src.web.safety import validate_dynamic_playwright_config
 
         collector_config = {
             "url": url,
@@ -156,10 +151,9 @@ class CreateDynamicPipelineTool(BaseTool):
         if wait_strategy_type == "selector" and wait_strategy_selector:
             collector_config["wait_strategy"]["selector"] = wait_strategy_selector
 
-        try:
-            validate_dynamic_playwright_config(collector_config)
-        except Exception as e:
-            return _format_result("error", f"动态 Pipeline 配置不安全: {_safe_error_text(e)}")
+        issues = validate_collector_config("dynamic_playwright", collector_config)
+        if issues:
+            return _format_result("error", issues[0].message)
 
         pipeline = (
             Pipeline(pipeline_name)
