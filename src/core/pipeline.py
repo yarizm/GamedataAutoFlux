@@ -110,6 +110,9 @@ class PipelineResult:
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: datetime | None = None
     errors: list[str] = field(default_factory=list)
+    # 实际执行引擎：dag（默认）/ legacy（显式关闭 DAG 委托）/ legacy_fallback（DAG 异常回退）
+    execution_engine: str = "dag"
+    fallback_reason: str | None = None
 
     @property
     def duration_seconds(self) -> float | None:
@@ -334,15 +337,29 @@ class Pipeline:
         """Execute the configured pipeline for one task.
 
         默认委托 DAGExecutor 执行（pipeline_to_dag 转换后跑通用 DAG 引擎）。
-        若 DAG 执行抛出异常，回退到原三段式逻辑以保证健壮性。
+        DAG 执行抛异常时默认直接向上抛出（任务按失败处理），只有显式开启
+        `pipeline.legacy_fallback` 才回退三段式；回退会在结果里记录
+        fallback_reason 与实际执行引擎，避免 DAG 缺陷被静默掩盖。
         """
         if self._should_use_dag_execution():
             try:
                 return await self._execute_via_dag(task, recovery_checkpoint=recovery_checkpoint)
             except Exception as exc:
+                fallback_reason = redact_sensitive_text(str(exc))
+                if not self._legacy_fallback_enabled():
+                    logger.error(
+                        f"Pipeline [{self.name}] DAG execution failed "
+                        f"(legacy fallback disabled): {fallback_reason}"
+                    )
+                    raise
                 logger.warning(
-                    f"Pipeline [{self.name}] DAG execution failed, falling back to legacy path: {exc}"
+                    f"Pipeline [{self.name}] DAG execution failed, "
+                    f"falling back to legacy executor: {fallback_reason}"
                 )
+                result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
+                result.execution_engine = "legacy_fallback"
+                result.fallback_reason = fallback_reason
+                return result
         return await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
 
     def _should_use_dag_execution(self) -> bool:
@@ -350,6 +367,12 @@ class Pipeline:
         from src.core.config import get as get_config
 
         return bool(get_config("pipeline.use_dag_execution", True))
+
+    def _legacy_fallback_enabled(self) -> bool:
+        """DAG 异常时是否回退 legacy 执行器。默认关闭，必须显式开启。"""
+        from src.core.config import get as get_config
+
+        return bool(get_config("pipeline.legacy_fallback", False))
 
     async def _execute_via_dag(
         self,
@@ -477,15 +500,24 @@ class Pipeline:
         return result
 
     async def _try_load_stored_dag(self) -> Any | None:
-        """尝试从持久化 graph 加载本 Pipeline 同名 DAG（失败返回 None）。"""
-        try:
-            from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
-            from src.storage.session_factory import get_session_factory
+        """加载持久化 graph（保留条件边/拓扑）；没有再从 steps 投影。
 
-            repo = SQLAlchemyPipelineRepository(get_session_factory())
-            return await repo.load_as_dag(self.name)
-        except Exception:
+        - 数据库未初始化（无 DB 的嵌入/单测场景）→ None，走投影；
+        - 没存过同名 graph → None，走投影；
+        - 数据库读写、schema、反序列化失败 → 直接抛出。降级到投影会静默
+          丢失条件边与拓扑，属于执行语义变更，必须让任务失败可见。
+        """
+        from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
+        from src.storage.session_factory import get_session_factory
+
+        try:
+            factory = get_session_factory()
+        except RuntimeError:
+            logger.debug("Session factory not initialized; skip stored DAG lookup")
             return None
+
+        repo = SQLAlchemyPipelineRepository(factory)
+        return await repo.load_as_dag(self.name)
 
     def _map_dag_result_to_pipeline_result(self, dag_result: Any) -> PipelineResult:
         """逐字段把 DAGResult 映射回 PipelineResult。"""
@@ -514,6 +546,7 @@ class Pipeline:
     ) -> PipelineResult:
         """原三段式执行逻辑（DAG 委托失败时的回退路径）。"""
         result = PipelineResult(pipeline_name=self.name, task_id=task.id)
+        result.execution_engine = "legacy"
         collector_steps = self._get_collectors()
         processor_steps = self._get_processors()
         storage_steps = self._get_storages()

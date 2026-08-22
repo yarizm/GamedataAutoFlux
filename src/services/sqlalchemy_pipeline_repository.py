@@ -91,16 +91,24 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
             return pipelines
 
     async def load_as_dag(self, name: str) -> DAG | None:
+        """加载指定名称的 DAG：graph 不存在返回 None，数据损坏直接抛错。
+
+        “没存过”是正常业务状态（调用方回退到 steps 投影）；已存储但读不出来
+        属于数据/序列化故障，绝不能伪装成“没有 DAG”静默降级——那会丢掉
+        条件边和拓扑，悄悄改变执行语义。
+        """
         async with self._session_factory() as session:
             result = await session.execute(
                 select(SchedulerStateModel).where(SchedulerStateModel.key == f"graph:{name}")
             )
             rec = result.scalars().first()
-            if rec is not None and isinstance(rec.data, dict):
+            if rec is not None:
+                if not isinstance(rec.data, dict):
+                    raise ValueError(f"stored graph {name} payload is malformed")
                 try:
                     return DAG.from_storage(rec.data)
                 except Exception as exc:
-                    logger.warning(f"Failed to load graph {name}: {exc}")
+                    raise ValueError(f"stored graph {name} unreadable: {exc}") from exc
             result = await session.execute(
                 select(SchedulerStateModel).where(SchedulerStateModel.key == f"pipeline:{name}")
             )
@@ -111,5 +119,4 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
                 pipeline = Pipeline.from_config(rec.data)
                 return pipeline_to_dag(pipeline)
             except Exception as exc:
-                logger.warning(f"Failed to convert legacy pipeline {name}: {exc}")
-                return None
+                raise ValueError(f"stored legacy pipeline {name} unreadable: {exc}") from exc

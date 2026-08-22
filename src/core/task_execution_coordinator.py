@@ -224,6 +224,7 @@ class TaskExecutionCoordinator:
                     "error_code": task.error_code,
                     "errors": self._safe_error_messages(result.errors),
                     "resume_state": result.resume_state,
+                    **self._engine_info(result),
                 },
             )
             logger.error("任务执行失败（报告生成）: [{}] {} - {}", task.id, task.name, error_msg)
@@ -240,9 +241,18 @@ class TaskExecutionCoordinator:
                 "storage_count": result.storage_count,
                 "generated_report_id": result.generated_report_id,
                 "resume_state": result.resume_state,
+                **self._engine_info(result),
             },
         )
         logger.info("任务执行成功: [{}] {}", task.id, task.name)
+
+    @staticmethod
+    def _engine_info(result: PipelineResult) -> dict[str, Any]:
+        """执行引擎标注：回退发生时必须可见，正常 DAG 路径仅记录引擎名。"""
+        info: dict[str, Any] = {"execution_engine": result.execution_engine}
+        if result.fallback_reason:
+            info["fallback_reason"] = result.fallback_reason
+        return info
 
     async def _handle_failure(
         self,
@@ -306,6 +316,7 @@ class TaskExecutionCoordinator:
                 "phase": task.phase,
                 "errors": self._safe_error_messages(result.errors),
                 "resume_state": result.resume_state,
+                **self._engine_info(result),
             },
         )
         logger.error("任务最终失败: [{}] {} - {}", task.id, task.name, error_msg)
