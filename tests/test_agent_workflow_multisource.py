@@ -99,7 +99,7 @@ def test_apply_needs_confirm_no_create(monkeypatch) -> None:
             created.append(kwargs.get("name") or "")
             return type("T", (), {"id": "t1"})()
 
-    import src.web.app as app_mod
+    import src.bootstrap.container as app_mod
 
     monkeypatch.setattr(app_mod, "get_task_service", lambda: _TS(), raising=False)
 
@@ -127,7 +127,7 @@ def test_apply_confirm_creates(monkeypatch) -> None:
             created.append(kwargs)
             return type("T", (), {"id": f"id-{len(created)}"})()
 
-    import src.web.app as app_mod
+    import src.bootstrap.container as app_mod
 
     monkeypatch.setattr(app_mod, "get_task_service", lambda: _TS(), raising=False)
 

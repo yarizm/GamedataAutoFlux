@@ -172,6 +172,34 @@ class Scheduler:
         self._started = False
         self._has_started_once = False
 
+    @property
+    def task_store(self) -> BaseStorage | None:
+        """持久化 task store（启动后才可用）。"""
+        return self._task_store
+
+    def attach_persistence(
+        self,
+        *,
+        task_repo: TaskRepository | None = None,
+        cron_repo: CronRepository | None = None,
+        pipeline_repo: PipelineRepository | None = None,
+        event_bus: EventBus | None = None,
+    ) -> None:
+        """启动阶段挂载仓储与事件总线。
+
+        Scheduler 先于数据库 session factory 创建，无法在构造时注入，
+        由 composition root（app lifespan）在 DB 就绪后调用本方法；
+        外部代码不得直接写 `scheduler._xxx` 私有字段。
+        """
+        if task_repo is not None:
+            self._task_repo = task_repo
+        if cron_repo is not None:
+            self._cron_repo = cron_repo
+        if pipeline_repo is not None:
+            self._pipeline_repo = pipeline_repo
+        if event_bus is not None:
+            self._event_bus = event_bus
+
     def _create_background_task(self, coro) -> asyncio.Task:
         bg_task = asyncio.create_task(coro)
         bg_task.add_done_callback(lambda t: on_background_task_done(t, self._background_tasks))

@@ -97,7 +97,7 @@ class TaskDetailResponse(TaskResponse):
 @router.get("/tasks", response_model=list[TaskResponse])
 async def list_tasks(status: Annotated[str | None, Query(description="按状态过滤任务")] = None):
     """获取所有任务列表"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     try:
         tasks = get_task_service().list_tasks(status)
@@ -116,7 +116,7 @@ async def precheck_task(
     ] = None,
 ):
     """Validate task input before submitting it to the scheduler."""
-    from src.web.app import get_task_service, scheduler
+    from src.bootstrap.container import get_task_service, scheduler
 
     # DAG-only 图：先投影到 scheduler，precheck 才能识别
     if scheduler is not None and hasattr(scheduler, "resolve_pipeline"):
@@ -145,7 +145,7 @@ async def precheck_task(
 @router.post("/tasks", response_model=TaskResponse)
 async def create_task(req: Annotated[CreateTaskRequest, Body(description="任务创建信息")]):
     """创建并提交新任务"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     try:
         task = await get_task_service().create(
@@ -165,7 +165,7 @@ async def create_task(req: Annotated[CreateTaskRequest, Body(description="任务
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
 async def get_task(task_id: Annotated[str, Path(description="任务 ID")]):
     """获取单个任务详情"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     task_service = get_task_service()
     task = task_service.get_task(task_id)
@@ -193,7 +193,7 @@ async def get_task(task_id: Annotated[str, Path(description="任务 ID")]):
 @router.get("/tasks/{task_id}/logs")
 async def get_task_logs(task_id: Annotated[str, Path(description="任务 ID")]):
     """获取任务步骤日志"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     ts = get_task_service()
     if ts.get_task(task_id) is None:
@@ -214,7 +214,7 @@ async def get_task_events(
     order: Annotated[str, Query(pattern="^(asc|desc)$", description="事件排序")] = "asc",
 ):
     """获取任务结构化事件流"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     events = await get_task_service().get_task_events(
         task_id,
@@ -238,7 +238,7 @@ async def get_task_artifacts(
     offset: Annotated[int, Query(ge=0, description="跳过产物数")] = 0,
 ):
     """获取任务产物列表"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     artifacts = await get_task_service().get_task_artifacts(
         task_id,
@@ -261,7 +261,7 @@ async def get_task_checkpoints(
     offset: Annotated[int, Query(ge=0, description="跳过 checkpoint 数")] = 0,
 ):
     """获取任务 checkpoint 列表"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     result = await get_task_service().get_task_checkpoints(
         task_id,
@@ -282,7 +282,7 @@ async def get_task_checkpoints(
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: Annotated[str, Path(description="任务 ID")]):
     """取消任务"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     success = await get_task_service().cancel(task_id)
     if not success:
@@ -297,7 +297,7 @@ async def resume_task(
     req: Annotated[TaskResumeRequest | None, Body(description="续跑选项")] = None,
 ):
     """从检查点续跑 FAILED 任务（默认不占用 retry 额度）。"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     body = req or TaskResumeRequest()
     try:
@@ -323,7 +323,7 @@ async def rerun_task(
     req: Annotated[TaskRerunRequest | None, Body(description="重跑选项")] = None,
 ):
     """忽略检查点全量重跑 FAILED 任务（默认不占用 retry 额度）。"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     body = req or TaskRerunRequest()
     try:
@@ -348,7 +348,7 @@ async def delete_task(
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
     """删除任务"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     require_explicit_confirmation(confirm, "task deletion")
     success = await get_task_service().delete(task_id)
@@ -361,7 +361,7 @@ async def delete_task(
 @router.get("/tasks/stats/summary")
 async def get_task_stats():
     """获取任务统计信息"""
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     return get_task_service().get_stats()
 
@@ -485,7 +485,7 @@ def _checkpoint_to_response(checkpoint) -> TaskCheckpointResponse:
 
 
 async def _sync_session_inventory_best_effort(session_diagnostics: dict[str, Any]) -> None:
-    from src.web.app import get_session_registry
+    from src.bootstrap.container import get_session_registry
 
     await sync_session_inventory_via_provider_best_effort(
         get_session_registry,

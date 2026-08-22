@@ -265,7 +265,9 @@ async def _run(args: argparse.Namespace) -> list[dict[str, Any]]:
     load_settings()
     _auto_discover_plugins()
 
-    from src.web.app import scheduler, report_generator
+    from src.bootstrap import container
+
+    scheduler, report_generator = container.ensure_core_services()
 
     await scheduler.start()
     for pipeline in PIPELINES.values():

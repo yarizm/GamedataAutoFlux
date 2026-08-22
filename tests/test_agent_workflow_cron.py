@@ -117,7 +117,7 @@ def test_resolve_and_apply_needs_confirm(monkeypatch) -> None:
             calls.append(f"del:{name}")
             return True
 
-    import src.web.app as app_mod
+    import src.bootstrap.container as app_mod
 
     monkeypatch.setattr(app_mod, "scheduler", _Sched(), raising=False)
 
@@ -145,7 +145,7 @@ def test_apply_create_with_confirm(monkeypatch) -> None:
         def remove_cron_job(self, name: str):
             return True
 
-    import src.web.app as app_mod
+    import src.bootstrap.container as app_mod
 
     monkeypatch.setattr(app_mod, "scheduler", _Sched(), raising=False)
 
@@ -178,7 +178,7 @@ def test_apply_list(monkeypatch) -> None:
         def remove_cron_job(self, name: str):
             raise AssertionError("should not delete")
 
-    import src.web.app as app_mod
+    import src.bootstrap.container as app_mod
 
     monkeypatch.setattr(app_mod, "scheduler", _Sched(), raising=False)
 

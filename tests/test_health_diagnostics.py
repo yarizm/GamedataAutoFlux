@@ -357,7 +357,7 @@ def test_session_diagnostics_api_returns_diagnostic_payload() -> None:
 def test_session_diagnostics_api_returns_payload_when_inventory_sync_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -391,7 +391,7 @@ def test_session_diagnostics_api_returns_payload_when_inventory_sync_fails(
 def test_session_diagnostics_api_returns_payload_when_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -436,7 +436,7 @@ def test_single_collector_session_diagnostics_api_returns_runtime_model() -> Non
 def test_single_collector_session_diagnostics_api_returns_payload_when_inventory_sync_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -470,7 +470,7 @@ def test_single_collector_session_diagnostics_api_returns_payload_when_inventory
 def test_single_collector_session_diagnostics_api_returns_payload_when_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -604,7 +604,7 @@ def test_session_inventory_api_syncs_from_live_diagnostics(monkeypatch, tmp_path
 
 
 def test_session_inventory_sync_preserves_existing_lease_state(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -657,7 +657,7 @@ def test_session_inventory_api_returns_persisted_entries_when_live_sync_fails(
     monkeypatch, tmp_path
 ) -> None:
     import asyncio
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -705,7 +705,7 @@ def test_session_inventory_api_returns_persisted_entries_when_live_sync_fails(
 
 
 def test_get_task_service_rebuilds_after_scheduler_replaced(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class SchedulerA:
         pass

@@ -398,7 +398,7 @@ def test_delete_data_category_uses_management_service(monkeypatch) -> None:
     )
 
     with TestClient(app) as client:
-        import src.web.app as web_app
+        import src.bootstrap.container as web_app
 
         called["scheduler"] = web_app.scheduler
         called["report_generator"] = web_app.report_generator
@@ -450,7 +450,7 @@ def test_refresh_routes_use_management_service(monkeypatch) -> None:
     )
 
     with TestClient(app) as client:
-        import src.web.app as web_app
+        import src.bootstrap.container as web_app
 
         fake_scheduler = web_app.scheduler
         fake_task_service = object()
@@ -541,7 +541,7 @@ def test_refresh_schedule_route_uses_task_service_precheck_for_invalid_source_ta
 
 
 def test_refresh_schedule_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -605,7 +605,7 @@ def test_refresh_schedule_succeeds_when_session_inventory_sync_fails(monkeypatch
 def test_refresh_schedule_succeeds_when_session_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()

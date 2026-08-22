@@ -242,7 +242,7 @@ async def test_execute_honors_force_full_rerun_and_resume_checkpoint_id() -> Non
 
 
 def test_resume_and_rerun_api_status_codes(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import app
 
     class _FakeService:

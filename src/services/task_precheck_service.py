@@ -575,7 +575,7 @@ class TaskPrecheckService:
     def _list_online_workers_sync(self) -> list[dict[str, Any]] | None:
         """Best-effort snapshot of online workers; None if registry not available."""
         try:
-            from src.web.app import get_worker_registry
+            from src.bootstrap.container import get_worker_registry
         except Exception:
             return None
         registry = get_worker_registry()

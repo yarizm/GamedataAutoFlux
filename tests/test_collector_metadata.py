@@ -365,7 +365,7 @@ def test_task_precheck_reports_managed_state_readiness(monkeypatch, tmp_path) ->
 
 
 def test_task_precheck_syncs_session_inventory(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     profile_dir = tmp_path / "qimai_profile"
@@ -410,7 +410,7 @@ def test_task_precheck_syncs_session_inventory(monkeypatch, tmp_path) -> None:
 
 
 def test_task_precheck_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -453,7 +453,7 @@ def test_task_precheck_succeeds_when_session_inventory_sync_fails(monkeypatch, t
 
 
 def test_task_precheck_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -495,7 +495,7 @@ def test_task_precheck_succeeds_when_session_registry_lookup_fails(monkeypatch, 
 
 
 def test_task_create_syncs_session_inventory(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     profile_dir = tmp_path / "qimai_profile"
@@ -549,7 +549,7 @@ def test_task_create_syncs_session_inventory(monkeypatch, tmp_path) -> None:
 
 
 def test_task_create_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -601,7 +601,7 @@ def test_task_create_succeeds_when_session_inventory_sync_fails(monkeypatch, tmp
 
 
 def test_task_create_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()

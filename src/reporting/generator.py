@@ -1477,18 +1477,15 @@ async def _emit_report_progress(
         progress,
         safe_message,
     )
-    try:
-        from src.web.routes.ws import manager
+    from src.core.ws_broadcast import broadcast_ws
 
-        await manager.broadcast(
-            {
-                "type": "report_progress",
-                "progress_id": progress_id,
-                "stage": stage,
-                "progress": progress,
-                "message": safe_message,
-                **safe_extra,
-            }
-        )
-    except Exception as exc:
-        logger.debug("[Report][Progress] broadcast failed: {}", _safe_context_text(exc))
+    await broadcast_ws(
+        {
+            "type": "report_progress",
+            "progress_id": progress_id,
+            "stage": stage,
+            "progress": progress,
+            "message": safe_message,
+            **safe_extra,
+        }
+    )

@@ -131,7 +131,7 @@ async def test_review_collection_results_does_not_retry_without_flag(monkeypatch
     task = _make_review_task("review-no-retry")
     await _save_record(StorageRecord(key=f"{task.id}:empty", data={}, source="steam"))
     fake_service = _FakeTaskService(task)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
@@ -151,7 +151,7 @@ async def test_review_collection_results_auto_retry_creates_task(monkeypatch) ->
     task = _make_review_task("review-auto-retry")
     await _save_record(StorageRecord(key=f"{task.id}:empty", data={}, source="steam"))
     fake_service = _FakeTaskService(task)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
 
@@ -220,7 +220,7 @@ async def test_review_collection_results_auto_retry_targets_failed_collects_only
     restored = Task.from_storage_payload(task.to_storage_payload())
     fake_service = _FakeTaskService(restored)
     fake_store = _FakeDataStore({})
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
@@ -298,7 +298,7 @@ async def test_review_collection_results_auto_retry_distinguishes_same_named_tar
     restored = Task.from_storage_payload(task.to_storage_payload())
     fake_service = _FakeTaskService(restored)
     fake_store = _FakeDataStore({})
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
@@ -368,7 +368,7 @@ async def test_review_collection_results_auto_retry_blocks_redacted_target_param
     restored = Task.from_storage_payload(task.to_public_payload())
     fake_service = _FakeTaskService(restored)
     fake_store = _FakeDataStore({})
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
@@ -394,7 +394,7 @@ async def test_review_collection_results_auto_retry_redacts_creation_error(monke
     await _save_record(StorageRecord(key=f"{task.id}:empty", data={}, source="steam"))
     fake_service = _FakeTaskService(task)
     fake_service.create_error = RuntimeError("retry failed: api_key=secret-key")
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=True))
     rendered = json.dumps(payload, ensure_ascii=False)
@@ -417,7 +417,7 @@ async def test_review_collection_results_matches_task_id_metadata(monkeypatch) -
         )
     )
     fake_service = _FakeTaskService(task)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
@@ -466,7 +466,7 @@ async def test_review_collection_results_excludes_report_history_records(monkeyp
         )
     )
     fake_service = _FakeTaskService(task)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))
 
@@ -504,7 +504,7 @@ async def test_review_collection_results_includes_collector_failure_summary(monk
     task = Task.from_storage_payload(task.to_storage_payload())
     fake_service = _FakeTaskService(task)
     fake_store = _FakeDataStore({})
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
 
     payload = json.loads(await ReviewCollectionResultsTool()._arun(task.id, auto_retry=False))

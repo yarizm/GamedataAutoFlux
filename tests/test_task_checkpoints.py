@@ -491,7 +491,7 @@ async def test_pipeline_finalize_event_records_checkpoint_from_resume_state() ->
 
 
 def test_task_checkpoints_api_returns_latest(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     service = InMemoryTaskCheckpointService()
@@ -531,7 +531,7 @@ def test_task_checkpoints_api_returns_latest(monkeypatch) -> None:
 
 
 def test_task_detail_api_includes_recovery_info(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     task = Task(
@@ -598,7 +598,7 @@ def test_task_detail_api_includes_recovery_info(monkeypatch) -> None:
 
 
 def test_task_detail_api_succeeds_when_session_inventory_sync_fails(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     task = Task(
@@ -649,7 +649,7 @@ def test_task_detail_api_succeeds_when_session_inventory_sync_fails(monkeypatch)
 
 
 def test_task_detail_api_succeeds_when_session_registry_lookup_fails(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     task = Task(

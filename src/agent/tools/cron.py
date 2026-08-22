@@ -18,7 +18,7 @@ class ListCronJobsTool(BaseTool):
     description: str = "获取所有定时任务的列表"
 
     async def _arun(self) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         jobs = scheduler.list_cron_jobs()
         return _safe_json(jobs)
@@ -44,7 +44,7 @@ class CreateCronJobTool(BaseTool):
         task_template: dict | None = None,
         confirm: bool = False,
     ) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         if not confirm:
             return _format_result(
@@ -76,7 +76,7 @@ class DeleteCronJobTool(BaseTool):
     args_schema: Type[BaseModel] = DeleteCronJobInput
 
     async def _arun(self, name: str, confirm: bool = False) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         if not confirm:
             return _format_result(

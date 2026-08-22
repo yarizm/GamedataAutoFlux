@@ -26,7 +26,7 @@ router = APIRouter(tags=["health"])
 @router.get("/health")
 async def health_check():
     """Return compact runtime health status."""
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     return build_health_report(scheduler.get_stats())
 
@@ -42,7 +42,7 @@ async def session_diagnostics(
     collectors: Annotated[list[str] | None, Query(description="Optional collector ids")] = None,
 ):
     """Return local browser/session diagnostics for session-sensitive collectors."""
-    from src.web.app import get_session_registry
+    from src.bootstrap.container import get_session_registry
 
     payload = build_session_diagnostics_overview(collectors)
     for collector in payload.get("collectors", []) or []:
@@ -53,7 +53,7 @@ async def session_diagnostics(
 @router.get("/diagnostics/sessions/{collector_id}", dependencies=[Depends(require_admin)])
 async def collector_session_diagnostics(collector_id: str):
     """Return local browser/session diagnostics for one collector."""
-    from src.web.app import get_session_registry
+    from src.bootstrap.container import get_session_registry
 
     payload = build_collector_session_diagnostics(collector_id)
     await _sync_session_inventory_best_effort(get_session_registry, payload)
@@ -71,7 +71,7 @@ async def session_inventory(
     ] = False,
 ):
     """Return persisted session inventory snapshots derived from diagnostics."""
-    from src.web.app import get_session_registry
+    from src.bootstrap.container import get_session_registry
 
     if sync:
         payload = build_session_diagnostics_overview(collectors)

@@ -77,14 +77,11 @@ class SchedulerStateService:
                 )
             )
         else:
-            try:
-                from src.web.routes.ws import manager
+            from src.core.ws_broadcast import broadcast_ws
 
-                self._create_background_task(
-                    manager.broadcast({"type": "task_update", "task": public_payload})
-                )
-            except Exception as exc:
-                logger.debug(f"Failed to broadcast task update: {exc}")
+            self._create_background_task(
+                broadcast_ws({"type": "task_update", "task": public_payload})
+            )
 
     async def persist_pipeline(self, pipeline: Pipeline) -> None:
         """Persist a pipeline snapshot."""

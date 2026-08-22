@@ -53,7 +53,7 @@ class _WorkerAgentSlowTestCollector(BaseCollector):
 
 @pytest.mark.asyncio
 async def test_worker_agent_executes_claimed_task_via_api() -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     event_service = InMemoryTaskEventService()
     artifact_service = InMemoryTaskArtifactService()
@@ -721,7 +721,7 @@ async def test_worker_agent_reports_invalid_claim_payload_as_failed_task() -> No
 
 @pytest.mark.asyncio
 async def test_worker_agent_request_stop_drains_current_task_before_exit() -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     global _slow_collector_started, _slow_collector_continue
 

@@ -2,13 +2,16 @@
 FastAPI 应用入口
 
 WebUI 后端，提供任务管理、Pipeline 配置和报告生成 API。
+
+全局服务单例归属 `src.bootstrap.container`（composition root）；
+本模块通过 `__getattr__` 委托保持 `src.web.app.scheduler` 等
+历史引用兼容，Web 层自身不拥有业务单例。
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,146 +20,29 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
+from src.bootstrap import container
+from src.bootstrap.container import (  # noqa: F401 — Web 层兼容再导出
+    _reset_runtime_singletons,
+    get_agent_service,
+    get_dag_repository,
+    get_session_registry,
+    get_task_service,
+    get_worker_registry,
+)
 from src.core.config import load_settings, get as get_config
 from src.core.logging_config import configure_logging
-from src.core.scheduler import Scheduler
-from src.reporting.generator import ReportGenerator
+
+# 可变单例（scheduler / report_generator / agent 服务）委托给 container，
+# 避免 `from ... import scheduler` 在单例重建后拿到旧引用
+_CONTAINER_DELEGATED_ATTRS = frozenset(
+    {"scheduler", "report_generator", "_agent_service", "_agent_session_service"}
+)
 
 
-# 全局调度器实例
-scheduler = None
-report_generator = None
-
-# Agent 服务单例（延迟初始化）
-_agent_service = None
-_agent_session_service = None  # 在 lifespan 中初始化
-
-
-_agent_service_lock = threading.Lock()
-
-
-def get_agent_service():
-    """获取 Agent 服务实例，未启用时返回 None"""
-    global _agent_service
-    if not get_config("agent.enabled", True):
-        return None
-
-    if _agent_service is None:
-        with _agent_service_lock:
-            if _agent_service is None:
-                if _agent_session_service is None:
-                    logger.debug("Agent 会话服务尚未初始化，跳过")
-                    return None
-                try:
-                    from src.agent.agent import AgentService
-
-                    _agent_service = AgentService(session_service=_agent_session_service)
-                    logger.info("Agent 服务已初始化")
-                except Exception as e:
-                    logger.warning(f"Agent 服务初始化失败: {e}")
-                    return None
-    return _agent_service
-
-
-# Service layer singletons (lazy init)
-_task_service = None
-_task_service_lock = threading.Lock()
-_worker_registry = None
-_worker_registry_lock = threading.Lock()
-_session_registry = None
-_session_registry_lock = threading.Lock()
-
-
-def _reset_runtime_singletons(
-    *,
-    reset_agent: bool = False,
-    reset_agent_session: bool = False,
-) -> None:
-    global \
-        _task_service, \
-        _worker_registry, \
-        _session_registry, \
-        _agent_service, \
-        _agent_session_service, \
-        _dag_repo
-
-    _task_service = None
-    _worker_registry = None
-    _session_registry = None
-    _dag_repo = None
-    if reset_agent:
-        _agent_service = None
-    if reset_agent_session:
-        _agent_session_service = None
-
-
-def get_task_service():
-    global _task_service
-    if _task_service is None:
-        with _task_service_lock:
-            if _task_service is None:
-                from src.services.task_service import TaskService
-
-                _task_service = TaskService(
-                    scheduler=scheduler,
-                    get_session_registry=lambda: get_session_registry(),
-                )
-    return _task_service
-
-
-def get_worker_registry():
-    global _worker_registry
-    if _worker_registry is None:
-        with _worker_registry_lock:
-            if _worker_registry is None:
-                task_store = (
-                    getattr(scheduler, "_task_store", None) if scheduler is not None else None
-                )
-                if task_store is not None:
-                    from src.services.worker_registry import StorageWorkerRegistry
-
-                    _worker_registry = StorageWorkerRegistry(task_store)
-                else:
-                    from src.services.worker_registry import InMemoryWorkerRegistry
-
-                    _worker_registry = InMemoryWorkerRegistry()
-    return _worker_registry
-
-
-def get_session_registry():
-    global _session_registry
-    if _session_registry is None:
-        with _session_registry_lock:
-            if _session_registry is None:
-                task_store = (
-                    getattr(scheduler, "_task_store", None) if scheduler is not None else None
-                )
-                if task_store is not None:
-                    from src.services.session_registry import StorageSessionRegistry
-
-                    _session_registry = StorageSessionRegistry(task_store)
-                else:
-                    from src.services.session_registry import InMemorySessionRegistry
-
-                    _session_registry = InMemorySessionRegistry()
-    return _session_registry
-
-
-_dag_repo = None
-_dag_repo_lock = threading.Lock()
-
-
-def get_dag_repository():
-    """获取 DAG 仓储单例（lazy init，复用共享 session factory）。"""
-    global _dag_repo
-    if _dag_repo is None:
-        with _dag_repo_lock:
-            if _dag_repo is None:
-                from src.services.sqlalchemy_dag_repository import SQLAlchemyDAGRepository
-                from src.storage.session_factory import get_session_factory
-
-                _dag_repo = SQLAlchemyDAGRepository(get_session_factory())
-    return _dag_repo
+def __getattr__(name: str):
+    if name in _CONTAINER_DELEGATED_ATTRS:
+        return getattr(container, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # 模板引擎
@@ -208,11 +94,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
 
-    global scheduler, report_generator
-    if scheduler is None:
-        scheduler = Scheduler()
-    if report_generator is None:
-        report_generator = ReportGenerator()
+    scheduler, report_generator = container.ensure_core_services()
     _reset_runtime_singletons(reset_agent=True)
 
     # 发现并注册组件（需要在任何 get_storage() 等工厂函数调用前执行）
@@ -232,21 +114,24 @@ async def lifespan(app: FastAPI):
     # 创建 Agent 会话持久化服务
     from src.services.agent_session_service import AgentSessionService
 
-    global _agent_session_service
-    _agent_session_service = AgentSessionService(
-        session_factory=session_factory,
-        session_timeout=get_config("agent.session_timeout_minutes", 60) * 60,
-        max_sessions=50,
+    container.set_agent_session_service(
+        AgentSessionService(
+            session_factory=session_factory,
+            session_timeout=get_config("agent.session_timeout_minutes", 60) * 60,
+            max_sessions=50,
+        )
     )
 
-    # 注入 repositories 到 scheduler
+    # 挂载 repositories 到 scheduler（public lifecycle API）
     from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
     from src.services.sqlalchemy_cron_repository import SQLAlchemyCronRepository
     from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
 
-    scheduler._task_repo = SQLAlchemyTaskRepository(session_factory)
-    scheduler._cron_repo = SQLAlchemyCronRepository(session_factory)
-    scheduler._pipeline_repo = SQLAlchemyPipelineRepository(session_factory)
+    scheduler.attach_persistence(
+        task_repo=SQLAlchemyTaskRepository(session_factory),
+        cron_repo=SQLAlchemyCronRepository(session_factory),
+        pipeline_repo=SQLAlchemyPipelineRepository(session_factory),
+    )
 
     # 注册事件 hooks
     from src.core.events import event_bus
@@ -256,10 +141,12 @@ async def lifespan(app: FastAPI):
         WebSocketBroadcastHook,
         WebSocketTaskEventHook,
     )
+    from src.core.ws_broadcast import set_broadcaster
     from src.services.alert_service import AlertService
     from src.web.routes.ws import manager
 
-    scheduler._event_bus = event_bus
+    scheduler.attach_persistence(event_bus=event_bus)
+    set_broadcaster(manager.broadcast)
     event_bus.on(
         "task_completed", ReportGenerationHook(report_generator, scheduler=scheduler).handle
     )
@@ -303,12 +190,14 @@ async def lifespan(app: FastAPI):
         await app.state.plugin_operations.stop()
     await scheduler.stop()
 
-    # 注销所有 EventBus handlers，防止重复注册
+    # 注销所有 EventBus handlers 与 WS 广播端口，防止重复注册
     from src.core.events import event_bus
+    from src.core.ws_broadcast import set_broadcaster as _clear_broadcaster
 
     event_bus.clear()
+    _clear_broadcaster(None)
 
-    agent_svc = _agent_service
+    agent_svc = container._agent_service
     mcp_manager = getattr(agent_svc, "_mcp_manager", None)
     if mcp_manager:
         await mcp_manager.stop()

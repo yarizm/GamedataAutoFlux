@@ -37,7 +37,7 @@ class ListPipelinesTool(BaseTool):
     description: str = "获取已保存的自定义 Pipeline 列表"
 
     async def _arun(self) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         pipelines = scheduler.get_all_pipelines()
         summaries = [{"name": p.name, "steps": len(p.steps)} for p in pipelines]
@@ -63,7 +63,7 @@ class CreatePipelineTool(BaseTool):
 
     async def _arun(self, name: str, steps: list[dict]) -> str:
         from src.core.pipeline import Pipeline, StepType
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         pipeline = Pipeline(name)
         for step in steps:
@@ -101,7 +101,7 @@ class DeletePipelineTool(BaseTool):
     args_schema: Type[BaseModel] = DeletePipelineInput
 
     async def _arun(self, name: str, confirm: bool = False) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         if not confirm:
             return _format_result(
@@ -137,7 +137,7 @@ class CreateDynamicPipelineTool(BaseTool):
         js_script: str = "",
     ) -> str:
         from src.core.pipeline import Pipeline
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         collector_config = {
             "url": url,

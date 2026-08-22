@@ -17,6 +17,7 @@ from src.core.collector_validators import validate_collector_config
 from src.core.pipeline import Pipeline
 from src.core.pipeline_availability import inspect_pipeline_availability
 from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec, dag_to_pipeline
+from src.core.dag_executor import validate_dag_detailed
 from src.core.dag_nodes import dag_node_catalog_payload, get_dag_node
 from src.core.registry import registry
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
@@ -27,13 +28,13 @@ router = APIRouter(tags=["pipelines"])
 
 def _get_scheduler():
     """Lazy import scheduler to avoid circular dependency."""
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     return scheduler
 
 
 def _get_dag_repo():
-    from src.web.app import get_dag_repository
+    from src.bootstrap.container import get_dag_repository
 
     return get_dag_repository()
 
@@ -236,9 +237,24 @@ async def create_dag(
 ):
     """保存 DAG 图，并投影注册为同名 Pipeline 供任务创建使用。"""
     dag = _build_dag_from_request(req)
-    if not any(n.type == "collector" for n in dag.nodes):
-        raise HTTPException(400, "DAG must contain at least one collector node")
-    await _get_dag_repo().save(dag)
+
+    # 保存前完整结构校验；composite 引用的子图预载后一并校验可解析性
+    dag_repo = _get_dag_repo()
+    subgraphs: dict[str, Any] = {}
+    for node in dag.nodes:
+        if node.type == "composite" and (node.subgraph_name or "").strip():
+            subgraphs[node.subgraph_name] = await dag_repo.load(node.subgraph_name)
+    issues = validate_dag_detailed(
+        dag,
+        subgraph_loader=(lambda name: subgraphs.get(name)) if subgraphs else None,
+    )
+    errors = [i.message for i in issues if i.severity == "error"]
+    if errors:
+        raise HTTPException(
+            400,
+            {"code": "dag_validation_failed", "issues": errors},
+        )
+    await dag_repo.save(dag)
 
     # 双写：投影 Pipeline 注册进 Scheduler，任务下拉/ precheck / submit 可用
     pipeline = dag_to_pipeline(dag)
@@ -250,6 +266,7 @@ async def create_dag(
         "message": f"DAG created: {req.name}",
         "config": dag.to_storage(),
         "pipeline": pipeline.to_config(),
+        "warnings": [i.message for i in issues if i.severity == "warning"],
     }
 
 

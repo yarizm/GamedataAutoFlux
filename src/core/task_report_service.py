@@ -42,9 +42,11 @@ class TaskReportService:
     ) -> None:
         report_generator = self._report_generator
         if report_generator is None:
-            from src.web.app import report_generator as app_report_generator
+            from src.bootstrap.container import report_generator as app_report_generator
 
             report_generator = app_report_generator
+        if report_generator is None:
+            raise RuntimeError("report generator unavailable")
 
         report_config = task.config.get("report", {})
         prompt = str(report_config.get("prompt") or build_default_report_prompt(task))

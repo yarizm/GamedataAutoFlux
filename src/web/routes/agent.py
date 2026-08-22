@@ -37,7 +37,7 @@ def _resolve_thread_id(
 @router.post("/agent/chat")
 async def agent_chat(req: ChatRequest):
     """与 AI 助手对话（SSE 流式响应）"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -68,7 +68,7 @@ async def agent_chat(req: ChatRequest):
 @router.get("/agent/history")
 async def get_agent_history(session_id: str | None = None, thread_id: str | None = None):
     """获取指定会话的消息历史"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -86,7 +86,7 @@ async def get_agent_history(session_id: str | None = None, thread_id: str | None
 @router.delete("/agent/history")
 async def clear_agent_history(session_id: str | None = None, thread_id: str | None = None):
     """清除指定会话的对话历史"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -104,7 +104,7 @@ async def clear_agent_history(session_id: str | None = None, thread_id: str | No
 @router.get("/agent/sessions")
 async def list_agent_sessions():
     """列出所有活跃的 Agent 会话 ID"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -117,7 +117,7 @@ async def list_agent_sessions():
 @router.get("/agent/status")
 async def get_agent_status():
     """获取 Agent 当前模型、工具、MCP 和会话状态。"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -132,7 +132,7 @@ async def list_llm_providers():
     from src.agent.agent import AgentService
 
     providers = AgentService.get_available_providers()
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     active = (
@@ -146,7 +146,7 @@ async def list_llm_providers():
 @router.post("/agent/providers")
 async def set_llm_provider(req: SetProviderRequest):
     """切换 LLM provider"""
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if not agent_service:
@@ -223,7 +223,7 @@ async def update_llm_providers_config(req: UpdateProviderConfigRequest):
 
     save_section("llm", llm_section)
 
-    from src.web.app import get_agent_service
+    from src.bootstrap.container import get_agent_service
 
     agent_service = get_agent_service()
     if agent_service:

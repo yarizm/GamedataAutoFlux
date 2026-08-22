@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool, tool
 
 import src.agent.agent as agent_module
-import src.web.app as web_app
+import src.bootstrap.container as web_app
 import src.web.routes.agent as agent_routes
 from src.agent.agent import AgentService, _redact_stream_text, _redact_stream_value
 from src.agent.runtime import LangGraphAgentRuntime
@@ -1012,7 +1012,9 @@ def test_app_lifespan_smoke_uses_default_langgraph_runtime(monkeypatch) -> None:
         lambda **kwargs: model,
     )
 
-    with TestClient(web_app.create_app()) as client:
+    from src.web.app import create_app as _web_create_app
+
+    with TestClient(_web_create_app()) as client:
         status_response = client.get("/api/agent/status")
         chat_response = client.post(
             "/api/agent/chat",

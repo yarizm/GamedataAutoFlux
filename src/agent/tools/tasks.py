@@ -224,7 +224,7 @@ class ListTasksTool(BaseTool):
     args_schema: Type[BaseModel] = ListTasksInput
 
     async def _arun(self, status: str | None = None) -> str:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
 
         try:
             tasks = get_task_service().list_tasks(status)
@@ -259,7 +259,7 @@ class GetTaskDetailTool(BaseTool):
     args_schema: Type[BaseModel] = GetTaskDetailInput
 
     async def _arun(self, task_id: str) -> str:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
 
         task_service = get_task_service()
         task = task_service.get_task(task_id)
@@ -326,7 +326,7 @@ class CreateTaskTool(BaseTool):
         collector_name: str = "",
         config: dict | None = None,
     ) -> str:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
 
         targets = targets or []
         config = config or {}
@@ -409,7 +409,7 @@ class CancelTaskTool(BaseTool):
     args_schema: Type[BaseModel] = CancelTaskInput
 
     async def _arun(self, task_id: str) -> str:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
 
         ok = await get_task_service().cancel(task_id)
         if ok:

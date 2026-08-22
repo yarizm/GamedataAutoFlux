@@ -35,7 +35,7 @@ async def register_worker(
     req: Annotated[WorkerRegisterRequest, Body(description="Worker registration")],
 ):
     """Register or refresh a worker."""
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     worker = await get_worker_registry().register(
         worker_id=req.worker_id,
@@ -53,7 +53,7 @@ async def worker_heartbeat(
     req: Annotated[WorkerHeartbeatRequest, Body(description="Worker heartbeat")],
 ):
     """Update worker heartbeat and current status."""
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     worker = await get_worker_registry().heartbeat(
         worker_id,
@@ -75,7 +75,7 @@ async def list_workers(
     ] = 120,
 ):
     """List registered workers."""
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     workers = await get_worker_registry().list_workers(stale_after_seconds=stale_after_seconds)
     return [_worker_to_response(worker) for worker in workers]
@@ -89,7 +89,7 @@ async def reconcile_stale_worker_tasks(
     ] = 120,
 ):
     """Cancel running tasks claimed by stale/offline workers."""
-    from src.web.app import get_session_registry, get_worker_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_registry, scheduler
 
     workers = await get_worker_registry().list_workers(stale_after_seconds=stale_after_seconds)
     offline_workers = [worker for worker in workers if worker.status == "offline"]
@@ -162,7 +162,7 @@ async def reconcile_stale_worker_tasks(
 @router.get("/workers/{worker_id}", response_model=WorkerResponse)
 async def get_worker(worker_id: Annotated[str, Path(description="Worker id")]):
     """Get one registered worker."""
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     worker = await get_worker_registry().get_worker(worker_id)
     if worker is None:
@@ -176,7 +176,7 @@ async def claim_task(
     req: Annotated[WorkerClaimTaskRequest, Body(description="Task claim request")],
 ):
     """Claim the next pending task for a registered worker."""
-    from src.web.app import get_session_registry, get_worker_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_registry, scheduler
 
     worker = await _require_registered_worker(worker_id)
     claim = await scheduler.claim_task_for_worker(
@@ -225,7 +225,7 @@ async def append_task_event(
     req: Annotated[WorkerTaskEventRequest, Body(description="Worker task event")],
 ):
     """Append an event for a worker-claimed task."""
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     await _require_registered_worker(worker_id)
     event = await scheduler.append_worker_task_event(
@@ -249,7 +249,7 @@ async def register_task_artifact(
     req: Annotated[WorkerTaskArtifactRequest, Body(description="Worker task artifact")],
 ):
     """Register an artifact for a worker-claimed task."""
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     await _require_registered_worker(worker_id)
     artifact = await scheduler.register_worker_task_artifact(
@@ -276,7 +276,7 @@ async def register_task_checkpoint(
     req: Annotated[WorkerTaskCheckpointRequest, Body(description="Worker task checkpoint")],
 ):
     """Register a checkpoint for a worker-claimed task."""
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     await _require_registered_worker(worker_id)
     checkpoint = await scheduler.register_worker_task_checkpoint(
@@ -302,7 +302,7 @@ async def complete_task(
     req: Annotated[WorkerTaskCompleteRequest, Body(description="Worker task result")],
 ):
     """Mark a worker-claimed task as complete."""
-    from src.web.app import get_session_registry, scheduler
+    from src.bootstrap.container import get_session_registry, scheduler
 
     await _require_registered_worker(worker_id)
     task = await scheduler.complete_worker_task(worker_id, task_id, result=req.result)
@@ -338,7 +338,7 @@ async def fail_task(
     req: Annotated[WorkerTaskFailRequest, Body(description="Worker task failure")],
 ):
     """Mark a worker-claimed task as failed."""
-    from src.web.app import get_session_registry, scheduler
+    from src.bootstrap.container import get_session_registry, scheduler
 
     await _require_registered_worker(worker_id)
     task = await scheduler.fail_worker_task(worker_id, task_id, error=req.error, result=req.result)
@@ -488,7 +488,7 @@ async def _refresh_worker_heartbeat_best_effort(
     action: str,
     task_id: str = "",
 ) -> None:
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     registry = get_worker_registry()
     status = await _resolve_worker_status_for_heartbeat(
@@ -605,7 +605,7 @@ def _blocked_session_fallback_entry(diagnostics: dict[str, Any]):
 
 async def _require_registered_worker(worker_id: str):
     """Return a registered worker or raise a route-level 404."""
-    from src.web.app import get_worker_registry
+    from src.bootstrap.container import get_worker_registry
 
     worker = await get_worker_registry().get_worker(worker_id)
     if worker is None:

@@ -130,7 +130,7 @@ async def test_report_generation_hook_registers_generated_report_artifact(tmp_pa
 
 
 def test_task_artifacts_api_returns_artifacts(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     service = InMemoryTaskArtifactService()

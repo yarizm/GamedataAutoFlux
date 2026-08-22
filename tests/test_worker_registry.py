@@ -548,7 +548,7 @@ async def test_scheduler_reconcile_stale_worker_recovers_sticky_retry_task() -> 
 
 
 def test_worker_api_register_heartbeat_and_list(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemoryWorkerRegistry()
     monkeypatch.setattr(app_module, "get_worker_registry", lambda: registry)
@@ -584,7 +584,7 @@ def test_worker_api_register_heartbeat_and_list(monkeypatch) -> None:
 
 
 def test_worker_api_validates_control_fields(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemoryWorkerRegistry()
     monkeypatch.setattr(app_module, "get_worker_registry", lambda: registry)
@@ -630,7 +630,7 @@ def test_worker_api_validates_control_fields(monkeypatch) -> None:
 
 
 def test_worker_api_reconcile_stale_tasks(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     task = Task(
         id="interrupted-task",
@@ -700,7 +700,7 @@ def test_worker_api_reconcile_stale_tasks(monkeypatch) -> None:
 def test_worker_api_reconcile_clears_stale_worker_task_ids_without_scheduler_tasks(
     monkeypatch,
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemoryWorkerRegistry()
     monkeypatch.setattr(app_module, "get_worker_registry", lambda: registry)
@@ -750,7 +750,7 @@ def test_worker_api_reconcile_clears_stale_worker_task_ids_without_scheduler_tas
 
 
 def test_worker_api_claim_event_artifact_and_complete_flow() -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -836,7 +836,7 @@ def test_worker_api_claim_event_artifact_and_complete_flow() -> None:
 def test_worker_api_claim_succeeds_for_non_session_task_when_session_registry_lookup_fails(
     monkeypatch,
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     def broken_registry_provider():
         raise RuntimeError("registry lookup failed token=claim-non-session-lookup-secret")
@@ -888,7 +888,7 @@ def test_worker_api_claim_succeeds_for_non_session_task_when_session_registry_lo
 def test_worker_api_claim_blocks_session_task_when_session_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -970,7 +970,7 @@ def test_worker_api_claim_blocks_session_task_when_session_registry_lookup_fails
 
 
 def test_worker_api_complete_preserves_draining_status(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1022,7 +1022,7 @@ def test_worker_api_complete_preserves_draining_status(monkeypatch) -> None:
 
 
 def test_worker_task_activity_preserves_draining_status() -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -1073,7 +1073,7 @@ def test_worker_task_activity_preserves_draining_status() -> None:
 
 
 def test_worker_task_updates_succeed_when_activity_heartbeat_fails(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class FailingHeartbeatRegistry:
         def __init__(self) -> None:
@@ -1156,7 +1156,7 @@ def test_worker_task_updates_succeed_when_activity_heartbeat_fails(monkeypatch) 
 
 
 def test_worker_api_claim_succeeds_when_session_bind_fails(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class BindFailsRegistry(InMemorySessionRegistry):
         async def bind_session(self, diagnostics: dict, **kwargs):
@@ -1206,7 +1206,7 @@ def test_worker_api_claim_succeeds_when_session_bind_fails(monkeypatch) -> None:
 
 
 def test_worker_api_complete_succeeds_when_session_release_fails(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class ReleaseFailsRegistry(InMemorySessionRegistry):
         async def release_session_by_id(self, session_id: str, **kwargs):
@@ -1263,7 +1263,7 @@ def test_worker_api_complete_succeeds_when_session_release_fails(monkeypatch) ->
 
 
 def test_worker_api_fail_succeeds_when_session_release_fails(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class ReleaseFailsRegistry(InMemorySessionRegistry):
         async def release_session_by_id(self, session_id: str, **kwargs):
@@ -1322,7 +1322,7 @@ def test_worker_api_fail_succeeds_when_session_release_fails(monkeypatch) -> Non
 
 
 def test_worker_api_missing_worker_returns_404(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemoryWorkerRegistry()
     monkeypatch.setattr(app_module, "get_worker_registry", lambda: registry)
@@ -1338,7 +1338,7 @@ def test_worker_api_missing_worker_returns_404(monkeypatch) -> None:
 def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -1419,7 +1419,7 @@ def test_worker_api_claim_exposes_session_runtime_for_local_profile_collector(
 
 
 def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -1534,7 +1534,7 @@ def test_worker_api_claim_skips_session_claimed_by_other_worker(monkeypatch, tmp
 def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class SyncFailsRegistry(InMemorySessionRegistry):
         def __init__(self) -> None:
@@ -1655,7 +1655,7 @@ def test_worker_api_claim_stays_blocked_when_session_inventory_refresh_fails(
 def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -1754,7 +1754,7 @@ def test_worker_api_claim_allows_same_worker_to_reuse_claimed_session(
 
 
 def test_worker_task_scoped_api_requires_registered_worker(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemoryWorkerRegistry()
 
@@ -1786,7 +1786,7 @@ def test_worker_task_scoped_api_requires_registered_worker(monkeypatch) -> None:
 
 
 def test_worker_api_complete_releases_session_lease(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -1866,7 +1866,7 @@ def test_worker_api_complete_releases_session_lease(monkeypatch, tmp_path) -> No
 def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
 
@@ -1952,7 +1952,7 @@ def test_worker_api_complete_succeeds_when_session_registry_lookup_fails(
 def test_worker_api_retrying_local_profile_task_retains_session_lease(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -2064,7 +2064,7 @@ def test_worker_api_retrying_local_profile_task_retains_session_lease(
 def test_worker_api_retrying_managed_state_task_releases_session_lease(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     storage_state = tmp_path / "qimai_storage_state.json"
     storage_state.write_text("{}", encoding="utf-8")
@@ -2139,7 +2139,7 @@ def test_worker_api_retrying_managed_state_task_releases_session_lease(
 
 
 def test_worker_api_fail_succeeds_when_session_registry_lookup_fails(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     storage_state = tmp_path / "qimai_storage_state.json"
     storage_state.write_text("{}", encoding="utf-8")
@@ -2222,7 +2222,7 @@ def test_worker_api_fail_succeeds_when_session_registry_lookup_fails(monkeypatch
 
 
 def test_task_cancel_rejects_running_worker_claim_task(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     with TestClient(create_app()) as client:
         original_backend = app_module.scheduler._execution_backend
@@ -2271,7 +2271,7 @@ def test_task_cancel_rejects_running_worker_claim_task(monkeypatch) -> None:
 def test_task_cancel_releases_retrying_worker_claim_session_lease(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -2356,7 +2356,7 @@ def test_task_cancel_releases_retrying_worker_claim_session_lease(
 def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -2443,7 +2443,7 @@ def test_worker_api_complete_releases_claimed_session_after_runtime_mode_changes
 def test_task_detail_keeps_claimed_session_snapshot_after_runtime_mode_changes(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -2528,7 +2528,7 @@ def test_task_detail_keeps_claimed_session_snapshot_after_runtime_mode_changes(
 def test_worker_api_complete_releases_snapshot_session_when_registry_entry_missing(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     profile_dir = tmp_path / "qimai_profile"
     profile_dir.mkdir()
@@ -2613,7 +2613,7 @@ def test_worker_api_complete_releases_snapshot_session_when_registry_entry_missi
 
 
 def test_worker_api_reconcile_marks_session_interrupted(monkeypatch, tmp_path) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)
@@ -2693,7 +2693,7 @@ def test_worker_api_reconcile_marks_session_interrupted(monkeypatch, tmp_path) -
 
 
 def test_worker_api_reconcile_succeeds_when_session_release_fails(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     class ReleaseFailsRegistry(InMemorySessionRegistry):
         async def release_session_by_id(self, session_id: str, **kwargs):
@@ -2762,7 +2762,7 @@ def test_worker_api_reconcile_succeeds_when_session_release_fails(monkeypatch) -
 def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
 
@@ -2853,7 +2853,7 @@ def test_worker_api_reconcile_succeeds_when_session_registry_lookup_fails(
 def test_worker_api_reconcile_recovers_retrying_sticky_task_and_releases_lease(
     monkeypatch, tmp_path
 ) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     registry = InMemorySessionRegistry()
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry)

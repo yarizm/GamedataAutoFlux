@@ -12,7 +12,7 @@ class GetSystemStatsTool(BaseTool):
     description: str = "获取系统概览统计信息：任务总数、运行中数量、定时任务数等"
 
     async def _arun(self) -> str:
-        from src.web.app import scheduler
+        from src.bootstrap.container import scheduler
 
         stats = scheduler.get_stats()
         total = stats.get("total_tasks", 0)
@@ -34,7 +34,7 @@ class GetAgentStatusTool(BaseTool):
     description: str = "查看 AI Agent 当前运行状态，包括模型、工具数量、MCP 浏览器工具和会话数量。"
 
     async def _arun(self) -> str:
-        from src.web.app import get_agent_service
+        from src.bootstrap.container import get_agent_service
 
         agent_service = get_agent_service()
         if not agent_service:

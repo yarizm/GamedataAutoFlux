@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from loguru import logger
 
 from src.core.collector_metadata import get_collector_metadata, resolve_session_mode
 from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent
@@ -142,14 +141,11 @@ class TaskObservabilityService:
                 )
             )
         else:
-            try:
-                from src.web.routes.ws import manager
+            from src.core.ws_broadcast import broadcast_ws
 
-                self._create_background_task(
-                    manager.broadcast({"type": "task_event", "event": public_payload})
-                )
-            except Exception as exc:
-                logger.debug(f"Failed to broadcast task event: {exc}")
+            self._create_background_task(
+                broadcast_ws({"type": "task_event", "event": public_payload})
+            )
         return event
 
     async def emit_task_completed_event(

@@ -422,7 +422,7 @@ class ReviewCollectionResultsTool(BaseTool):
     args_schema: Type[BaseModel] = ReviewCollectionResultsInput
 
     async def _arun(self, task_id: str, auto_retry: bool = False) -> str:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
         from src.storage.factory import get_storage
         from src.core.task import TaskStatus
 

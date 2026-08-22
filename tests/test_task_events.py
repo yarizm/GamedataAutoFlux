@@ -102,7 +102,7 @@ async def test_pipeline_emits_stage_events() -> None:
 
 
 def test_task_events_api_returns_events(monkeypatch) -> None:
-    from src.web import app as app_module
+    from src.bootstrap import container as app_module
     from src.web.app import create_app
 
     service = InMemoryTaskEventService()

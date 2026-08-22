@@ -64,7 +64,7 @@ async def test_dag_repository_singleton_reset(isolated_db_config):
         assert repo1 is not None
         _reset_runtime_singletons()
         # reset 后再次获取应是新实例
-        import src.web.app as app_module
+        import src.bootstrap.container as app_module
 
         assert app_module._dag_repo is None
     finally:

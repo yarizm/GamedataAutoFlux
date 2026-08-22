@@ -389,7 +389,7 @@ async def batch_export_records(req: BatchRecordRequest):
 async def _delete_data_category(
     *, game_key: str = "", group_id: str = ""
 ) -> DeleteDataCategoryResponse:
-    from src.web.app import report_generator, scheduler
+    from src.bootstrap.container import report_generator, scheduler
 
     payload = await _get_data_management_service().delete_data_category(
         scheduler=scheduler,
@@ -466,7 +466,7 @@ async def refresh_data_record_by_path(
 
 
 async def _refresh_data_record_response(record_key: str, req: RefreshRecordRequest):
-    from src.web.app import get_task_service
+    from src.bootstrap.container import get_task_service
 
     return await _get_data_management_service().submit_refresh_task(
         task_service=get_task_service(),
@@ -495,7 +495,7 @@ async def _create_record_refresh_schedule_response(
     record_key: str,
     req: CreateRefreshScheduleRequest,
 ):
-    from src.web.app import get_task_service, scheduler
+    from src.bootstrap.container import get_task_service, scheduler
 
     return await _get_data_management_service().create_refresh_schedule(
         scheduler=scheduler,

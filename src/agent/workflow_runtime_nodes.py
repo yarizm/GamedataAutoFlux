@@ -238,7 +238,7 @@ def apply_cron_action_node(state: AgentWorkflowState) -> dict[str, Any]:
 
 
 def _cron_list_result() -> dict[str, Any]:
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     jobs = scheduler.list_cron_jobs()
     slim = []
@@ -270,7 +270,7 @@ def _cron_create_result(
     timezone: str,
     schedule_meta: dict[str, Any],
 ) -> dict[str, Any]:
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     job_id = scheduler.add_cron_job(
         name=name,
@@ -293,7 +293,7 @@ def _cron_create_result(
 
 
 def _cron_delete_result(name: str) -> dict[str, Any]:
-    from src.web.app import scheduler
+    from src.bootstrap.container import scheduler
 
     ok = scheduler.remove_cron_job(name)
     if ok:
@@ -382,7 +382,7 @@ async def apply_multisource_action_node(state: AgentWorkflowState) -> dict[str, 
     created: list[dict[str, Any]] = []
     errors: list[str] = []
     try:
-        from src.web.app import get_task_service
+        from src.bootstrap.container import get_task_service
 
         ts = get_task_service()
         for item in task_drafts:

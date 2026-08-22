@@ -27,7 +27,7 @@ async def test_create_task_tool_returns_final_targets_and_auto_fill_summary(
 
     fake_service = _FakeCreateTaskService()
     monkeypatch.setattr("src.agent.tools.tasks._auto_fill_identifiers", fake_auto_fill)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(
         await CreateTaskTool()._arun(
@@ -83,7 +83,7 @@ async def test_create_task_tool_redacts_create_exception_detail(monkeypatch) -> 
         "create failed with api_key=secret-key; token: secret-token"
     )
     monkeypatch.setattr("src.agent.tools.tasks._auto_fill_identifiers", passthrough_auto_fill)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(
         await CreateTaskTool()._arun(
@@ -131,7 +131,7 @@ async def test_create_task_tool_guides_session_setup_when_precheck_is_blocked(mo
         },
     )
     monkeypatch.setattr("src.agent.tools.tasks._auto_fill_identifiers", passthrough_auto_fill)
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(
         await CreateTaskTool()._arun(
@@ -177,7 +177,7 @@ async def test_get_task_detail_guides_partial_collection_follow_up(monkeypatch) 
     task.fail("partial failure api_key=task-secret")
     restored = Task.from_storage_payload(task.to_storage_payload())
     monkeypatch.setattr(
-        "src.web.app.get_task_service",
+        "src.bootstrap.container.get_task_service",
         lambda: _FakeTaskDetailService(restored),
     )
 
@@ -212,7 +212,7 @@ async def test_get_task_detail_guides_successful_task_to_report_precheck(monkeyp
     )
     task.complete({"success": True, "storage_count": 2})
     monkeypatch.setattr(
-        "src.web.app.get_task_service",
+        "src.bootstrap.container.get_task_service",
         lambda: _FakeTaskDetailService(task),
     )
 
@@ -258,7 +258,7 @@ async def test_get_task_detail_includes_recovery_guidance(monkeypatch) -> None:
         "status": "not_required",
         "summary": "No local session required for task submission.",
     }
-    monkeypatch.setattr("src.web.app.get_task_service", lambda: fake_service)
+    monkeypatch.setattr("src.bootstrap.container.get_task_service", lambda: fake_service)
 
     payload = json.loads(await GetTaskDetailTool()._arun(task.id))
     data = payload["data"]

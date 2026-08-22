@@ -412,7 +412,7 @@ async def test_execute_task_without_event_bus_generates_report_inline(
             Path(report.excel_path).write_bytes(b"xlsx")
             return report
 
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     monkeypatch.setattr(app_module, "report_generator", _FakeReportGenerator())
 
@@ -449,7 +449,7 @@ def test_retry_suppression_reason_only_for_stored_partial_collection() -> None:
 
 
 def test_global_scheduler_restart_clears_runtime_worker_claim_state(monkeypatch) -> None:
-    import src.web.app as app_module
+    import src.bootstrap.container as app_module
 
     original_scheduler = app_module.scheduler
     original_task_service = app_module._task_service
@@ -461,7 +461,9 @@ def test_global_scheduler_restart_clears_runtime_worker_claim_state(monkeypatch)
     monkeypatch.setattr(app_module, "get_session_registry", lambda: registry_one)
 
     try:
-        with TestClient(app_module.create_app()) as client:
+        from src.web.app import create_app as _web_create_app
+
+        with TestClient(_web_create_app()) as client:
             original_backend = app_module.scheduler._execution_backend
             app_module.scheduler._execution_backend = "worker_claim"
             try:
@@ -515,7 +517,9 @@ def test_global_scheduler_restart_clears_runtime_worker_claim_state(monkeypatch)
         registry_two = InMemorySessionRegistry()
         monkeypatch.setattr(app_module, "get_session_registry", lambda: registry_two)
 
-        with TestClient(app_module.create_app()) as client:
+        from src.web.app import create_app as _web_create_app
+
+        with TestClient(_web_create_app()) as client:
             original_backend = app_module.scheduler._execution_backend
             app_module.scheduler._execution_backend = "worker_claim"
             try:

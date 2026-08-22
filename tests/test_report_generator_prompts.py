@@ -36,7 +36,7 @@ async def test_emit_report_progress_redacts_message_and_extra(monkeypatch) -> No
     async def fake_broadcast(message: dict) -> None:
         captured.append(message)
 
-    monkeypatch.setattr("src.web.routes.ws.manager.broadcast", fake_broadcast)
+    monkeypatch.setattr("src.core.ws_broadcast._broadcaster", fake_broadcast)
 
     await _emit_report_progress(
         "progress-1",
