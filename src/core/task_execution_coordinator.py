@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from src.core.errors import coerce_error_code, resolve_error_code
+from src.core.metrics import metrics
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskStatus
@@ -93,6 +94,7 @@ class TaskExecutionCoordinator:
 
             async with semaphore:
                 task.start()
+                metrics.inc("task_started_total")
                 recovery_checkpoint = await self._resolve_recovery_checkpoint(task)
                 self._clear_one_shot_resume_flags(task)
                 await self._persist_task(task)
@@ -228,9 +230,11 @@ class TaskExecutionCoordinator:
                 },
             )
             logger.error("任务执行失败（报告生成）: [{}] {} - {}", task.id, task.name, error_msg)
+            metrics.inc("task_completed_total", status="failed")
             return
 
         task.complete(result)
+        metrics.inc("task_completed_total", status="success")
         await self._persist_task(task)
         await self._emit_task_event(
             task,
@@ -293,6 +297,7 @@ class TaskExecutionCoordinator:
                 task.name,
                 error_msg,
             )
+            metrics.inc("task_retries_total")
             return True, min(60, 2**task.retry_count)
 
         if retry_suppression_reason:
@@ -330,6 +335,7 @@ class TaskExecutionCoordinator:
             )
         else:
             self._schedule_failure_alert(task, error_msg, is_exception=False)
+        metrics.inc("task_completed_total", status="failed")
         return False, 0
 
     async def _handle_exception(
@@ -364,6 +370,7 @@ class TaskExecutionCoordinator:
                 task.name,
                 error_msg,
             )
+            metrics.inc("task_retries_total")
             return True, min(60, 2**task.retry_count), None
 
         await self._persist_task(task)
@@ -384,6 +391,7 @@ class TaskExecutionCoordinator:
             await self._emit_task_completed_event(task, False, None, pipeline, [error_msg])
         else:
             self._schedule_failure_alert(task, error_msg, is_exception=True)
+        metrics.inc("task_completed_total", status="failed")
         return False, 0, None
 
     def _schedule_failure_alert(self, task: Task, error_msg: str, *, is_exception: bool) -> None:

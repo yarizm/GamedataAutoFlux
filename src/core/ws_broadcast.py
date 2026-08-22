@@ -35,3 +35,6 @@ async def broadcast_ws(payload: dict[str, Any]) -> None:
         await _broadcaster(payload)
     except Exception as exc:
         logger.debug(f"WebSocket broadcast failed: {exc}")
+        from src.core.metrics import metrics
+
+        metrics.inc("ws_broadcast_failures_total")

@@ -31,6 +31,19 @@ async def health_check():
     return build_health_report(scheduler.get_stats())
 
 
+@router.get("/metrics", dependencies=[Depends(require_admin)])
+async def runtime_metrics():
+    """进程内运行时指标（计数器/耗时聚合；进程重启归零，长期统计以 DB 为准）。"""
+    from datetime import datetime, timezone
+
+    from src.core.metrics import metrics as registry
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        **registry.snapshot(),
+    }
+
+
 @router.get("/diagnostics/config", dependencies=[Depends(require_admin)])
 async def config_diagnostics():
     """Return detailed local configuration diagnostics."""

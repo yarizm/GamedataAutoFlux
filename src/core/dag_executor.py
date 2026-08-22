@@ -21,6 +21,7 @@ from src.core.pipeline_recovery import (
     build_pipeline_recovery_context,
     build_pipeline_resume_state,
 )
+from src.core.metrics import metrics
 from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task
 
@@ -348,6 +349,7 @@ class DAGExecutor:
                 if incoming and not active:
                     # 入边全被条件抑制 → 该分支未激活，节点不执行，跳过继续向下传播
                     self._skip_node(dag, node_id)
+                    metrics.inc("dag_node_total", type=node_spec.type, result="skipped")
                     return
                 accum: dict[str, list[Any]] = defaultdict(list)
                 for e in active:
@@ -369,9 +371,14 @@ class DAGExecutor:
                         await self._notify(on_event, task.id, node_spec, "start")
                         node = _instantiate_node(node_spec, task=task, recovery_checkpoint=recovery_context)
                         await node.setup()
-                        out = await node.run(ctx)
+                        if node_spec.type == "collector":
+                            with metrics.timer("collector_duration_seconds"):
+                                out = await node.run(ctx)
+                        else:
+                            out = await node.run(ctx)
                         self._port_table[node_id] = out
                         self._node_success[node_id] = True
+                        metrics.inc("dag_node_total", type=node_spec.type, result="ok")
                         if node_spec.type == "collector":
                             result.collect_results.extend(out.get("records", []))
                         elif node_spec.type == "processor":
@@ -383,6 +390,7 @@ class DAGExecutor:
                     except Exception as exc:
                         safe = redact_sensitive_text(str(exc))
                         self._node_success[node_id] = False
+                        metrics.inc("dag_node_total", type=node_spec.type, result="error")
                         result.errors.append(f"{node_id}: {safe}")
                         logger.error("DAG node {} failed: {}", node_id, safe)
                         await self._notify(on_event, task.id, node_spec, "error", error=safe)

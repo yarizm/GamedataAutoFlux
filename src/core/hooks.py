@@ -54,6 +54,9 @@ class ReportGenerationHook:
         except Exception as exc:
             safe_error = redact_sensitive_text(str(exc))
             logger.error(f"自动报告生成失败: {safe_error}")
+            from src.core.metrics import metrics
+
+            metrics.inc("report_failures_total")
 
 
 class AlertHook:
@@ -79,6 +82,9 @@ class AlertHook:
             )
         except Exception as exc:
             logger.error(f"告警发送失败: {redact_sensitive_text(str(exc))}")
+            from src.core.metrics import metrics
+
+            metrics.inc("alert_failures_total")
 
 
 class WebSocketBroadcastHook:

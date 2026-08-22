@@ -29,6 +29,7 @@ from typing import Any, Callable, Awaitable
 from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectTarget, CollectResult
+from src.core.metrics import metrics
 from src.core.registry import registry
 from src.core.pipeline_recovery import (
     apply_collect_resume_context,
@@ -343,7 +344,9 @@ class Pipeline:
         """
         if self._should_use_dag_execution():
             try:
-                return await self._execute_via_dag(task, recovery_checkpoint=recovery_checkpoint)
+                result = await self._execute_via_dag(task, recovery_checkpoint=recovery_checkpoint)
+                metrics.inc("pipeline_executions_total", engine="dag")
+                return result
             except Exception as exc:
                 fallback_reason = redact_sensitive_text(str(exc))
                 if not self._legacy_fallback_enabled():
@@ -359,8 +362,12 @@ class Pipeline:
                 result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
                 result.execution_engine = "legacy_fallback"
                 result.fallback_reason = fallback_reason
+                metrics.inc("pipeline_fallback_total", engine="legacy_fallback")
+                metrics.inc("pipeline_executions_total", engine="legacy_fallback")
                 return result
-        return await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
+        result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
+        metrics.inc("pipeline_executions_total", engine="legacy")
+        return result
 
     def _should_use_dag_execution(self) -> bool:
         """是否走 DAG 委托路径。受配置开关控制，默认开启。"""
