@@ -15,6 +15,8 @@ import {
   renderEmptyState,
   renderErrorState,
   renderLoadingState,
+  renderTableSkeleton,
+  renderDetailSkeleton,
 } from '../../core/uiState.js';
 import {
   describePipeline,
@@ -55,6 +57,10 @@ export default {
     this.container = container;
     this.store = store;
     this._submitting = false;
+    this._logFilter = 'all';
+    this._autoScroll = true;
+    this._currentLogs = [];
+    window._tasksPage = this;
     this._unsub = store.subscribe((key, value) => {
       if (key === 'refresh' && value === 'tasks') this.refresh();
     });
@@ -70,12 +76,7 @@ export default {
   async _load() {
     const tbody = document.getElementById('tasks-body');
     if (tbody) {
-      tbody.innerHTML = renderLoadingState({
-        label: t('common.loading'),
-        variant: 'table',
-        colspan: 8,
-        escapeHtml,
-      });
+      tbody.innerHTML = renderTableSkeleton({ cols: 8, rows: 5 });
     }
     try {
       const filter = document.getElementById('task-status-filter')?.value || '';
@@ -681,7 +682,7 @@ export default {
     container.innerHTML = renderLoadingState({ label: t('common.loading'), escapeHtml });
     try {
       const data = await api(`/tasks/${id}/logs`);
-      if (!data.logs.length) {
+      if (!data.logs?.length) {
         container.innerHTML = renderEmptyState({
           title: t('common.empty.logs'),
           hint: t('ui.empty.logsHint'),
@@ -690,15 +691,9 @@ export default {
         });
         return;
       }
-      container.innerHTML = `<div class="terminal-console bg-theme-elevated border border-theme-subtle p-4 rounded-xl min-h-[300px] font-mono text-sm leading-relaxed tracking-wide">` + data.logs.map((log) => {
-        const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
-        return `<div class="terminal-line log-entry ${statusClass}">
-          <span class="log-time text-zinc-600 mr-2">${log.started_at ? formatTime(log.started_at) : ''}</span>
-          <span class="log-step text-violet-400 mr-2">[${escapeHtml(log.step)}]</span>
-          <span class="log-message text-zinc-300">${escapeHtml(log.message || '')}</span>
-          ${log.error ? `<div class="text-rose-400 mt-1 pl-6">-> ${escapeHtml(log.error)}</div>` : ''}
-        </div>`;
-      }).join('') + `</div>`;
+      // Preserve the user's filter / auto-scroll choice: WebSocket task
+      // updates re-invoke this while the modal is open (main.js:264).
+      this._renderLogsTerminal(container, data.logs, this._logFilter, this._autoScroll);
     } catch (err) {
       container.innerHTML = renderErrorState({
         message: t('message.loadFailed', { error: err.message }),
@@ -708,11 +703,85 @@ export default {
     }
   },
 
+  _renderLogsTerminal(container, logs, filter = 'all', autoScroll = true) {
+    this._currentLogs = logs || [];
+    this._logFilter = filter;
+    this._autoScroll = autoScroll;
+
+    const filtered = (logs || []).filter((log) => {
+      if (filter === 'error') return log.status === 'failed' || Boolean(log.error);
+      if (filter === 'success') return log.status === 'success';
+      return true;
+    });
+
+    const linesHtml = filtered.length ? filtered.map((log) => {
+      const statusClass = log.status === 'success' ? 'log-success' : log.status === 'failed' ? 'log-failed' : 'log-running';
+      return `<div class="terminal-line log-entry ${statusClass}">
+        <span class="log-time text-zinc-600 mr-2">${log.started_at ? formatTime(log.started_at) : ''}</span>
+        <span class="log-step text-violet-400 mr-2">[${escapeHtml(log.step)}]</span>
+        <span class="log-message text-zinc-300">${escapeHtml(log.message || '')}</span>
+        ${log.error ? `<div class="text-rose-400 mt-1 pl-6">-> ${escapeHtml(log.error)}</div>` : ''}
+      </div>`;
+    }).join('') : `<div class="p-8 text-center text-xs text-zinc-500">${escapeHtml(t('terminal.noMatchingLogs'))}</div>`;
+
+    container.innerHTML = `
+      <div class="terminal-toolbar">
+        <div class="terminal-filter-group">
+          <button type="button" class="terminal-filter-btn ${filter === 'all' ? 'active' : ''}" onclick="window._tasksPage?._setLogFilter('all')">${escapeHtml(t('terminal.filterAll') || '全部')} (${logs.length})</button>
+          <button type="button" class="terminal-filter-btn ${filter === 'error' ? 'active' : ''}" onclick="window._tasksPage?._setLogFilter('error')">${escapeHtml(t('terminal.filterErrors') || '仅错误')}</button>
+          <button type="button" class="terminal-filter-btn ${filter === 'success' ? 'active' : ''}" onclick="window._tasksPage?._setLogFilter('success')">${escapeHtml(t('terminal.filterSuccess') || '仅成功')}</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" class="terminal-action-btn" onclick="window._tasksPage?._copyLogs()">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <span>${escapeHtml(t('terminal.copyLogs') || '复制')}</span>
+          </button>
+          <button type="button" class="terminal-action-btn ${autoScroll ? 'active' : ''}" onclick="window._tasksPage?._toggleAutoScroll()" aria-pressed="${autoScroll ? 'true' : 'false'}">
+            <span>${escapeHtml(t('terminal.autoScroll'))}</span>
+          </button>
+        </div>
+      </div>
+      <div id="terminal-body-content" class="terminal-console bg-theme-elevated border border-t-0 border-theme-subtle p-4 rounded-b-xl min-h-[300px] max-h-[500px] overflow-y-auto font-mono text-sm leading-relaxed tracking-wide">
+        ${linesHtml}
+      </div>`;
+
+    if (autoScroll) {
+      const bodyEl = container.querySelector('#terminal-body-content');
+      if (bodyEl) bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
+  },
+
+  _setLogFilter(filter) {
+    const container = document.getElementById('task-logs-content');
+    if (container && this._currentLogs) {
+      this._renderLogsTerminal(container, this._currentLogs, filter, this._autoScroll);
+    }
+  },
+
+  _toggleAutoScroll() {
+    this._autoScroll = !this._autoScroll;
+    const container = document.getElementById('task-logs-content');
+    if (container && this._currentLogs) {
+      this._renderLogsTerminal(container, this._currentLogs, this._logFilter, this._autoScroll);
+    }
+  },
+
+  async _copyLogs() {
+    if (!this._currentLogs?.length) return;
+    const rawText = this._currentLogs.map(l => `[${l.started_at || ''}] [${l.step || ''}] [${l.status || ''}] ${l.message || ''} ${l.error ? `-> ${l.error}` : ''}`).join('\n');
+    try {
+      await navigator.clipboard.writeText(rawText);
+      toast(t('terminal.copied'), 'success');
+    } catch {
+      toast(t('message.copyFailed'), 'error');
+    }
+  },
+
   async _viewDetail(id) {
     window.openModal('modal-task-detail');
     const container = document.getElementById('task-detail-content');
     if (!container) return;
-    container.innerHTML = renderLoadingState({ label: t('common.loading'), escapeHtml });
+    container.innerHTML = renderDetailSkeleton();
     try {
       const [task, eventsPayload, artifactsPayload, checkpointsPayload] = await Promise.all([
         api(`/tasks/${id}`),

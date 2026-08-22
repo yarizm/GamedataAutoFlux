@@ -14,6 +14,7 @@ import { initTheme, bindThemeControls } from './core/theme.js';
 import { initHelp } from './core/help/drawer.js';
 import { initInlineGuides } from './core/help/inlineGuide.js';
 import { createSpotlight } from './core/help/spotlight.js';
+import { initCommandPalette } from './core/commandPalette.js';
 import {
   getCollectorForPipeline,
   hasStorageStep,
@@ -313,6 +314,49 @@ document.addEventListener('DOMContentLoaded', () => {
   inlineGuides = initInlineGuides();
   initWebSocket(store);
   restartAutoRefresh(store);
+  initCommandPalette(store);
+
+  // Mobile drawer wiring
+  const sidebar = document.getElementById('navbar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const mobileMenuBtn = document.getElementById('btn-mobile-menu');
+
+  function openMobileMenu() {
+    if (sidebar) sidebar.classList.add('open');
+    if (backdrop) backdrop.classList.add('open');
+  }
+  function closeMobileMenu() {
+    if (sidebar) sidebar.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
+  }
+
+  mobileMenuBtn?.addEventListener('click', openMobileMenu);
+  backdrop?.addEventListener('click', closeMobileMenu);
+
+  // The drawer only exists below 768px. Widening past it (or rotating a
+  // tablet to landscape) returns the sidebar to normal flow, so a left-open
+  // backdrop would otherwise sit over the whole desktop layout and swallow
+  // the first click.
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) closeMobileMenu();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileMenu();
+  });
+
+  sidebar?.querySelectorAll('.nav-link')?.forEach((link) => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth <= 768) closeMobileMenu();
+    });
+  });
+
+  // Command palette trigger button in header
+  document.getElementById('btn-command-palette')?.addEventListener('click', () => {
+    if (typeof window.openCommandPalette === 'function') {
+      window.openCommandPalette();
+    }
+  });
 
   const help = initHelp({
     store,

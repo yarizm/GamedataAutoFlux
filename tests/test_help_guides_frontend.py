@@ -1,36 +1,18 @@
+"""Structural assertions for the in-app help guides.
+
+The node-level `*.selftest.mjs` runs used to live here too; they are now
+covered generically by `tests/test_frontend_selftests.py`, which discovers
+every selftest by glob. What remains below is the coverage that file cannot
+provide: assertions tying the guide modules to the tour targets and inline
+guide version markers embedded in the HTML templates.
+"""
+
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
-
 
 REPO = Path(__file__).resolve().parents[1]
 HELP_DIR = REPO / "src" / "web" / "src" / "core" / "help"
-SELFTESTS = {
-    "HELP_STORAGE_SELFTEST_OK": HELP_DIR / "storage.selftest.mjs",
-    "HELP_CONTENT_SELFTEST_OK": HELP_DIR / "content.selftest.mjs",
-    "HELP_SPOTLIGHT_SELFTEST_OK": HELP_DIR / "spotlight.selftest.mjs",
-}
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH")
-@pytest.mark.parametrize(("marker", "selftest"), SELFTESTS.items())
-def test_help_selftest_passes(marker: str, selftest: Path) -> None:
-    proc = subprocess.run(
-        ["node", str(selftest)],
-        cwd=str(REPO),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=30,
-    )
-    output = (proc.stdout or "") + (proc.stderr or "")
-    assert proc.returncode == 0, output
-    assert marker in output
 
 
 def test_core_guides_use_stable_targets_and_versioned_inline_state() -> None:

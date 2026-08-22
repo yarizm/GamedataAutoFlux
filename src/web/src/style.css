@@ -92,15 +92,15 @@ html[data-theme="light"] {
     text-rendering: optimizeLegibility;
   }
   
-  /* Global Cyber Scrollbar */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  /* Global Refined Micro Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
-    border-radius: 10px;
-    transition: background 0.3s;
+    border-radius: 999px;
+    transition: background 0.2s ease, border-color 0.2s ease;
   }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   
   /* Normalize form elements */
   input[type="text"], input[type="number"], input[type="date"], input[type="url"], select {
@@ -393,15 +393,31 @@ html[data-theme="light"] {
 
   /* Modals */
   .modal-overlay {
-    @apply hidden fixed inset-0 backdrop-blur-sm z-[200] items-center justify-center;
+    @apply fixed inset-0 backdrop-blur-sm z-[200] items-center justify-center pointer-events-none opacity-0;
+    display: flex;
+    /* visibility (not just opacity) is what removes a closed modal from the
+       tab order and the accessibility tree. Delaying it by the fade duration
+       keeps the close transition intact. */
+    visibility: hidden;
+    transition: opacity 200ms ease, visibility 0s linear 200ms;
     background-color: color-mix(in srgb, #000 55%, transparent);
   }
-  .modal-overlay.show { @apply flex animate-[fadeIn_0.2s_ease-out]; }
+  .modal-overlay.show {
+    @apply pointer-events-auto opacity-100;
+    visibility: visible;
+    transition: opacity 200ms ease, visibility 0s linear 0s;
+  }
   .modal {
-    @apply border rounded-2xl p-6 w-[90%] max-w-2xl max-h-[85vh] overflow-y-auto transform transition-all;
+    @apply border rounded-2xl p-6 w-[90%] max-w-2xl max-h-[85vh] overflow-y-auto transform transition-all duration-200;
     background-color: var(--bg-elevated);
     border-color: var(--border-strong);
     box-shadow: 0 20px 50px color-mix(in srgb, #000 35%, transparent);
+    transform: scale(0.96) translateY(8px);
+    opacity: 0;
+  }
+  .modal-overlay.show .modal {
+    transform: scale(1) translateY(0);
+    opacity: 1;
   }
   .modal-wide { @apply max-w-4xl; }
   .modal-header {
@@ -526,6 +542,21 @@ html[data-theme="light"] {
     color: var(--text-primary);
     border-color: color-mix(in srgb, var(--accent) 30%, transparent);
     box-shadow: 0 4px 20px var(--accent-glow);
+  }
+
+  .agent-bottom-bar {
+    @apply px-5 py-2.5 relative z-10;
+    background: linear-gradient(to top, var(--bg-elevated) 75%, transparent);
+  }
+  .agent-input-area {
+    @apply relative flex items-center gap-2 rounded-xl p-1 pl-2 transition-all duration-200;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+  .agent-input-area:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    box-shadow: 0 0 16px var(--accent-glow);
   }
   
   .agent-session-item { @apply flex items-center justify-between p-3 rounded-xl bg-transparent border border-transparent cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] relative overflow-hidden mb-1; }
@@ -1920,34 +1951,10 @@ html[data-theme="light"] .task-failure-panel {
   }
 }
 @media (max-width: 640px) {
-  .app-sidebar {
-    width: 4.5rem;
-  }
-  .app-sidebar > div:first-child {
-    justify-content: center;
-    padding-inline: 0;
-  }
-  .app-sidebar > div:first-child > span:last-child {
-    display: none;
-  }
-  .app-sidebar .nav-links {
-    padding-inline: 0.65rem;
-  }
-  .app-sidebar .nav-link {
-    justify-content: center;
-    padding-inline: 0;
-  }
-  .app-sidebar .nav-link > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-  .app-sidebar .language-switcher {
-    display: none;
-  }
+  /* NOTE: the sidebar collapses to an off-canvas drawer at <=768px (see the
+     drawer block below), which fully supersedes the old icon-rail treatment
+     that used to live here. Re-adding width/label-clipping rules for
+     .app-sidebar at this breakpoint will produce a 4.5rem label-less drawer. */
   .app-header {
     padding-inline: 0.75rem;
   }
@@ -1965,3 +1972,436 @@ html[data-theme="light"] .task-failure-panel {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── UI Interaction Polish & Skeleton Loader ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--bg-surface) 25%, color-mix(in srgb, var(--bg-surface) 70%, var(--text-muted) 30%) 50%, var(--bg-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+.card-hover {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-strong);
+}
+
+/* ── Terminal Console Toolbar ── */
+.terminal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+}
+.terminal-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem;
+  border-radius: 0.5rem;
+  background-color: color-mix(in srgb, var(--bg-canvas) 80%, transparent);
+  border: 1px solid var(--border-subtle);
+}
+.terminal-filter-btn {
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+.terminal-filter-btn:hover {
+  color: var(--text-primary);
+}
+.terminal-filter-btn.active {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.terminal-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.terminal-action-btn:hover {
+  background-color: var(--bg-muted);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+/* Toggled state (auto-scroll). Declared here, unlayered, alongside the base
+   rule — Tailwind utilities live in @layer utilities and would lose to it. */
+.terminal-action-btn.active {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  font-weight: 600;
+}
+.terminal-action-btn.active:hover {
+  background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* ── Global Command Palette (Ctrl+K) ── */
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
+  background-color: color-mix(in srgb, #000 65%, transparent);
+}
+.command-palette-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 0.15s ease-out, visibility 0s linear 0s;
+}
+.command-palette {
+  width: 100%;
+  max-width: 36rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-elevated);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  transform: scale(0.96) translateY(-8px);
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+.command-palette-overlay.show .command-palette {
+  transform: scale(1) translateY(0);
+}
+.command-palette-input-box {
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 0.75rem;
+  background-color: var(--bg-surface);
+}
+.command-palette-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+.command-palette-list {
+  max-height: 20rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  color: var(--text-secondary);
+}
+.command-palette-item:hover {
+  background-color: var(--bg-muted);
+  color: var(--text-primary);
+}
+/* Keyboard selection must stay distinguishable from a mouse hover — the two
+   used to share one rule, so the ↑↓ cursor was invisible once the pointer
+   was anywhere over the list. */
+.command-palette-item.active {
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.command-palette-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+}
+
+/* ── Mobile Sidebar Drawer & Backdrop ── */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  background-color: color-mix(in srgb, #000 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+/* Scoped to the drawer breakpoint: above it the sidebar is in normal flow,
+   so a lingering .open must never cover the desktop layout. */
+@media (max-width: 768px) {
+  .sidebar-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.25s ease, visibility 0s linear 0s;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    /* Never wider than the viewport on small phones; w-64 otherwise. */
+    width: min(16rem, 82vw);
+    z-index: 190;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+  }
+  .app-sidebar.open {
+    transform: translateX(0);
+  }
+  .mobile-menu-btn {
+    display: inline-flex !important;
+  }
+}
+.mobile-menu-btn {
+  display: none;
+}
+
+/* ── Report Executive Layout & Rich Markdown ── */
+.report-view-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.report-kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.85rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+.report-kpi-card {
+  display: flex;
+  flex-direction: column;
+}
+.report-kpi-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.report-kpi-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-top: 0.15rem;
+}
+.report-markdown-doc {
+  padding: 1.5rem;
+  line-height: 1.7;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.report-markdown-doc h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border-strong);
+}
+.report-markdown-doc h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.report-markdown-doc h2::before {
+  content: '';
+  width: 4px;
+  height: 1rem;
+  background: var(--accent);
+  border-radius: 2px;
+  display: inline-block;
+}
+.report-markdown-doc h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.report-markdown-doc p {
+  margin-bottom: 0.85rem;
+  line-height: 1.7;
+}
+.report-markdown-doc ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 0.85rem;
+}
+.report-markdown-doc ol {
+  list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin-bottom: 0.85rem;
+}
+/* Tailwind preflight resets `a` to inherit colour and drop the underline, so
+   without an explicit rule every link an LLM emits is indistinguishable from
+   the surrounding prose. */
+.report-markdown-doc a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.report-markdown-doc a:hover {
+  color: var(--text-primary);
+  text-decoration-thickness: 2px;
+}
+.report-markdown-doc li {
+  margin-bottom: 0.3rem;
+}
+.report-markdown-doc li::marker {
+  color: var(--text-muted);
+}
+.report-markdown-doc strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.report-markdown-doc em {
+  font-style: italic;
+}
+.report-markdown-doc hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1.5rem 0;
+}
+.report-markdown-doc blockquote {
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 0.5rem 0.5rem 0;
+  background-color: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-primary);
+  font-style: normal;
+}
+.report-markdown-doc table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+}
+.report-markdown-doc th {
+  padding: 0.6rem 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  background-color: var(--bg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.report-markdown-doc td {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.report-markdown-doc tr:last-child td {
+  border-bottom: none;
+}
+.report-markdown-doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-muted);
+  color: var(--accent);
+}
+.report-markdown-doc pre {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+}
+.report-markdown-doc pre code {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+

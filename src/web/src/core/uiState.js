@@ -91,3 +91,66 @@ export function renderErrorState(opts = {}) {
   }
   return body;
 }
+
+/**
+ * Render a table skeleton with shimmer effect rows.
+ * @param {object} [opts]
+ * @param {number} [opts.cols=6]
+ * @param {number} [opts.rows=5]
+ * @returns {string} HTML <tr> tags with skeleton cells
+ */
+export function renderTableSkeleton(opts = {}) {
+  const cols = Number(opts.cols || opts.colspan) || 6;
+  const rows = Number(opts.rows) || 5;
+  const rowList = [];
+  for (let r = 0; r < rows; r++) {
+    const cells = [];
+    for (let c = 0; c < cols; c++) {
+      const widthPct = c === 0 ? 35 : c === 1 ? 65 : c === cols - 1 ? 40 : 50;
+      cells.push(`<td class="py-3 px-4"><div class="skeleton-shimmer h-4 rounded" style="width:${widthPct}%;"></div></td>`);
+    }
+    rowList.push(`<tr class="border-b border-theme-subtle animate-pulse">${cells.join('')}</tr>`);
+  }
+  return rowList.join('');
+}
+
+/**
+ * Render card skeleton placeholders.
+ * @param {object} [opts]
+ * @param {number} [opts.count=4]
+ * @returns {string} HTML markup for skeleton cards
+ */
+export function renderCardSkeleton(opts = {}) {
+  const count = Number(opts.count) || 4;
+  const cards = [];
+  for (let i = 0; i < count; i++) {
+    cards.push(`
+      <div class="rounded-xl border border-theme-subtle bg-theme-surface p-4 flex flex-col gap-3">
+        <div class="skeleton-shimmer h-4 w-1/3 rounded"></div>
+        <div class="skeleton-shimmer h-8 w-2/3 rounded"></div>
+        <div class="skeleton-shimmer h-3 w-1/2 rounded"></div>
+      </div>`);
+  }
+  return cards.join('');
+}
+
+/**
+ * Render detail panel skeleton.
+ * @returns {string} HTML markup for detail skeleton
+ */
+export function renderDetailSkeleton() {
+  return `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="rounded-xl border border-theme-subtle bg-theme-surface p-4 flex flex-col gap-3">
+        <div class="skeleton-shimmer h-5 w-1/4 rounded mb-2"></div>
+        <div class="skeleton-shimmer h-4 w-full rounded"></div>
+        <div class="skeleton-shimmer h-4 w-3/4 rounded"></div>
+        <div class="skeleton-shimmer h-4 w-5/6 rounded"></div>
+      </div>
+      <div class="rounded-xl border border-theme-subtle bg-theme-surface p-4 flex flex-col gap-3">
+        <div class="skeleton-shimmer h-5 w-1/4 rounded mb-2"></div>
+        <div class="skeleton-shimmer h-24 w-full rounded"></div>
+      </div>
+    </div>`;
+}
+

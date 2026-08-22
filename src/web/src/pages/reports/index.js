@@ -3,6 +3,7 @@ import { t } from '../../core/i18n.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { renderEmptyState } from '../../core/uiState.js';
+import { buildReportKpis } from './kpi.js';
 
 function renderSafeMarkdown(content) {
   const text = String(content || '');
@@ -497,19 +498,63 @@ export default {
     setReportProgress(event.progress || 0, event.stage || 'running', event.message || '');
   },
 
+  _currentReportContent: '',
+
   _renderReport(report) {
     const container = document.getElementById('report-content');
+    const toolbar = document.getElementById('report-actions-toolbar');
     if (!container) return;
-    let html = `${renderReportQuality(report.quality)}<div class="markdown-body">${renderSafeMarkdown(report.content || '')}</div>`;
+    this._currentReportContent = report.content || '';
+    if (toolbar) toolbar.style.display = 'flex';
+
+    const kpi = Object.fromEntries(buildReportKpis(report).map((k) => [k.key, k.value]));
+    const reportTitle = kpi.title || t('reports.untitled');
+    const kpiCards = [
+      { label: t('reports.kpi.title'), value: reportTitle, extraClass: 'truncate', title: reportTitle },
+      { label: t('reports.kpi.provider'), value: kpi.provider || t('common.none') },
+      { label: t('reports.kpi.records'), value: t('reports.kpi.recordsUnit', { count: kpi.records }) },
+      { label: t('reports.kpi.time'), value: kpi.time ? formatTime(kpi.time) : '-' },
+    ];
+
+    const kpiBar = `
+      <div class="report-kpi-bar">
+        ${kpiCards.map((card) => `
+        <div class="report-kpi-card">
+          <span class="report-kpi-label">${escapeHtml(card.label)}</span>
+          <span class="report-kpi-value ${card.extraClass || ''}"${card.title ? ` title="${escapeHtml(card.title)}"` : ''}>${escapeHtml(String(card.value))}</span>
+        </div>`).join('')}
+      </div>
+    `;
+
+    let html = `${kpiBar}${renderReportQuality(report.quality)}<div class="report-markdown-doc">${renderSafeMarkdown(report.content || '')}</div>`;
     const isExcel = report.metadata?.format === 'excel' || report.metadata?.excel_path;
     if (isExcel) {
-      html = `<div style="margin-bottom:1rem;padding:1rem;background:var(--bg-card);border-radius:4px;border:1px solid var(--border)">
-        <h4 style="margin:0 0 0.5rem 0;color:var(--success)">📊 ${t('reports.excelGenerated')}</h4>
-        <p style="margin:0 0 1rem 0;color:var(--text-muted)">${t('reports.excelHelp')}</p>
-        <a href="/api/reports/${report.id}/download" class="btn btn-primary" target="_blank" download>${t('reports.downloadExcel')}</a>
+      html = `<div class="mb-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+        <h4 class="text-emerald-400 font-bold mb-1">📊 ${t('reports.excelGenerated')}</h4>
+        <p class="text-xs text-muted mb-3">${t('reports.excelHelp')}</p>
+        <a href="/api/reports/${report.id}/download" class="btn btn-primary btn-sm" target="_blank" download>${t('reports.downloadExcel')}</a>
       </div>` + html;
     }
     container.innerHTML = html;
+  },
+
+  /** Reset the report panel so no stale content survives a delete. */
+  _clearReportView() {
+    this._currentReportContent = '';
+    const toolbar = document.getElementById('report-actions-toolbar');
+    if (toolbar) toolbar.style.display = 'none';
+    const container = document.getElementById('report-content');
+    if (container) container.textContent = t('common.noSelection.report');
+  },
+
+  async _copyCurrentReport() {
+    if (!this._currentReportContent) return;
+    try {
+      await navigator.clipboard.writeText(this._currentReportContent);
+      toast(t('message.reportCopied'), 'success');
+    } catch {
+      toast(t('message.copyFailed'), 'error');
+    }
   },
 
   // ── CRUD ──
@@ -539,8 +584,7 @@ export default {
       await api(`/reports/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' });
       toast(t('message.reportDeleted'), 'success');
       this._loadReports();
-      const container = document.getElementById('report-content');
-      if (container) container.textContent = t('common.noSelection.report');
+      this._clearReportView();
     } catch (err) { toast(t('message.deleteFailed', { error: err.message }), 'error'); }
   },
 };

@@ -1,6 +1,16 @@
 <header class="app-header">
-                <div class="text-slate-400 font-medium text-sm" id="header-title" data-i18n="common.workspace">工作区</div>
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <button type="button" id="btn-mobile-menu" class="mobile-menu-btn btn btn-ghost btn-sm p-1.5 text-zinc-400 hover:text-zinc-100" aria-label="Toggle navigation">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                    </button>
+                    <div class="text-slate-400 font-medium text-sm" id="header-title" data-i18n="common.workspace">工作区</div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button type="button" id="btn-command-palette" class="btn btn-ghost btn-sm flex items-center gap-2 text-xs text-zinc-400 bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg border border-white/5" data-i18n-title="commandPalette.trigger" title="指令中心 (Ctrl+K)">
+                        <svg class="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <span class="hidden sm:inline" data-i18n="common.search">搜索</span>
+                        <kbd class="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1 py-0.5 rounded border border-zinc-700">Ctrl K</kbd>
+                    </button>
                     <button type="button" id="btn-help" class="btn btn-ghost btn-sm help-entry-btn"
                             data-i18n="help.entry" data-i18n-title="help.entry" title="帮助">帮助</button>
                     <div id="ws-status-container" class="flex items-center gap-2" title="实时连接状态">

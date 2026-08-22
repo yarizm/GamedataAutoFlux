@@ -86,13 +86,15 @@ export function setChecked(id, value) {
 }
 
 // Backward compatibility for legacy scripts
-window.api = api;
-window.toast = toast;
-window.escapeJs = escapeJs;
-window.escapeHtml = escapeHtml;
-window.formatTime = formatTime;
-window.renderBadge = renderBadge;
-window.renderProgress = renderProgress;
-window.setText = setText;
-window.setValue = setValue;
-window.setChecked = setChecked;
+if (typeof window !== 'undefined') {
+  window.api = api;
+  window.toast = toast;
+  window.escapeJs = escapeJs;
+  window.escapeHtml = escapeHtml;
+  window.formatTime = formatTime;
+  window.renderBadge = renderBadge;
+  window.renderProgress = renderProgress;
+  window.setText = setText;
+  window.setValue = setValue;
+  window.setChecked = setChecked;
+}

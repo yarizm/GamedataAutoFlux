@@ -10,7 +10,7 @@ import { renderEmptyState, renderLoadingState } from '../../core/uiState.js';
 
 let dashboardChart = null;
 let echartsModulePromise = null;
-let dashboardResizeHandler = null;
+let dashboardResizeObserver = null;
 
 function chartThemeColors() {
   const light = document.documentElement.dataset.theme === 'light';
@@ -37,11 +37,14 @@ export default {
   init(container, store) {
     this.container = container;
     this.store = store;
+    window._dashboardPage = this;
     this._unsub = store.subscribe((key) => {
       if (key === 'refresh' && store.get('activeTab') === 'dashboard') this.refresh();
     });
-    this._onTheme = () => { if (dashboardChart) this.refresh(); };
+    this._onTheme = () => { if (dashboardChart) this._setChartOption(this._lastStats || {}); };
+    this._onLang = () => { if (dashboardChart) this._setChartOption(this._lastStats || {}); };
     window.addEventListener('themechange', this._onTheme);
+    window.addEventListener('languagechange', this._onLang);
     this.refresh();
     return this;
   },
@@ -52,9 +55,13 @@ export default {
       window.removeEventListener('themechange', this._onTheme);
       this._onTheme = null;
     }
-    if (dashboardResizeHandler) {
-      window.removeEventListener('resize', dashboardResizeHandler);
-      dashboardResizeHandler = null;
+    if (this._onLang) {
+      window.removeEventListener('languagechange', this._onLang);
+      this._onLang = null;
+    }
+    if (dashboardResizeObserver) {
+      dashboardResizeObserver.disconnect();
+      dashboardResizeObserver = null;
     }
     if (dashboardChart) { dashboardChart.dispose(); dashboardChart = null; }
   },
@@ -209,20 +216,24 @@ export default {
   },
 
   _renderChart(stats) {
+    this._lastStats = stats;
     const chartDom = document.getElementById('dashboard-chart');
     if (!chartDom) return;
     if (!dashboardChart) {
       echartsModulePromise ||= import('../../core/echarts.js');
       echartsModulePromise.then(({ echarts }) => {
-        if (!dashboardChart) {
+        if (!dashboardChart && chartDom) {
           dashboardChart = echarts.init(chartDom);
-          if (!dashboardResizeHandler) {
-            dashboardResizeHandler = () => {
+          if (!dashboardResizeObserver && typeof ResizeObserver !== 'undefined') {
+            dashboardResizeObserver = new ResizeObserver(() => {
               if (dashboardChart) dashboardChart.resize();
-            };
-            window.addEventListener('resize', dashboardResizeHandler);
+            });
+            dashboardResizeObserver.observe(chartDom);
           }
-          this._setChartOption(stats);
+          // Use the freshest snapshot, not the one captured when this
+          // callback was registered — a later refresh may have landed while
+          // the echarts chunk was still downloading.
+          this._setChartOption(this._lastStats || stats);
         }
       });
     } else {
