@@ -26,6 +26,13 @@ jobs:
       - name: Install Python package (dev extras)
         run: pip install -e ".[dev]"
 
+      - name: Dependency lock freshness & frozen install
+        # uv.lock 是唯一依赖事实源：锁定漂移或无法冻结安装即失败
+        run: |
+          pip install uv
+          uv lock --check
+          uv sync --frozen --extra dev
+
       - name: Dependency security audit
         # 已知漏洞依赖在 CI 即暴露（配合 .github/dependabot.yml 的周期更新）
         run: |
