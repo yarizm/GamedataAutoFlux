@@ -1,13 +1,18 @@
-"""Safety helpers for high-risk API operations."""
+"""Safety helpers for high-risk API operations.
+
+纯校验逻辑（字面量/IP 网段判断、DNS 解析）在 `src.core.url_safety`，
+本模块只做 FastAPI/HTTPException 的薄包装。
+"""
 
 from __future__ import annotations
 
-import ipaddress
 import secrets
 from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException
 from starlette.requests import HTTPConnection
+
+from src.core.url_safety import blocked_reason_for_host, is_loopback_host
 
 
 def require_explicit_confirmation(confirm: bool, operation: str) -> None:
@@ -45,37 +50,29 @@ def require_admin(
 
 
 def validate_dynamic_playwright_config(config: dict) -> None:
-    """Reject dynamic browser collectors that can reach local/private resources."""
-    if not isinstance(config, dict):
-        raise HTTPException(400, "dynamic_playwright config must be an object")
-    url = str(config.get("url", "") or "").strip()
-    if not url:
-        raise HTTPException(400, "dynamic_playwright config requires url")
+    """Web 层包装：核心校验（`src.core.url_safety`）+ HTTPException 语义。"""
+    from src.core.url_safety import validate_dynamic_browser_config
 
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise HTTPException(400, "dynamic_playwright url must use http or https")
-    host = parsed.hostname
-    if not host:
-        raise HTTPException(400, "dynamic_playwright url must include a host")
-    if "{" in host or "}" in host:
-        raise HTTPException(400, "dynamic_playwright url host cannot be templated")
-    if _is_blocked_host(host):
-        raise HTTPException(400, "dynamic_playwright url host is not allowed")
+    try:
+        validate_dynamic_browser_config(config)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def validate_url_runtime(url: str) -> None:
-    """运行时二次校验 URL — 在浏览器发起导航前调用，防止 DNS rebinding。
+    """运行时 URL 校验（字面量层，同步）。
 
-    与 validate_dynamic_playwright_config 不同，此函数在实际请求时执行，
-    此时 DNS 已解析，可检测 rebinding 后的私有 IP。
+    只覆盖 IP 字面量与保留名；对普通域名的 DNS rebinding 防护必须走
+    `src.core.url_safety.NavigationUrlGuard`（异步解析后逐地址检查），
+    本函数保留给无法 await 的同步调用点。
     """
     parsed = urlparse(url)
     host = parsed.hostname
     if not host:
         raise HTTPException(400, "url must include a host")
-    if _is_blocked_host(host):
-        raise HTTPException(400, f"url host '{host}' resolves to a blocked address")
+    reason = blocked_reason_for_host(host)
+    if reason:
+        raise HTTPException(400, f"url host '{host}' is blocked: {reason}")
 
 
 def _is_local_request(request: HTTPConnection) -> bool:
@@ -84,61 +81,4 @@ def _is_local_request(request: HTTPConnection) -> bool:
         return False
     if host == "testclient":
         return True
-    return _is_loopback_host(host)
-
-
-def _try_parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """尝试将 host 解析为 IP 地址，支持标准、hex（0x...）、decimal 格式。"""
-    # 标准格式
-    try:
-        return ipaddress.ip_address(host)
-    except ValueError:
-        pass
-
-    # Hex 格式 (0x7f000001 → 127.0.0.1)
-    if host.startswith("0x") or host.startswith("0X"):
-        try:
-            return ipaddress.ip_address(int(host, 16))
-        except (ValueError, OverflowError):
-            pass
-
-    # 纯数字 decimal 格式 (2130706433 → 127.0.0.1)
-    if host.isdigit():
-        try:
-            return ipaddress.ip_address(int(host))
-        except (ValueError, OverflowError):
-            pass
-
-    return None
-
-
-def _is_blocked_host(host: str) -> bool:
-    normalized = host.strip().strip("[]").lower().rstrip(".")
-    if _is_loopback_host(normalized):
-        return True
-    if normalized in {
-        "metadata.google.internal",
-        "metadata",
-    }:
-        return True
-    if normalized.endswith(".localhost") or normalized.endswith(".local"):
-        return True
-    ip = _try_parse_ip(normalized)
-    if ip is None:
-        return False
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
-
-
-def _is_loopback_host(host: str) -> bool:
-    normalized = host.strip().strip("[]").lower().rstrip(".")
-    if normalized in {"localhost", "testclient"}:
-        return True
-    ip = _try_parse_ip(normalized)
-    return ip is not None and ip.is_loopback
+    return is_loopback_host(host)

@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from src.core.registry import registry
+from src.core.sensitive import redact_url_credentials
 from src.storage.base import BaseStorage, StorageRecord, QueryResult
 from src.storage.models import Base, RecordModel
 
@@ -40,7 +41,7 @@ class SQLAlchemyStorage(BaseStorage):
         url = self.config.get(
             "sqlalchemy_url", "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
         )
-        logger.info(f"Initializing SQLAlchemy storage with URL: {url}")
+        logger.info(f"Initializing SQLAlchemy storage with URL: {redact_url_credentials(url)}")
         self._engine = create_async_engine(url, echo=False)
         self._session_factory = async_sessionmaker(
             self._engine, expire_on_commit=False, class_=AsyncSession
@@ -55,9 +56,15 @@ class SQLAlchemyStorage(BaseStorage):
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
 
-    async def save(self, record: StorageRecord) -> None:
+    async def _require_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """惰性初始化并返回非空 session factory（initialize 保证设置）。"""
         if self._session_factory is None:
             await self.initialize()
+        assert self._session_factory is not None
+        return self._session_factory
+
+    async def save(self, record: StorageRecord) -> None:
+        session_factory = await self._require_session_factory()
 
         meta_copy = dict(record.metadata or {})
         embedding_val = meta_copy.pop("embedding", None)
@@ -65,7 +72,7 @@ class SQLAlchemyStorage(BaseStorage):
         if hasattr(data_to_save, "model_dump"):
             data_to_save = data_to_save.model_dump()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = insert(RecordModel).values(
                 key=record.key,
                 source=record.source,
@@ -105,8 +112,7 @@ class SQLAlchemyStorage(BaseStorage):
     async def save_batch(self, records: list[StorageRecord]) -> None:
         if not records:
             return
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
         # 批量构建参数列表，使用 executemany 一次性发送（减少网络往返）
         params_list = []
@@ -134,7 +140,7 @@ class SQLAlchemyStorage(BaseStorage):
                 }
             )
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             # 使用 bindparam 构建 executemany 语句
             from sqlalchemy import bindparam
 
@@ -172,10 +178,9 @@ class SQLAlchemyStorage(BaseStorage):
             await session.commit()
 
     async def load(self, key: str) -> StorageRecord | None:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             result = await session.execute(select(RecordModel).where(RecordModel.key == key))
             db_record = result.scalars().first()
 
@@ -192,14 +197,13 @@ class SQLAlchemyStorage(BaseStorage):
             )
 
     async def query(self, query: str, limit: int = 10, **kwargs: Any) -> QueryResult:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
         offset = max(0, int(kwargs.get("offset", 0) or 0))
         limit = min(max(1, int(limit or 1000)), 5000)
         order = str(kwargs.get("order", "desc") or "desc").lower()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = select(RecordModel)
 
             if query.startswith("source:"):
@@ -266,10 +270,9 @@ class SQLAlchemyStorage(BaseStorage):
         if isinstance(VectorType, type) and issubclass(VectorType, JSON):
             raise NotImplementedError("Semantic search requires pgvector")
 
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = select(RecordModel).where(RecordModel.embedding.is_not(None))
 
             for field in ("collector", "game_name", "app_id", "group_id", "task_id"):
@@ -296,10 +299,9 @@ class SQLAlchemyStorage(BaseStorage):
             return QueryResult(records=records, total=len(records), query="semantic_search")
 
     async def delete(self, key: str) -> bool:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             result = await session.execute(select(RecordModel).where(RecordModel.key == key))
             db_record = result.scalars().first()
             if db_record:
@@ -309,10 +311,9 @@ class SQLAlchemyStorage(BaseStorage):
             return False
 
     async def list_keys(self, prefix: str = "", limit: int = 100) -> list[str]:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = select(RecordModel.key)
             if prefix:
                 escaped_prefix = (

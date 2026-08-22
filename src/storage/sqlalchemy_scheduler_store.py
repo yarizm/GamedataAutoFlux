@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from src.core.registry import registry
+from src.core.sensitive import redact_url_credentials
 from src.storage.base import BaseStorage, StorageRecord, QueryResult
 from src.storage.models import Base, SchedulerStateModel
 
@@ -39,7 +40,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
         url = self.config.get(
             "sqlalchemy_url", "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
         )
-        logger.info(f"Initializing SQLAlchemy scheduler storage with URL: {url}")
+        logger.info(
+            f"Initializing SQLAlchemy scheduler storage with URL: {redact_url_credentials(url)}"
+        )
         self._engine = create_async_engine(url, echo=False)
         self._session_factory = async_sessionmaker(
             self._engine, expire_on_commit=False, class_=AsyncSession
@@ -51,6 +54,13 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             await conn.run_sync(Base.metadata.create_all)
             # Auto-migrate: add columns that may be missing from older schema
             await self._migrate_scheduler_table(conn)
+
+    async def _require_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """惰性初始化并返回非空 session factory（initialize 保证设置）。"""
+        if self._session_factory is None:
+            await self.initialize()
+        assert self._session_factory is not None
+        return self._session_factory
 
     @staticmethod
     async def _migrate_scheduler_table(conn) -> None:
@@ -92,8 +102,7 @@ class SQLAlchemySchedulerStorage(BaseStorage):
         await conn.run_sync(_run_migration)
 
     async def save(self, record: StorageRecord) -> None:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
         data_to_save = record.data
         if hasattr(data_to_save, "model_dump"):
@@ -108,7 +117,7 @@ class SQLAlchemySchedulerStorage(BaseStorage):
                 data_to_save.get("status") if isinstance(data_to_save, dict) else None
             )
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = insert(SchedulerStateModel).values(
                 key=record.key,
                 state_type=state_type,
@@ -132,10 +141,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             await session.commit()
 
     async def load(self, key: str) -> StorageRecord | None:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             result = await session.execute(
                 select(SchedulerStateModel).where(SchedulerStateModel.key == key)
             )
@@ -153,13 +161,12 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             )
 
     async def query(self, query: str, limit: int = 1000, **kwargs: Any) -> QueryResult:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
         offset = max(0, int(kwargs.get("offset", 0) or 0))
         limit = min(max(1, int(limit or 1000)), 5000)
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = select(SchedulerStateModel)
 
             if query.startswith("key:"):
@@ -199,10 +206,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
         self, status: str, limit: int = 100, offset: int = 0
     ) -> QueryResult:
         """按任务状态查询，优先走 task_status 索引。"""
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             # 优先走 task_status 索引
             stmt = select(SchedulerStateModel).where(
                 SchedulerStateModel.state_type == "task",
@@ -231,10 +237,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             return QueryResult(records=records, total=total, query=f"status:{status}")
 
     async def delete(self, key: str) -> bool:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             result = await session.execute(
                 select(SchedulerStateModel).where(SchedulerStateModel.key == key)
             )
@@ -246,10 +251,9 @@ class SQLAlchemySchedulerStorage(BaseStorage):
             return False
 
     async def list_keys(self, prefix: str = "", limit: int = 1000) -> list[str]:
-        if self._session_factory is None:
-            await self.initialize()
+        session_factory = await self._require_session_factory()
 
-        async with self._session_factory() as session:
+        async with session_factory() as session:
             stmt = select(SchedulerStateModel.key)
             if prefix:
                 escaped_prefix = (

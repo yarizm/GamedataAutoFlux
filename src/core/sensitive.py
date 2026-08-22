@@ -44,6 +44,8 @@ _AUTH_CREDENTIAL_PATTERN = re.compile(
     r"\b(?P<scheme>Bearer|Basic)\s+(?P<credential>[A-Za-z0-9._~+/=-]{8,})",
     re.IGNORECASE,
 )
+# scheme://user:password@host 中的密码段（用户名保留，便于排查连接目标）
+_URL_PASSWORD_PATTERN = re.compile(r"(://[^/@:?#\s]+:)([^@\s]+)(@)")
 
 
 def redact_sensitive(value: Any) -> Any:
@@ -68,6 +70,32 @@ def redact_sensitive_text(text: str) -> str:
         lambda match: f"{match.group('scheme')} [REDACTED]",
         redacted,
     )
+
+
+def redact_url_credentials(url: str) -> str:
+    """Mask passwords in a connection URL; keep scheme/user/host for troubleshooting.
+
+    Covers both the userinfo segment (``scheme://user:pass@host``) and sensitive
+    query parameters (``?password=...``). URLs without credentials are returned
+    unchanged so log lines stay readable.
+    """
+    raw = str(url or "")
+    masked = _URL_PASSWORD_PATTERN.sub(lambda m: f"{m.group(1)}***{m.group(3)}", raw, count=1)
+    if "?" not in masked:
+        return masked
+    base, _, query = masked.partition("?")
+    kept: list[str] = []
+    changed = False
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        key, sep, value = pair.partition("=")
+        if _is_sensitive_key(key):
+            kept.append(f"{key}=***" if sep else key)
+            changed = True
+        else:
+            kept.append(pair)
+    return f"{base}?{'&'.join(kept)}" if changed else masked
 
 
 def _replace_text_secret(match: re.Match[str]) -> str:

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.core.config import get as get_config
+from src.core.sensitive import redact_url_credentials
 from src.storage.models import Base
 
 import asyncio
@@ -57,7 +58,7 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
                 or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
             )
 
-        logger.info(f"Initializing shared session factory with URL: {url}")
+        logger.info(f"Initializing shared session factory with URL: {redact_url_credentials(url)}")
         _engine = create_async_engine(url, echo=False)
         _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
