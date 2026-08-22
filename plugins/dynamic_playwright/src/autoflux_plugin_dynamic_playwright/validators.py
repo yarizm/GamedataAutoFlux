@@ -1,23 +1,21 @@
 """Configuration safety rules owned by the Dynamic Playwright plugin."""
 
-from fastapi import HTTPException
-
 from src.core.collector_validators import (
     CollectorConfigIssue,
     register_collector_config_validator,
 )
-from src.web.safety import validate_dynamic_playwright_config
+from src.core.url_safety import validate_dynamic_browser_config
 
 
 def _validate(config: dict) -> list[CollectorConfigIssue]:
     try:
-        validate_dynamic_playwright_config(config)
-    except HTTPException as exc:
+        validate_dynamic_browser_config(config)
+    except ValueError as exc:
         return [
             CollectorConfigIssue(
                 code="unsafe_dynamic_playwright_config",
                 field="url",
-                message=str(exc.detail or "Dynamic browser collector config is unsafe."),
+                message=str(exc),
             )
         ]
     return []
