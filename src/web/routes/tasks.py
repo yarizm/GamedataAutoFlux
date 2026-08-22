@@ -116,11 +116,11 @@ async def precheck_task(
     ] = None,
 ):
     """Validate task input before submitting it to the scheduler."""
-    from src.bootstrap.container import get_task_service, scheduler
+    from src.bootstrap.container import get_pipeline_service, get_task_service
 
-    # DAG-only 图：先投影到 scheduler，precheck 才能识别
-    if scheduler is not None and hasattr(scheduler, "resolve_pipeline"):
-        await scheduler.resolve_pipeline(req.pipeline_name)
+    # DAG-only 图：先投影注册，precheck 才能识别
+    pipeline_service = get_pipeline_service()
+    await pipeline_service.resolve_pipeline(req.pipeline_name)
 
     use_deep = req.deep if deep is None else deep
     precheck = await get_task_service().precheck_async(

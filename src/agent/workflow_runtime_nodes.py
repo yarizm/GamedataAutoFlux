@@ -238,9 +238,11 @@ def apply_cron_action_node(state: AgentWorkflowState) -> dict[str, Any]:
 
 
 def _cron_list_result() -> dict[str, Any]:
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_cron_service
 
-    jobs = scheduler.list_cron_jobs()
+    cron_service = get_cron_service()
+
+    jobs = cron_service.list_cron_jobs()
     slim = []
     for job in jobs or []:
         if not isinstance(job, dict):
@@ -270,9 +272,11 @@ def _cron_create_result(
     timezone: str,
     schedule_meta: dict[str, Any],
 ) -> dict[str, Any]:
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_cron_service
 
-    job_id = scheduler.add_cron_job(
+    cron_service = get_cron_service()
+
+    job_id = cron_service.add_cron_job(
         name=name,
         pipeline_name=pipeline_name,
         cron_expr=cron_expr,
@@ -293,9 +297,11 @@ def _cron_create_result(
 
 
 def _cron_delete_result(name: str) -> dict[str, Any]:
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_cron_service
 
-    ok = scheduler.remove_cron_job(name)
+    cron_service = get_cron_service()
+
+    ok = cron_service.remove_cron_job(name)
     if ok:
         return {
             "status": "success",

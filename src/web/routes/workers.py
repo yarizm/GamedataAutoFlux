@@ -89,7 +89,9 @@ async def reconcile_stale_worker_tasks(
     ] = 120,
 ):
     """Cancel running tasks claimed by stale/offline workers."""
-    from src.bootstrap.container import get_session_registry, get_worker_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_registry, get_worker_service
+
+    worker_service = get_worker_service()
 
     workers = await get_worker_registry().list_workers(stale_after_seconds=stale_after_seconds)
     offline_workers = [worker for worker in workers if worker.status == "offline"]
@@ -100,7 +102,7 @@ async def reconcile_stale_worker_tasks(
     worker_registry = get_worker_registry()
     for worker in offline_workers:
         worker_id = worker.worker_id
-        reconciled = await scheduler.reconcile_stale_worker_tasks(
+        reconciled = await worker_service.reconcile_stale_worker_tasks(
             worker_id,
             reason=f"Worker {worker_id} heartbeat exceeded {stale_after_seconds}s.",
         )
@@ -176,10 +178,12 @@ async def claim_task(
     req: Annotated[WorkerClaimTaskRequest, Body(description="Task claim request")],
 ):
     """Claim the next pending task for a registered worker."""
-    from src.bootstrap.container import get_session_registry, get_worker_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_registry, get_worker_service
+
+    worker_service = get_worker_service()
 
     worker = await _require_registered_worker(worker_id)
-    claim = await scheduler.claim_task_for_worker(
+    claim = await worker_service.claim_task_for_worker(
         worker_id,
         capabilities=req.capabilities if req.capabilities is not None else worker.capabilities,
         reserve_session_claim=_build_session_claim_guard(get_session_registry),
@@ -225,10 +229,12 @@ async def append_task_event(
     req: Annotated[WorkerTaskEventRequest, Body(description="Worker task event")],
 ):
     """Append an event for a worker-claimed task."""
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_worker_service
+
+    worker_service = get_worker_service()
 
     await _require_registered_worker(worker_id)
-    event = await scheduler.append_worker_task_event(
+    event = await worker_service.append_worker_task_event(
         worker_id,
         task_id,
         req.type,
@@ -249,10 +255,12 @@ async def register_task_artifact(
     req: Annotated[WorkerTaskArtifactRequest, Body(description="Worker task artifact")],
 ):
     """Register an artifact for a worker-claimed task."""
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_worker_service
+
+    worker_service = get_worker_service()
 
     await _require_registered_worker(worker_id)
-    artifact = await scheduler.register_worker_task_artifact(
+    artifact = await worker_service.register_worker_task_artifact(
         worker_id,
         task_id,
         req.type,
@@ -276,10 +284,12 @@ async def register_task_checkpoint(
     req: Annotated[WorkerTaskCheckpointRequest, Body(description="Worker task checkpoint")],
 ):
     """Register a checkpoint for a worker-claimed task."""
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_worker_service
+
+    worker_service = get_worker_service()
 
     await _require_registered_worker(worker_id)
-    checkpoint = await scheduler.register_worker_task_checkpoint(
+    checkpoint = await worker_service.register_worker_task_checkpoint(
         worker_id,
         task_id,
         recovery_level=req.recovery_level,
@@ -302,10 +312,12 @@ async def complete_task(
     req: Annotated[WorkerTaskCompleteRequest, Body(description="Worker task result")],
 ):
     """Mark a worker-claimed task as complete."""
-    from src.bootstrap.container import get_session_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_service
+
+    worker_service = get_worker_service()
 
     await _require_registered_worker(worker_id)
-    task = await scheduler.complete_worker_task(worker_id, task_id, result=req.result)
+    task = await worker_service.complete_worker_task(worker_id, task_id, result=req.result)
     if task is None:
         raise HTTPException(404, f"Claimed task not found for worker: {task_id}")
     await _refresh_worker_heartbeat_best_effort(
@@ -338,10 +350,12 @@ async def fail_task(
     req: Annotated[WorkerTaskFailRequest, Body(description="Worker task failure")],
 ):
     """Mark a worker-claimed task as failed."""
-    from src.bootstrap.container import get_session_registry, scheduler
+    from src.bootstrap.container import get_session_registry, get_worker_service
+
+    worker_service = get_worker_service()
 
     await _require_registered_worker(worker_id)
-    task = await scheduler.fail_worker_task(worker_id, task_id, error=req.error, result=req.result)
+    task = await worker_service.fail_worker_task(worker_id, task_id, error=req.error, result=req.result)
     if task is None:
         raise HTTPException(404, f"Claimed task not found for worker: {task_id}")
     await _refresh_worker_heartbeat_best_effort(

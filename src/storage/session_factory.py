@@ -53,7 +53,7 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
             return _session_factory
 
         if url is None:
-            url = (
+            url = str(
                 get_config("database.sqlalchemy_url")
                 or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
             )

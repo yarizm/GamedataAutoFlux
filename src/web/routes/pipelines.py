@@ -33,6 +33,20 @@ def _get_scheduler():
     return scheduler
 
 
+def _get_pipeline_service():
+    """Pipeline 业务门面（Scheduler 只作执行引擎）。"""
+    from src.bootstrap.container import get_pipeline_service
+
+    return get_pipeline_service()
+
+
+def _get_cron_service():
+    """Cron 业务门面。"""
+    from src.bootstrap.container import get_cron_service
+
+    return get_cron_service()
+
+
 def _get_dag_repo():
     from src.bootstrap.container import get_dag_repository
 
@@ -165,10 +179,10 @@ async def list_pipelines(
         Query(description="Only return pipelines whose components are currently active"),
     ] = False,
 ):
-    scheduler = _get_scheduler()
+    pipeline_service = _get_pipeline_service()
 
     pipelines = {}
-    for pipeline in scheduler.get_all_pipelines():
+    for pipeline in pipeline_service.get_all_pipelines():
         config = pipeline.to_config()
         if not available_only or inspect_pipeline_availability(config).available:
             pipelines[pipeline.name] = config
@@ -208,7 +222,7 @@ async def get_dag(
 async def create_pipeline(
     req: Annotated[CreatePipelineRequest, Body(description="Pipeline configuration")],
 ):
-    scheduler = _get_scheduler()
+    pipeline_service = _get_pipeline_service()
 
     pipeline = Pipeline(req.name)
     for step in req.steps:
@@ -227,7 +241,7 @@ async def create_pipeline(
         else:
             raise HTTPException(400, f"Unknown step type: {step.type}")
 
-    await scheduler.save_pipeline(pipeline)
+    await pipeline_service.save_pipeline(pipeline)
     return {"message": f"Pipeline created: {req.name}", "config": pipeline.to_config()}
 
 
@@ -260,7 +274,7 @@ async def create_dag(
     pipeline = dag_to_pipeline(dag)
     if not pipeline.steps:
         raise HTTPException(400, "DAG has no executable collector/processor/storage nodes")
-    await _get_scheduler().save_pipeline(pipeline)
+    await _get_pipeline_service().save_pipeline(pipeline)
 
     return {
         "message": f"DAG created: {req.name}",
@@ -280,9 +294,9 @@ async def delete_dag(
     if not deleted:
         raise HTTPException(404, f"DAG not found: {name}")
     # 同步删除同名 pipeline 投影（若存在）
-    scheduler = _get_scheduler()
-    if scheduler.get_pipeline(name) is not None:
-        await scheduler.delete_pipeline(name)
+    pipeline_service = _get_pipeline_service()
+    if pipeline_service.get_pipeline(name) is not None:
+        await pipeline_service.delete_pipeline(name)
     return {"message": f"DAG deleted: {name}"}
 
 
@@ -409,21 +423,21 @@ async def delete_pipeline(
     name: Annotated[str, Path(description="Pipeline name")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    scheduler = _get_scheduler()
+    pipeline_service = _get_pipeline_service()
 
     require_explicit_confirmation(confirm, "pipeline deletion")
-    if scheduler.get_pipeline(name) is None:
+    if pipeline_service.get_pipeline(name) is None:
         raise HTTPException(404, f"Pipeline not found: {name}")
 
-    await scheduler.delete_pipeline(name)
+    await pipeline_service.delete_pipeline(name)
     return {"message": f"Pipeline deleted: {name}"}
 
 
 @router.get("/cron-jobs")
 async def list_cron_jobs():
-    scheduler = _get_scheduler()
+    cron_service = _get_cron_service()
 
-    return scheduler.list_cron_jobs()
+    return cron_service.list_cron_jobs()
 
 
 @router.post("/cron-jobs/preview")
@@ -455,7 +469,7 @@ async def preview_cron_schedule(
 
 @router.post("/cron-jobs")
 async def create_cron_job(req: Annotated[CronJobRequest, Body(description="Cron job setup")]):
-    scheduler = _get_scheduler()
+    cron_service = _get_cron_service()
     from src.core.cron_schedule import resolve_schedule_input
 
     try:
@@ -464,7 +478,7 @@ async def create_cron_job(req: Annotated[CronJobRequest, Body(description="Cron 
             schedule=req.schedule,
             timezone=req.timezone or None,
         )
-        job_id = scheduler.add_cron_job(
+        job_id = cron_service.add_cron_job(
             name=req.name,
             pipeline_name=req.pipeline_name,
             cron_expr=resolved["cron_expr"],
@@ -474,7 +488,7 @@ async def create_cron_job(req: Annotated[CronJobRequest, Body(description="Cron 
             schedule_meta=resolved["schedule_meta"],
             description=req.description,
         )
-        job = scheduler.get_cron_job(req.name)
+        job = cron_service.get_cron_job(req.name)
         return {
             "message": f"Cron job created: {req.name}",
             "job_id": job_id,
@@ -489,10 +503,10 @@ async def update_cron_job(
     name: Annotated[str, Path(description="Cron job ID/Name")],
     req: Annotated[CronJobRequest, Body(description="Cron job update")],
 ):
-    scheduler = _get_scheduler()
+    cron_service = _get_cron_service()
     from src.core.cron_schedule import resolve_schedule_input
 
-    if scheduler.get_cron_job(name) is None:
+    if cron_service.get_cron_job(name) is None:
         raise HTTPException(404, f"Cron job not found: {name}")
     try:
         resolved = resolve_schedule_input(
@@ -501,7 +515,7 @@ async def update_cron_job(
             timezone=req.timezone or None,
         )
         # Allow rename only if same name; path is authoritative
-        job_id = scheduler.update_cron_job(
+        job_id = cron_service.update_cron_job(
             name,
             pipeline_name=req.pipeline_name,
             cron_expr=resolved["cron_expr"],
@@ -514,7 +528,7 @@ async def update_cron_job(
         return {
             "message": f"Cron job updated: {name}",
             "job_id": job_id,
-            "job": scheduler.get_cron_job(name),
+            "job": cron_service.get_cron_job(name),
         }
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -525,30 +539,30 @@ async def set_cron_job_enabled(
     name: Annotated[str, Path(description="Cron job ID/Name")],
     req: Annotated[CronEnabledRequest, Body(description="Enable/disable")],
 ):
-    scheduler = _get_scheduler()
-    if not scheduler.set_cron_job_enabled(name, req.enabled):
+    cron_service = _get_cron_service()
+    if not cron_service.set_cron_job_enabled(name, req.enabled):
         raise HTTPException(404, f"Cron job not found: {name}")
     return {
         "message": f"Cron job {'enabled' if req.enabled else 'disabled'}: {name}",
-        "job": scheduler.get_cron_job(name),
+        "job": cron_service.get_cron_job(name),
     }
 
 
 @router.post("/cron-jobs/{name}/run")
 async def run_cron_job_now(name: Annotated[str, Path(description="Cron job ID/Name")]):
-    scheduler = _get_scheduler()
-    job = scheduler.get_cron_job(name)
+    cron_service = _get_cron_service()
+    job = cron_service.get_cron_job(name)
     if job is None:
         raise HTTPException(404, f"Cron job not found: {name}")
-    # DAG-only / template pipelines: project into scheduler before submit
+    # DAG-only / template pipelines: 先投影注册再提交
     pipeline_name = str(job.get("pipeline_name") or "")
-    if pipeline_name and hasattr(scheduler, "resolve_pipeline"):
+    if pipeline_name:
         try:
-            await scheduler.resolve_pipeline(pipeline_name)
+            await _get_pipeline_service().resolve_pipeline(pipeline_name)
         except Exception:
             pass
     try:
-        task_id = await scheduler.run_cron_job_now(name)
+        task_id = await cron_service.run_cron_job_now(name)
         return {"message": f"Cron job triggered: {name}", "task_id": task_id}
     except LookupError as exc:
         raise HTTPException(404, str(exc))
@@ -560,8 +574,8 @@ async def run_cron_job_now(name: Annotated[str, Path(description="Cron job ID/Na
 
 @router.get("/cron-jobs/{name}")
 async def get_cron_job(name: Annotated[str, Path(description="Cron job ID/Name")]):
-    scheduler = _get_scheduler()
-    job = scheduler.get_cron_job(name)
+    cron_service = _get_cron_service()
+    job = cron_service.get_cron_job(name)
     if job is None:
         raise HTTPException(404, f"Cron job not found: {name}")
     return job
@@ -572,10 +586,10 @@ async def delete_cron_job(
     name: Annotated[str, Path(description="Cron job ID/Name")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    scheduler = _get_scheduler()
+    cron_service = _get_cron_service()
 
     require_explicit_confirmation(confirm, "cron job deletion")
-    if not scheduler.remove_cron_job(name):
+    if not cron_service.remove_cron_job(name):
         raise HTTPException(404, f"Cron job not found: {name}")
 
     return {"message": f"Cron job deleted: {name}"}

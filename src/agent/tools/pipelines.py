@@ -37,9 +37,11 @@ class ListPipelinesTool(BaseTool):
     description: str = "获取已保存的自定义 Pipeline 列表"
 
     async def _arun(self) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_pipeline_service
 
-        pipelines = scheduler.get_all_pipelines()
+        pipeline_service = get_pipeline_service()
+
+        pipelines = pipeline_service.get_all_pipelines()
         summaries = [{"name": p.name, "steps": len(p.steps)} for p in pipelines]
         return _safe_json(summaries)
 
@@ -63,7 +65,9 @@ class CreatePipelineTool(BaseTool):
 
     async def _arun(self, name: str, steps: list[dict]) -> str:
         from src.core.pipeline import Pipeline, StepType
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_pipeline_service
+
+        pipeline_service = get_pipeline_service()
 
         pipeline = Pipeline(name)
         for step in steps:
@@ -81,7 +85,7 @@ class CreatePipelineTool(BaseTool):
                 pipeline.add_storage(step_name, config=step_config)
 
         try:
-            await scheduler.save_pipeline(pipeline)
+            await pipeline_service.save_pipeline(pipeline)
             return _format_result(
                 "ok",
                 f"Pipeline '{name}' 已创建，包含 {len(steps)} 个步骤",
@@ -101,13 +105,15 @@ class DeletePipelineTool(BaseTool):
     args_schema: Type[BaseModel] = DeletePipelineInput
 
     async def _arun(self, name: str, confirm: bool = False) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_pipeline_service
+
+        pipeline_service = get_pipeline_service()
 
         if not confirm:
             return _format_result(
                 "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
             )
-        ok = await scheduler.delete_pipeline(name)
+        ok = await pipeline_service.delete_pipeline(name)
         if ok:
             return _format_result("ok", f"Pipeline '{name}' 已删除")
         return _format_result("error", f"删除失败，Pipeline '{name}' 不存在")
@@ -137,7 +143,9 @@ class CreateDynamicPipelineTool(BaseTool):
         js_script: str = "",
     ) -> str:
         from src.core.pipeline import Pipeline
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_pipeline_service
+
+        pipeline_service = get_pipeline_service()
 
         collector_config = {
             "url": url,
@@ -164,7 +172,7 @@ class CreateDynamicPipelineTool(BaseTool):
         )
 
         try:
-            await scheduler.save_pipeline(pipeline)
+            await pipeline_service.save_pipeline(pipeline)
             return _format_result(
                 "ok",
                 f"动态 Pipeline '{pipeline_name}' 已成功创建并保存！\n"

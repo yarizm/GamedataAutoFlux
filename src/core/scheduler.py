@@ -46,6 +46,14 @@ from src.storage.base import BaseStorage
 
 
 class Scheduler:
+    """异步任务调度器（执行引擎）。
+
+    职责边界（修复清单第三批）：只负责执行调度、并发与生命周期；
+    Pipeline/Cron/Worker 的业务操作经 src.services 下的门面服务
+    （PipelineService/CronService/WorkerService）访问，新业务逻辑
+    禁止直接堆到本类。
+    """
+
     """
     任务调度器。
 

@@ -58,3 +58,24 @@ def test_scheduler_exposes_public_persistence_api():
     assert isinstance(scheduler._cron_repo, _FakeRepo)
     assert isinstance(scheduler._pipeline_repo, _FakeRepo)
     assert isinstance(scheduler._event_bus, EventBus)
+
+
+_SCHEDULER_BIZ_METHODS = re.compile(
+    r"scheduler\.("
+    r"save_pipeline|get_pipeline|delete_pipeline|get_all_pipelines|resolve_pipeline|register_pipeline"
+    r"|add_cron_job|update_cron_job|set_cron_job_enabled|run_cron_job_now|get_cron_job"
+    r"|remove_cron_job|list_cron_jobs"
+    r"|claim_task_for_worker|complete_worker_task|fail_worker_task|reconcile_stale_worker_tasks"
+    r"|append_worker_task_event|register_worker_task_artifact|register_worker_task_checkpoint"
+    r")"
+)
+
+
+def test_routes_and_agent_use_service_facades_not_scheduler_business_api():
+    """Web/Agent 的业务操作必须走 PipelineService/CronService/WorkerService。"""
+    offenders: list[str] = []
+    for base in ("src/web/routes", "src/agent"):
+        for py in (REPO / base).rglob("*.py"):
+            if _SCHEDULER_BIZ_METHODS.search(py.read_text(encoding="utf-8")):
+                offenders.append(py.relative_to(REPO).as_posix())
+    assert offenders == [], f"直呼 Scheduler 业务 API: {offenders}"

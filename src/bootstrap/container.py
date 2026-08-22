@@ -37,6 +37,12 @@ _session_registry = None
 _session_registry_lock = threading.Lock()
 _dag_repo = None
 _dag_repo_lock = threading.Lock()
+_pipeline_service = None
+_pipeline_service_lock = threading.Lock()
+_cron_service = None
+_cron_service_lock = threading.Lock()
+_worker_service = None
+_worker_service_lock = threading.Lock()
 
 
 def ensure_core_services() -> tuple[Scheduler, ReportGenerator]:
@@ -55,12 +61,15 @@ def _reset_runtime_singletons(
     reset_agent_session: bool = False,
 ) -> None:
     global _task_service, _worker_registry, _session_registry, _agent_service
-    global _agent_session_service, _dag_repo
+    global _agent_session_service, _dag_repo, _pipeline_service, _cron_service, _worker_service
 
     _task_service = None
     _worker_registry = None
     _session_registry = None
     _dag_repo = None
+    _pipeline_service = None
+    _cron_service = None
+    _worker_service = None
     if reset_agent:
         _agent_service = None
     if reset_agent_session:
@@ -155,3 +164,45 @@ def get_dag_repository():
 
                 _dag_repo = SQLAlchemyDAGRepository(get_session_factory())
     return _dag_repo
+
+
+def get_pipeline_service():
+    """Pipeline 业务门面（Scheduler 只作执行引擎）。"""
+    global _pipeline_service
+    if _pipeline_service is None:
+        with _pipeline_service_lock:
+            if _pipeline_service is None:
+                from src.services.pipeline_service import PipelineService
+
+                if scheduler is None:
+                    raise RuntimeError("core services not initialized; call ensure_core_services()")
+                _pipeline_service = PipelineService(lambda: scheduler)
+    return _pipeline_service
+
+
+def get_cron_service():
+    """Cron 业务门面。"""
+    global _cron_service
+    if _cron_service is None:
+        with _cron_service_lock:
+            if _cron_service is None:
+                from src.services.cron_service import CronService
+
+                if scheduler is None:
+                    raise RuntimeError("core services not initialized; call ensure_core_services()")
+                _cron_service = CronService(lambda: scheduler)
+    return _cron_service
+
+
+def get_worker_service():
+    """Worker 业务门面。"""
+    global _worker_service
+    if _worker_service is None:
+        with _worker_service_lock:
+            if _worker_service is None:
+                from src.services.worker_service import WorkerService
+
+                if scheduler is None:
+                    raise RuntimeError("core services not initialized; call ensure_core_services()")
+                _worker_service = WorkerService(lambda: scheduler)
+    return _worker_service

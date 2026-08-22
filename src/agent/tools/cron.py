@@ -18,9 +18,11 @@ class ListCronJobsTool(BaseTool):
     description: str = "获取所有定时任务的列表"
 
     async def _arun(self) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_cron_service
 
-        jobs = scheduler.list_cron_jobs()
+        cron_service = get_cron_service()
+
+        jobs = cron_service.list_cron_jobs()
         return _safe_json(jobs)
 
     def _run(self) -> str:
@@ -44,14 +46,16 @@ class CreateCronJobTool(BaseTool):
         task_template: dict | None = None,
         confirm: bool = False,
     ) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_cron_service
+
+        cron_service = get_cron_service()
 
         if not confirm:
             return _format_result(
                 "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
             )
         try:
-            job_id = scheduler.add_cron_job(
+            job_id = cron_service.add_cron_job(
                 name=name,
                 pipeline_name=pipeline_name,
                 cron_expr=cron_expr,
@@ -76,13 +80,15 @@ class DeleteCronJobTool(BaseTool):
     args_schema: Type[BaseModel] = DeleteCronJobInput
 
     async def _arun(self, name: str, confirm: bool = False) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_cron_service
+
+        cron_service = get_cron_service()
 
         if not confirm:
             return _format_result(
                 "warning", "高风险操作已取消", suggestion="确认后重新调用并传入 confirm=true"
             )
-        ok = scheduler.remove_cron_job(name)
+        ok = cron_service.remove_cron_job(name)
         if ok:
             return _format_result("ok", f"定时任务 '{name}' 已删除")
         return _format_result("error", f"删除失败，定时任务 '{name}' 不存在")
