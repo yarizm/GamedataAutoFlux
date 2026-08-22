@@ -62,15 +62,17 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
         _engine = create_async_engine(url, echo=False)
         _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
-    # 创建所有表（幂等操作）
-    async with _engine.begin() as conn:
-        if "postgresql" in url:
-            from sqlalchemy import text
+    # PostgreSQL：Alembic 迁移（失败阻断启动）；SQLite（测试/嵌入）：create_all
+    if url.startswith(("postgresql", "postgres")):
+        from src.storage.migrations import run_db_migrations
 
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
-        # 运行 schema 迁移（新增列等）
-        await _migrate_schema(conn)
+        await run_db_migrations(_engine, url)
+    else:
+        # 创建所有表（幂等操作）
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            # 运行 schema 迁移（新增列等）
+            await _migrate_schema(conn)
 
     return _session_factory
 

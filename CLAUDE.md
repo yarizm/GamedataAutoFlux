@@ -238,7 +238,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **服务层单例**通过模块级 lazy getter 函数获取（`get_task_service()` 等），定义在 `src/bootstrap/container.py`（composition root）。业务代码（core/services/agent/reporting/worker/插件）**禁止 import `src.web`**：组件从容器或核心模块获取，WebSocket 推送走 `src.core.ws_broadcast` 端口（Web 层 lifespan 注册发送函数）。验收测试 `tests/test_no_web_reverse_deps.py`。
 - **Scheduler 持久化注入**走 public lifecycle API：DB 就绪后由 app lifespan 调 `scheduler.attach_persistence(task_repo=..., cron_repo=..., pipeline_repo=..., event_bus=...)`，外部代码不得直写 `scheduler._xxx` 私有字段。
 - **调度器 `Scheduler`** 是全局单例，`app.py` 在 lifespan 中启动/停止它。
-- **无 ORM 迁移**。SQLAlchemy 表由 `Base.metadata.create_all()` 在存储初始化时按需创建。
+- **数据库迁移分两条路**：PostgreSQL 走 Alembic（`migrations/` + `src/storage/migrations.py` 程序化入口；启动时 `upgrade head`，失败阻断 lifespan；历史 create_all 库自动 `stamp head` 收编；pgvector 扩展缺失时 embedding 降级 JSONB，与 models 回退语义一致）。SQLite（测试/嵌入）仍用 `create_all`。schema 变更流程：改 `src/storage/models.py` + 对真库 `alembic revision --autogenerate` 生成新 revision。
 - **存储通过工厂获取**：所有代码通过 `get_storage()` 获取存储实例，不直接实例化具体类。存储后端由 `config/settings.yaml` 中的 `database.provider` 控制。
 - **嵌入模型**：`get_embeddings()` 工厂函数（`src/services/_utils.py`）返回 DashScope Embeddings 实例。
 - **采集器需登录态**：SteamDB 通过 CDP 连接已登录 Chrome（`scripts/steamdb_login.py`），七麦通过 Playwright 持久化 profile（`scripts/qimai_login.py`）。Worker 通过能力标签声明登录态资源，Scheduler 根据 `SessionRegistry` 路由任务。

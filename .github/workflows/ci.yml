@@ -9,6 +9,21 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        # 与 docker-compose 生产库同款（PostgreSQL 15 + pgvector）
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: autoflux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +94,11 @@ jobs:
       - name: Unit tests (skip integration)
         # Default CI gate: no live external services
         run: pytest -m "not integration" -q --tb=line
+
+      - name: Alembic migration tests (real Postgres)
+        env:
+          ALEMBIC_PG_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux
+        run: pytest tests/test_alembic_postgres.py -q --tb=line
 
       - name: Legacy static script syntax
         run: node --check src/web/static/app.js
