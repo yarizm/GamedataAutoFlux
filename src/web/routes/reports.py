@@ -15,22 +15,25 @@ from pydantic import BaseModel, Field
 
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.reporting.generator import GeneratedReport, ReportSummary, get_reports_dir
-from src.reporting.data_extractor import extract_from_records
 from src.reporting.quality import build_report_quality_summary
 from src.reporting.report_templates import list_report_templates, normalize_collector
 from src.reporting.report_templates import (
-    validate_template_sources,
     save_template as tmpl_save,
     delete_template as tmpl_delete,
 )
 from src.storage.base import StorageRecord
 from src.storage.factory import get_storage
 from src.services._utils import (
-    coerce_record_limit,
     filter_records_by_data_source,
-    filter_source_data_records,
-    is_report_history_record,
-    source_label,
+)
+from src.services.report_precheck_service import (
+    RecordKeyNotFoundError,
+    ReportHistoryOnlySelectionError,
+    ReportPrecheck as ReportPrecheckResult,
+    build_report_precheck as _build_report_precheck_impl,
+    load_report_precheck_records,
+    load_selected_records as _load_selected_records_impl,
+    selected_record_metadata as _selected_record_metadata_impl,
 )
 from src.web.safety import require_explicit_confirmation
 
@@ -98,18 +101,7 @@ class UploadedJsonResponse(BaseModel):
     app_id: str | None = None
 
 
-class ReportPrecheckResponse(BaseModel):
-    status: str
-    message: str
-    selected_records: int
-    usable_records: int
-    template: str
-    known_template: bool = False
-    required_collectors: list[str] = Field(default_factory=list)
-    available_collectors: list[str] = Field(default_factory=list)
-    missing_collectors: list[str] = Field(default_factory=list)
-    source_counts: dict[str, int] = Field(default_factory=dict)
-    recommendations: list[str] = Field(default_factory=list)
+ReportPrecheckResponse = ReportPrecheckResult
 
 
 # ==================== 路由 ====================
@@ -135,7 +127,7 @@ async def list_report_providers():
 @router.post("/reports/generate", response_model=ReportResponse)
 async def generate_report(req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]):
     """生成分析报告并写入历史。"""
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
@@ -295,7 +287,7 @@ async def upload_report_json(
 @router.get("/reports", response_model=list[ReportSummaryResponse])
 async def list_reports(limit: Annotated[int, Query(ge=1, le=200, description="返回数量限制")] = 20):
     """获取历史报告列表。"""
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     reports = await report_generator.list_reports(limit=limit)
     return [_to_summary_response(report) for report in reports]
@@ -334,7 +326,7 @@ async def precheck_report(
 @router.get("/reports/{report_id}", response_model=ReportResponse)
 async def get_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """获取单个历史报告。"""
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     report = await report_generator.get_report(report_id)
     if report is None:
@@ -347,7 +339,7 @@ async def update_report(
     report_id: Annotated[str, Path(description="Report ID")],
     req: Annotated[UpdateReportRequest, Body(description="Editable report fields")],
 ):
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     metadata = {"notes": req.notes} if req.notes is not None else None
     report = await report_generator.update_report(
@@ -368,7 +360,7 @@ async def delete_report(
     report_id: Annotated[str, Path(description="Report ID")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     require_explicit_confirmation(confirm, "report deletion")
     if not await report_generator.delete_report(report_id):
@@ -381,7 +373,7 @@ async def generate_excel_report(
     req: Annotated[GenerateReportRequest, Body(description="Excel 报告生成配置")],
 ):
     """生成 Excel 格式的分析报告。"""
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
@@ -401,7 +393,7 @@ async def generate_excel_report(
 @router.get("/reports/{report_id}/download")
 async def download_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """下载报告的 Excel 文件。"""
-    from src.web.app import report_generator
+    from src.bootstrap.container import report_generator
 
     report = await report_generator.get_report(report_id)
     if report is None:
@@ -473,127 +465,38 @@ def _to_summary_response(report: ReportSummary) -> ReportSummaryResponse:
 
 
 async def _load_selected_records(record_keys: list[str]):
-    store = get_storage()
-    await store.initialize()
+    """HTTP 语义包装：领域异常 → 404/400。"""
     try:
-        records = []
-        for key in record_keys:
-            record = await store.load(key)
-            if record is not None and is_report_history_record(record):
-                continue
-            if record is None:
-                raise HTTPException(404, f"原始数据记录不存在: {key}")
-            records.append(record)
-        if record_keys and not records:
-            raise HTTPException(
-                400,
-                "Selected keys only contain generated report history. Select source data records instead.",
-            )
-        return records
-    finally:
-        await store.close()
+        return await _load_selected_records_impl(record_keys)
+    except RecordKeyNotFoundError as exc:
+        raise HTTPException(404, str(exc.args[0]) if exc.args else str(exc)) from exc
+    except ReportHistoryOnlySelectionError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _selected_record_metadata(
     requested_keys: list[str],
     records: list[StorageRecord] | None,
 ) -> dict[str, Any] | None:
-    if not requested_keys:
-        return None
-    selected_keys = [record.key for record in records or []]
-    selected_set = set(selected_keys)
-    metadata: dict[str, Any] = {"selected_record_keys": selected_keys}
-    excluded_keys = [key for key in requested_keys if key not in selected_set]
-    if excluded_keys:
-        metadata["excluded_report_record_keys"] = excluded_keys
-    return metadata
+    return _selected_record_metadata_impl(requested_keys, records)
 
 
 async def _load_report_precheck_records(req: GenerateReportRequest) -> list[StorageRecord]:
-    if req.record_keys:
-        return await _load_selected_records(req.record_keys)
-
-    limit = coerce_record_limit(req.params.get("limit"), default=100)
-    store = get_storage()
-    await store.initialize()
+    """HTTP 语义包装：领域异常 → 404/400（与 _load_selected_records 一致）。"""
     try:
-        if req.data_source:
-            result = await store.query(f"source:{req.data_source}", limit=limit)
-            source_records = filter_source_data_records(result.records)
-            if source_records:
-                return source_records
-
-            scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
-            candidates_by_key: dict[str, StorageRecord] = {}
-            for query in (req.data_source, "key:"):
-                result = await store.query(query, limit=scan_limit)
-                for record in result.records:
-                    candidates_by_key[record.key] = record
-            return filter_records_by_data_source(
-                list(candidates_by_key.values()),
-                req.data_source,
-            )[:limit]
-
-        scan_limit = coerce_record_limit(limit * 20, default=500, maximum=5000)
-        result = await store.query("key:", limit=scan_limit)
-        return filter_source_data_records(result.records)[:limit]
-    finally:
-        await store.close()
+        return await load_report_precheck_records(
+            record_keys=req.record_keys,
+            data_source=req.data_source,
+            params=req.params,
+        )
+    except RecordKeyNotFoundError as exc:
+        raise HTTPException(404, str(exc.args[0]) if exc.args else str(exc)) from exc
+    except ReportHistoryOnlySelectionError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _build_report_precheck(template: str, records: list[StorageRecord]) -> ReportPrecheckResponse:
-    usable_records = [record for record in records if isinstance(record.data, dict)]
-    if not usable_records:
-        validation = validate_template_sources(template, {})
-        missing = list(validation.get("missing_collectors") or [])
-        return ReportPrecheckResponse(
-            status="empty",
-            message="No usable JSON records found for this report.",
-            selected_records=len(records),
-            usable_records=0,
-            template=str(validation.get("template") or template),
-            known_template=bool(validation.get("known_template", False)),
-            required_collectors=list(validation.get("required_collectors") or []),
-            missing_collectors=missing,
-            recommendations=[
-                "Select records from Data Browser or upload JSON files before generating.",
-                *[
-                    f"Add {source_label(collector)} data before generating for better report coverage."
-                    for collector in missing
-                ],
-            ],
-        )
-
-    extracted = extract_from_records(
-        [record.data for record in usable_records],
-        record_keys=[record.key for record in usable_records],
-        metadata_list=[record.metadata for record in usable_records],
-    )
-    validation = validate_template_sources(template, extracted.source_coverage)
-    missing = list(validation.get("missing_collectors") or [])
-    status = "complete" if not missing else "partial"
-    recommendations = [
-        f"Add {source_label(collector)} data before generating for better report coverage."
-        for collector in missing
-    ]
-    message = (
-        "Report data coverage is complete."
-        if status == "complete"
-        else "Report can be generated, but some expected data sources are missing."
-    )
-    return ReportPrecheckResponse(
-        status=status,
-        message=message,
-        selected_records=len(records),
-        usable_records=len(usable_records),
-        template=str(validation.get("template") or template),
-        known_template=bool(validation.get("known_template", False)),
-        required_collectors=list(validation.get("required_collectors") or []),
-        available_collectors=list(validation.get("available_collectors") or []),
-        missing_collectors=missing,
-        source_counts=dict(validation.get("source_counts") or {}),
-        recommendations=recommendations,
-    )
+    return _build_report_precheck_impl(template, records)
 
 
 def _looks_like_download_wrapper(payload: dict[str, Any]) -> bool:

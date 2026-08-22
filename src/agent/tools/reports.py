@@ -920,33 +920,32 @@ class PrecheckReportTool(BaseTool):
         record_keys: list[str] | None = None,
         limit: int = 100,
     ) -> str:
-        from src.web.routes.reports import (
-            GenerateReportRequest,
-            _build_report_precheck,
-            _load_report_precheck_records,
+        from src.services.report_precheck_service import (
+            build_report_precheck,
+            load_report_precheck_records,
         )
 
         safe_limit = _coerce_precheck_limit(limit)
+        safe_prompt = str(prompt or "")
+        safe_source = str(data_source or "")
+        safe_template = str(template or "general_game")
         try:
-            request = GenerateReportRequest(
-                prompt=str(prompt or ""),
-                data_source=str(data_source or ""),
-                template=str(template or "general_game"),
+            records = await load_report_precheck_records(
                 record_keys=record_keys or [],
+                data_source=safe_source,
                 params={"limit": safe_limit},
             )
-            records = await _load_report_precheck_records(request)
-            precheck = _build_report_precheck(request.template, records)
+            precheck = build_report_precheck(safe_template, records)
             target_context = derive_collection_target_context(
                 records,
-                prompt=request.prompt,
-                data_source=request.data_source,
+                prompt=safe_prompt,
+                data_source=safe_source,
             )
             return _safe_json(
                 _report_precheck_payload(
                     precheck,
-                    prompt=request.prompt,
-                    data_source=request.data_source,
+                    prompt=safe_prompt,
+                    data_source=safe_source,
                     target_context=target_context,
                 )
             )
@@ -977,7 +976,7 @@ class ListReportsTool(BaseTool):
         quality_status: str = "",
         report_format: str = "",
     ) -> str:
-        from src.web.app import report_generator
+        from src.bootstrap.container import report_generator
 
         safe_limit = _coerce_report_limit(limit)
         has_filters = any(
@@ -1047,7 +1046,7 @@ class GenerateReportTool(BaseTool):
         template: str = "general_game",
         record_keys: list[str] | None = None,
     ) -> str:
-        from src.web.app import report_generator
+        from src.bootstrap.container import report_generator
         from src.storage.factory import get_storage
 
         record_keys = record_keys or []
@@ -1181,7 +1180,7 @@ class GetReportContentTool(BaseTool):
     args_schema: Type[BaseModel] = GetReportContentInput
 
     async def _arun(self, report_id: str) -> str:
-        from src.web.app import report_generator
+        from src.bootstrap.container import report_generator
 
         try:
             report = await report_generator.get_report(report_id)

@@ -82,7 +82,7 @@ async def test_get_report_content_tool_redacts_and_truncates(monkeypatch) -> Non
         },
     )
     fake_generator = _FakeReportGenerator(report)
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(await GetReportContentTool()._arun("report-1"))
 
@@ -147,7 +147,7 @@ async def test_get_report_content_tool_marks_complete_quality(monkeypatch) -> No
         },
     )
     fake_generator = _FakeReportGenerator(report)
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(await GetReportContentTool()._arun("report-complete"))
 
@@ -183,7 +183,7 @@ async def test_get_report_content_tool_guides_empty_report_quality(monkeypatch) 
         },
     )
     fake_generator = _FakeReportGenerator(report)
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(await GetReportContentTool()._arun("report-empty"))
 
@@ -223,7 +223,7 @@ async def test_list_reports_tool_returns_quality_summary(monkeypatch) -> None:
         },
     )
     fake_generator = _FakeListReportsGenerator([report])
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(await ListReportsTool()._arun(limit=10))
     rendered = json.dumps(payload, ensure_ascii=False)
@@ -289,7 +289,7 @@ async def test_list_reports_tool_filters_reports(monkeypatch) -> None:
         },
     )
     fake_generator = _FakeListReportsGenerator([matching_report, other_report])
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(
         await ListReportsTool()._arun(
@@ -360,7 +360,7 @@ async def test_list_reports_tool_filters_by_derived_empty_quality(monkeypatch) -
         },
     )
     fake_generator = _FakeListReportsGenerator([empty_report, partial_report])
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(await ListReportsTool()._arun(limit=10, quality_status="empty"))
 
@@ -412,7 +412,7 @@ async def test_list_reports_tool_filters_by_source_coverage(monkeypatch) -> None
         },
     )
     fake_generator = _FakeListReportsGenerator([matching_report, other_report])
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(
         await ListReportsTool()._arun(
@@ -440,16 +440,27 @@ async def test_precheck_report_tool_returns_readiness_guidance(monkeypatch) -> N
         data={"collector": "steam", "game_name": "Counter-Strike 2", "app_id": "730"},
     )
 
-    async def fake_load_precheck_records(request):
-        captured["template"] = request.template
-        captured["limit"] = request.params["limit"]
-        captured["record_keys"] = list(request.record_keys)
+    async def fake_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
+        captured["limit"] = (params or {}).get("limit")
+        captured["record_keys"] = list(record_keys or [])
         return [source_record]
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fake_load_precheck_records,
     )
+
+    from src.services import report_precheck_service as _precheck_service
+
+    _real_build = _precheck_service.build_report_precheck
+
+    def _capturing_build(template, records):
+        captured["template"] = template
+        return _real_build(template, records)
+
+    monkeypatch.setattr(_precheck_service, "build_report_precheck", _capturing_build)
 
     payload = json.loads(
         await PrecheckReportTool()._arun(
@@ -585,11 +596,13 @@ async def test_precheck_report_tool_uses_official_site_task_for_events_gap(
         },
     )
 
-    async def fake_load_precheck_records(request):
+    async def fake_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
         return [steam_record, official_record]
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fake_load_precheck_records,
     )
 
@@ -644,11 +657,13 @@ async def test_precheck_report_tool_blocks_redacted_task_draft_params(
         },
     )
 
-    async def fake_load_precheck_records(request):
+    async def fake_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
         return [steam_record, official_record]
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fake_load_precheck_records,
     )
 
@@ -704,11 +719,13 @@ async def test_precheck_report_tool_uses_monitor_siteurl_from_selected_records(
         },
     )
 
-    async def fake_load_precheck_records(request):
+    async def fake_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
         return [source_record]
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fake_load_precheck_records,
     )
 
@@ -747,11 +764,13 @@ async def test_precheck_report_tool_falls_back_to_prompt_without_record_identity
         data={"collector": "steam", "steamdb": {}},
     )
 
-    async def fake_load_precheck_records(request):
+    async def fake_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
         return [source_record]
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fake_load_precheck_records,
     )
 
@@ -793,11 +812,13 @@ async def test_precheck_report_tool_falls_back_to_prompt_without_record_identity
 
 @pytest.mark.asyncio
 async def test_precheck_report_tool_redacts_exception_text(monkeypatch) -> None:
-    async def fail_load_precheck_records(request):
+    async def fail_load_precheck_records(
+        *, record_keys=None, data_source="", params=None
+    ):
         raise RuntimeError("bad precheck: api_key=secret-key; token: secret-token")
 
     monkeypatch.setattr(
-        "src.web.routes.reports._load_report_precheck_records",
+        "src.services.report_precheck_service.load_report_precheck_records",
         fail_load_precheck_records,
     )
 
@@ -878,7 +899,7 @@ async def test_generate_report_tool_filters_report_history_record_keys(monkeypat
     )
     fake_generator = _FakeGenerateExcelReportGenerator()
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(
         await GenerateReportTool()._arun(
@@ -931,7 +952,7 @@ async def test_generate_report_tool_redacts_generator_exception_text(monkeypatch
     fake_store = _RecordStore({source_record.key: source_record})
     fake_generator = _FailingGenerateExcelReportGenerator()
     monkeypatch.setattr("src.storage.factory.get_storage", lambda: fake_store)
-    monkeypatch.setattr("src.web.app.report_generator", fake_generator)
+    monkeypatch.setattr("src.bootstrap.container.report_generator", fake_generator)
 
     payload = json.loads(
         await GenerateReportTool()._arun(
