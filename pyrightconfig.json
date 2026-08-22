@@ -1,0 +1,14 @@
+{
+  "include": ["src/core", "src/services", "src/storage"],
+  "exclude": ["**/__pycache__"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.12",
+  "reportMissingImports": "warning",
+  "reportArgumentType": "warning",
+  "reportCallIssue": "warning",
+  "reportGeneralTypeIssues": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "reportOperatorIssue": "warning"
+}

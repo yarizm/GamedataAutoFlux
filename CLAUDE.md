@@ -32,6 +32,7 @@ pytest tests/test_smoke.py      # 单个文件
 # 代码检查
 ruff check src/
 ruff format src/
+pyright                # 类型检查：src/core|services|storage，error 级阻断 CI
 ```
 
 ## 架构概览
@@ -169,8 +170,9 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
   - `pages.py` — 页面路由（无 `/api` 前缀）
 - **`safety.py`** — 安全层：
   - `require_admin` — 本地请求免认证，远程需要 X-API-Key
-  - `validate_dynamic_playwright_config` — 禁止访问 localhost/内网 IP（SSRF 防护）
-  - `validate_url_runtime` — 运行时 DNS rebinding 二次校验
+  - `validate_dynamic_playwright_config` — 配置保存时的字面量校验（禁 localhost/内网 IP 字面量，SSRF 防护）
+  - `validate_url_runtime` — 同步字面量校验（给无法 await 的调用点）
+  - DNS 级校验在 `src/core/url_safety.py`（纯逻辑，无 Web 依赖）：`NavigationUrlGuard` 解析 A/AAAA 记录逐地址检查网段（防 DNS rebinding）；dynamic_playwright 采集器用 `context.route("**/*")` 拦截全部请求，redirect 跳转与子资源同样受检
 - **前端** — Vite + Tailwind 4 + ECharts，纯 JS SPA。源码在 `src/web/src/`，构建输出到 `src/web/static/dist/`。
 
 ### 5. 服务层 (`src/services/`)
@@ -233,7 +235,8 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 
 - **所有 API 路由**挂载在 `/api` 前缀下，页面路由 (`pages.py`) 无前缀。管理端路由统一依赖 `require_admin`。
 - **前端是纯 JS SPA**，无框架。页面组件在 `src/web/src/pages/<name>/index.js`，核心模块在 `src/web/src/core/`。
-- **服务层单例**通过模块级 lazy getter 函数获取（`get_task_service()` 等），不走 DI 容器。这些 getter 定义在 `app.py` 中。
+- **服务层单例**通过模块级 lazy getter 函数获取（`get_task_service()` 等），定义在 `src/bootstrap/container.py`（composition root）。业务代码（core/services/agent/reporting/worker/插件）**禁止 import `src.web`**：组件从容器或核心模块获取，WebSocket 推送走 `src.core.ws_broadcast` 端口（Web 层 lifespan 注册发送函数）。验收测试 `tests/test_no_web_reverse_deps.py`。
+- **Scheduler 持久化注入**走 public lifecycle API：DB 就绪后由 app lifespan 调 `scheduler.attach_persistence(task_repo=..., cron_repo=..., pipeline_repo=..., event_bus=...)`，外部代码不得直写 `scheduler._xxx` 私有字段。
 - **调度器 `Scheduler`** 是全局单例，`app.py` 在 lifespan 中启动/停止它。
 - **无 ORM 迁移**。SQLAlchemy 表由 `Base.metadata.create_all()` 在存储初始化时按需创建。
 - **存储通过工厂获取**：所有代码通过 `get_storage()` 获取存储实例，不直接实例化具体类。存储后端由 `config/settings.yaml` 中的 `database.provider` 控制。

@@ -331,6 +331,7 @@ class StorageNode:
             )
             for index, process_input in enumerate(process_inputs)
         ]
+        assert self._storage is not None  # setup() 已实例化
         await self._storage.save_batch(records)
         return {"_stored": len(records), "output_records": records}
 

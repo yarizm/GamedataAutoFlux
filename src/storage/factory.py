@@ -63,12 +63,13 @@ def get_storage(name: str | None = None) -> BaseStorage:
         provider = normalize_storage_name(db_config.get("provider", DEFAULT_STORAGE_NAME))
 
         store_cls = registry.get("storage", provider)
-        _global_storage = store_cls(db_config)
+        store = store_cls(db_config)
+        _global_storage = store
         if normalized:
             logger.debug(
                 f"get_storage(name={name!r}→{normalized!r}) → 返回全局默认存储 ({provider})，当前架构共享同一实例"
             )
-    return _global_storage
+        return store
 
 
 def reset_storage() -> None:

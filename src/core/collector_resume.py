@@ -156,7 +156,7 @@ def compose_recovery_checkpoint(checkpoints: list[Any]) -> Any | None:
 
     best_state: dict[str, Any] | None = None
     for cp in checkpoints:
-        state = getattr(cp, "state", None)
+        state: Any = getattr(cp, "state", None)
         if _state_has_target_order(state):
             best_state = dict(state)
             break

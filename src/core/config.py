@@ -147,6 +147,7 @@ def get_settings() -> dict[str, Any]:
         with _settings_lock:
             if _settings is None:
                 load_settings()
+    assert _settings is not None, "load_settings() 必须填充全局配置"
     return _settings
 
 

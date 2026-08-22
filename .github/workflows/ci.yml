@@ -26,6 +26,12 @@ jobs:
       - name: Install Python package (dev extras)
         run: pip install -e ".[dev]"
 
+      - name: Dependency security audit
+        # 已知漏洞依赖在 CI 即暴露（配合 .github/dependabot.yml 的周期更新）
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+
       - name: Compile sources
         run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
 
@@ -36,6 +42,13 @@ jobs:
           plugins/
           scripts/check_core_package.py
           scripts/check_plugin_release.py
+
+      - name: Pyright (core/services/storage)
+        # 分层接入：error 级阻断（Optional 调用/返回类型等），
+        # argument-type 等深度类型债暂为 warning，见 pyrightconfig.json
+        run: |
+          pip install pyright
+          pyright
 
       - name: Validate first-party plugin releases
         run: python scripts/check_plugin_release.py
@@ -71,3 +84,24 @@ jobs:
 
       - name: Verify packaged core runtime resources
         run: python scripts/check_core_package.py
+
+  windows:
+    # Windows 专属代码（ProactorEventLoop、路径处理、文件锁行为）回归线；
+    # 全量非集成套件覆盖 Scheduler 生命周期与 Playwright 事件循环相关用例
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python package (dev extras)
+        run: pip install -e ".[dev]"
+
+      - name: Compile sources
+        run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
+
+      - name: Unit tests (skip integration)
+        run: pytest -m "not integration" -q --tb=line

@@ -278,8 +278,10 @@ def build_cron_public_view(
 
     template = task_template if isinstance(task_template, dict) else {}
     targets = template.get("targets") if isinstance(template.get("targets"), list) else []
-    config = template.get("config") if isinstance(template.get("config"), dict) else {}
-    refresh = config.get("refresh") if isinstance(config.get("refresh"), dict) else {}
+    config = template.get("config")
+    config = config if isinstance(config, dict) else {}
+    refresh = config.get("refresh")
+    refresh = refresh if isinstance(refresh, dict) else {}
 
     next_runs: list[str] = []
     try:

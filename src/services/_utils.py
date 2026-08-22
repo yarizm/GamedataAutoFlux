@@ -285,12 +285,12 @@ def compute_record_completeness(record: Any) -> str:
 def build_record_summary(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
-    snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+    snapshot = data.get("snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
     discussions = data.get("discussions") if isinstance(data.get("discussions"), dict) else {}
     reviews = data.get("reviews") if isinstance(data.get("reviews"), dict) else {}
-    monitor_metrics = (
-        data.get("monitor_metrics") if isinstance(data.get("monitor_metrics"), dict) else {}
-    )
+    monitor_metrics = data.get("monitor_metrics")
+    monitor_metrics = monitor_metrics if isinstance(monitor_metrics, dict) else {}
     summary: dict[str, Any] = {}
 
     for key in (
