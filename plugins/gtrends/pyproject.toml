@@ -6,10 +6,10 @@ license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]
 requires-python = ">=3.12"
 dependencies = [
-    "gamedata-autoflux>=0.1.0",
+    "gamedata-autoflux>=0.1.0,<1.0.0",
     "pytrends>=4.9.2",
     "urllib3>=2.0.0",
-    "firecrawl-py>=1.0.0",
+    "firecrawl-py>=1.0.0,<3.0.0",
 ]
 
 [project.urls]

@@ -5,7 +5,7 @@ description = "Qimai collector for GamedataAutoFlux"
 license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]
 requires-python = ">=3.12"
-dependencies = ["gamedata-autoflux>=0.1.0", "playwright>=1.40.0"]
+dependencies = ["gamedata-autoflux>=0.1.0,<1.0.0", "playwright>=1.40.0,<2.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/yarizm/GamedataAutoFlux"

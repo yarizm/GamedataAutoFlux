@@ -5,7 +5,7 @@ description = "Shared smart-web extraction helpers for GamedataAutoFlux plugins"
 license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]
 requires-python = ">=3.12"
-dependencies = ["langchain-openai>=0.2.0", "loguru>=0.7.0"]
+dependencies = ["langchain-openai>=1.0.0,<2.0.0", "loguru>=0.7.0"]
 
 [project.urls]
 Homepage = "https://github.com/yarizm/GamedataAutoFlux"
