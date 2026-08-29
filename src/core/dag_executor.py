@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
@@ -363,6 +364,8 @@ class DAGExecutor:
                     recovery_checkpoint=recovery_context, emit_event=on_event,
                 )
                 node = None
+                node_started = time.perf_counter()
+                node_result = "error"
                 if semaphore is not None:
                     await semaphore.acquire()
                 try:
@@ -378,6 +381,7 @@ class DAGExecutor:
                             out = await node.run(ctx)
                         self._port_table[node_id] = out
                         self._node_success[node_id] = True
+                        node_result = "ok"
                         metrics.inc("dag_node_total", type=node_spec.type, result="ok")
                         if node_spec.type == "collector":
                             result.collect_results.extend(out.get("records", []))
@@ -402,6 +406,12 @@ class DAGExecutor:
                             await node.teardown()
                         except Exception as te:
                             logger.warning("DAG node {} teardown error: {}", node_id, redact_sensitive_text(str(te)))
+                    metrics.observe(
+                        "dag_node_duration_seconds",
+                        time.perf_counter() - node_started,
+                        type=node_spec.type,
+                        result=node_result,
+                    )
                     if semaphore is not None:
                         semaphore.release()
 
@@ -434,7 +444,7 @@ class DAGExecutor:
         failed = [nid for nid, ok in self._node_success.items() if not ok]
         if failed:
             result.success = False
-        result.completed_at = datetime.now()
+        result.completed_at = datetime.now(timezone.utc)
         result.resume_state = build_pipeline_resume_state(
             task,
             recovery_context=recovery_context,

@@ -3,6 +3,7 @@
 import pytest
 
 from src.core.task import Task, TaskStatus
+from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
 from src.services.task_repository import InMemoryTaskRepository
 
 
@@ -133,3 +134,9 @@ async def test_save_updates_existing(repo, sample_task):
     loaded = await repo.load(sample_task.id)
     assert loaded is not None
     assert loaded.status == TaskStatus.RUNNING
+
+
+def test_sqlalchemy_task_deserializer_surfaces_corrupt_payload() -> None:
+    """损坏的持久化任务不能被当作不存在。"""
+    with pytest.raises(ValueError, match="malformed|unreadable"):
+        SQLAlchemyTaskRepository._deserialize({"status": object()}, "task:broken")

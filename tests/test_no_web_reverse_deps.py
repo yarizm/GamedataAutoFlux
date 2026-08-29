@@ -54,10 +54,8 @@ def test_scheduler_exposes_public_persistence_api():
         pipeline_repo=_FakeRepo(),
         event_bus=EventBus(),
     )
-    assert isinstance(scheduler._task_repo, _FakeRepo)
-    assert isinstance(scheduler._cron_repo, _FakeRepo)
-    assert isinstance(scheduler._pipeline_repo, _FakeRepo)
-    assert isinstance(scheduler._event_bus, EventBus)
+    assert scheduler.event_bus is not None
+    assert isinstance(scheduler.event_bus, EventBus)
 
 
 _SCHEDULER_BIZ_METHODS = re.compile(

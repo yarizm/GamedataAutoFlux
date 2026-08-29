@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from src.agent.schemas import (
     IdentifierCandidate,
@@ -62,16 +63,29 @@ def _load_cache() -> None:
             return
         try:
             raw = json.loads(GAME_RESOLVER_CACHE.read_text(encoding="utf-8"))
-            now = time.monotonic()
-            for key, (ts, data) in raw.items():
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("[GameResolver] 读取缓存失败，将忽略缓存: {}", exc)
+            return
+
+        if not isinstance(raw, dict):
+            logger.warning("[GameResolver] 缓存格式无效，将忽略缓存")
+            return
+
+        now = time.monotonic()
+        for key, entry in raw.items():
+            if not isinstance(key, str) or not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                logger.debug("[GameResolver] 跳过格式无效的缓存条目: {}", key)
+                continue
+            ts, data = entry
+            try:
+                ts = float(ts)
                 # 兼容旧版 asyncio.get_event_loop().time() 时间戳：
                 # 跳过负值、来自未来、或已过期的条目
-                if ts < 0 or ts > now + CACHE_TTL_SECONDS:
+                if ts < 0 or ts > now + CACHE_TTL_SECONDS or now - ts >= CACHE_TTL_SECONDS:
                     continue
-                if now - ts < CACHE_TTL_SECONDS:
-                    _names_cache[key] = (ts, IdentifierResult.model_validate(data))
-        except Exception:
-            pass
+                _names_cache[key] = (ts, IdentifierResult.model_validate(data))
+            except (TypeError, ValueError, ValidationError) as exc:
+                logger.debug("[GameResolver] 跳过损坏的缓存条目 {}: {}", key, exc)
 
 
 def _save_cache() -> None:
@@ -83,8 +97,8 @@ def _save_cache() -> None:
                 for key, (ts, result) in _names_cache.items()
             }
             GAME_RESOLVER_CACHE.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning("[GameResolver] 保存缓存失败: {}", exc)
 
 
 def _cache_key(platform: str, game_name: str) -> str:

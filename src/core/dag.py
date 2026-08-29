@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from src.collectors.base import CollectResult
@@ -147,7 +147,7 @@ class DAGResult:
     generated_report_id: str | None = None
     generated_report_title: str | None = None
     generated_report_matched_records: int = 0
-    started_at: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
     @property

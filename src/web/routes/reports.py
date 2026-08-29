@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Annotated, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path as FilePath
 
 from fastapi import APIRouter, HTTPException, Query, Path, Body, File, UploadFile
@@ -253,7 +253,7 @@ async def upload_report_json(
             collector = normalize_collector(_infer_collector(data, payload))
             game_name = _infer_game_name(data, payload) or "Uploaded JSON"
             app_id = _infer_app_id(data)
-            key = f"upload:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
+            key = f"upload:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}:{index}"
             await store.save(
                 StorageRecord(
                     key=key,

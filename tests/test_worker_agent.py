@@ -67,7 +67,7 @@ async def test_worker_agent_executes_claimed_task_via_api() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._event_bus = EventBus()
+    scheduler.attach_persistence(event_bus=EventBus())
     scheduler._pipelines["worker_agent_pipeline"] = (
         Pipeline("worker_agent_pipeline")
         .add_collector("worker_agent_test")
@@ -79,7 +79,7 @@ async def test_worker_agent_executes_claimed_task_via_api() -> None:
     async def capture_completed(event: TaskCompletedEvent) -> None:
         completed_events.append(event)
 
-    scheduler._event_bus.on("task_completed", capture_completed)
+    scheduler.event_bus.on("task_completed", capture_completed)
 
     task = Task(
         id="worker-agent-task",
@@ -190,7 +190,7 @@ async def test_worker_complete_emits_task_completed_event() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._event_bus = EventBus()
+    scheduler.attach_persistence(event_bus=EventBus())
     scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task_id = await scheduler.submit(
         Task(
@@ -208,7 +208,7 @@ async def test_worker_complete_emits_task_completed_event() -> None:
     async def capture(event: TaskCompletedEvent) -> None:
         received.append(event)
 
-    scheduler._event_bus.on("task_completed", capture)
+    scheduler.event_bus.on("task_completed", capture)
 
     await scheduler.complete_worker_task(
         "worker-1",
@@ -231,7 +231,7 @@ async def test_worker_complete_pipeline_result_supports_report_hook(tmp_path) ->
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._event_bus = EventBus()
+    scheduler.attach_persistence(event_bus=EventBus())
     scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
 
     report = GeneratedReport(
@@ -246,7 +246,7 @@ async def test_worker_complete_pipeline_result_supports_report_hook(tmp_path) ->
         excel_path=str(tmp_path / "worker-report.xlsx"),
     )
     report_generator = _FakeReportGenerator(report)
-    scheduler._event_bus.on(
+    scheduler.event_bus.on(
         "task_completed",
         ReportGenerationHook(report_generator, scheduler=scheduler).handle,
     )
@@ -602,7 +602,6 @@ async def test_worker_rejects_claim_missing_graph_and_pipeline() -> None:
         "task": task.to_storage_payload(),
     }
 
-    invalid: list[dict] = []
     failed: list[dict] = []
 
     async def fake_request(method: str, path: str, **kwargs):

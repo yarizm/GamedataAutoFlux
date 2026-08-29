@@ -130,12 +130,26 @@ class EventBus:
                     f"EventBus handler timeout ({timeout}s) in '{event_type}' "
                     f"priority={pri}: {handler_names}"
                 )
+                from src.core.metrics import metrics
+
+                metrics.inc(
+                    "event_bus_handler_failures_total",
+                    event_type=event_type,
+                    reason="timeout",
+                )
                 continue
 
             for result in results:
                 if isinstance(result, Exception):
                     logger.opt(exception=result).error(
                         f"EventBus handler error in '{event_type}': {result}"
+                    )
+                    from src.core.metrics import metrics
+
+                    metrics.inc(
+                        "event_bus_handler_failures_total",
+                        event_type=event_type,
+                        reason="exception",
                     )
 
     @staticmethod

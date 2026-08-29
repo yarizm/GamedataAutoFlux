@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import copy
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Awaitable
 
@@ -108,7 +108,7 @@ class PipelineResult:
     generated_report_id: str | None = None
     generated_report_title: str | None = None
     generated_report_matched_records: int = 0
-    started_at: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     errors: list[str] = field(default_factory=list)
     # 实际执行引擎：dag（默认）/ legacy（显式关闭 DAG 委托）/ legacy_fallback（DAG 异常回退）
@@ -359,12 +359,41 @@ class Pipeline:
                     f"Pipeline [{self.name}] DAG execution failed, "
                     f"falling back to legacy executor: {fallback_reason}"
                 )
+                await self._emit_event(
+                    task.id,
+                    "pipeline_fallback",
+                    "DAG execution failed; legacy fallback enabled",
+                    level="warning",
+                    payload={
+                        "status": "degraded",
+                        "execution_engine": "legacy_fallback",
+                        "fallback_reason": fallback_reason,
+                        "pipeline_name": self.name,
+                    },
+                )
                 result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
                 result.execution_engine = "legacy_fallback"
                 result.fallback_reason = fallback_reason
                 metrics.inc("pipeline_fallback_total", engine="legacy_fallback")
                 metrics.inc("pipeline_executions_total", engine="legacy_fallback")
                 return result
+        logger.warning(
+            "Pipeline [{}] is using the legacy executor because "
+            "pipeline.use_dag_execution=false; migrate this pipeline to DAG",
+            self.name,
+        )
+        await self._emit_event(
+            task.id,
+            "pipeline_legacy",
+            "Legacy pipeline executor explicitly enabled",
+            level="warning",
+            payload={
+                "status": "legacy",
+                "execution_engine": "legacy",
+                "pipeline_name": self.name,
+                "reason": "pipeline.use_dag_execution=false",
+            },
+        )
         result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
         metrics.inc("pipeline_executions_total", engine="legacy")
         return result
@@ -562,7 +591,7 @@ class Pipeline:
         total_phases = len(collector_steps) + len(processor_steps) + len(storage_steps)
         if total_phases == 0:
             logger.warning(f"Pipeline [{self.name}] has no configured steps")
-            result.completed_at = datetime.now()
+            result.completed_at = datetime.now(timezone.utc)
             return result
 
         current_phase = 0
@@ -933,7 +962,7 @@ class Pipeline:
         result.success = False
         if not result.errors:
             result.errors.append("all collect targets failed")
-        result.completed_at = datetime.now()
+        result.completed_at = datetime.now(timezone.utc)
         await self._emit_event(
             task.id,
             "error",
@@ -964,7 +993,7 @@ class Pipeline:
             collect_results=result.collect_results,
             output_records=result.output_records,
         )
-        result.completed_at = datetime.now()
+        result.completed_at = datetime.now(timezone.utc)
         await self._emit_event(
             task.id,
             "pipeline",
@@ -1006,7 +1035,7 @@ class Pipeline:
             collect_results=result.collect_results,
             output_records=result.output_records,
         )
-        result.completed_at = datetime.now()
+        result.completed_at = datetime.now(timezone.utc)
         await self._emit_event(
             task.id,
             "error",

@@ -509,7 +509,7 @@ def _parse_steam_timestamp(value: Any) -> datetime | None:
             continue
         return parsed.replace(tzinfo=timezone.utc)
 
-    current_year = datetime.now().year
+    current_year = datetime.now(timezone.utc).year
     for fmt in ("%b %d @ %I:%M%p", "%d %b @ %I:%M%p"):
         try:
             parsed = datetime.strptime(f"{cleaned} {current_year}", f"{fmt} %Y")

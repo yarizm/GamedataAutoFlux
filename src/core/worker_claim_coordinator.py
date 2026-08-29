@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from typing import Any, Awaitable, Callable
 
 from src.core.collector_metadata import (
@@ -15,6 +16,7 @@ from src.core.collector_metadata import (
 from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.dag import pipeline_to_dag
+from src.core.metrics import metrics
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.storage.base import StorageRecord
@@ -66,6 +68,7 @@ class WorkerClaimCoordinator:
         reserve_session_claim: ReserveSessionClaimFn | None = None,
     ) -> dict[str, Any] | None:
         """Claim the next pending task for a worker."""
+        claim_started = perf_counter()
         safe_worker_id = redact_sensitive_text(str(worker_id or "")).strip()
         if not safe_worker_id:
             raise ValueError("worker_id is required")
@@ -122,11 +125,23 @@ class WorkerClaimCoordinator:
         if selected_task is None or selected_pipeline is None:
             if blocked_sessions:
                 claim_reason = str(blocked_sessions[0].get("reason") or "session_claimed")
+                metrics.inc("worker_claim_total", status="blocked")
+                metrics.observe(
+                    "worker_claim_duration_seconds",
+                    perf_counter() - claim_started,
+                    status="blocked",
+                )
                 return {
                     "claim_status": "blocked",
                     "claim_reason": claim_reason,
                     "blocked_sessions": blocked_sessions,
                 }
+            metrics.inc("worker_claim_total", status="empty")
+            metrics.observe(
+                "worker_claim_duration_seconds",
+                perf_counter() - claim_started,
+                status="empty",
+            )
             return None
 
         task = selected_task
@@ -137,7 +152,7 @@ class WorkerClaimCoordinator:
             **task.config,
             "worker_claim": {
                 "worker_id": safe_worker_id,
-                "claimed_at": datetime.now().isoformat(),
+                "claimed_at": datetime.now(timezone.utc).isoformat(),
                 "execution_backend": "worker_claim",
                 "collector_id": selected_collector_name,
                 "session_diagnostics": redact_sensitive(selected_session_diagnostics),
@@ -175,10 +190,19 @@ class WorkerClaimCoordinator:
                 )
                 if stored is not None:
                     graph_payload = stored.to_storage()
-            except Exception:
+            except RuntimeError:
+                # Embedded/test mode may not initialize the shared DB factory;
+                # only that absence permits a pipeline projection fallback.
                 graph_payload = None
             if graph_payload is None:
                 graph_payload = pipeline_to_dag(pipeline).to_storage()
+
+        metrics.inc("worker_claim_total", status="claimed")
+        metrics.observe(
+            "worker_claim_duration_seconds",
+            perf_counter() - claim_started,
+            status="claimed",
+        )
 
         return {
             "task_id": task.id,
@@ -298,7 +322,7 @@ class WorkerClaimCoordinator:
                 "worker_claim": {
                     **claim,
                     "worker_id": redact_sensitive_text(str(worker_id)),
-                    "released_at": datetime.now().isoformat(),
+                    "released_at": datetime.now(timezone.utc).isoformat(),
                     "last_error": safe_error,
                 },
             }
@@ -786,7 +810,7 @@ def _mark_task_interrupted(
     claim = task.config.get("worker_claim") if isinstance(task.config, dict) else {}
     if not isinstance(claim, dict):
         claim = {}
-    interrupted_at = datetime.now().isoformat()
+    interrupted_at = datetime.now(timezone.utc).isoformat()
     next_claim = {
         **claim,
         "worker_id": worker_id,

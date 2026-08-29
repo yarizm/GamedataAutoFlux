@@ -15,6 +15,8 @@ async def _main() -> None:
     sf = await init_shared_session_factory()
     result = await migrate_pipelines_to_dag(sf)
     print(result)
+    if result.get("failed"):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

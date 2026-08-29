@@ -1,8 +1,11 @@
 """EventBus 测试"""
 
+import asyncio
+
 import pytest
 
 from src.core.events import EventBus, TaskUpdatedEvent, TaskCompletedEvent
+from src.core.metrics import metrics
 
 
 @pytest.mark.asyncio
@@ -58,6 +61,33 @@ async def test_handler_exception_does_not_block_others():
     await bus.emit("task_updated", TaskUpdatedEvent(task_id="x", payload={}))
 
     assert "ok" in results
+
+    snapshot = metrics.snapshot()
+    assert (
+        snapshot["counters"]
+        ["event_bus_handler_failures_total{event_type=task_updated,reason=exception}"]
+        == 1
+    )
+    metrics.reset()
+
+
+@pytest.mark.asyncio
+async def test_handler_timeout_records_metric():
+    metrics.reset()
+    bus = EventBus()
+
+    async def slow_handler(event):
+        await asyncio.sleep(0.02)
+
+    bus.on("slow_event", slow_handler)
+    await bus.emit("slow_event", {}, timeout=0.001)
+
+    assert (
+        metrics.snapshot()["counters"]
+        ["event_bus_handler_failures_total{event_type=slow_event,reason=timeout}"]
+        == 1
+    )
+    metrics.reset()
 
 
 @pytest.mark.asyncio

@@ -183,12 +183,11 @@ class SchedulerStateService:
         result = await task_store.query("key:pipeline:", limit=1000)
         for record in result.records:
             if not isinstance(record.data, dict):
-                continue
+                raise ValueError(f"stored pipeline {record.key} payload is malformed")
             try:
                 pipeline = Pipeline.from_config(record.data)
             except Exception as exc:
-                logger.warning(f"Failed to restore pipeline {record.key}: {exc}")
-                continue
+                raise ValueError(f"stored pipeline {record.key} unreadable: {exc}") from exc
             restored[pipeline.name] = pipeline
         return restored
 
@@ -203,8 +202,11 @@ class SchedulerStateService:
             result = await task_store.query("key:task:", limit=1000)
             for record in result.records:
                 if not isinstance(record.data, dict):
-                    continue
-                tasks.append(Task.from_storage_payload(record.data))
+                    raise ValueError(f"stored task {record.key} payload is malformed")
+                try:
+                    tasks.append(Task.from_storage_payload(record.data))
+                except Exception as exc:
+                    raise ValueError(f"stored task {record.key} unreadable: {exc}") from exc
 
         for task in tasks:
             self._normalize_restored_task(task)

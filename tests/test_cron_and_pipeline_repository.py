@@ -4,6 +4,7 @@ import pytest
 
 from src.core.pipeline import Pipeline
 from src.services.cron_repository import CronJobConfig, InMemoryCronRepository
+from src.services.sqlalchemy_cron_repository import SQLAlchemyCronRepository
 from src.services.pipeline_repository import InMemoryPipelineRepository
 
 
@@ -70,6 +71,10 @@ class TestCronRepository:
         loaded = await repo.load("daily_steam")
         assert loaded is not None
         assert loaded.cron_expr == "0 10 * * *"
+
+    def test_sqlalchemy_deserializer_surfaces_corrupt_payload(self):
+        with pytest.raises(ValueError, match="malformed|unreadable|incomplete"):
+            SQLAlchemyCronRepository._deserialize({"cron_expr": object()}, "cron:broken")
 
 
 # ---- PipelineRepository 测试 ----

@@ -1,7 +1,7 @@
 import asyncio
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -250,7 +250,7 @@ class DynamicPlaywrightCollector(BaseCollector):
                         metadata={
                             "collector": "dynamic_playwright",
                             "url": url,
-                            "timestamp": datetime.now().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
                     )
                 except Exception as e:

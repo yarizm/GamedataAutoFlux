@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -30,7 +30,9 @@ class ProcessOutput(BaseModel):
     data: Any = Field(..., description="处理后的数据")
     metadata: dict[str, Any] = Field(default_factory=dict, description="处理后的元数据")
     processor_name: str = Field(default="", description="处理器名称")
-    processed_at: datetime = Field(default_factory=datetime.now, description="处理时间")
+    processed_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="处理时间（UTC）"
+    )
     success: bool = Field(default=True, description="是否成功")
     error: str | None = Field(default=None, description="错误信息")
 

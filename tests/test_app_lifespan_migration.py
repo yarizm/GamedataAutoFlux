@@ -57,7 +57,7 @@ async def test_dag_repository_singleton_reset(isolated_db_config):
     """_reset_runtime_singletons 应清空 dag_repo 单例。"""
     from src.web.app import _reset_runtime_singletons, get_dag_repository
 
-    sf = await _sf()
+    await _sf()
     try:
         # get_dag_repository 依赖 session factory 已初始化
         repo1 = get_dag_repository()
@@ -69,3 +69,12 @@ async def test_dag_repository_singleton_reset(isolated_db_config):
         assert app_module._dag_repo is None
     finally:
         await _close()
+
+
+def test_pipeline_migration_failure_blocks_startup() -> None:
+    from src.web.app import _ensure_pipeline_migration_success
+
+    with pytest.raises(RuntimeError, match="broken-pipeline"):
+        _ensure_pipeline_migration_success({"failed": ["broken-pipeline"]})
+
+    _ensure_pipeline_migration_success({"failed": []})

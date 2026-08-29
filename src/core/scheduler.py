@@ -185,6 +185,15 @@ class Scheduler:
         """持久化 task store（启动后才可用）。"""
         return self._task_store
 
+    @property
+    def event_bus(self) -> EventBus | None:
+        """当前事件总线（只读）。
+
+        事件总线由 composition root 通过 :meth:`attach_persistence` 注入；
+        外部订阅方不应再直接访问或修改 ``_event_bus`` 私有字段。
+        """
+        return self._event_bus
+
     def attach_persistence(
         self,
         *,
@@ -328,11 +337,10 @@ class Scheduler:
             return pipeline
         repo = self._pipeline_repo
         if repo is not None and hasattr(repo, "load_as_dag"):
-            try:
-                dag = await repo.load_as_dag(name)
-            except Exception as exc:
-                logger.warning(f"resolve_pipeline load_as_dag failed for {name}: {exc}")
-                dag = None
+            # None means the named graph/pipeline is absent; repository and
+            # serialization errors must propagate instead of silently falling
+            # through to a built-in template with different semantics.
+            dag = await repo.load_as_dag(name)
             if dag is not None:
                 from src.core.dag import dag_to_pipeline
 
@@ -360,7 +368,7 @@ class Scheduler:
                 if pipeline.steps:
                     self._pipelines[name] = pipeline
                     return pipeline
-        except Exception as exc:
+        except (ImportError, TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
             logger.warning(f"resolve_pipeline template materialize failed for {name}: {exc}")
         return None
 

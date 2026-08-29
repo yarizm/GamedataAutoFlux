@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +55,7 @@ async def export_youtube(req: ExportRequest):
         raise HTTPException(404, "No matching records found")
 
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"export_{req.collector}_{timestamp}.xlsx"
     filepath = EXPORT_DIR / filename
 

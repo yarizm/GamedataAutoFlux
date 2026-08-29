@@ -7,7 +7,10 @@ import pytest
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.dag import DAG, Edge, NodeSpec, PortSpec
 from src.core.dag_executor import DAGExecutor
+from src.core.events import TaskEventCreatedEvent, TaskUpdatedEvent
+from src.core.hooks import WebSocketBroadcastHook, WebSocketTaskEventHook
 from src.core.metrics import MetricsRegistry, metrics
+from src.core.worker_claim_coordinator import WorkerClaimCoordinator
 from src.core.registry import registry
 from src.core.task import Task, TaskTarget
 
@@ -100,3 +103,58 @@ async def test_dag_executor_records_node_counters(ok_collector):
     assert counters.get('dag_node_total{result=ok,type=collector}') == 1
     assert counters.get('dag_node_total{result=skipped,type=processor}') == 1
     assert "collector_duration_seconds" in metrics.snapshot()["timers"]
+    assert (
+        metrics.snapshot()["timers"]
+        ["dag_node_duration_seconds{result=ok,type=collector}"]["count"]
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_records_empty_claim_metrics() -> None:
+    metrics.reset()
+    coordinator = WorkerClaimCoordinator(
+        persist_task=lambda task: _noop_async(),
+        emit_task_event=lambda *args, **kwargs: _noop_async(),
+        emit_task_completed_event=lambda *args, **kwargs: _noop_async(),
+        get_latest_task_checkpoint=lambda task_id: _none_async(),
+        register_task_artifact=lambda *args, **kwargs: _none_async(),
+        register_task_checkpoint=lambda *args, **kwargs: _none_async(),
+        get_pipeline=lambda name: None,
+        get_pipelines=lambda: {},
+    )
+
+    assert await coordinator.claim_task_for_worker("worker-metrics", tasks=[]) is None
+    snapshot = metrics.snapshot()
+    assert snapshot["counters"]["worker_claim_total{status=empty}"] == 1.0
+    assert snapshot["timers"]["worker_claim_duration_seconds{status=empty}"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_hook_failures_are_labeled() -> None:
+    metrics.reset()
+
+    class _BrokenManager:
+        async def broadcast(self, payload):
+            raise RuntimeError("socket unavailable")
+
+    manager = _BrokenManager()
+    await WebSocketBroadcastHook(manager).handle(
+        TaskUpdatedEvent(task_id="t", payload={"status": "running"})
+    )
+    await WebSocketTaskEventHook(manager).handle(
+        TaskEventCreatedEvent(task_id="t", event={"type": "status"})
+    )
+
+    counters = metrics.snapshot()["counters"]
+    assert counters["ws_broadcast_failures_total{source=task_update}"] == 1
+    assert counters["ws_broadcast_failures_total{source=task_event}"] == 1
+    metrics.reset()
+
+
+async def _noop_async():
+    return None
+
+
+async def _none_async():
+    return None

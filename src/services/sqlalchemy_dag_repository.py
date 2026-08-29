@@ -1,7 +1,6 @@
 """DAG 持久化仓储，state_type='graph'。"""
 from __future__ import annotations
 
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -37,12 +36,13 @@ class SQLAlchemyDAGRepository:
             )
             rec = result.scalars().first()
             if rec is None or not isinstance(rec.data, dict):
-                return None
+                if rec is None:
+                    return None
+                raise ValueError(f"stored graph {name} payload is malformed")
             try:
                 return DAG.from_storage(rec.data)
-            except Exception as exc:
-                logger.warning(f"Failed to load dag {name}: {exc}")
-                return None
+            except (TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
+                raise ValueError(f"stored graph {name} unreadable: {exc}") from exc
 
     async def delete(self, name: str) -> bool:
         async with self._session_factory() as session:
@@ -60,13 +60,14 @@ class SQLAlchemyDAGRepository:
         async with self._session_factory() as session:
             stmt = select(SchedulerStateModel).where(SchedulerStateModel.state_type == "graph")
             result = await session.execute(stmt)
-            dags = []
+            dags: list[DAG] = []
             for r in result.scalars().all():
-                if isinstance(r.data, dict):
-                    try:
-                        dags.append(DAG.from_storage(r.data))
-                    except Exception as exc:
-                        logger.warning(f"Skipping malformed dag record {r.key}: {exc}")
+                if not isinstance(r.data, dict):
+                    raise ValueError(f"stored graph {r.key} payload is malformed")
+                try:
+                    dags.append(DAG.from_storage(r.data))
+                except (TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
+                    raise ValueError(f"stored graph {r.key} unreadable: {exc}") from exc
             return dags
 
     async def list_legacy_pipelines(self) -> list[dict]:

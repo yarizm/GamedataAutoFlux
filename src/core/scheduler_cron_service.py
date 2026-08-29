@@ -6,7 +6,7 @@ Manages cron job lifecycle (add/remove/list/execute) for the scheduler.
 from __future__ import annotations
 
 import copy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -231,7 +231,7 @@ class SchedulerCronService:
             if k in {"collector_name", "targets", "config", "description"}
         }
         task = Task(
-            name=f"[Cron] {name} - manual - {datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            name=f"[Cron] {name} - manual - {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             pipeline_name=pipeline_name,
             **task_kwargs,
         )
@@ -322,7 +322,7 @@ class SchedulerCronService:
                     timezone=str(job.get("timezone") or default_timezone()),
                     description=str(job.get("description") or ""),
                 )
-            except Exception as exc:
+            except (TypeError, ValueError, KeyError) as exc:
                 logger.warning(f"Failed to load cron job: {name} - {exc}")
 
     async def restore_cron_jobs_from_store(self) -> None:
@@ -332,42 +332,43 @@ class SchedulerCronService:
             self._restore_cron_job(job)
 
     def _restore_cron_job(self, job: Any) -> None:
-        try:
-            name = getattr(job, "name", None) or (job.get("name") if isinstance(job, dict) else None)
-            pipeline_name = getattr(job, "pipeline_name", None) or (
-                job.get("pipeline_name") if isinstance(job, dict) else None
-            )
-            cron_expr = getattr(job, "cron_expr", None) or (
-                job.get("cron_expr") if isinstance(job, dict) else None
-            )
-            task_template = getattr(job, "task_template", None)
-            if task_template is None and isinstance(job, dict):
-                task_template = job.get("task_template", {})
-            enabled = getattr(job, "enabled", True)
-            if isinstance(job, dict) and "enabled" in job:
-                enabled = job.get("enabled", True)
-            timezone = getattr(job, "timezone", None) or (
-                job.get("timezone") if isinstance(job, dict) else None
-            )
-            schedule_meta = getattr(job, "schedule_meta", None)
-            if schedule_meta is None and isinstance(job, dict):
-                schedule_meta = job.get("schedule_meta", {})
-            description = getattr(job, "description", "") or (
-                job.get("description") if isinstance(job, dict) else ""
-            )
-            self.add_cron_job(
-                name=str(name),
-                pipeline_name=str(pipeline_name),
-                cron_expr=str(cron_expr),
-                task_template=task_template if isinstance(task_template, dict) else {},
-                persist=False,
-                enabled=bool(enabled),
-                timezone=str(timezone or default_timezone()),
-                schedule_meta=schedule_meta if isinstance(schedule_meta, dict) else {},
-                description=str(description or ""),
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to restore cron job {getattr(job, 'name', job)}: {exc}")
+        name = getattr(job, "name", None) or (job.get("name") if isinstance(job, dict) else None)
+        pipeline_name = getattr(job, "pipeline_name", None) or (
+            job.get("pipeline_name") if isinstance(job, dict) else None
+        )
+        cron_expr = getattr(job, "cron_expr", None) or (
+            job.get("cron_expr") if isinstance(job, dict) else None
+        )
+        task_template = getattr(job, "task_template", None)
+        if task_template is None and isinstance(job, dict):
+            task_template = job.get("task_template", {})
+        enabled = getattr(job, "enabled", True)
+        if isinstance(job, dict) and "enabled" in job:
+            enabled = job.get("enabled", True)
+        timezone = getattr(job, "timezone", None) or (
+            job.get("timezone") if isinstance(job, dict) else None
+        )
+        schedule_meta = getattr(job, "schedule_meta", None)
+        if schedule_meta is None and isinstance(job, dict):
+            schedule_meta = job.get("schedule_meta", {})
+        description = getattr(job, "description", "") or (
+            job.get("description") if isinstance(job, dict) else ""
+        )
+        if not str(name or "").strip() or not str(pipeline_name or "").strip():
+            raise ValueError(f"restored cron job missing name or pipeline_name: {job!r}")
+        if not str(cron_expr or "").strip():
+            raise ValueError(f"restored cron job missing cron_expr: {name}")
+        self.add_cron_job(
+            name=str(name),
+            pipeline_name=str(pipeline_name),
+            cron_expr=str(cron_expr),
+            task_template=task_template if isinstance(task_template, dict) else {},
+            persist=False,
+            enabled=bool(enabled),
+            timezone=str(timezone or default_timezone()),
+            schedule_meta=schedule_meta if isinstance(schedule_meta, dict) else {},
+            description=str(description or ""),
+        )
 
     async def _cron_execute(
         self,
@@ -390,7 +391,7 @@ class SchedulerCronService:
         }
         # targets may be list of dicts — Task model will coerce
         task = Task(
-            name=f"[Cron] {job_name} - {datetime.now().strftime('%Y%m%d_%H%M')}",
+            name=f"[Cron] {job_name} - {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}",
             pipeline_name=pipeline_name,
             **task_kwargs,
         )

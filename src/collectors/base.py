@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,7 +45,9 @@ class CollectResult(BaseModel):
     target: CollectTarget = Field(..., description="对应的采集目标")
     data: Any = Field(default=None, description="采集到的数据")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    collected_at: datetime = Field(default_factory=datetime.now, description="采集时间")
+    collected_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="采集时间（UTC）"
+    )
     success: bool = Field(default=True, description="是否成功")
     error: str | None = Field(default=None, description="错误信息")
     error_code: str | None = Field(default=None, description="结构化错误码")

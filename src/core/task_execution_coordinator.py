@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
@@ -91,6 +92,7 @@ class TaskExecutionCoordinator:
         while True:
             should_retry = False
             backoff = 0
+            attempt_started = time.perf_counter()
 
             async with semaphore:
                 task.start()
@@ -147,6 +149,11 @@ class TaskExecutionCoordinator:
                         return final_result
 
                 finally:
+                    metrics.observe(
+                        "task_attempt_duration_seconds",
+                        time.perf_counter() - attempt_started,
+                        status=task.status.value,
+                    )
                     if not should_retry:
                         release_running_future(task.id)
 
@@ -203,6 +210,7 @@ class TaskExecutionCoordinator:
                 )
             except Exception as exc:
                 safe_error = redact_sensitive_text(str(exc))
+                metrics.inc("report_failures_total", source="task_execution")
                 logger.error(
                     "任务报告生成失败 (不影响任务成功状态): [{}] {}",
                     task.id,

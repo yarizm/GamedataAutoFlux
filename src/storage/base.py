@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,7 +20,9 @@ class StorageRecord(BaseModel):
     key: str = Field(..., description="记录键")
     data: Any = Field(..., description="数据内容")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    stored_at: datetime = Field(default_factory=datetime.now, description="存储时间")
+    stored_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="存储时间（UTC）"
+    )
     source: str = Field(default="", description="数据来源")
     tags: list[str] = Field(default_factory=list, description="标签（用于检索）")
 

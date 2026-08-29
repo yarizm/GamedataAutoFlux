@@ -14,6 +14,7 @@ import asyncio
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +48,15 @@ def __getattr__(name: str):
 
 # 模板引擎
 _WEB_DIR = Path(__file__).parent
+
+
+def _ensure_pipeline_migration_success(migration: dict[str, Any]) -> None:
+    """Fail startup when any legacy pipeline could not become a DAG."""
+    failed = migration.get("failed") if isinstance(migration, dict) else None
+    if not failed:
+        return
+    names = ", ".join(str(name) for name in failed)
+    raise RuntimeError(f"Pipeline→DAG migration failed for: {names}")
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
 
@@ -174,10 +184,10 @@ async def lifespan(app: FastAPI):
             logger.info(
                 f"自动迁移 {len(migration['migrated'])} 个 pipeline 到 DAG: {migration['migrated']}"
             )
-        if migration["failed"]:
-            logger.warning(f"自动迁移失败的 pipeline: {migration['failed']}")
+        _ensure_pipeline_migration_success(migration)
     except Exception as exc:
-        logger.warning(f"自动迁移检测失败（不阻断启动）: {exc}")
+        logger.error(f"自动迁移检测失败，阻断启动: {exc}")
+        raise
 
     _reset_runtime_singletons(reset_agent=True)
     logger.info("GamedataAutoFlux 启动完成 ✓")

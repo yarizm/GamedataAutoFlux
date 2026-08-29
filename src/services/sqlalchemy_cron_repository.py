@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -37,6 +36,18 @@ class SQLAlchemyCronRepository(CronRepository):
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    @staticmethod
+    def _deserialize(data: object, key: str, *, fallback_name: str = "") -> CronJobConfig:
+        if not isinstance(data, dict):
+            raise ValueError(f"stored cron {key} payload is malformed")
+        try:
+            job = cron_job_config_from_dict(data, fallback_name=fallback_name)
+        except Exception as exc:
+            raise ValueError(f"stored cron {key} unreadable: {exc}") from exc
+        if not job.name or not job.pipeline_name or not job.cron_expr:
+            raise ValueError(f"stored cron {key} payload is incomplete")
+        return job
 
     async def save(self, job: CronJobConfig) -> None:
         async with self._session_factory() as session:
@@ -70,13 +81,9 @@ class SQLAlchemyCronRepository(CronRepository):
                 select(SchedulerStateModel).where(SchedulerStateModel.key == f"cron:{name}")
             )
             db_record = result.scalars().first()
-            if db_record is None or not isinstance(db_record.data, dict):
+            if db_record is None:
                 return None
-            try:
-                return cron_job_config_from_dict(db_record.data, fallback_name=name)
-            except Exception as exc:
-                logger.warning(f"Failed to load cron job {name}: {exc}")
-                return None
+            return self._deserialize(db_record.data, db_record.key, fallback_name=name)
 
     async def delete(self, name: str) -> bool:
         async with self._session_factory() as session:
@@ -96,14 +103,7 @@ class SQLAlchemyCronRepository(CronRepository):
             result = await session.execute(stmt)
             db_records = result.scalars().all()
 
-            jobs = []
+            jobs: list[CronJobConfig] = []
             for r in db_records:
-                if isinstance(r.data, dict):
-                    try:
-                        job = cron_job_config_from_dict(r.data)
-                        if job.name and job.pipeline_name and job.cron_expr:
-                            jobs.append(job)
-                    except Exception as exc:
-                        logger.warning(f"Skipping malformed cron record {r.key}: {exc}")
-                        continue
+                jobs.append(self._deserialize(r.data, r.key))
             return jobs

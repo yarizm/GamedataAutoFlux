@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -55,12 +54,13 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
             )
             db_record = result.scalars().first()
             if db_record is None or not isinstance(db_record.data, dict):
-                return None
+                if db_record is None:
+                    return None
+                raise ValueError(f"stored pipeline {name} payload is malformed")
             try:
                 return Pipeline.from_config(db_record.data)
-            except Exception as exc:
-                logger.warning(f"Failed to load pipeline {name}: {exc}")
-                return None
+            except (TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
+                raise ValueError(f"stored pipeline {name} unreadable: {exc}") from exc
 
     async def delete(self, name: str) -> bool:
         async with self._session_factory() as session:
@@ -80,14 +80,14 @@ class SQLAlchemyPipelineRepository(PipelineRepository):
             result = await session.execute(stmt)
             db_records = result.scalars().all()
 
-            pipelines = []
+            pipelines: list[Pipeline] = []
             for r in db_records:
-                if isinstance(r.data, dict):
-                    try:
-                        pipelines.append(Pipeline.from_config(r.data))
-                    except Exception as exc:
-                        logger.warning(f"Skipping malformed pipeline record {r.key}: {exc}")
-                        continue
+                if not isinstance(r.data, dict):
+                    raise ValueError(f"stored pipeline {r.key} payload is malformed")
+                try:
+                    pipelines.append(Pipeline.from_config(r.data))
+                except (TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
+                    raise ValueError(f"stored pipeline {r.key} unreadable: {exc}") from exc
             return pipelines
 
     async def load_as_dag(self, name: str) -> DAG | None:

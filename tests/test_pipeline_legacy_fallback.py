@@ -62,6 +62,7 @@ async def test_explicit_fallback_records_engine_and_reason(monkeypatch):
     from src.core import pipeline as pipeline_mod
 
     _patch_config(monkeypatch, use_dag=True, fallback=True)
+    events = []
 
     async def _boom_dag(self, task, *, recovery_checkpoint=None):
         raise RuntimeError("dag executor bug")
@@ -75,11 +76,21 @@ async def test_explicit_fallback_records_engine_and_reason(monkeypatch):
     monkeypatch.setattr(pipeline_mod.Pipeline, "_execute_via_dag", _boom_dag)
     monkeypatch.setattr(pipeline_mod.Pipeline, "_execute_legacy", _fake_legacy)
 
-    result = await _make_pipeline().execute(_task())
+    pipeline = _make_pipeline().on_event(
+        lambda task_id, event_type, level, message, payload: events.append(
+            (task_id, event_type, level, message, payload)
+        )
+    )
+    result = await pipeline.execute(_task())
 
     assert result.success is True
     assert result.execution_engine == "legacy_fallback"
     assert "dag executor bug" in (result.fallback_reason or "")
+    assert len(events) == 1
+    assert events[0][1] == "pipeline_fallback"
+    assert events[0][2] == "warning"
+    assert events[0][4]["execution_engine"] == "legacy_fallback"
+    assert "dag executor bug" in events[0][4]["fallback_reason"]
 
 
 async def test_dag_path_engine_is_dag(monkeypatch):
@@ -103,6 +114,15 @@ async def test_legacy_direct_path_engine_is_legacy(monkeypatch):
     """use_dag_execution 关闭时走真实 legacy 路径（无步骤早退），引擎标注 legacy。"""
     _patch_config(monkeypatch, use_dag=False, fallback=True)
 
-    result = await _make_pipeline().execute(_task())
+    events = []
+    pipeline = _make_pipeline().on_event(
+        lambda task_id, event_type, level, message, payload: events.append(
+            (task_id, event_type, level, message, payload)
+        )
+    )
+    result = await pipeline.execute(_task())
 
     assert result.execution_engine == "legacy"
+    assert len(events) == 1
+    assert events[0][1] == "pipeline_legacy"
+    assert events[0][4]["reason"] == "pipeline.use_dag_execution=false"

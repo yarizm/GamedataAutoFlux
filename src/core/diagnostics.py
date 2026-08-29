@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -523,11 +525,9 @@ def _resolve_project_path(value: str) -> Path:
 
 def _is_http_endpoint_reachable(endpoint: str, *, timeout: float = 0.25) -> bool:
     try:
-        import urllib.request
-
         with urllib.request.urlopen(endpoint, timeout=timeout) as response:
             return response.status == 200
-    except Exception:
+    except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError):
         return False
 
 

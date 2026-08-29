@@ -1,6 +1,6 @@
 # tests/test_dag_repository.py
 import pytest
-from src.core.dag import DAG, NodeSpec, Edge, PortSpec
+from src.core.dag import DAG, NodeSpec, PortSpec
 from src.services.sqlalchemy_dag_repository import SQLAlchemyDAGRepository
 
 
@@ -79,6 +79,29 @@ async def test_dag_repository_save_updates(isolated_db_config):
         await repo.save(dag2)
         loaded2 = await repo.load("update")
         assert loaded2 is not None and len(loaded2.nodes) == 2
+    finally:
+        await _close_test_sf()
+
+
+@pytest.mark.asyncio
+async def test_dag_repository_load_surfaces_corrupt_payload(isolated_db_config):
+    """损坏的 graph 记录必须暴露为数据错误，不能伪装成不存在。"""
+    sf, repo = await _make_repo()
+    try:
+        from src.storage.models import SchedulerStateModel
+
+        async with sf() as session:
+            session.add(
+                SchedulerStateModel(
+                    key="graph:corrupt-repo",
+                    state_type="graph",
+                    data={"nodes": "not-a-list"},
+                )
+            )
+            await session.commit()
+
+        with pytest.raises(ValueError, match="malformed|unreadable"):
+            await repo.load("corrupt-repo")
     finally:
         await _close_test_sf()
 

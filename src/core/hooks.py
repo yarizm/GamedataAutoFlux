@@ -98,6 +98,9 @@ class WebSocketBroadcastHook:
             await self._manager.broadcast({"type": "task_update", "task": event.payload})
         except Exception as exc:
             logger.debug(f"WebSocket broadcast failed: {redact_sensitive_text(str(exc))}")
+            from src.core.metrics import metrics
+
+            metrics.inc("ws_broadcast_failures_total", source="task_update")
 
 
 class WebSocketTaskEventHook:
@@ -113,3 +116,6 @@ class WebSocketTaskEventHook:
             logger.debug(
                 f"WebSocket task event broadcast failed: {redact_sensitive_text(str(exc))}"
             )
+            from src.core.metrics import metrics
+
+            metrics.inc("ws_broadcast_failures_total", source="task_event")

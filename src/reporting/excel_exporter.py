@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from math import ceil
 from pathlib import Path
 from typing import Any
@@ -250,7 +250,10 @@ def _write_template_summary_sheet(
     template = get_report_template(template_id)
     rows = [
         {"项目": "报告标题", "内容": title},
-        {"项目": "生成时间", "内容": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        {
+            "项目": "生成时间",
+            "内容": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        },
         {
             "项目": "模板",
             "内容": f"{template.name} ({template.id})" if template else template_id,
@@ -804,7 +807,7 @@ def _write_steam_peak_summary_rows(ws, summary: dict[str, Any], *, row_count: in
             "数据切片",
             summary["time_slice"],
             "生成时间",
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         ),
     ]
     for row_index, values in enumerate(summary_rows, start=2):
@@ -1572,7 +1575,8 @@ def _parse_series_date(text: str) -> datetime | None:
         return None
     lowered = text.lower().strip()
     if lowered in {"last 30 days", "last 7 days", "recent"}:
-        return datetime(datetime.now().year, datetime.now().month, 1)
+        now = datetime.now(timezone.utc)
+        return datetime(now.year, now.month, 1)
 
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m", "%Y/%m", "%b %Y", "%B %Y"):
         try:

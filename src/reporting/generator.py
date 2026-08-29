@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,7 @@ class ReportGenerator:
             prompt=prompt,
             data_source=data_source,
             template=template,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
             matched_records=len(prepared.records),
             content=content,
             metadata=self._build_generated_report_metadata(
@@ -258,7 +258,7 @@ class ReportGenerator:
             prompt=prompt,
             data_source=data_source,
             template=template,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
             matched_records=len(prepared.records),
             content=llm_content or "Report generated as an Excel file",
             excel_path=str(excel_path),
@@ -1193,7 +1193,7 @@ def _build_report_metadata(
 
 def _build_source_freshness_metadata(records: list[StorageRecord]) -> dict[str, Any]:
     stored_times = [
-        record.stored_at
+        _as_utc_datetime(record.stored_at)
         for record in records
         if isinstance(getattr(record, "stored_at", None), datetime)
     ]
@@ -1201,7 +1201,7 @@ def _build_source_freshness_metadata(records: list[StorageRecord]) -> dict[str, 
         return {}
     oldest = min(stored_times)
     newest = max(stored_times)
-    now = datetime.now(tz=oldest.tzinfo) if oldest.tzinfo else datetime.now()
+    now = datetime.now(timezone.utc)
     max_age_seconds = max(0, int((now - oldest).total_seconds()))
     newest_age_seconds = max(0, int((now - newest).total_seconds()))
     return {
@@ -1214,6 +1214,13 @@ def _build_source_freshness_metadata(records: list[StorageRecord]) -> dict[str, 
             default=30,
         ),
     }
+
+
+def _as_utc_datetime(value: datetime) -> datetime:
+    """Normalize legacy naive timestamps and aware timestamps to UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _coerce_positive_int(value: Any, *, default: int) -> int:

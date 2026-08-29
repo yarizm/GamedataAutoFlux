@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 
-from loguru import logger
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,6 +22,16 @@ class SQLAlchemyTaskRepository(TaskRepository):
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    @staticmethod
+    def _deserialize(data: object, key: str) -> Task:
+        """Deserialize a stored task without hiding corrupt persistence data."""
+        if not isinstance(data, dict):
+            raise ValueError(f"stored task {key} payload is malformed")
+        try:
+            return Task.from_storage_payload(data)
+        except Exception as exc:
+            raise ValueError(f"stored task {key} unreadable: {exc}") from exc
 
     async def save(self, task: Task) -> None:
         """保存或更新任务"""
@@ -61,13 +70,9 @@ class SQLAlchemyTaskRepository(TaskRepository):
                 select(SchedulerStateModel).where(SchedulerStateModel.key == f"task:{task_id}")
             )
             db_record = result.scalars().first()
-            if db_record is None or not isinstance(db_record.data, dict):
+            if db_record is None:
                 return None
-            try:
-                return Task.from_storage_payload(db_record.data)
-            except Exception as exc:
-                logger.warning(f"Failed to load task {task_id}: {exc}")
-                return None
+            return self._deserialize(db_record.data, db_record.key)
 
     async def delete(self, task_id: str) -> bool:
         """删除任务"""
@@ -95,13 +100,9 @@ class SQLAlchemyTaskRepository(TaskRepository):
             result = await session.execute(stmt)
             db_records = result.scalars().all()
 
-            tasks = []
+            tasks: list[Task] = []
             for r in db_records:
-                if isinstance(r.data, dict):
-                    try:
-                        tasks.append(Task.from_storage_payload(r.data))
-                    except Exception:
-                        continue
+                tasks.append(self._deserialize(r.data, r.key))
             return tasks
 
     async def query_by_status(self, status: TaskStatus, limit: int = 100) -> list[Task]:
@@ -123,17 +124,13 @@ class SQLAlchemyTaskRepository(TaskRepository):
 
             # Removed full table scan fallback on empty index
 
-            tasks = []
+            tasks: list[Task] = []
             for r in db_records:
-                if isinstance(r.data, dict):
-                    try:
-                        task = Task.from_storage_payload(r.data)
-                        if task.status == status:
-                            tasks.append(task)
-                    except Exception:
-                        continue
-                    if len(tasks) >= limit:
-                        break
+                task = self._deserialize(r.data, r.key)
+                if task.status == status:
+                    tasks.append(task)
+                if len(tasks) >= limit:
+                    break
             return tasks
 
     async def list_keys(self, prefix: str = "", limit: int = 100) -> list[str]:
