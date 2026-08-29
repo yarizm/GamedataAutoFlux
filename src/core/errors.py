@@ -69,7 +69,18 @@ class ErrorCode(str, Enum):
 
 
 def classify_exception(exc: Exception) -> ErrorCode:
-    """根据异常类型和消息自动推断错误码"""
+    """根据异常类型和消息自动推断错误码。
+
+    类型优先：Autoflux 异常体系（src.core.exceptions）声明的 error_code
+    与标准库/HTTP 客户端的网络类异常直接判定；消息关键词仅作第三方
+    异常的兜底启发式。
+    """
+    from src.core.exceptions import classify_typed_exception
+
+    typed = classify_typed_exception(exc)
+    if typed is not None:
+        return typed
+
     msg = str(exc).lower()
 
     # 按优先级匹配

@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.core.exceptions import DomainError, ValidationError
+
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.report_templates import validate_template_sources
 from src.services._utils import (
@@ -24,11 +26,11 @@ from src.storage.base import StorageRecord
 from src.storage.factory import get_storage
 
 
-class RecordKeyNotFoundError(KeyError):
+class RecordKeyNotFoundError(DomainError):
     """指定的原始数据记录不存在。"""
 
 
-class ReportHistoryOnlySelectionError(ValueError):
+class ReportHistoryOnlySelectionError(ValidationError):
     """选中的 key 全部是报告历史记录，不是可用的源数据。"""
 
 

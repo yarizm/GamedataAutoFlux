@@ -200,7 +200,9 @@ class BaseCollector(ABC):
                     continue
                 except Exception as e:
                     error = _collection_error_message(e, collect_timeout=collect_timeout)
-                    code = classify_exception(Exception(error))
+                    # 对异常对象本身分类：类型化异常（src.core.exceptions）的
+                    # error_code 直达重试判定，消息启发式仅兜底第三方异常
+                    code = classify_exception(e)
                     if attempt < max_attempts and _is_retryable_collect_error(code.value):
                         last_retry_error = error
                         last_retry_error_code = code.value

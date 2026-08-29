@@ -238,6 +238,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **服务层单例**通过模块级 lazy getter 函数获取（`get_task_service()` 等），定义在 `src/bootstrap/container.py`（composition root）。业务代码（core/services/agent/reporting/worker/插件）**禁止 import `src.web`**：组件从容器或核心模块获取，WebSocket 推送走 `src.core.ws_broadcast` 端口（Web 层 lifespan 注册发送函数）。验收测试 `tests/test_no_web_reverse_deps.py`。
 - **Scheduler 持久化注入**走 public lifecycle API：DB 就绪后由 app lifespan 调 `scheduler.attach_persistence(task_repo=..., cron_repo=..., pipeline_repo=..., event_bus=...)`，外部代码不得直写 `scheduler._xxx` 私有字段。
 - **Scheduler 只作执行引擎**（调度/并发/生命周期）；Pipeline/Cron/Worker 业务操作经`PipelineService`/`CronService`/`WorkerService` 门面（container 的 `get_pipeline_service()` 等获取，内部动态解析 scheduler）。Web/Agent 禁止直呼 Scheduler 的这些业务方法（`tests/test_no_web_reverse_deps.py` 静态校验）。
+- **异常体系**：业务/基础设施异常继承 `src/core/exceptions.py` 的分层（AutofluxError → DomainError/InfrastructureError → RetryableError 等，类级`error_code`）。可重试场景继承 `RetryableError` 并声明错误码；`classify_exception` 类型优先、消息启发式仅兜底第三方异常，新增决策逻辑禁止再对异常消息做关键词匹配。
 - **调度器 `Scheduler`** 是全局单例，`app.py` 在 lifespan 中启动/停止它。
 - **数据库迁移分两条路**：PostgreSQL 走 Alembic（`migrations/` + `src/storage/migrations.py` 程序化入口；启动时 `upgrade head`，失败阻断 lifespan；历史 create_all 库自动 `stamp head` 收编；pgvector 扩展缺失时 embedding 降级 JSONB，与 models 回退语义一致）。SQLite（测试/嵌入）仍用 `create_all`。schema 变更流程：改 `src/storage/models.py` + 对真库 `alembic revision --autogenerate` 生成新 revision。
 - **存储通过工厂获取**：所有代码通过 `get_storage()` 获取存储实例，不直接实例化具体类。存储后端由 `config/settings.yaml` 中的 `database.provider` 控制。
