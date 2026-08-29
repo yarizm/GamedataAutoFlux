@@ -17,6 +17,8 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from loguru import logger
+
+from src.core.sensitive import redact_sensitive_text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations"
@@ -48,5 +50,10 @@ async def run_db_migrations(engine: AsyncEngine, url: str) -> None:
         logger.info("检测到 create_all 遗留库，stamp 至当前 baseline 后纳入 Alembic 管理")
         command.stamp(cfg, "head")
 
-    command.upgrade(cfg, "head")
+    try:
+        command.upgrade(cfg, "head")
+    except Exception as exc:
+        from src.core.exceptions import DatabaseError
+
+        raise DatabaseError(f"database migration failed: {redact_sensitive_text(str(exc))}") from exc
     logger.info("数据库 schema 已升级至最新 revision")

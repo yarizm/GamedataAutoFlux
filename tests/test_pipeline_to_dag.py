@@ -19,7 +19,7 @@ def test_dag_to_pipeline_roundtrip_steps():
 
 
 def test_legacy_local_storage_normalizes_to_sqlalchemy():
-    from src.core.dag import DAG, NodeSpec, PortSpec
+    from src.core.dag import DAG
     from src.storage.factory import normalize_storage_name
 
     assert normalize_storage_name("local") == "sqlalchemy"

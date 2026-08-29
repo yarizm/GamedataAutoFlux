@@ -20,6 +20,11 @@ def _error_code_from_pipeline_result(result: PipelineResult | None) -> str | Non
     """Best-effort ErrorCode from pipeline errors / collection results."""
     if result is None:
         return None
+    explicit = getattr(result, "error_code", None)
+    if explicit:
+        coerced = coerce_error_code(explicit)
+        if coerced is not None:
+            return coerced.value
     collect_results = getattr(result, "collect_results", None) or []
     for item in collect_results:
         code = getattr(item, "error_code", None)

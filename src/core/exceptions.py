@@ -64,6 +64,42 @@ class RateLimitError(RetryableError):
     error_code = ErrorCode.rate_limited
 
 
+class DAGValidationError(AutofluxError):
+    """DAG 结构校验失败（保存/执行前拦截）。"""
+
+    error_code = ErrorCode.dag_validation
+
+
+class CollectorSetupError(InfrastructureError):
+    """采集器组件缺失或实例化失败。"""
+
+    error_code = ErrorCode.collector_setup
+
+
+class DatabaseError(InfrastructureError):
+    """数据库连接/schema/迁移故障。"""
+
+    error_code = ErrorCode.database
+
+
+class BrowserError(RetryableError):
+    """浏览器（Playwright）导航或页面操作故障。"""
+
+    error_code = ErrorCode.browser
+
+
+class WorkerError(AutofluxError):
+    """Worker 注册/心跳/claim 协议故障。"""
+
+    error_code = ErrorCode.worker
+
+
+class AgentError(AutofluxError):
+    """Agent 服务/LLM 调用故障。"""
+
+    error_code = ErrorCode.agent
+
+
 class AuthenticationError(AutofluxError):
     """凭证缺失或无效。"""
 

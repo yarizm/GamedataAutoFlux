@@ -144,6 +144,8 @@ class DAGResult:
     storage_count: int = 0
     resume_state: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    # 首个节点失败的类型化错误码（classify 异常对象所得）；无则 None
+    error_code: str | None = None
     generated_report_id: str | None = None
     generated_report_title: str | None = None
     generated_report_matched_records: int = 0

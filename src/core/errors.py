@@ -20,6 +20,12 @@ class ErrorCode(str, Enum):
     empty_data = "empty_data"
     rate_limited = "rate_limited"
     invalid_params = "invalid_params"
+    dag_validation = "dag_validation"
+    collector_setup = "collector_setup"
+    database = "database"
+    browser = "browser"
+    worker = "worker"
+    agent = "agent"
     unknown = "unknown"
 
     @property
@@ -33,6 +39,12 @@ class ErrorCode(str, Enum):
             ErrorCode.empty_data: "空数据",
             ErrorCode.rate_limited: "频率限制",
             ErrorCode.invalid_params: "参数无效",
+            ErrorCode.dag_validation: "DAG 校验失败",
+            ErrorCode.collector_setup: "采集器初始化失败",
+            ErrorCode.database: "数据库错误",
+            ErrorCode.browser: "浏览器错误",
+            ErrorCode.worker: "Worker 错误",
+            ErrorCode.agent: "Agent 错误",
             ErrorCode.unknown: "未知错误",
         }
         return _labels.get(self, "未知错误")
@@ -48,6 +60,12 @@ class ErrorCode(str, Enum):
             ErrorCode.empty_data: "该时间段目标可能无数据，尝试扩大时间范围或检查数据源状态",
             ErrorCode.rate_limited: "降低采集频率，增加请求间隔或等待冷却时间",
             ErrorCode.invalid_params: "检查目标配置中的 URL 或参数格式是否正确",
+            ErrorCode.dag_validation: "检查 DAG 节点/端口/条件边定义是否合法",
+            ErrorCode.collector_setup: "检查采集器组件是否已安装、配置是否完整",
+            ErrorCode.database: "检查数据库连接与 schema 版本（Alembic）",
+            ErrorCode.browser: "检查 Playwright/浏览器环境与目标页面状态",
+            ErrorCode.worker: "检查 Worker 心跳、能力声明与 claim 状态",
+            ErrorCode.agent: "检查 Agent 服务配置与 LLM provider 可用性",
             ErrorCode.unknown: "查看详细日志排查原因",
         }
         return _suggestions.get(self, "查看详细日志排查原因")
@@ -63,6 +81,12 @@ class ErrorCode(str, Enum):
             ErrorCode.empty_data: "warning",
             ErrorCode.rate_limited: "warning",
             ErrorCode.invalid_params: "error",
+            ErrorCode.dag_validation: "error",
+            ErrorCode.collector_setup: "error",
+            ErrorCode.database: "error",
+            ErrorCode.browser: "error",
+            ErrorCode.worker: "error",
+            ErrorCode.agent: "error",
             ErrorCode.unknown: "error",
         }
         return _severity.get(self, "error")

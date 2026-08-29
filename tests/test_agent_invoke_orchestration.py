@@ -5,7 +5,6 @@ import pytest
 from src.agent.agent_invoke_lifecycle import AgentInvokeState
 from src.agent.agent_invoke_orchestration import (
     PreparedAgentInvoke,
-    execute_prepared_agent_invoke,
     prepare_agent_invoke,
     recover_agent_invoke,
     run_prepared_agent_invoke,

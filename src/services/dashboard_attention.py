@@ -53,6 +53,40 @@ def build_failed_task_digests(
     return digests
 
 
+def build_degraded_task_digests(
+    tasks: Iterable[Task],
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Build digests for recent tasks executed by a degraded engine (legacy fallback).
+
+    Degraded is about the engine that ran, independent of task outcome:
+    a legacy_fallback task that "succeeded" still ran with different
+    semantics than the DAG definition, which operators must see.
+    """
+    degraded: list[Task] = []
+    for task in tasks:
+        summary = task.result_summary
+        if isinstance(summary, dict) and summary.get("execution_engine") == "legacy_fallback":
+            degraded.append(task)
+    degraded.sort(key=_task_sort_key, reverse=True)
+    digests: list[dict[str, Any]] = []
+    for task in degraded[: max(0, limit)]:
+        summary = task.result_summary or {}
+        digests.append(
+            {
+                "id": task.id,
+                "name": redact_sensitive_text(task.name),
+                "status": task.status.value,
+                "execution_engine": summary.get("execution_engine"),
+                "fallback_reason": redact_sensitive_text(str(summary.get("fallback_reason") or "")) or None,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            }
+        )
+    return digests
+
+
 def build_health_attention_items(
     health: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
@@ -137,6 +171,7 @@ def build_dashboard_attention(
     """Aggregate attention payload for GET /tasks/stats/summary."""
     return {
         "failed_tasks": build_failed_task_digests(tasks, limit=failed_limit),
+        "degraded_tasks": build_degraded_task_digests(tasks, limit=failed_limit),
         "health_issues": build_health_attention_items(
             health,
             diagnostics,

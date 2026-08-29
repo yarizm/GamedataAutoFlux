@@ -102,7 +102,7 @@ export default {
    * @param {Array} tasks
    * @param {object|null} health
    * @param {object|null} diagnostics
-   * @param {{ failed_tasks?: Array, health_issues?: Array }|null} serverAttention
+   * @param {{ failed_tasks?: Array, health_issues?: Array, degraded_tasks?: Array }|null} serverAttention
    */
   _renderAttention(tasks, health, diagnostics, serverAttention = null) {
     const root = document.getElementById('dashboard-attention');
@@ -110,6 +110,7 @@ export default {
 
     let failed = [];
     let healthItems = [];
+    let degraded = [];
 
     const clientFailed = (tasks || [])
       .filter((task) => String(task.status || '').toLowerCase() === 'failed')
@@ -119,12 +120,25 @@ export default {
         failure: summarizeTaskFailure(task),
       }));
     const clientHealth = collectHealthAttentionItems(health, diagnostics).slice(0, 5);
+    const clientDegraded = (tasks || [])
+      .filter((task) => task.result_summary?.execution_engine === 'legacy_fallback')
+      .slice(0, 5)
+      .map((task) => ({
+        id: task.id,
+        name: task.name,
+        status: task.status,
+        execution_engine: task.result_summary.execution_engine,
+        fallback_reason: task.result_summary.fallback_reason || null,
+      }));
 
     const serverFailedList = Array.isArray(serverAttention?.failed_tasks)
       ? serverAttention.failed_tasks
       : null;
     const serverHealthList = Array.isArray(serverAttention?.health_issues)
       ? serverAttention.health_issues
+      : null;
+    const serverDegradedList = Array.isArray(serverAttention?.degraded_tasks)
+      ? serverAttention.degraded_tasks
       : null;
 
     // Prefer server lists when present; if server returns empty failed_tasks but
@@ -151,7 +165,16 @@ export default {
       healthItems = clientHealth;
     }
 
-    if (!failed.length && !healthItems.length) {
+    if (serverDegradedList !== null) {
+      degraded = serverDegradedList.slice(0, 5);
+      if (!degraded.length && clientDegraded.length) {
+        degraded = clientDegraded;
+      }
+    } else {
+      degraded = clientDegraded;
+    }
+
+    if (!failed.length && !healthItems.length && !degraded.length) {
       root.classList.add('hidden');
       root.hidden = true;
       root.innerHTML = '';
@@ -176,6 +199,23 @@ export default {
                 <button type="button" class="btn btn-ghost btn-sm shrink-0" onclick="viewTaskDetail('${escapeJs(task.id)}')">${escapeHtml(t('common.details'))}</button>
               </li>`;
             }).join('')}
+          </ul>
+        </div>`
+      : '';
+
+    const degradedBlock = degraded.length
+      ? `<div class="attention-section">
+          <div class="attention-section-title">${escapeHtml(t('dashboard.attention.degraded'))}</div>
+          <ul class="attention-list">
+            ${degraded.map((item) => `<li class="attention-item">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-theme-primary truncate">${escapeHtml(item.name || item.id)}
+                    <span class="text-[10px] font-mono uppercase text-amber-400 ml-1">${escapeHtml(item.execution_engine || 'legacy_fallback')}</span>
+                  </div>
+                  <div class="text-[11px] text-amber-400/90 truncate" title="${escapeHtml(item.fallback_reason || '')}">${escapeHtml(item.fallback_reason || t('dashboard.attention.degradedHint'))}</div>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm shrink-0" onclick="viewTaskDetail('${escapeJs(item.id)}')">${escapeHtml(t('common.details'))}</button>
+              </li>`).join('')}
           </ul>
         </div>`
       : '';
@@ -210,6 +250,7 @@ export default {
         </div>
         <div class="attention-banner-body">
           ${failureBlock}
+          ${degradedBlock}
           ${healthBlock}
         </div>
       </div>`;

@@ -1,4 +1,4 @@
-from src.core.dag import DAG, NodeSpec, Edge, PortSpec
+from src.core.dag import DAG, NodeSpec, PortSpec
 
 
 def test_dag_to_storage_preserves_node_ui_and_graph_ui():

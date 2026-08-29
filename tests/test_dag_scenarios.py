@@ -46,7 +46,7 @@ def _sink(id, comp="sqlalchemy"):
 
 def _register_dummy_components():
     """注册测试用 collector/processor/storage，返回快照供恢复。"""
-    from src.storage.base import BaseStorage, QueryResult, StorageRecord
+    from src.storage.base import BaseStorage, QueryResult
 
     class _MemStorage(BaseStorage):
         saved: list = []

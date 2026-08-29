@@ -407,6 +407,8 @@ class Task(BaseModel):
             "generated_report_id",
             "generated_report_title",
             "generated_report_matched_records",
+            "execution_engine",
+            "fallback_reason",
         ):
             if hasattr(result, field):
                 summary[field] = getattr(result, field)

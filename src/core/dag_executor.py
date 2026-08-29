@@ -12,6 +12,7 @@ from loguru import logger
 
 from src.core.dag import DAG, DAGResult, Edge, NodeSpec
 from src.core.dag_conditions import CONDITION_PREDICATES, resolve_condition
+from src.core.errors import ErrorCode, classify_exception
 from src.core.dag_nodes import (
     CollectorNode,
     NodeContext,
@@ -27,8 +28,9 @@ from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task
 
 
-class DAGValidationError(Exception):
-    pass
+# 结构校验异常升级为类型化异常（携带 dag_validation 错误码）；
+# 此处 re-export 保持既有导入路径兼容
+from src.core.exceptions import DAGValidationError
 
 
 _VALID_NODE_TYPES = frozenset({"collector", "processor", "storage", "composite"})
@@ -396,6 +398,10 @@ class DAGExecutor:
                         self._node_success[node_id] = False
                         metrics.inc("dag_node_total", type=node_spec.type, result="error")
                         result.errors.append(f"{node_id}: {safe}")
+                        # 类型化异常的错误码直达结果面（消息启发式仅兜底）
+                        typed_code = classify_exception(exc)
+                        if result.error_code is None and typed_code is not ErrorCode.unknown:
+                            result.error_code = typed_code.value
                         logger.error("DAG node {} failed: {}", node_id, safe)
                         await self._notify(on_event, task.id, node_spec, "error", error=safe)
                 finally:

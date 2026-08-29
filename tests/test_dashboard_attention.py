@@ -111,7 +111,7 @@ def test_task_service_get_stats_includes_attention_with_failed_code():
 
 def test_failed_digests_sort_mixed_naive_and_aware_datetimes():
     """Restored tasks may have naive datetimes; live fail() uses aware — must not TypeError."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     restored = Task(name="restored-fail")
     restored.status = TaskStatus.FAILED

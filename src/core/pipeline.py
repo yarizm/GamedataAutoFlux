@@ -114,6 +114,8 @@ class PipelineResult:
     # 实际执行引擎：dag（默认）/ legacy（显式关闭 DAG 委托）/ legacy_fallback（DAG 异常回退）
     execution_engine: str = "dag"
     fallback_reason: str | None = None
+    # 类型化错误码（来自 DAG 节点分类）；None 时由收集结果/消息推断
+    error_code: str | None = None
 
     @property
     def duration_seconds(self) -> float | None:
@@ -396,6 +398,10 @@ class Pipeline:
         )
         result = await self._execute_legacy(task, recovery_checkpoint=recovery_checkpoint)
         metrics.inc("pipeline_executions_total", engine="legacy")
+        logger.warning(
+            f"Pipeline [{self.name}] 使用已废弃的 legacy 执行器"
+            "（pipeline.use_dag_execution=false）——请迁移配置并移除该开关"
+        )
         return result
 
     def _should_use_dag_execution(self) -> bool:
@@ -566,6 +572,7 @@ class Pipeline:
             output_records=list(dag_result.output_records),
             storage_count=dag_result.storage_count,
             resume_state=dag_result.resume_state,
+            error_code=dag_result.error_code,
             generated_report_id=dag_result.generated_report_id,
             generated_report_title=dag_result.generated_report_title,
             generated_report_matched_records=dag_result.generated_report_matched_records,
@@ -580,7 +587,14 @@ class Pipeline:
         *,
         recovery_checkpoint: dict[str, Any] | None = None,
     ) -> PipelineResult:
-        """原三段式执行逻辑（DAG 委托失败时的回退路径）。"""
+        """原三段式执行逻辑。
+
+        .. deprecated:: 正式废弃（修复清单 P1/P2）。
+            唯一执行语义是 DAGExecutor；本实现仅在显式配置
+            ``pipeline.use_dag_execution=false`` 或（显式开启
+            ``pipeline.legacy_fallback`` 时的）异常回退下运行，
+            计划在旧 Pipeline 配置迁移工具成熟后移除。
+        """
         result = PipelineResult(pipeline_name=self.name, task_id=task.id)
         result.execution_engine = "legacy"
         collector_steps = self._get_collectors()

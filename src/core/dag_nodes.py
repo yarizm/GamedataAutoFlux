@@ -154,7 +154,14 @@ class CollectorNode:
         self._collector: BaseCollector | None = None
 
     async def setup(self) -> None:
-        collector_type = registry.get("collector", self.spec.component)
+        from src.core.exceptions import CollectorSetupError
+
+        try:
+            collector_type = registry.get("collector", self.spec.component)
+        except KeyError as exc:
+            raise CollectorSetupError(
+                f"collector component not registered: {self.spec.component}"
+            ) from exc
         config = dict(self.spec.config)
         if self._recovery_context:
             config["recovery_checkpoint"] = self._recovery_context

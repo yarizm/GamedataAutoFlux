@@ -13,6 +13,7 @@ import pytest
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.errors import ErrorCode, classify_exception
+from src.core.task import Task, TaskTarget
 from src.core.exceptions import (
     AuthenticationError,
     DomainError,
@@ -93,3 +94,40 @@ async def test_domain_error_is_not_retried():
     assert results[0].success is False
     assert results[0].error_code == ErrorCode.invalid_params.value
     assert collector.calls == 1  # 无重试
+
+
+def test_new_infra_error_codes_typed():
+    from src.core.exceptions import (
+        AgentError,
+        BrowserError,
+        CollectorSetupError,
+        DatabaseError,
+        DAGValidationError,
+        WorkerError,
+    )
+    from src.core.errors import ErrorCode
+
+    assert classify_exception(DAGValidationError("bad dag")) is ErrorCode.dag_validation
+    assert classify_exception(CollectorSetupError("missing")) is ErrorCode.collector_setup
+    assert classify_exception(DatabaseError("conn")) is ErrorCode.database
+    assert classify_exception(BrowserError("page crashed")) is ErrorCode.browser
+    assert classify_exception(WorkerError("stale")) is ErrorCode.worker
+    assert classify_exception(AgentError("llm down")) is ErrorCode.agent
+    # BrowserError 可重试
+    assert issubclass(BrowserError, RetryableError)
+
+
+@pytest.mark.asyncio
+async def test_dag_node_failure_carries_typed_code_to_result():
+    """节点抛类型化异常 → DAGResult.error_code 贯通 PipelineResult。"""
+    from src.core.dag import DAG, NodeSpec, PortSpec
+    from src.core.dag_executor import DAGExecutor
+
+    dag = DAG(
+        name="typed_code_probe",
+        nodes=[NodeSpec("c1", "collector", "_nonexistent_collector", {}, [], [PortSpec("records")], set())],
+        edges=[],
+    )
+    result = await DAGExecutor().execute(Task(name="t", targets=[TaskTarget(name="g")]), dag)
+    assert result.success is False
+    assert result.error_code == "collector_setup"

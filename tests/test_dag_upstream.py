@@ -2,7 +2,6 @@
 
 from src.collectors.base import CollectResult, CollectTarget
 from src.core.dag_upstream import resolve_collector_targets, targets_from_upstream_records
-from src.core.task import Task, TaskTarget
 
 
 def test_manual_map_produces_targets_with_mapped_params():

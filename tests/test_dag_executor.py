@@ -1,7 +1,7 @@
 # tests/test_dag_executor.py
 import pytest
 from src.core.dag import DAG, NodeSpec, Edge, PortSpec
-from src.core.dag_executor import validate_dag, topological_layers, DAGValidationError, DAGExecutor
+from src.core.dag_executor import validate_dag, topological_layers, DAGExecutor
 from src.core.task import Task, TaskTarget
 from src.core.registry import registry
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget

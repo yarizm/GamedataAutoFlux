@@ -820,6 +820,13 @@ export default {
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.name')}</span><span class="text-zinc-200 font-medium">${escapeHtml(task.name)}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.status')}</span><span>${renderBadge(task.status)}</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Pipeline</span><span class="text-zinc-200">${escapeHtml(task.pipeline_name||'-')}</span></div>
+            ${(() => {
+              const engine = task.result_summary?.execution_engine;
+              if (!engine) return '';
+              const degraded = engine === 'legacy_fallback';
+              const reason = task.result_summary?.fallback_reason;
+              return `<div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${escapeHtml(t('tasks.engine'))}</span><span class="${degraded ? 'text-amber-400 font-medium' : 'text-zinc-200'}">${escapeHtml(engine)}${degraded ? ' ⚠' : ''}</span></div>${degraded && reason ? `<div class="detail-kv flex flex-col gap-1 text-sm"><span class="text-zinc-500">${escapeHtml(t('tasks.fallbackReason'))}</span><code class="text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded text-xs whitespace-pre-wrap break-all">${escapeHtml(reason)}</code></div>` : ''}`;
+            })()}
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">${t('common.progress')}</span><span class="text-zinc-200">${Math.round(task.progress*100)}%</span></div>
             <div class="detail-kv flex items-center justify-between text-sm"><span class="text-zinc-500">Retry</span><span class="text-zinc-200">${task.retry_count}/${task.max_retries}</span></div>
             ${(() => {

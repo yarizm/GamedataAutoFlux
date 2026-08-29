@@ -260,7 +260,18 @@ class DynamicPlaywrightCollector(BaseCollector):
                     )
                     # Ensure str(e) is never empty, as empty strings cause logging issues upstream
                     err_msg = str(e) if str(e).strip() else repr(e)
-                    return CollectResult(target=target, success=False, error=err_msg)
+                    # Playwright 自身异常 → browser 错误码（类型判定，不猜消息）
+                    error_code = (
+                        "browser"
+                        if type(e).__module__.startswith("playwright")
+                        else None
+                    )
+                    return CollectResult(
+                        target=target,
+                        success=False,
+                        error=err_msg,
+                        error_code=error_code,
+                    )
                 finally:
                     await page.close()
 
