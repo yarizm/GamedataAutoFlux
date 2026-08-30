@@ -144,7 +144,9 @@ async def lifespan(app: FastAPI):
     )
 
     # 注册事件 hooks
-    from src.core.events import event_bus
+    from src.bootstrap.container import get_event_bus
+
+    event_bus = get_event_bus()  # noqa: F841 — 下方 hooks 注册使用
     from src.core.hooks import (
         AlertHook,
         ReportGenerationHook,
@@ -201,10 +203,10 @@ async def lifespan(app: FastAPI):
     await scheduler.stop()
 
     # 注销所有 EventBus handlers 与 WS 广播端口，防止重复注册
-    from src.core.events import event_bus
+    from src.bootstrap.container import get_event_bus
     from src.core.ws_broadcast import set_broadcaster as _clear_broadcaster
 
-    event_bus.clear()
+    get_event_bus().clear()
     _clear_broadcaster(None)
 
     agent_svc = container._agent_service

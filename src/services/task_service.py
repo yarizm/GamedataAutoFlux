@@ -11,6 +11,7 @@ from src.core.collector_metadata import (
     get_collector_metadata,
     list_session_sensitive_collectors,
 )
+from src.core.exceptions import ValidationError
 from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.diagnostics import build_session_readiness_summary
 from src.core.sensitive import redact_sensitive_text
@@ -42,7 +43,7 @@ class TaskService:
             try:
                 return self._scheduler.get_tasks_by_status(TaskStatus(status))
             except ValueError:
-                raise ValueError(f"Invalid status: {status}")
+                raise ValidationError(f"Invalid status: {status}")
         tasks = self._scheduler.get_all_tasks()
         return sorted(tasks, key=lambda t: t.created_at, reverse=True)
 
@@ -154,14 +155,14 @@ class TaskService:
         if task is None:
             raise KeyError(task_id)
         if task.status != TaskStatus.FAILED:
-            raise ValueError(f"cannot resume task in status {task.status.value}")
+            raise ValidationError(f"cannot resume task in status {task.status.value}")
 
         if checkpoint_id:
             get_cp = getattr(self._scheduler, "get_task_checkpoint", None)
             if callable(get_cp):
                 selected = await get_cp(task_id, checkpoint_id)
                 if selected is None:
-                    raise ValueError(f"checkpoint not found: {checkpoint_id}")
+                    raise ValidationError(f"checkpoint not found: {checkpoint_id}")
 
         if reset_retry_count:
             task.retry_count = 0
@@ -203,7 +204,7 @@ class TaskService:
         if task is None:
             raise KeyError(task_id)
         if task.status != TaskStatus.FAILED:
-            raise ValueError(f"cannot rerun task in status {task.status.value}")
+            raise ValidationError(f"cannot rerun task in status {task.status.value}")
 
         if reset_retry_count:
             task.retry_count = 0

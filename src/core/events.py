@@ -3,8 +3,10 @@
 
 提供类型化的发布/订阅机制，解耦 Scheduler 与 WebSocket 广播、报告生成、告警等副作用。
 
-使用示例:
-    from src.core.events import event_bus, TaskUpdatedEvent
+使用示例（获取单例）:
+    from src.bootstrap.container import get_event_bus
+
+    event_bus = get_event_bus()
 
     async def on_task_updated(event: TaskUpdatedEvent):
         ...
@@ -165,5 +167,4 @@ class EventBus:
             self._handlers.pop(event_type, None)
 
 
-# 模块级单例
-event_bus = EventBus()
+# 单例归 Container 所有（get_event_bus）；本模块只定义 EventBus 类。

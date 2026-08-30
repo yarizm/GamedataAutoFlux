@@ -43,6 +43,8 @@ _cron_service = None
 _cron_service_lock = threading.Lock()
 _worker_service = None
 _worker_service_lock = threading.Lock()
+_event_bus = None
+_event_bus_lock = threading.Lock()
 
 
 def ensure_core_services() -> tuple[Scheduler, ReportGenerator]:
@@ -70,6 +72,8 @@ def _reset_runtime_singletons(
     _pipeline_service = None
     _cron_service = None
     _worker_service = None
+    global _event_bus
+    _event_bus = None
     if reset_agent:
         _agent_service = None
     if reset_agent_session:
@@ -185,6 +189,18 @@ def get_cron_service():
                     raise RuntimeError("core services not initialized; call ensure_core_services()")
                 _cron_service = CronService(lambda: scheduler)
     return _cron_service
+
+
+def get_event_bus():
+    """进程级 EventBus 单例（原 src.core.events 模块级单例收编至此）。"""
+    global _event_bus
+    if _event_bus is None:
+        with _event_bus_lock:
+            if _event_bus is None:
+                from src.core.events import EventBus
+
+                _event_bus = EventBus()
+    return _event_bus
 
 
 def get_worker_service():

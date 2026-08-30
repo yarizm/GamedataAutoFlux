@@ -38,8 +38,12 @@ class DomainError(AutofluxError):
     """业务规则违反：请求本身不成立，重试无意义。"""
 
 
-class ValidationError(DomainError):
-    """参数/配置校验失败。"""
+class ValidationError(DomainError, ValueError):
+    """参数/配置校验失败。
+
+    多继承 ValueError 是兼容桥：既有 ``except ValueError`` 调用方
+    （路由/Agent 工具/task_service）无需改动即可继续捕获。
+    """
 
     error_code = ErrorCode.invalid_params
 

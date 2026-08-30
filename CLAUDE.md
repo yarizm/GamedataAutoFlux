@@ -242,6 +242,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **调度器 `Scheduler`** 是全局单例，`app.py` 在 lifespan 中启动/停止它。
 - **数据库迁移分两条路**：PostgreSQL 走 Alembic（`migrations/` + `src/storage/migrations.py` 程序化入口；启动时 `upgrade head`，失败阻断 lifespan；历史 create_all 库自动 `stamp head` 收编；pgvector 扩展缺失时 embedding 降级 JSONB，与 models 回退语义一致）。SQLite（测试/嵌入）仍用 `create_all`。schema 变更流程：改 `src/storage/models.py` + 对真库 `alembic revision --autogenerate` 生成新 revision。
 - **存储通过工厂获取**：所有代码通过 `get_storage()` 获取存储实例，不直接实例化具体类。存储后端由 `config/settings.yaml` 中的 `database.provider` 控制。
+- **全局单例归属**：EventBus 单例由 Container 持有（`get_event_bus()`；`src.core.events` 只定义类），storage/session factory 保留模块级生命周期（init/close/reset），容器 getter 统一入口。
 - **嵌入模型**：`get_embeddings()` 工厂函数（`src/services/_utils.py`）返回 DashScope Embeddings 实例。
 - **采集器需登录态**：SteamDB 通过 CDP 连接已登录 Chrome（`scripts/steamdb_login.py`），七麦通过 Playwright 持久化 profile（`scripts/qimai_login.py`）。Worker 通过能力标签声明登录态资源，Scheduler 根据 `SessionRegistry` 路由任务。
 - **Scheduler 执行后端**有两种：`in_process`（默认，本地执行）和 `worker_claim`（任务放入队列等待 Worker 领取）。通过 `scheduler.execution_backend` 配置切换。两种后端最终都走 `DAGExecutor`：in_process 经 `Pipeline.execute()` 委托，worker_claim 经 claim payload 的 `graph` 字段（`payload_version="2"`，旧版回退 `pipeline` 字段）。
@@ -264,3 +265,6 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - 部分采集器（Google Trends、Twitch、Firecrawl）需要海外网络连通性。
 - `pgvector` 为可选依赖（`models.py` 中自动降级为 JSON 类型）。
 - **Edit 工具修改 HTML 模板**时，可能将属性引号保存为 `\"` 字面量，导致浏览器无法识别元素 ID。修改 `index.html` 后务必用 `grep` 或 `curl` 检查渲染输出。
+
+- **ValidationError 多继承 ValueError**（DomainError + ValueError 兼容桥）：既有
+  `except ValueError` 调用方无需改动；task_service 的状态/恢复校验 raise 已采纳类型化异常。
