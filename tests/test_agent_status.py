@@ -879,7 +879,11 @@ def test_get_agent_service_rebuilds_after_session_service_replaced(monkeypatch) 
             self.session_service = session_service
 
     try:
-        monkeypatch.setattr(web_app, "get_config", lambda key, default=None: True)
+        # typed config 下伪造值必须形状合法：仅 agent.enabled 需要为 True
+        monkeypatch.setattr(
+            "src.core.config.get",
+            lambda key, default=None: True if key == "agent.enabled" else default,
+        )
         monkeypatch.setattr("src.agent.agent.AgentService", FakeAgentService)
 
         web_app._agent_service = None
@@ -924,7 +928,7 @@ def test_get_agent_service_defaults_to_langgraph_runtime(monkeypatch) -> None:
         return default
 
     try:
-        monkeypatch.setattr(web_app, "get_config", fake_app_get_config)
+        monkeypatch.setattr("src.core.config.get", fake_app_get_config)
         monkeypatch.setattr(agent_module, "get_config", fake_agent_get_config)
         monkeypatch.setattr("src.agent.runtime.get_config", fake_agent_get_config)
         monkeypatch.setattr(
@@ -1005,7 +1009,7 @@ def test_app_lifespan_smoke_uses_default_langgraph_runtime(monkeypatch) -> None:
     monkeypatch.setattr(agent_module, "get_config", fake_get_config)
     monkeypatch.setattr("src.agent.runtime.get_config", fake_get_config)
     monkeypatch.setattr("src.core.config.get", fake_get_config)
-    monkeypatch.setattr(web_app, "get_config", fake_get_config)
+    monkeypatch.setattr("src.core.config.get", fake_get_config)
     monkeypatch.setattr(agent_module, "ALL_TOOLS", [echo])
     monkeypatch.setattr(
         "src.agent.runtime.ChatOpenAI",

@@ -30,7 +30,8 @@ from src.bootstrap.container import (  # noqa: F401 — Web 层兼容再导出
     get_task_service,
     get_worker_registry,
 )
-from src.core.config import load_settings, get as get_config
+from src.core.app_settings import get_app_settings
+from src.core.config import load_settings
 from src.core.logging_config import configure_logging
 
 # 可变单例（scheduler / report_generator / agent 服务）委托给 container，
@@ -127,7 +128,7 @@ async def lifespan(app: FastAPI):
     container.set_agent_session_service(
         AgentSessionService(
             session_factory=session_factory,
-            session_timeout=get_config("agent.session_timeout_minutes", 60) * 60,
+            session_timeout=get_app_settings().agent.session_timeout_minutes * 60,
             max_sessions=50,
         )
     )
@@ -242,9 +243,7 @@ def create_app() -> FastAPI:
 
     from fastapi.middleware.cors import CORSMiddleware
 
-    cors_origins = get_config(
-        "server.cors_origins", ["http://localhost:8000", "http://127.0.0.1:8000"]
-    )
+    cors_origins = get_app_settings().server.cors_origins
     if isinstance(cors_origins, str):
         cors_origins = [cors_origins]
 
@@ -313,9 +312,10 @@ def main():
     # 否则 Playwright MCP 子进程的 subprocess_exec 会抛 NotImplementedError。
     _configure_windows_event_loop_policy()
 
-    host = get_config("server.host", "127.0.0.1")
-    port = get_config("server.port", 8000)
-    debug = get_config("app.debug", False)
+    settings = get_app_settings()
+    host = settings.server.host
+    port = settings.server.port
+    debug = bool(settings.app.get("debug", False))
 
     uvicorn.run(
         "src.web.app:app",

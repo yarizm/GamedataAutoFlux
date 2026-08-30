@@ -17,7 +17,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.core.config import get as get_config
+from src.core.app_settings import get_app_settings
 from src.core.events import EventBus
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.registry import registry
@@ -74,22 +74,23 @@ class Scheduler:
         task_checkpoint_service: TaskCheckpointService | None = None,
         execution_backend: str | None = None,
     ):
+        _settings = get_app_settings()
         self._max_concurrent = (
             max_concurrent
             if max_concurrent is not None
-            else get_config("scheduler.max_concurrent_tasks", 5)
+            else _settings.scheduler.max_concurrent_tasks
         )
         self._default_retries = (
             default_retries
             if default_retries is not None
-            else get_config("scheduler.default_retry_count", 3)
+            else _settings.scheduler.default_retry_count
         )
         self._task_store_config = task_store_config or {
-            "provider": get_config("database.provider", "sqlalchemy"),
-            "sqlalchemy_url": get_config("database.sqlalchemy_url")
+            "provider": _settings.database.provider,
+            "sqlalchemy_url": _settings.database.sqlalchemy_url
             or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux",
-            "db_name": get_config("scheduler.persistence.db_name", "scheduler.db"),
-            "json_dir": get_config("scheduler.persistence.json_dir", "scheduler_tasks"),
+            "db_name": _settings.scheduler.persistence.db_name,
+            "json_dir": _settings.scheduler.persistence.json_dir,
         }
 
         # 注入的仓储层（向后兼容：None 时走旧路径）
@@ -106,10 +107,7 @@ class Scheduler:
         self._execution_backend = _normalize_execution_backend(
             execution_backend
             if execution_backend is not None
-            else get_config(
-                "scheduler.execution_backend",
-                "in_process",
-            )
+            else get_app_settings().scheduler.execution_backend
         )
 
         self._semaphore: asyncio.Semaphore | None = None
@@ -266,9 +264,9 @@ class Scheduler:
         logger.info("Scheduler stopped")
 
     def _refresh_task_store_config(self) -> None:
-        self._task_store_config["provider"] = get_config("database.provider", "sqlalchemy")
+        self._task_store_config["provider"] = get_app_settings().database.provider
         self._task_store_config["sqlalchemy_url"] = (
-            get_config("database.sqlalchemy_url")
+            get_app_settings().database.sqlalchemy_url
             or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
         )
 

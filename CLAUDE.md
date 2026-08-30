@@ -268,3 +268,9 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 
 - **ValidationError 多继承 ValueError**（DomainError + ValueError 兼容桥）：既有
   `except ValueError` 调用方无需改动；task_service 的状态/恢复校验 raise 已采纳类型化异常。
+
+- **类型化配置**：核心组件（scheduler/pipeline/database/server/agent 基础段）经
+  `src/core/app_settings.py` 的 `get_app_settings()` 读类型化模型，禁止新增
+  `get_config("a.b.c")` 字符串路径；builder 经 config.get 取值（测试 monkeypatch
+  接缝保留）、不缓存（覆盖即时生效）、字段默认值=代码原默认。collectors/base 的
+  多级回退与插件自有段继续走 get_config。伪造 config.get 的测试必须返回形状合法的值。

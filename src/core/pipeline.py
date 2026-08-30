@@ -406,15 +406,15 @@ class Pipeline:
 
     def _should_use_dag_execution(self) -> bool:
         """是否走 DAG 委托路径。受配置开关控制，默认开启。"""
-        from src.core.config import get as get_config
+        from src.core.app_settings import get_app_settings
 
-        return bool(get_config("pipeline.use_dag_execution", True))
+        return get_app_settings().pipeline.use_dag_execution
 
     def _legacy_fallback_enabled(self) -> bool:
         """DAG 异常时是否回退 legacy 执行器。默认关闭，必须显式开启。"""
-        from src.core.config import get as get_config
+        from src.core.app_settings import get_app_settings
 
-        return bool(get_config("pipeline.legacy_fallback", False))
+        return get_app_settings().pipeline.legacy_fallback
 
     async def _execute_via_dag(
         self,

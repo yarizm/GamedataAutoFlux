@@ -15,7 +15,8 @@ import threading
 
 from loguru import logger
 
-from src.core.config import get as get_config
+from src.core.app_settings import get_app_settings
+
 from src.core.scheduler import Scheduler
 from src.reporting.generator import ReportGenerator
 
@@ -89,7 +90,7 @@ def set_agent_session_service(session_service) -> None:
 def get_agent_service():
     """获取 Agent 服务实例，未启用时返回 None"""
     global _agent_service
-    if not get_config("agent.enabled", True):
+    if not get_app_settings().agent.enabled:
         return None
 
     if _agent_service is None:

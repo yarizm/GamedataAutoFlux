@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from src.core.config import get as get_config
 from src.core.sensitive import redact_url_credentials
 from src.storage.models import Base
 
@@ -53,8 +52,10 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
             return _session_factory
 
         if url is None:
+            from src.core.app_settings import get_app_settings
+
             url = str(
-                get_config("database.sqlalchemy_url")
+                get_app_settings().database.sqlalchemy_url
                 or "postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux"
             )
 
