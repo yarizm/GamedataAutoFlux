@@ -68,7 +68,7 @@ async def test_worker_agent_executes_claimed_task_via_api() -> None:
     )
     scheduler._started = True
     scheduler.attach_persistence(event_bus=EventBus())
-    scheduler._pipelines["worker_agent_pipeline"] = (
+    scheduler.pipeline_service.registry["worker_agent_pipeline"] = (
         Pipeline("worker_agent_pipeline")
         .add_collector("worker_agent_test")
         .add_storage("sqlalchemy")
@@ -149,7 +149,7 @@ async def test_worker_event_collect_records_checkpoint_from_worker_path() -> Non
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("gtrends")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("gtrends")
     task_id = await scheduler.submit(
         Task(
             id="worker-checkpoint-task",
@@ -191,7 +191,7 @@ async def test_worker_complete_emits_task_completed_event() -> None:
     )
     scheduler._started = True
     scheduler.attach_persistence(event_bus=EventBus())
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task_id = await scheduler.submit(
         Task(
             id="worker-completed-event",
@@ -232,7 +232,7 @@ async def test_worker_complete_pipeline_result_supports_report_hook(tmp_path) ->
     )
     scheduler._started = True
     scheduler.attach_persistence(event_bus=EventBus())
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
 
     report = GeneratedReport(
         id="worker-report-1",
@@ -458,7 +458,7 @@ async def test_claim_payload_includes_graph_and_payload_version() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["graph_claim_pipeline"] = (
+    scheduler.pipeline_service.registry["graph_claim_pipeline"] = (
         Pipeline("graph_claim_pipeline")
         .add_collector("worker_agent_test")
         .add_storage("sqlalchemy")
@@ -737,7 +737,7 @@ async def test_worker_agent_request_stop_drains_current_task_before_exit() -> No
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_agent_slow_pipeline"] = (
+    scheduler.pipeline_service.registry["worker_agent_slow_pipeline"] = (
         Pipeline("worker_agent_slow_pipeline")
         .add_collector("worker_agent_slow_test")
         .add_storage("sqlalchemy")

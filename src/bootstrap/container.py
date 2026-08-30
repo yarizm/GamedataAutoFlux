@@ -167,17 +167,10 @@ def get_dag_repository():
 
 
 def get_pipeline_service():
-    """Pipeline 业务门面（Scheduler 只作执行引擎）。"""
-    global _pipeline_service
-    if _pipeline_service is None:
-        with _pipeline_service_lock:
-            if _pipeline_service is None:
-                from src.services.pipeline_service import PipelineService
-
-                if scheduler is None:
-                    raise RuntimeError("core services not initialized; call ensure_core_services()")
-                _pipeline_service = PipelineService(lambda: scheduler)
-    return _pipeline_service
+    """Pipeline 业务服务（注册表所有者，由 Scheduler 组合持有）。"""
+    if scheduler is None:
+        raise RuntimeError("core services not initialized; call ensure_core_services()")
+    return scheduler.pipeline_service
 
 
 def get_cron_service():

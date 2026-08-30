@@ -106,6 +106,9 @@ def test_resolve_and_apply_needs_confirm(monkeypatch) -> None:
     calls: list[str] = []
 
     class _Sched:
+        @property
+        def cron_service(self):
+            return self
         def add_cron_job(self, **kwargs):
             calls.append("add")
             return "job-1"
@@ -135,6 +138,9 @@ def test_apply_create_with_confirm(monkeypatch) -> None:
     created: dict = {}
 
     class _Sched:
+        @property
+        def cron_service(self):
+            return self
         def add_cron_job(self, **kwargs):
             created.update(kwargs)
             return "job-42"
@@ -162,6 +168,9 @@ def test_apply_create_with_confirm(monkeypatch) -> None:
 
 def test_apply_list(monkeypatch) -> None:
     class _Sched:
+        @property
+        def cron_service(self):
+            return self
         def list_cron_jobs(self):
             return [
                 {

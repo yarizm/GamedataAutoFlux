@@ -24,14 +24,14 @@ def test_list_pipelines():
 def test_list_available_pipelines_excludes_inactive_plugin_components():
     pipeline_name = "__inactive_plugin_pipeline__"
     with TestClient(app) as client:
-        web_app.scheduler._pipelines[pipeline_name] = Pipeline(pipeline_name).add_collector(
+        web_app.scheduler.pipeline_service.registry[pipeline_name] = Pipeline(pipeline_name).add_collector(
             "__collector_from_uninstalled_plugin__"
         )
         try:
             all_response = client.get("/api/pipelines")
             available_response = client.get("/api/pipelines?available_only=true")
         finally:
-            web_app.scheduler._pipelines.pop(pipeline_name, None)
+            web_app.scheduler.pipeline_service.registry.pop(pipeline_name, None)
 
     assert all_response.status_code == 200
     assert pipeline_name in all_response.json()
@@ -43,7 +43,7 @@ def test_task_precheck_rejects_pipeline_with_inactive_plugin_components():
     pipeline_name = "__inactive_plugin_precheck__"
     missing_collector = "__collector_from_uninstalled_plugin__"
     with TestClient(app) as client:
-        web_app.scheduler._pipelines[pipeline_name] = Pipeline(pipeline_name).add_collector(
+        web_app.scheduler.pipeline_service.registry[pipeline_name] = Pipeline(pipeline_name).add_collector(
             missing_collector
         )
         try:
@@ -57,7 +57,7 @@ def test_task_precheck_rejects_pipeline_with_inactive_plugin_components():
                 },
             )
         finally:
-            web_app.scheduler._pipelines.pop(pipeline_name, None)
+            web_app.scheduler.pipeline_service.registry.pop(pipeline_name, None)
 
     assert response.status_code == 200
     payload = response.json()

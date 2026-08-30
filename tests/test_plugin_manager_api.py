@@ -323,7 +323,7 @@ def test_referenced_plugin_cannot_be_uninstalled() -> None:
         _seed_managed_youtube(desired_state="disabled", restart_required=False)
         pipeline = Pipeline("youtube-reference").add_collector("youtube_profiles")
         assert web_app.scheduler is not None
-        web_app.scheduler._pipelines[pipeline.name] = pipeline
+        web_app.scheduler.pipeline_service.registry[pipeline.name] = pipeline
         try:
             detail = client.get("/api/plugin-manager/plugins/official.youtube")
             assert detail.status_code == 200
@@ -341,7 +341,7 @@ def test_referenced_plugin_cannot_be_uninstalled() -> None:
             assert payload["code"] == "PLUGIN_REFERENCED"
             assert payload["references"][0]["kind"] in {"pipeline", "dag", "cron"}
         finally:
-            web_app.scheduler._pipelines.pop(pipeline.name, None)
+            web_app.scheduler.pipeline_service.registry.pop(pipeline.name, None)
 
 
 def test_manual_restart_and_missing_rollback_return_stable_errors() -> None:

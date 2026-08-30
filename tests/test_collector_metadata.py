@@ -177,7 +177,7 @@ def test_task_precheck_blocks_youtube_when_api_keys_are_missing(monkeypatch) -> 
     monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
 
     scheduler = Scheduler()
-    scheduler._pipelines["youtube_profiles_test"] = Pipeline(
+    scheduler.pipeline_service.registry["youtube_profiles_test"] = Pipeline(
         "youtube_profiles_test"
     ).add_collector("youtube_profiles")
     service = TaskService(scheduler)
@@ -211,7 +211,7 @@ def test_task_precheck_validates_youtube_comment_targets(monkeypatch) -> None:
     monkeypatch.setattr("src.core.diagnostics.get_config", fake_get_config)
 
     scheduler = Scheduler()
-    scheduler._pipelines["youtube_comments_test"] = Pipeline(
+    scheduler.pipeline_service.registry["youtube_comments_test"] = Pipeline(
         "youtube_comments_test"
     ).add_collector("youtube_comments")
     service = TaskService(scheduler)
@@ -653,7 +653,7 @@ def test_task_create_succeeds_when_session_registry_lookup_fails(monkeypatch, tm
 
 def test_task_precheck_validates_collector_config_schema() -> None:
     scheduler = Scheduler()
-    scheduler._pipelines["invalid_steam_config"] = Pipeline("invalid_steam_config").add_collector(
+    scheduler.pipeline_service.registry["invalid_steam_config"] = Pipeline("invalid_steam_config").add_collector(
         "steam",
         {"request_delay": -1},
     )
@@ -693,7 +693,7 @@ def test_task_precheck_requires_dynamic_playwright_url_config() -> None:
 
 def test_task_precheck_rejects_dynamic_playwright_private_url_config() -> None:
     scheduler = Scheduler()
-    scheduler._pipelines["unsafe_dynamic_config"] = Pipeline("unsafe_dynamic_config").add_collector(
+    scheduler.pipeline_service.registry["unsafe_dynamic_config"] = Pipeline("unsafe_dynamic_config").add_collector(
         "dynamic_playwright",
         {"url": "http://127.0.0.1:8000/private", "fields": {}},
     )

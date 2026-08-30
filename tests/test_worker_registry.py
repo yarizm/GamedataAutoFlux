@@ -147,7 +147,7 @@ async def test_scheduler_worker_claim_backend_claims_and_completes_task() -> Non
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task = Task(
         id="claim-task",
         name="Claim Task",
@@ -240,7 +240,7 @@ async def test_scheduler_worker_claim_respects_capabilities() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["steam_pipeline"] = Pipeline("steam_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["steam_pipeline"] = Pipeline("steam_pipeline").add_collector("steam")
     await scheduler.submit(
         Task(id="steam-claim", name="Steam Claim", pipeline_name="steam_pipeline"),
         pipeline_name="steam_pipeline",
@@ -259,7 +259,7 @@ async def test_scheduler_worker_claim_requires_local_profile_session_capability(
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
+    scheduler.pipeline_service.registry["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
     await scheduler.submit(
         Task(id="qimai-claim", name="Qimai Claim", pipeline_name="qimai_pipeline"),
         pipeline_name="qimai_pipeline",
@@ -287,7 +287,7 @@ async def test_scheduler_worker_failure_retries_and_can_be_reclaimed() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task_id = await scheduler.submit(
         Task(
             id="retry-worker-task",
@@ -347,7 +347,7 @@ async def test_local_profile_retry_claim_stays_on_same_worker() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
+    scheduler.pipeline_service.registry["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
     task_id = await scheduler.submit(
         Task(
             id="retry-qimai-task",
@@ -383,7 +383,7 @@ async def test_managed_state_retry_claim_is_not_sticky(monkeypatch) -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
+    scheduler.pipeline_service.registry["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
     task_id = await scheduler.submit(
         Task(
             id="retry-qimai-managed-task",
@@ -414,7 +414,7 @@ async def test_scheduler_worker_failure_redacts_reported_result() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task_id = await scheduler.submit(
         Task(
             id="failed-worker-redact",
@@ -469,7 +469,7 @@ async def test_scheduler_interrupts_tasks_for_stale_worker() -> None:
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
+    scheduler.pipeline_service.registry["worker_pipeline"] = Pipeline("worker_pipeline").add_collector("steam")
     task_id = await scheduler.submit(
         Task(
             id="stale-worker-task",
@@ -504,7 +504,7 @@ async def test_scheduler_reconcile_stale_worker_recovers_sticky_retry_task() -> 
         execution_backend="worker_claim",
     )
     scheduler._started = True
-    scheduler._pipelines["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
+    scheduler.pipeline_service.registry["qimai_pipeline"] = Pipeline("qimai_pipeline").add_collector("qimai")
     task_id = await scheduler.submit(
         Task(
             id="stale-retry-task",

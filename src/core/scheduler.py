@@ -114,7 +114,15 @@ class Scheduler:
 
         self._semaphore: asyncio.Semaphore | None = None
         self._tasks: dict[str, Task] = {}
-        self._pipelines: dict[str, Pipeline] = {}
+        from src.services.pipeline_service import PipelineService
+
+        self.pipeline_service = PipelineService(
+            get_pipeline_repo=lambda: self._pipeline_repo,
+            get_task_store=lambda: self._task_store,
+            persist_pipeline=lambda p: self._state_service.persist_pipeline(p),
+            create_background_task=self._create_background_task,
+            is_started=lambda: self._started,
+        )
         self._running_futures: dict[str, asyncio.Task] = {}
         self._task_store: BaseStorage | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -160,7 +168,7 @@ class Scheduler:
             register_task_artifact=self.register_task_artifact,
             register_task_checkpoint=self.register_task_checkpoint,
             get_pipeline=self.get_pipeline,
-            get_pipelines=lambda: self._pipelines,
+            get_pipelines=lambda: self.pipeline_service.registry,
         )
 
         import threading
@@ -184,6 +192,11 @@ class Scheduler:
     def task_store(self) -> BaseStorage | None:
         """持久化 task store（启动后才可用）。"""
         return self._task_store
+
+    @property
+    def cron_service(self):
+        """内部 Cron 服务（SchedulerCronService；业务门面直连用）。"""
+        return self._cron_service
 
     @property
     def event_bus(self) -> EventBus | None:
@@ -278,11 +291,11 @@ class Scheduler:
         with self._lock:
             self._tasks.clear()
             self._running_futures.clear()
-        self._pipelines.clear()
+        self.pipeline_service.replace_registry({})
         self._background_tasks.clear()
 
     async def _restore_runtime_state(self) -> None:
-        self._pipelines.update(await self._state_service.restore_pipelines())
+        self.pipeline_service.replace_registry(await self._state_service.restore_pipelines())
         for task in await self._state_service.restore_tasks():
             with self._lock:
                 self._tasks[task.id] = task
@@ -318,82 +331,30 @@ class Scheduler:
             self._task_store = None
 
     def register_pipeline(self, pipeline: Pipeline) -> None:
-        """注册 Pipeline 配置"""
-        self._pipelines[pipeline.name] = pipeline
-        if self._started:
-            self._create_background_task(self._persist_pipeline(pipeline))
-        logger.info(f"Pipeline 已注册: {pipeline.name}")
+        """注册 Pipeline 配置（兼容 shim：实现已在 PipelineService）。"""
+        self.pipeline_service.register_pipeline(pipeline)
 
     def get_pipeline(self, name: str) -> Pipeline | None:
-        """获取已注册的 Pipeline"""
-        return self._pipelines.get(name)
+        """获取已注册的 Pipeline（兼容 shim）。"""
+        return self.pipeline_service.get_pipeline(name)
 
     async def resolve_pipeline(self, name: str) -> Pipeline | None:
         """按名称解析 Pipeline；内存没有时尝试从 graph/pipeline 仓储或内置模板投影加载。"""
         if not name:
             return None
-        pipeline = self._pipelines.get(name)
-        if pipeline is not None:
-            return pipeline
-        repo = self._pipeline_repo
-        if repo is not None and hasattr(repo, "load_as_dag"):
-            # None means the named graph/pipeline is absent; repository and
-            # serialization errors must propagate instead of silently falling
-            # through to a built-in template with different semantics.
-            dag = await repo.load_as_dag(name)
-            if dag is not None:
-                from src.core.dag import dag_to_pipeline
-
-                pipeline = dag_to_pipeline(dag)
-                if not pipeline.steps:
-                    return None
-                self._pipelines[name] = pipeline
-                return pipeline
-        # Built-in templates (steam_basic / taptap_basic / ...) — materialize on demand
-        try:
-            from src.core.pipeline_templates import PIPELINE_TEMPLATES
-
-            template = next(
-                (item for item in PIPELINE_TEMPLATES if item.get("id") == name),
-                None,
-            )
-            if template is not None:
-                pipeline = Pipeline.from_config(
-                    {
-                        "name": name,
-                        "description": template.get("description") or template.get("name") or name,
-                        "steps": template.get("steps") or [],
-                    }
-                )
-                if pipeline.steps:
-                    self._pipelines[name] = pipeline
-                    return pipeline
-        except (ImportError, TypeError, ValueError, KeyError, AttributeError, IndexError) as exc:
-            logger.warning(f"resolve_pipeline template materialize failed for {name}: {exc}")
-        return None
+        return await self.pipeline_service.resolve_pipeline(name)
 
     async def save_pipeline(self, pipeline: Pipeline) -> None:
-        """Save a pipeline and persist it."""
-        self._pipelines[pipeline.name] = pipeline
-        logger.info(f"Pipeline saved: {pipeline.name}")
-        await self._persist_pipeline(pipeline)
+        """Save a pipeline and persist it（兼容 shim）。"""
+        await self.pipeline_service.save_pipeline(pipeline)
 
     def get_all_pipelines(self) -> list[Pipeline]:
-        """Return all registered pipelines."""
-        return list(self._pipelines.values())
+        """Return all registered pipelines（兼容 shim）。"""
+        return self.pipeline_service.get_all_pipelines()
 
     async def delete_pipeline(self, name: str) -> bool:
         """Delete a pipeline and its persisted snapshot."""
-        if name not in self._pipelines:
-            return False
-
-        del self._pipelines[name]
-        if self._pipeline_repo is not None:
-            await self._pipeline_repo.delete(name)
-        elif self._task_store is not None:
-            await self._task_store.delete(f"pipeline:{name}")
-        logger.info(f"Pipeline deleted: {name}")
-        return True
+        return await self.pipeline_service.delete_pipeline(name)
 
     async def submit(
         self,

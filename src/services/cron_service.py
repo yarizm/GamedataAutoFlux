@@ -31,7 +31,7 @@ class CronService:
         schedule_meta: dict[str, Any] | None = None,
         description: str = "",
     ) -> str:
-        return self._get_scheduler().add_cron_job(
+        return self._get_scheduler().cron_service.add_cron_job(
             name=name,
             pipeline_name=pipeline_name,
             cron_expr=cron_expr,
@@ -44,20 +44,20 @@ class CronService:
         )
 
     def update_cron_job(self, name: str, **kwargs: Any) -> str:
-        return self._get_scheduler().update_cron_job(name, **kwargs)
+        return self._get_scheduler().cron_service.update_cron_job(name, **kwargs)
 
     def set_cron_job_enabled(self, name: str, enabled: bool) -> bool:
-        return self._get_scheduler().set_cron_job_enabled(name, enabled)
+        return self._get_scheduler().cron_service.set_cron_job_enabled(name, enabled)
 
     async def run_cron_job_now(self, name: str) -> str:
         """立即按模板提交一次任务。"""
-        return await self._get_scheduler().run_cron_job_now(name)
+        return await self._get_scheduler().cron_service.run_cron_job_now(name)
 
     def get_cron_job(self, name: str) -> dict[str, Any] | None:
-        return self._get_scheduler().get_cron_job(name)
+        return self._get_scheduler().cron_service.get_cron_job(name)
 
     def remove_cron_job(self, name: str) -> bool:
-        return self._get_scheduler().remove_cron_job(name)
+        return self._get_scheduler().cron_service.remove_cron_job(name)
 
     def list_cron_jobs(self) -> "list[dict[str, Any]]":
-        return self._get_scheduler().list_cron_jobs()
+        return self._get_scheduler().cron_service.list_cron_jobs()
