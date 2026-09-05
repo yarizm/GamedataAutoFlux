@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import importlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -20,7 +20,6 @@ from packaging.requirements import InvalidRequirement, Requirement
 
 from src.core.config import get_data_dir
 from src.plugin_manager.processes import managed_subprocess_options
-
 
 MANAGER_DIRNAME = "plugin-manager"
 CURRENT_POINTER = "current.json"
@@ -630,12 +629,12 @@ def get_plugin_manager_access() -> dict[str, Any]:
 def get_environment_inventory() -> dict[str, Any]:
     """Return deployment facts needed by the plugin center."""
 
-    from src.plugin_manager.restart import restart_controller
-    from src.plugin_manager.store import plugin_state_store
     from src.plugin_manager.compatibility import (
         current_core_version,
         detect_runtime_capabilities,
     )
+    from src.plugin_manager.restart import restart_controller
+    from src.plugin_manager.store import plugin_state_store
 
     data_dir = get_data_dir().resolve()
     manager_dir = get_plugin_manager_dir().resolve()

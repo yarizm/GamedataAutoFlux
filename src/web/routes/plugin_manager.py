@@ -22,7 +22,6 @@ from src.plugin_manager.restart import RestartUnavailableError, restart_controll
 from src.plugin_manager.store import plugin_state_store
 from src.web.safety import require_explicit_confirmation
 
-
 router = APIRouter(prefix="/plugin-manager", tags=["plugin-manager"])
 MAX_UPLOAD_SIZE = 200 * 1024 * 1024
 

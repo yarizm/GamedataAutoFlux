@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import get as get_config
-from src.core.config import get_data_dir, get_raw_section, get_root_dir
-from src.core.config import get_settings_validation
+from src.core.config import get_data_dir, get_raw_section, get_root_dir, get_settings_validation
 
 Status = str
 

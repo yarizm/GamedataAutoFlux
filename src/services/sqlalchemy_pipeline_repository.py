@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.core.pipeline import Pipeline
 from src.core.dag import DAG, pipeline_to_dag
+from src.core.pipeline import Pipeline
 from src.services.pipeline_repository import PipelineRepository
 from src.storage.models import SchedulerStateModel
 

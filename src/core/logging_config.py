@@ -13,8 +13,7 @@ from typing import Any
 import yaml
 from loguru import logger
 
-from src.core.config import get_raw_section
-from src.core.config import get_root_dir
+from src.core.config import get_raw_section, get_root_dir
 
 
 def configure_logging(config_path: str | Path | None = None) -> None:

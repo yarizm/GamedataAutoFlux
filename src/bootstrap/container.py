@@ -16,7 +16,6 @@ import threading
 from loguru import logger
 
 from src.core.app_settings import get_app_settings
-
 from src.core.scheduler import Scheduler
 from src.reporting.generator import ReportGenerator
 

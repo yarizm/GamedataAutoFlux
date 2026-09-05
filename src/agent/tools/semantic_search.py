@@ -1,10 +1,11 @@
 from typing import Type
+
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
 from loguru import logger
-from src.services._utils import get_embeddings, extract_record_identity
+from pydantic import BaseModel, Field
 
 from src.agent.tools.utils import _format_result, _safe_error_text
+from src.services._utils import extract_record_identity, get_embeddings
 
 
 class SemanticSearchInput(BaseModel):

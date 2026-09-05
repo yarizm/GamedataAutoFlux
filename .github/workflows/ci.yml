@@ -39,14 +39,14 @@ jobs:
           cache-dependency-path: "src/web/package-lock.json"
 
       - name: Install Python package (dev extras)
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,test]"
 
       - name: Dependency lock freshness & frozen install
         # uv.lock 是唯一依赖事实源：锁定漂移或无法冻结安装即失败
         run: |
           pip install uv
           uv lock --check
-          uv sync --frozen --extra dev
+          uv sync --frozen --extra dev --extra test
 
       - name: Dependency security audit
         # 已知漏洞依赖在 CI 即暴露（配合 .github/dependabot.yml 的周期更新）
@@ -125,7 +125,7 @@ jobs:
           cache: "pip"
 
       - name: Install Python package (dev extras)
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,test]"
 
       - name: Compile sources
         run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py

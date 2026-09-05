@@ -17,9 +17,9 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.core.sensitive import redact_sensitive_text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations"
 

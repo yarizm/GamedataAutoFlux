@@ -12,7 +12,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.core.exceptions import DomainError, ValidationError
-
 from src.reporting.data_extractor import extract_from_records
 from src.reporting.report_templates import validate_template_sources
 from src.services._utils import (

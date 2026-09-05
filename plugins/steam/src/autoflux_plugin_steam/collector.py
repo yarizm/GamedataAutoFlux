@@ -23,18 +23,18 @@ from typing import Any
 
 from loguru import logger
 
-from src.collectors.base import BaseCollector, CollectTarget, CollectResult
-from autoflux_plugin_steam.steam.steam_api_client import SteamAPIClient
-from autoflux_plugin_steam.steam.steamdb_scraper import SteamDBScraper, SteamDBScrapeFailed
 from autoflux_plugin_steam.steam.firecrawl_fallback import FirecrawlFallback
+from autoflux_plugin_steam.steam.steam_api_client import SteamAPIClient
+from autoflux_plugin_steam.steam.steamdb_scraper import SteamDBScrapeFailed, SteamDBScraper
+from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.collector_resume import (
     build_collector_cursor,
     cap_partial_list,
     parse_recovery_cursor,
 )
 from src.core.errors import ErrorCode, classify_exception
-from src.core.sensitive import redact_sensitive_text
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 
 # Stage machine (S1 deep resume)
 _STAGE_RESOLVE = "resolve_app_id"

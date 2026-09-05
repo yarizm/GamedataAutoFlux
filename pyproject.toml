@@ -51,10 +51,18 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
-    "ruff>=0.6.0",
+    "ruff>=0.6.0,<0.17",
     "aiosqlite>=0.20.0",
     "pyright>=1.1.400",
     "alembic>=1.19.0",
+    "gamedata-autoflux[test]",
+]
+# 测试套件经 conftest 以源码方式加载全部第一方插件（不走 entry points），
+# 因此插件的三方依赖必须在测试环境可用
+test = [
+    "pytrends>=4.9.2",
+    "urllib3>=2.0.0",
+    "firecrawl-py>=1.0.0,<3.0.0",
 ]
 vector = [
     "chromadb>=0.5.0",
@@ -97,3 +105,9 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# 显式锁定规则集：0.16+ 的新默认引入大量风格类规则（BLE/UP/SIM/TRY/DTZ...），
+# 与项目既有约定不符且随版本漂移。这里固定为经典默认 + isort；
+# 新规则按需逐个加入，避免上游默认集变化打爆 CI。
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

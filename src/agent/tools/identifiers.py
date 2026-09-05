@@ -5,7 +5,9 @@
 import json
 from pathlib import Path
 from typing import ClassVar, Type
+
 from langchain_core.tools import BaseTool
+from loguru import logger
 from pydantic import BaseModel
 
 from src.agent.schemas import (
@@ -16,7 +18,6 @@ from src.agent.schemas import (
     VerifySteamAppIdInput,
 )
 from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
-from loguru import logger
 
 
 async def _auto_fill_identifiers(targets: list[dict], pipeline_name: str) -> list[dict]:

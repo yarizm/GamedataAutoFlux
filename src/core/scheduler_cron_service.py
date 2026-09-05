@@ -22,7 +22,6 @@ from src.core.cron_schedule import (
 )
 from src.core.task import Task
 
-
 SubmitTaskFn = Callable[..., Awaitable[str]]
 
 

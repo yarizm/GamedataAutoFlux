@@ -21,7 +21,6 @@ from src.plugin_manager.models import CatalogPlugin, Compatibility
 from src.plugin_manager.package_reader import WheelMetadata, normalize_distribution
 from src.plugin_manager.processes import managed_subprocess_options
 
-
 PLUGIN_API_VERSION = "1"
 
 

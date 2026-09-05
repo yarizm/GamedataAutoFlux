@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+
 from src.core.diagnostics import (
     build_collector_session_diagnostics,
     build_config_diagnostics,
     build_health_report,
     build_session_diagnostics_overview,
 )
-from src.services.session_registry import build_session_inventory_summary
 from src.services.session_inventory_sync import sync_session_inventory_via_provider_best_effort
+from src.services.session_registry import build_session_inventory_summary
 from src.web.safety import require_admin
-
 
 _launch_lock = asyncio.Lock()
 
@@ -108,6 +107,7 @@ async def session_inventory(
 async def launch_steamdb_browser():
     """Launch the SteamDB login browser via subprocess."""
     import subprocess
+
     from src.core.diagnostics import build_steamdb_launch_command
 
     async with _launch_lock:

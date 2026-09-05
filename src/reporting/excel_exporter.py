@@ -27,7 +27,6 @@ from src.reporting.report_templates import (
     is_structured_template,
 )
 
-
 # ==================== 样式常量 ====================
 
 HEADER_FONT = Font(name="微软雅黑", bold=True, size=11, color="FFFFFF")

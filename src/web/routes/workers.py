@@ -9,22 +9,22 @@ from loguru import logger
 
 from src.core.sensitive import redact_sensitive_text
 from src.core.worker_claim_coordinator import should_retain_retry_session_claim
-from src.services.session_inventory_sync import (
-    load_blocked_session_entry_best_effort,
-    release_task_session_claim_via_provider_best_effort,
-)
 from src.schemas.workers import (
     WorkerClaimTaskRequest,
     WorkerClaimTaskResponse,
     WorkerHeartbeatRequest,
-    WorkerRegisterRequest,
     WorkerReconcileStaleTasksResponse,
+    WorkerRegisterRequest,
     WorkerResponse,
     WorkerTaskArtifactRequest,
     WorkerTaskCheckpointRequest,
     WorkerTaskCompleteRequest,
     WorkerTaskEventRequest,
     WorkerTaskFailRequest,
+)
+from src.services.session_inventory_sync import (
+    load_blocked_session_entry_best_effort,
+    release_task_session_claim_via_provider_best_effort,
 )
 
 router = APIRouter(tags=["workers"])
@@ -89,7 +89,11 @@ async def reconcile_stale_worker_tasks(
     ] = 120,
 ):
     """Cancel running tasks claimed by stale/offline workers."""
-    from src.bootstrap.container import get_session_registry, get_worker_registry, get_worker_service
+    from src.bootstrap.container import (
+        get_session_registry,
+        get_worker_registry,
+        get_worker_service,
+    )
 
     worker_service = get_worker_service()
 
@@ -178,7 +182,11 @@ async def claim_task(
     req: Annotated[WorkerClaimTaskRequest, Body(description="Task claim request")],
 ):
     """Claim the next pending task for a registered worker."""
-    from src.bootstrap.container import get_session_registry, get_worker_registry, get_worker_service
+    from src.bootstrap.container import (
+        get_session_registry,
+        get_worker_registry,
+        get_worker_service,
+    )
 
     worker_service = get_worker_service()
 

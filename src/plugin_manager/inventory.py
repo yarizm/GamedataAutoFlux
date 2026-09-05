@@ -15,7 +15,6 @@ from src.plugin_manager.models import PluginInventoryRecord
 from src.plugin_manager.package_reader import normalize_distribution
 from src.plugin_manager.store import PluginStateStore, plugin_state_store
 
-
 _READ_ONLY_REASON = "This plugin source is outside the managed plugin environment."
 _MANAGED_REASON = "Installed in the managed plugin environment."
 

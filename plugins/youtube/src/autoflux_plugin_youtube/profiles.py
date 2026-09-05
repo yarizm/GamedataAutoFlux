@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.collectors.base import CollectResult, CollectTarget
 from autoflux_plugin_youtube import api
 from autoflux_plugin_youtube.base import BaseYouTubeCollector
+from src.collectors.base import CollectResult, CollectTarget
 from src.core.errors import ErrorCode
 from src.core.registry import registry
 

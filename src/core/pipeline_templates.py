@@ -9,7 +9,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-
 # Kept as a stable list object because routes and older integrations import it.
 PIPELINE_TEMPLATES: list[dict[str, Any]] = []
 _TEMPLATE_OWNERS: dict[str, str] = {}

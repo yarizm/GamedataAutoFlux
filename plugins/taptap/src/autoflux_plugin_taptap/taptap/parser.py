@@ -5,7 +5,6 @@ import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-
 DATE_RE = re.compile(
     r"^(?:"
     r"\d{2}/\d{2}/\d{4}|"

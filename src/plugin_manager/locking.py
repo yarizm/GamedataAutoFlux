@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 from typing import BinaryIO
 
-
 LOCK_FILENAME = ".operation.lock"
 _owned_paths: set[Path] = set()
 _owned_guard = threading.RLock()

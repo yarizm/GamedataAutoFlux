@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-
 from src.core.collector_metadata import get_collector_metadata, resolve_session_mode
 from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent
 from src.core.task import Task

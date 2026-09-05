@@ -5,7 +5,8 @@ Pipeline configuration API routes.
 from __future__ import annotations
 
 from typing import Annotated, Any
-from fastapi import APIRouter, HTTPException, Query, Path, Body
+
+from fastapi import APIRouter, Body, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from src.core.collector_metadata import (
@@ -14,13 +15,14 @@ from src.core.collector_metadata import (
     get_collector_metadata,
 )
 from src.core.collector_validators import validate_collector_config
-from src.core.pipeline import Pipeline
-from src.core.pipeline_availability import inspect_pipeline_availability
-from src.core.dag import DAG, Edge as DagEdge, NodeSpec, PortSpec, dag_to_pipeline
+from src.core.dag import DAG, NodeSpec, PortSpec, dag_to_pipeline
+from src.core.dag import Edge as DagEdge
 from src.core.dag_executor import validate_dag_detailed
 from src.core.dag_nodes import dag_node_catalog_payload, get_dag_node
-from src.core.registry import registry
+from src.core.pipeline import Pipeline
+from src.core.pipeline_availability import inspect_pipeline_availability
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
+from src.core.registry import registry
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["pipelines"])
@@ -445,7 +447,7 @@ async def preview_cron_schedule(
     req: Annotated[CronSchedulePreviewRequest, Body(description="Schedule preview")],
 ):
     """Preview human label and next run times without creating a job."""
-    from src.core.cron_schedule import resolve_schedule_input, next_run_times
+    from src.core.cron_schedule import next_run_times, resolve_schedule_input
 
     try:
         resolved = resolve_schedule_input(

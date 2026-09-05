@@ -134,9 +134,9 @@ async def lifespan(app: FastAPI):
     )
 
     # 挂载 repositories 到 scheduler（public lifecycle API）
-    from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
     from src.services.sqlalchemy_cron_repository import SQLAlchemyCronRepository
     from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
+    from src.services.sqlalchemy_task_repository import SQLAlchemyTaskRepository
 
     scheduler.attach_persistence(
         task_repo=SQLAlchemyTaskRepository(session_factory),
@@ -256,17 +256,17 @@ def create_app() -> FastAPI:
     )
 
     # 注册路由
-    from src.web.routes.tasks import router as tasks_router
-    from src.web.routes.pipelines import router as pipelines_router
-    from src.web.routes.reports import router as reports_router
-    from src.web.routes.data import router as data_router
-    from src.web.routes.ws import router as ws_router
     from src.web.routes.agent import router as agent_router
+    from src.web.routes.data import router as data_router
     from src.web.routes.health import router as health_router
-    from src.web.routes.workers import router as workers_router
-    from src.web.routes.targets import router as targets_router
-    from src.web.routes.youtube_export import router as youtube_export_router
+    from src.web.routes.pipelines import router as pipelines_router
     from src.web.routes.plugin_manager import router as plugin_manager_router
+    from src.web.routes.reports import router as reports_router
+    from src.web.routes.targets import router as targets_router
+    from src.web.routes.tasks import router as tasks_router
+    from src.web.routes.workers import router as workers_router
+    from src.web.routes.ws import router as ws_router
+    from src.web.routes.youtube_export import router as youtube_export_router
     from src.web.safety import require_admin
 
     admin_dependencies = [Depends(require_admin)]

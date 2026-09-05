@@ -1,5 +1,6 @@
 import httpx
 from loguru import logger
+
 from src.core.config import get_settings
 
 

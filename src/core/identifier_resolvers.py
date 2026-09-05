@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-
 ResolveIdentifier = Callable[[Any, str], Awaitable[Any]]
 VerifyIdentifier = Callable[[Any, str, str], Awaitable[dict[str, Any]]]
 

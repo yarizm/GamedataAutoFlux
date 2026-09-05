@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from loguru import logger
-from src.collectors.base import BaseCollector, CollectTarget, CollectResult
-from src.core.sensitive import redact_sensitive_text
+
+from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.registry import registry
+from src.core.sensitive import redact_sensitive_text
 from src.core.url_safety import NavigationUrlGuard
 
 

@@ -13,9 +13,9 @@ from src.services._utils import (
     source_label,
 )
 from src.services.data_management_service import DataManagementService
+from src.services.game_resolver import GameIdentifierResolver
 from src.services.session_registry import SessionRegistryEntry
 from src.services.task_service import TaskService
-from src.services.game_resolver import GameIdentifierResolver
 
 __all__ = [
     "DataManagementService",

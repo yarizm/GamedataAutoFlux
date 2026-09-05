@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.collectors.base import BaseCollector
 from autoflux_plugin_youtube.client_pool import YouTubeClientPool
+from src.collectors.base import BaseCollector
 from src.core.config import get_settings
 
 

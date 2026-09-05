@@ -57,7 +57,6 @@ from src.core.registry import registry
 from src.processors.base import BaseProcessor
 from src.storage.base import BaseStorage
 
-
 PLUGIN_ENTRY_POINT_GROUP = "gamedata_autoflux.plugins"
 PLUGIN_MODULES_ENV = "AUTOFLUX_PLUGIN_MODULES"
 PLUGIN_API_VERSION = "1"

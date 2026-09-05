@@ -3,6 +3,7 @@
 """
 
 from typing import Type
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 

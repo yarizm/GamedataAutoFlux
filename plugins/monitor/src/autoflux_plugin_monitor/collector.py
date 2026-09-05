@@ -4,11 +4,11 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any
 from urllib.parse import quote
 
 import httpx
-from difflib import SequenceMatcher
 from loguru import logger
 
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
@@ -16,7 +16,6 @@ from src.core.config import get as get_config
 from src.core.errors import ErrorCode
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive_text
-
 
 STEAM_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 SULLY_SEARCH_URL = "https://sullygnome.com/api/standardsearch/{query}"

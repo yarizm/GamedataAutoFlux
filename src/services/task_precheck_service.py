@@ -20,8 +20,10 @@ from src.core.dag_validate import (
     collector_uses_from_upstream,
     validate_pipeline_collector_upstream,
 )
-from src.core.diagnostics import build_collector_session_diagnostics
-from src.core.diagnostics import build_session_readiness_summary
+from src.core.diagnostics import (
+    build_collector_session_diagnostics,
+    build_session_readiness_summary,
+)
 from src.core.pipeline_availability import inspect_pipeline_availability
 from src.schemas.tasks import CollectorReadiness, TaskPrecheckIssue, TaskPrecheckResponse
 

@@ -1,12 +1,12 @@
 from typing import Any
-from loguru import logger
-from src.services._utils import get_embeddings
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from loguru import logger
 
+from src.core.config import get_settings
 from src.core.registry import registry
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
-from src.core.config import get_settings
+from src.services._utils import get_embeddings
 
 
 @registry.register("processor", "vectorizer")

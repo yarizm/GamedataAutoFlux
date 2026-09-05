@@ -17,8 +17,8 @@ from typing import Any
 from loguru import logger
 
 from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent, TaskUpdatedEvent
-from src.core.task_report_service import TaskReportService
 from src.core.sensitive import redact_sensitive_text
+from src.core.task_report_service import TaskReportService
 
 
 class ReportGenerationHook:

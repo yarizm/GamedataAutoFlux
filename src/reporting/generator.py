@@ -24,21 +24,21 @@ from pydantic import BaseModel, Field
 from src.core.config import get as get_config
 from src.core.config import get_root_dir
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
-from src.storage.base import StorageRecord
-from src.storage.factory import get_storage
 from src.reporting.data_extractor import ExtractedData, extract_from_records
 from src.reporting.excel_exporter import export_to_excel
 from src.reporting.report_templates import get_report_template, validate_template_sources
 from src.services._utils import (
     build_record_summary,
-    compute_record_completeness,
     coerce_record_limit,
+    compute_record_completeness,
     derive_collection_target_context,
     extract_record_identity,
     filter_records_by_data_source,
     filter_source_data_records,
     is_report_history_record,
 )
+from src.storage.base import StorageRecord
+from src.storage.factory import get_storage
 
 
 class ReportSummary(BaseModel):

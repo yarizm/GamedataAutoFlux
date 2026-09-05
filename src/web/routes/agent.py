@@ -162,7 +162,8 @@ async def set_llm_provider(req: SetProviderRequest):
 async def get_llm_providers_config():
     """获取完整的 LLM provider 原始配置（保留 ${ENV_VAR} 占位符）"""
     from src.agent.schemas import ProviderConfigItem
-    from src.core.config import get as get_config, get_raw_section
+    from src.core.config import get as get_config
+    from src.core.config import get_raw_section
 
     llm_config = get_raw_section("llm")
     items: list[dict] = []
@@ -191,8 +192,8 @@ async def get_llm_providers_config():
 @router.put("/agent/providers/config")
 async def update_llm_providers_config(req: UpdateProviderConfigRequest):
     """批量保存 LLM provider 配置到 settings.yaml"""
-    from src.core.config import save_section
-    from src.core.config import get as get_config, get_raw_section
+    from src.core.config import get as get_config
+    from src.core.config import get_raw_section, save_section
 
     # 构建 llm section 字典
     raw_llm = get_raw_section("llm")

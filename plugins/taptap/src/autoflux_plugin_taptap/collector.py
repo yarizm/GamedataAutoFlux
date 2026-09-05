@@ -7,13 +7,13 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from src.collectors.base import BaseCollector, CollectTarget, CollectResult
 from autoflux_plugin_taptap.taptap.firecrawl_fallback import TapTapFirecrawlFallback
 from autoflux_plugin_taptap.taptap.parser import merge_taptap_payloads, parse_taptap_page
 from autoflux_plugin_taptap.taptap.playwright_scraper import (
     TapTapPlaywrightFailed,
     TapTapPlaywrightScraper,
 )
+from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.errors import ErrorCode
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive_text

@@ -14,8 +14,8 @@ from typing import Iterable
 from src.plugin_manager.catalog import PluginCatalog, plugin_catalog
 from src.plugin_manager.compatibility import evaluate_catalog_plugin, evaluate_wheel
 from src.plugin_manager.environment import (
-    GenerationBuildError,
     GenerationBuilder,
+    GenerationBuildError,
     ProgressCallback,
     ValidatedPluginSpec,
 )

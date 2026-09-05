@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from loguru import logger
-
 # Monkeypatch urllib3.util.retry for pytrends compatibility with urllib3 v2+
 import urllib3.util.retry
+from loguru import logger
 
 if not hasattr(urllib3.util.retry.Retry, "DEFAULT_METHOD_WHITELIST"):
     _original_init = urllib3.util.retry.Retry.__init__
@@ -27,6 +26,7 @@ if not hasattr(urllib3.util.retry.Retry, "DEFAULT_METHOD_WHITELIST"):
 
 from pytrends.request import TrendReq
 
+from autoflux_plugin_gtrends.gtrends.firecrawl_fallback import GtrendsFirecrawlFallback
 from src.collectors.base import (
     BaseCollector,
     CollectResult,
@@ -40,7 +40,6 @@ from src.collectors.base import (
     _resolve_collect_timeout,
     _sleep_before_retry,
 )
-from autoflux_plugin_gtrends.gtrends.firecrawl_fallback import GtrendsFirecrawlFallback
 from src.core.config import get_settings
 from src.core.errors import ErrorCode, classify_exception
 from src.core.registry import registry

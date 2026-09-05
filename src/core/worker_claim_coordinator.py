@@ -13,10 +13,10 @@ from src.core.collector_metadata import (
     required_worker_capabilities,
     resolve_session_mode,
 )
-from src.core.diagnostics import build_collector_session_diagnostics
-from src.core.pipeline import Pipeline, PipelineResult
 from src.core.dag import pipeline_to_dag
+from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.metrics import metrics
+from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.storage.base import StorageRecord

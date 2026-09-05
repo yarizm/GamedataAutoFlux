@@ -14,7 +14,6 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "src" / "plugin_manager" / "catalog.json"
 ENTRY_POINT_GROUP = "gamedata_autoflux.plugins"

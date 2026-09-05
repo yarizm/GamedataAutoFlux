@@ -24,13 +24,12 @@ import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from src.collectors.base import BaseCollector, CollectTarget, CollectResult
+from src.collectors.base import BaseCollector, CollectResult, CollectTarget
 from src.core.metrics import metrics
-from src.core.registry import registry
 from src.core.pipeline_recovery import (
     apply_collect_resume_context,
     build_pipeline_recovery_context,
@@ -38,10 +37,11 @@ from src.core.pipeline_recovery import (
     build_storage_record_key,
     resolve_storage_resume_context,
 )
+from src.core.registry import registry
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
-from src.services._utils import normalize_key
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
+from src.services._utils import normalize_key
 from src.storage.base import BaseStorage, StorageRecord
 
 

@@ -10,7 +10,6 @@ from src.core.collector_metadata import (
 from src.core.dag_nodes import DagOutputField
 from src.core.plugin_system import PluginSpec, make_template
 
-
 plugin = PluginSpec(
     name="autoflux-plugin-youtube",
     version="0.1.0",

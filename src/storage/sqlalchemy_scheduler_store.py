@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from typing import Any
-from src.storage.models import utcnow
+
 from loguru import logger
-from sqlalchemy import select, func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.core.registry import registry
 from src.core.sensitive import redact_url_credentials
-from src.storage.base import BaseStorage, StorageRecord, QueryResult
-from src.storage.models import Base, SchedulerStateModel
+from src.storage.base import BaseStorage, QueryResult, StorageRecord
+from src.storage.models import Base, SchedulerStateModel, utcnow
 
 
 @registry.register("storage", "sqlalchemy_scheduler")

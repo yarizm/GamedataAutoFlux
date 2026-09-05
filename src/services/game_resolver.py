@@ -20,10 +20,10 @@ from loguru import logger
 from pydantic import ValidationError
 
 from src.agent.schemas import (
+    GameIdentifiers,
     IdentifierCandidate,
     IdentifierConfidence,
     IdentifierResult,
-    GameIdentifiers,
 )
 from src.core.config import get as get_config
 

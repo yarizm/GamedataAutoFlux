@@ -6,7 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-
 _WORKER_STATUSES = {"online", "idle", "busy", "draining", "offline"}
 _EVENT_LEVELS = {"debug", "info", "warning", "error"}
 _RECOVERY_LEVELS = {"L0", "L1", "L2", "L3"}

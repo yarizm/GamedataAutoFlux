@@ -7,7 +7,6 @@ from typing import Any
 
 from src.core.sensitive import redact_sensitive_text
 
-
 # ---------------------------------------------------------------------------
 # Deep dict access
 # ---------------------------------------------------------------------------
@@ -601,9 +600,10 @@ def roll_time_params(params: dict[str, Any]) -> None:
 
 def get_embeddings() -> Any:
     """Return a configured Embeddings instance based on settings."""
-    from src.core.config import get_settings
     from langchain_community.embeddings import DashScopeEmbeddings
     from loguru import logger
+
+    from src.core.config import get_settings
 
     settings = get_settings()
     llm_config = settings.get("llm", {}).get("qwen", {})

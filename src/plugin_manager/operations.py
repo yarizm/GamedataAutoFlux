@@ -8,18 +8,17 @@ import uuid
 from pathlib import Path
 
 from src.plugin_manager.installer import (
-    PluginInstallError,
     PluginInstaller,
+    PluginInstallError,
     plugin_installer,
 )
 from src.plugin_manager.locking import PluginManagerProcessLock
 from src.plugin_manager.models import OperationRecord
 from src.plugin_manager.references import (
-    PluginReferenceScanner,
     PluginReferenceScanError,
+    PluginReferenceScanner,
 )
 from src.plugin_manager.store import PluginStateStore, plugin_state_store, utc_now
-
 
 logger = logging.getLogger(__name__)
 

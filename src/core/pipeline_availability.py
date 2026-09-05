@@ -8,7 +8,6 @@ from typing import Any
 
 from src.core.registry import registry
 
-
 EXECUTABLE_COMPONENT_TYPES = frozenset({"collector", "processor", "storage"})
 
 

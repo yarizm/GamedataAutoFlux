@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Annotated, Any
 from datetime import datetime, timezone
 from pathlib import Path as FilePath
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Path, Body, File, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -16,25 +16,35 @@ from pydantic import BaseModel, Field
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.reporting.generator import GeneratedReport, ReportSummary, get_reports_dir
 from src.reporting.quality import build_report_quality_summary
+from src.reporting.report_templates import (
+    delete_template as tmpl_delete,
+)
 from src.reporting.report_templates import list_report_templates, normalize_collector
 from src.reporting.report_templates import (
     save_template as tmpl_save,
-    delete_template as tmpl_delete,
 )
-from src.storage.base import StorageRecord
-from src.storage.factory import get_storage
 from src.services._utils import (
     filter_records_by_data_source,
 )
 from src.services.report_precheck_service import (
     RecordKeyNotFoundError,
     ReportHistoryOnlySelectionError,
-    ReportPrecheck as ReportPrecheckResult,
-    build_report_precheck as _build_report_precheck_impl,
     load_report_precheck_records,
+)
+from src.services.report_precheck_service import (
+    ReportPrecheck as ReportPrecheckResult,
+)
+from src.services.report_precheck_service import (
+    build_report_precheck as _build_report_precheck_impl,
+)
+from src.services.report_precheck_service import (
     load_selected_records as _load_selected_records_impl,
+)
+from src.services.report_precheck_service import (
     selected_record_metadata as _selected_record_metadata_impl,
 )
+from src.storage.base import StorageRecord
+from src.storage.factory import get_storage
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["reports"])

@@ -132,8 +132,9 @@ class LaunchSteamDBBrowserTool(BaseTool):
     description: str = "一键启动用于 SteamDB 采集的浏览器，并开放 CDP 端口。系统检查报错找不到 SteamDB 浏览器时，可以通过此工具自动打开。"
 
     async def _arun(self) -> str:
-        import subprocess
         import asyncio
+        import subprocess
+
         from src.core.config import get as get_config
         from src.core.diagnostics import build_steamdb_launch_command
 

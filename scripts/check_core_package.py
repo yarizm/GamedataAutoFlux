@@ -9,7 +9,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_MEMBERS = {
     "src/plugin_manager/catalog.json",

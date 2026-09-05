@@ -15,12 +15,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.errors import ErrorCode, classify_exception
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
-
 
 _RETRYABLE_COLLECT_ERROR_CODES = {
     ErrorCode.network_unreachable.value,

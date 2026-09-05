@@ -12,26 +12,24 @@ from loguru import logger
 
 from src.core.dag import DAG, DAGResult, Edge, NodeSpec
 from src.core.dag_conditions import CONDITION_PREDICATES, resolve_condition
-from src.core.errors import ErrorCode, classify_exception
 from src.core.dag_nodes import (
     CollectorNode,
     NodeContext,
     ProcessorNode,
     StorageNode,
 )
-from src.core.pipeline_recovery import (
-    build_pipeline_recovery_context,
-    build_pipeline_resume_state,
-)
-from src.core.metrics import metrics
-from src.core.sensitive import redact_sensitive_text
-from src.core.task import Task
-
+from src.core.errors import ErrorCode, classify_exception
 
 # 结构校验异常升级为类型化异常（携带 dag_validation 错误码）；
 # 此处 re-export 保持既有导入路径兼容
 from src.core.exceptions import DAGValidationError
-
+from src.core.metrics import metrics
+from src.core.pipeline_recovery import (
+    build_pipeline_recovery_context,
+    build_pipeline_resume_state,
+)
+from src.core.sensitive import redact_sensitive_text
+from src.core.task import Task
 
 _VALID_NODE_TYPES = frozenset({"collector", "processor", "storage", "composite"})
 

@@ -44,7 +44,8 @@ def _get_extraction_llms() -> list[ChatOpenAI]:
     优先使用 smart_collector.llm，否则复用 llm.provider。
     回退链：smart_collector.llm → llm.provider → 其他已配置的 provider。
     """
-    from src.core.config import get as get_config, get_settings
+    from src.core.config import get as get_config
+    from src.core.config import get_settings
 
     llms: list[ChatOpenAI] = []
     seen_providers: set[str] = set()

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from typing import Any
-from src.storage.models import utcnow
+
 from loguru import logger
-from sqlalchemy import select, or_, func
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.core.registry import registry
 from src.core.sensitive import redact_url_credentials
-from src.storage.base import BaseStorage, StorageRecord, QueryResult
-from src.storage.models import Base, RecordModel
+from src.storage.base import BaseStorage, QueryResult, StorageRecord
+from src.storage.models import Base, RecordModel, utcnow
 
 
 @registry.register("storage", "local")  # 历史别名，与 sqlalchemy 同一实现
@@ -264,8 +264,9 @@ class SQLAlchemyStorage(BaseStorage):
     async def semantic_search(
         self, query_vector: list[float], limit: int = 5, **kwargs: Any
     ) -> QueryResult:
-        from src.storage.models import VectorType
         from sqlalchemy.types import JSON
+
+        from src.storage.models import VectorType
 
         if isinstance(VectorType, type) and issubclass(VectorType, JSON):
             raise NotImplementedError("Semantic search requires pgvector")

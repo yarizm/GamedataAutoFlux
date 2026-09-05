@@ -13,7 +13,6 @@ from pathlib import Path, PurePosixPath
 
 from src.core.plugin_system import PLUGIN_ENTRY_POINT_GROUP
 
-
 _NORMALIZE_PATTERN = re.compile(r"[-_.]+")
 _ENTRY_POINT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _ENTRY_POINT_TARGET = re.compile(

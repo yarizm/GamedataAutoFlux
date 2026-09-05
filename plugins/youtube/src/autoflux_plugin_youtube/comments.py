@@ -9,10 +9,10 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from src.collectors.base import CollectResult, CollectTarget
 from autoflux_plugin_youtube import api
 from autoflux_plugin_youtube.base import BaseYouTubeCollector
 from autoflux_plugin_youtube.client_pool import YouTubeQuotaExhausted
+from src.collectors.base import CollectResult, CollectTarget
 from src.core.collector_resume import (
     build_collector_cursor,
     cap_partial_list,

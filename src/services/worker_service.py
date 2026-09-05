@@ -7,7 +7,7 @@ WorkerClaimCoordinator，调用方面向本服务编程。
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from src.core.scheduler import Scheduler

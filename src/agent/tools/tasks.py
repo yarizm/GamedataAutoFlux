@@ -4,6 +4,7 @@
 
 import copy
 from typing import Any, Type
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
@@ -13,8 +14,8 @@ from src.agent.schemas import (
     GetTaskDetailInput,
     ListTasksInput,
 )
-from src.agent.tools.utils import _format_result, _safe_error_text
 from src.agent.tools.identifiers import _auto_fill_identifiers
+from src.agent.tools.utils import _format_result, _safe_error_text
 
 
 def _identifier_changes(before: list[dict], after: list[dict]) -> list[dict[str, Any]]:

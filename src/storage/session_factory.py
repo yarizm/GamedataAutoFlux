@@ -17,19 +17,18 @@
 
 from __future__ import annotations
 
+import asyncio
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import (
-    AsyncSession,
     AsyncEngine,
+    AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
 from src.core.sensitive import redact_url_credentials
 from src.storage.models import Base
-
-import asyncio
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -114,7 +113,8 @@ async def close_shared_session_factory() -> None:
 
 async def _migrate_schema(conn) -> None:
     """自动迁移：为旧版本数据库添加缺失的列和索引。"""
-    from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
 
     def _run(sync_conn):
         inspector = sa_inspect(sync_conn)

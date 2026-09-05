@@ -21,9 +21,9 @@ from src.core.app_settings import get_app_settings
 from src.core.events import EventBus
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.registry import registry
-from src.core.sensitive import redact_sensitive_text
 from src.core.scheduler_cron_service import SchedulerCronService
 from src.core.scheduler_state_service import SchedulerStateService, on_background_task_done
+from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task, TaskStatus
 from src.core.task_execution_coordinator import TaskExecutionCoordinator
 from src.core.task_observability_service import TaskObservabilityService
@@ -33,15 +33,15 @@ from src.core.worker_claim_coordinator import (
     WorkerClaimCoordinator,
     get_claimed_task_for_worker,
 )
-from src.services.task_artifact_service import TaskArtifactService, StorageTaskArtifactService
+from src.services.cron_repository import CronRepository
+from src.services.pipeline_repository import PipelineRepository
+from src.services.task_artifact_service import StorageTaskArtifactService, TaskArtifactService
 from src.services.task_checkpoint_service import (
     StorageTaskCheckpointService,
     TaskCheckpointService,
 )
+from src.services.task_event_service import StorageTaskEventService, TaskEventService
 from src.services.task_repository import TaskRepository
-from src.services.cron_repository import CronRepository
-from src.services.pipeline_repository import PipelineRepository
-from src.services.task_event_service import TaskEventService, StorageTaskEventService
 from src.storage.base import BaseStorage
 
 

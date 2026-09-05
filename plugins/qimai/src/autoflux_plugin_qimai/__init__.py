@@ -11,7 +11,6 @@ from src.core.collector_metadata import (
 )
 from src.core.plugin_system import PluginSpec, make_template
 
-
 plugin = PluginSpec(
     name="autoflux-plugin-qimai",
     version="0.1.0",

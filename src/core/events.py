@@ -20,10 +20,9 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # 事件类型

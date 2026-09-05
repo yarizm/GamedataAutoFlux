@@ -46,14 +46,14 @@ from src.agent.agent_redaction import (
     redact_stream_text,
     redact_stream_value,
 )
-from src.agent.agent_runtime_facade import (
-    build_agent_runtime,
-)
 from src.agent.agent_runtime_config import (
     build_runtime_config_snapshot,
     discover_available_providers,
     resolve_active_provider,
     validate_provider_selection,
+)
+from src.agent.agent_runtime_facade import (
+    build_agent_runtime,
 )
 from src.agent.agent_status_summary import (
     describe_tool_action,

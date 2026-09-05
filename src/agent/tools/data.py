@@ -3,19 +3,19 @@
 """
 
 from typing import Any, Type
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from src.agent.schemas import (
+    CollectionReviewIssue,
+    CollectionReviewResult,
     ListDataGamesInput,
     ReviewCollectionResultsInput,
     SearchDataInput,
-    CollectionReviewResult,
-    CollectionReviewIssue,
 )
 from src.agent.tools.utils import _format_result, _safe_error_text, _safe_json
 from src.core.sensitive import redact_sensitive
-from src.services.data_browser_service import DataBrowserService
 from src.services._utils import (
     coerce_record_limit,
     compute_record_completeness,
@@ -26,6 +26,7 @@ from src.services._utils import (
     normalize_key,
     record_group,
 )
+from src.services.data_browser_service import DataBrowserService
 
 
 def _source_scan_limit(limit: int) -> int:
@@ -423,8 +424,8 @@ class ReviewCollectionResultsTool(BaseTool):
 
     async def _arun(self, task_id: str, auto_retry: bool = False) -> str:
         from src.bootstrap.container import get_task_service
-        from src.storage.factory import get_storage
         from src.core.task import TaskStatus
+        from src.storage.factory import get_storage
 
         task_service = get_task_service()
         task = task_service.get_task(task_id)

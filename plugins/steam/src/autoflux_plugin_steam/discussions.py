@@ -16,7 +16,6 @@ from src.core.config import get as get_config
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive_text
 
-
 STEAM_COMMUNITY_BASE = "https://steamcommunity.com"
 TOPIC_URL_RE = re.compile(
     r"https?://steamcommunity\.com/app/(?P<app_id>\d+)/discussions/(?P<forum_id>\d+)/(?P<topic_id>\d+)/?",

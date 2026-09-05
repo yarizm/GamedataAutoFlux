@@ -10,7 +10,6 @@ from src.plugin_manager.compatibility import evaluate_catalog_plugin
 from src.plugin_manager.models import CatalogPlugin
 from src.plugin_manager.store import PluginStateStore, plugin_state_store
 
-
 CATALOG_PATH = Path(__file__).with_name("catalog.json")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

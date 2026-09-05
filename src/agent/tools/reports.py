@@ -4,9 +4,10 @@
 
 from typing import Type
 from urllib.parse import quote
+
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel
 from loguru import logger
+from pydantic import BaseModel
 
 from src.agent.schemas import (
     GenerateReportInput,
@@ -21,13 +22,14 @@ from src.reporting.quality import assess_report_quality
 from src.services._utils import (
     derive_collection_target_context,
     extract_record_identity,
-    filter_records_by_data_source as _shared_filter_records_by_data_source,
     filter_source_data_records,
     is_report_history_record,
     normalize_source_token,
     source_label,
 )
-
+from src.services._utils import (
+    filter_records_by_data_source as _shared_filter_records_by_data_source,
+)
 
 _COLLECTOR_PIPELINE_HINTS: dict[str, dict[str, str]] = {
     "steam": {

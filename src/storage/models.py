@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, DateTime, String
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
-from sqlalchemy.ext.compiler import compiles
 
 try:
     from pgvector.sqlalchemy import Vector

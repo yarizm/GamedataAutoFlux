@@ -22,7 +22,6 @@ from src.core.errors import ErrorCode
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive_text
 
-
 DEFAULT_INCLUDE_PATTERNS = (
     "news",
     "update",

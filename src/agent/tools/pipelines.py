@@ -3,6 +3,7 @@ Pipeline 管理相关工具
 """
 
 from typing import Type
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
@@ -64,8 +65,8 @@ class CreatePipelineTool(BaseTool):
     args_schema: Type[BaseModel] = CreatePipelineInput
 
     async def _arun(self, name: str, steps: list[dict]) -> str:
-        from src.core.pipeline import Pipeline, StepType
         from src.bootstrap.container import get_pipeline_service
+        from src.core.pipeline import Pipeline, StepType
 
         pipeline_service = get_pipeline_service()
 
@@ -142,8 +143,8 @@ class CreateDynamicPipelineTool(BaseTool):
         wait_strategy_selector: str | None = None,
         js_script: str = "",
     ) -> str:
-        from src.core.pipeline import Pipeline
         from src.bootstrap.container import get_pipeline_service
+        from src.core.pipeline import Pipeline
 
         pipeline_service = get_pipeline_service()
 
