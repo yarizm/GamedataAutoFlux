@@ -83,8 +83,9 @@ async def test_fresh_upgrade_creates_schema_matching_models():
         # 手写 ALTER 的列在 baseline 中齐备
         assert {"key", "state_type", "data", "metadata", "task_status", "stored_at"} <= sched_cols
         assert version == _head_revision()
-        # pgvector 可用时为 vector，否则按 models 回退语义降级为 jsonb
-        assert embedding_type in {"vector", "jsonb"}
+        # pgvector 可用时为 vector（PG 里表现为扩展自定义类型 USER-DEFINED），
+        # 否则按 models 回退语义降级为 jsonb
+        assert embedding_type in {"vector", "jsonb", "USER-DEFINED"}
     finally:
         await engine.dispose()
 
@@ -136,6 +137,7 @@ async def test_legacy_create_all_database_is_adopted():
 
 async def test_migration_failure_propagates(monkeypatch):
     """迁移异常必须穿透（阻断应用启动），不得静默吞掉。"""
+    from src.core.exceptions import DatabaseError
     from src.storage import migrations as migrations_mod
     from src.storage.migrations import run_db_migrations
 
@@ -147,7 +149,8 @@ async def test_migration_failure_propagates(monkeypatch):
             raise RuntimeError("migration exploded")
 
         monkeypatch.setattr(migrations_mod.command, "upgrade", _boom)
-        with pytest.raises(RuntimeError, match="migration exploded"):
+        # 包装为 DatabaseError 后仍必须穿透（阻断应用启动）
+        with pytest.raises(DatabaseError, match="migration exploded"):
             await run_db_migrations(engine, PG_URL)
     finally:
         await engine.dispose()
