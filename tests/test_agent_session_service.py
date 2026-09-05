@@ -117,13 +117,14 @@ async def test_load_failure_log_redacts_exception_text(monkeypatch):
 async def test_save_throttle(svc):
     """保存节流：5秒内非 force 不写入"""
     histories = {"s1": [HumanMessage(content="test")]}
-    timestamps = {"s1": time.time()}
+    now = time.time()
+    timestamps = {"s1": now}
 
     last_save = await svc.save_histories(
-        histories, timestamps, last_save_time=time.time(), force=False
+        histories, timestamps, last_save_time=now, force=False
     )
-    # 应该跳过写入，返回原 last_save_time
-    assert last_save < time.time()  # 返回的是旧值（未更新）
+    # 应该跳过写入，返回传入的旧 last_save_time（同一读数，避免时钟精度 flaky）
+    assert last_save == now
 
 
 @pytest.mark.asyncio
