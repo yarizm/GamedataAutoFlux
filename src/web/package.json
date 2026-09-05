@@ -9,16 +9,16 @@
   },
   "dependencies": {
     "codemirror": "^5.65.16",
-    "dompurify": "^3.2.6",
+    "dompurify": "^3.4.14",
     "drawflow": "^0.0.60",
     "echarts": "^5.5.0",
     "marked": "^12.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
-    "autoprefixer": "^10.4.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "autoprefixer": "^10.5.4",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.3.0",
-    "vite": "^8.0.13"
+    "vite": "^8.2.2"
   }
 }
