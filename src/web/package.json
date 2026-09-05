@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "codemirror": "^5.65.16",
+    "codemirror": "^6.0.2",
     "dompurify": "^3.2.6",
     "drawflow": "^0.0.60",
     "echarts": "^5.5.0",
