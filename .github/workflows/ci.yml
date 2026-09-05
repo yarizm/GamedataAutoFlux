@@ -41,6 +41,10 @@ jobs:
       - name: Install Python package (dev extras)
         run: pip install -e ".[dev,test]"
 
+      - name: Install Playwright chromium
+        # 插件兼容性检测要求 chromium 二进制就位（README 开发环境要求）
+        run: playwright install chromium
+
       - name: Dependency lock freshness & frozen install
         # uv.lock 是唯一依赖事实源：锁定漂移或无法冻结安装即失败
         run: |
@@ -126,6 +130,9 @@ jobs:
 
       - name: Install Python package (dev extras)
         run: pip install -e ".[dev,test]"
+
+      - name: Install Playwright chromium
+        run: playwright install chromium
 
       - name: Compile sources
         run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
