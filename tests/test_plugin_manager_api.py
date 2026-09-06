@@ -54,12 +54,10 @@ def _build_youtube_wheel(tmp_path: Path) -> Path:
         [
             sys.executable,
             "-m",
-            "pip",
-            "wheel",
-            "--disable-pip-version-check",
-            "--no-deps",
-            "--no-build-isolation",
-            "--wheel-dir",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
             str(wheel_dir),
             str(build_source),
         ],
@@ -76,7 +74,7 @@ def _build_youtube_wheel(tmp_path: Path) -> Path:
     return wheels[0]
 
 
-def test_catalog_install_api_builds_managed_generation() -> None:
+def test_catalog_install_api_builds_managed_generation(monkeypatch) -> None:
     with TestClient(app) as client:
         catalog = client.get("/api/plugin-manager/catalog")
         assert catalog.status_code == 200
@@ -89,6 +87,24 @@ def test_catalog_install_api_builds_managed_generation() -> None:
             json={"plugin_id": "official.youtube"},
         )
         assert missing_confirmation.status_code == 400
+
+        # 确定性构造冲突窗口：gate 住 youtube 操作使其保持 queued/running，
+        # conflict POST 才必然命中"已有操作"——真实安装耗时不稳定，
+        # 依赖时序会随机得到 PLUGIN_INCOMPATIBLE 或 202
+        import asyncio
+
+        service = app.state.plugin_operations
+        release_first = asyncio.Event()
+        original_execute = service._execute
+        gated_started = {"value": False}
+
+        async def _gated_execute(op_id):
+            if not gated_started["value"]:
+                gated_started["value"] = True
+                await release_first.wait()
+            return await original_execute(op_id)
+
+        monkeypatch.setattr(service, "_execute", _gated_execute)
 
         accepted = client.post(
             "/api/plugin-manager/operations/install?confirm=true",
@@ -103,6 +119,8 @@ def test_catalog_install_api_builds_managed_generation() -> None:
         )
         assert conflict.status_code == 409
         assert conflict.json()["detail"]["code"] == "PLUGIN_OPERATION_CONFLICT"
+
+        release_first.set()
 
         operation = _wait_for_operation(client, operation_id)
         assert operation["state"] == "succeeded", operation

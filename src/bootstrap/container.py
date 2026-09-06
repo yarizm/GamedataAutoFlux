@@ -61,9 +61,19 @@ def _reset_runtime_singletons(
     *,
     reset_agent: bool = False,
     reset_agent_session: bool = False,
+    reset_event_bus: bool = False,
 ) -> None:
+    """重置惰性单例。
+
+    EventBus 默认**不**参与本重置：它在 lifespan 启动段创建并挂给
+    Scheduler / hooks，必须横跨整个 lifespan 保持同一实例——启动末尾
+    的例行的 reset 若把它清掉，container 与 Scheduler 会各持一个总线
+    （shutdown 的 clear 也会清错对象）。只有 shutdown 收尾在 clear
+    之后显式传 ``reset_event_bus=True``。
+    """
     global _task_service, _worker_registry, _session_registry, _agent_service
     global _agent_session_service, _dag_repo, _pipeline_service, _cron_service, _worker_service
+    global _event_bus
 
     _task_service = None
     _worker_registry = None
@@ -72,8 +82,8 @@ def _reset_runtime_singletons(
     _pipeline_service = None
     _cron_service = None
     _worker_service = None
-    global _event_bus
-    _event_bus = None
+    if reset_event_bus:
+        _event_bus = None
     if reset_agent:
         _agent_service = None
     if reset_agent_session:

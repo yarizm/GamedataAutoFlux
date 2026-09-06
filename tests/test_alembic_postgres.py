@@ -129,8 +129,17 @@ async def test_legacy_create_all_database_is_adopted():
             legacy_rows = (
                 await conn.execute(text("SELECT count(*) FROM scheduler_states"))
             ).scalar()
+            cols = {
+                col["name"]
+                for col in await conn.run_sync(
+                    lambda c: sa_inspect(c).get_columns("scheduler_states")
+                )
+            }
         assert version == _head_revision()
         assert legacy_rows == 0  # 遗留表未被重建/破坏
+        # legacy compat revision 必须把 create_all 早期 schema 缺的列补齐——
+        # 收编不是"宣布升级完成"，而是真的把 schema 带到 baseline 形态
+        assert {"metadata", "stored_at", "task_status"} <= cols
     finally:
         await engine.dispose()
 

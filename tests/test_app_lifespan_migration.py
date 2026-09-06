@@ -78,3 +78,22 @@ def test_pipeline_migration_failure_blocks_startup() -> None:
         _ensure_pipeline_migration_success({"failed": ["broken-pipeline"]})
 
     _ensure_pipeline_migration_success({"failed": []})
+
+
+def test_event_bus_is_single_instance_across_lifespan():
+    """容器与 Scheduler 在整个 lifespan 期间必须持有同一 EventBus 实例。
+
+    启动末尾的例行 singleton reset 不得清掉 event_bus——否则 container
+    会惰性创建第二个总线，shutdown 的 clear 也清不到真正注册 hooks 的
+    那一个。
+    """
+    from fastapi.testclient import TestClient
+
+    from src.bootstrap import container
+    from src.web.app import app
+
+    with TestClient(app):
+        bus = container.get_event_bus()
+        assert bus is container.scheduler.event_bus
+        bus.clear()  # 不得影响 scheduler 侧引用的同一性
+        assert container.get_event_bus() is container.scheduler.event_bus

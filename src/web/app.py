@@ -218,7 +218,9 @@ async def lifespan(app: FastAPI):
     # 关闭全局存储并重置单例
     import src.storage.factory
 
-    _reset_runtime_singletons(reset_agent=True, reset_agent_session=True)
+    _reset_runtime_singletons(
+        reset_agent=True, reset_agent_session=True, reset_event_bus=True
+    )
 
     if hasattr(app.state, "storage") and app.state.storage:
         await app.state.storage.close()

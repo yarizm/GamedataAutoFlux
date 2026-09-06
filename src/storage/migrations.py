@@ -24,6 +24,21 @@ from src.core.sensitive import redact_sensitive_text
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations"
 
 
+def _baseline_revision(cfg: Config) -> str:
+    """解析迁移链的起点 revision（down_revision 为 None 的那个）。
+
+    收编遗留库时 stamp 起点（而非 head）：head 会随未来 revision 增长，
+    stamp head 会让遗留库静默跳过全部后续迁移。
+    """
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(cfg)
+    for revision in script.walk_revisions():
+        if revision.down_revision is None:
+            return revision.revision
+    raise RuntimeError("no baseline revision found in migration chain")
+
+
 def build_migration_config(url: str) -> Config:
     cfg = Config()
     cfg.set_main_option("script_location", str(_SCRIPTS_DIR))
@@ -47,8 +62,11 @@ async def run_db_migrations(engine: AsyncEngine, url: str) -> None:
     cfg = build_migration_config(url)
 
     if not has_version_table and has_app_tables:
-        logger.info("检测到 create_all 遗留库，stamp 至当前 baseline 后纳入 Alembic 管理")
-        command.stamp(cfg, "head")
+        baseline = _baseline_revision(cfg)
+        logger.info(
+            f"检测到 create_all 遗留库，stamp 至 baseline {baseline} 后纳入 Alembic 管理"
+        )
+        command.stamp(cfg, baseline)
 
     try:
         command.upgrade(cfg, "head")

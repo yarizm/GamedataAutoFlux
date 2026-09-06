@@ -889,6 +889,7 @@ dependencies = [
 dev = [
     { name = "aiosqlite" },
     { name = "alembic" },
+    { name = "build" },
     { name = "firecrawl-py" },
     { name = "httpx" },
     { name = "playwright" },
@@ -903,6 +904,7 @@ embedding = [
     { name = "openai" },
 ]
 test = [
+    { name = "build" },
     { name = "firecrawl-py" },
     { name = "playwright" },
     { name = "pytrends" },
@@ -919,6 +921,7 @@ requires-dist = [
     { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.19.0" },
     { name = "apscheduler", specifier = ">=3.10.0,<4.0.0" },
     { name = "asyncpg", specifier = ">=0.29.0,<1.0.0" },
+    { name = "build", marker = "extra == 'test'", specifier = ">=1.2.0" },
     { name = "chromadb", marker = "extra == 'vector'", specifier = ">=0.5.0" },
     { name = "fastapi", specifier = ">=0.136.1,<1.0.0" },
     { name = "firecrawl-py", marker = "extra == 'test'", specifier = ">=1.0.0,<3.0.0" },

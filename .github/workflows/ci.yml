@@ -9,6 +9,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      UV_FROZEN: "1"  # uv run 的隐式 sync 同样只认锁定版本
     services:
       postgres:
         # 与 docker-compose 生产库同款（PostgreSQL 15 + pgvector）
@@ -30,7 +32,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - uses: actions/setup-node@v4
         with:
@@ -38,32 +39,28 @@ jobs:
           cache: "npm"
           cache-dependency-path: "src/web/package-lock.json"
 
-      - name: Install Python package (dev extras)
-        run: pip install -e ".[dev,test]"
+      - name: Frozen dependency install
+        # uv.lock 是唯一依赖事实源：--frozen 在锁漂移时直接失败；
+        # 后续所有步骤一律 uv run，保证测试确实跑在锁定的依赖版本上
+        # （而非 setup-python 全局解释器里另一套宽约束安装）
+        run: |
+          pip install uv
+          uv sync --frozen --extra dev --extra test
 
       - name: Install Playwright chromium
         # 插件兼容性检测要求 chromium 二进制就位（README 开发环境要求）
-        run: playwright install chromium
-
-      - name: Dependency lock freshness & frozen install
-        # uv.lock 是唯一依赖事实源：锁定漂移或无法冻结安装即失败
-        run: |
-          pip install uv
-          uv lock --check
-          uv sync --frozen --extra dev --extra test
+        run: uv run playwright install chromium
 
       - name: Dependency security audit
         # 已知漏洞依赖在 CI 即暴露（配合 .github/dependabot.yml 的周期更新）
-        run: |
-          pip install pip-audit
-          pip-audit --skip-editable
+        run: uv run --with pip-audit pip-audit --skip-editable
 
       - name: Compile sources
-        run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
+        run: uv run python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
 
       - name: Ruff (core and plugins)
         run: >
-          ruff check
+          uv run ruff check
           src/
           plugins/
           scripts/check_core_package.py
@@ -72,17 +69,15 @@ jobs:
       - name: Pyright (core/services/storage)
         # 分层接入：error 级阻断（Optional 调用/返回类型等），
         # argument-type 等深度类型债暂为 warning，见 pyrightconfig.json
-        run: |
-          pip install pyright
-          pyright
+        run: uv run pyright
 
       - name: Validate first-party plugin releases
-        run: python scripts/check_plugin_release.py
+        run: uv run python scripts/check_plugin_release.py
 
       - name: Agent workflow suite
         # Path workflows (report/review/pipeline/readiness/cron/multisource) + meta/routing
         run: >
-          pytest -q --tb=line
+          uv run pytest -q --tb=line
           tests/test_agent_workflow_cron.py
           tests/test_agent_workflow_multisource.py
           tests/test_agent_workflow_readiness.py
@@ -97,12 +92,12 @@ jobs:
 
       - name: Unit tests (skip integration)
         # Default CI gate: no live external services
-        run: pytest -m "not integration" -q --tb=line
+        run: uv run pytest -m "not integration" -q --tb=line
 
       - name: Alembic migration tests (real Postgres)
         env:
           ALEMBIC_PG_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux
-        run: pytest tests/test_alembic_postgres.py -q --tb=line
+        run: uv run pytest tests/test_alembic_postgres.py -q --tb=line
 
       - name: Legacy static script syntax
         run: node --check src/web/static/app.js
@@ -114,28 +109,31 @@ jobs:
           npm run build
 
       - name: Verify packaged core runtime resources
-        run: python scripts/check_core_package.py
+        run: uv run python scripts/check_core_package.py
 
   windows:
     # Windows 专属代码（ProactorEventLoop、路径处理、文件锁行为）回归线；
     # 全量非集成套件覆盖 Scheduler 生命周期与 Playwright 事件循环相关用例
     runs-on: windows-latest
+    env:
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
-      - name: Install Python package (dev extras)
-        run: pip install -e ".[dev,test]"
+      - name: Frozen dependency install
+        run: |
+          pip install uv
+          uv sync --frozen --extra dev --extra test
 
       - name: Install Playwright chromium
-        run: playwright install chromium
+        run: uv run playwright install chromium
 
       - name: Compile sources
-        run: python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
+        run: uv run python -m compileall src/ plugins/ scripts/check_core_package.py scripts/check_plugin_release.py
 
       - name: Unit tests (skip integration)
-        run: pytest -m "not integration" -q --tb=line
+        run: uv run pytest -m "not integration" -q --tb=line

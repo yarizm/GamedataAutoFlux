@@ -59,22 +59,30 @@ async def init_shared_session_factory(url: str | None = None) -> async_sessionma
             )
 
         logger.info(f"Initializing shared session factory with URL: {redact_url_credentials(url)}")
-        _engine = create_async_engine(url, echo=False)
-        _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
+        # 事务式初始化：schema 工作全部成功后才发布全局单例——
+        # 迁移失败不得留下"engine/factory 已就绪"的半初始化状态，
+        # 否则同进程重试会命中上方早退、永远跳过迁移
+        engine = create_async_engine(url, echo=False)
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        try:
+            # PostgreSQL：Alembic 迁移（失败阻断启动）；SQLite（测试/嵌入）：create_all
+            if url.startswith(("postgresql", "postgres")):
+                from src.storage.migrations import run_db_migrations
 
-    # PostgreSQL：Alembic 迁移（失败阻断启动）；SQLite（测试/嵌入）：create_all
-    if url.startswith(("postgresql", "postgres")):
-        from src.storage.migrations import run_db_migrations
+                await run_db_migrations(engine, url)
+            else:
+                # 创建所有表（幂等操作）
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                    # 运行 schema 迁移（新增列等）
+                    await _migrate_schema(conn)
+        except BaseException:
+            await engine.dispose()
+            raise
 
-        await run_db_migrations(_engine, url)
-    else:
-        # 创建所有表（幂等操作）
-        async with _engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            # 运行 schema 迁移（新增列等）
-            await _migrate_schema(conn)
-
-    return _session_factory
+        _engine = engine
+        _session_factory = factory
+        return factory
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
