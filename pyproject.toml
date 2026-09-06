@@ -65,6 +65,9 @@ test = [
     "firecrawl-py>=1.0.0,<3.0.0",
     "playwright>=1.40.0,<2.0.0",
     "build>=1.2.0",
+    # 插件管理器运行时经 `python -m pip` 把 wheel 装进受管环境；
+    # uv 管理的 venv 默认不含 pip，测试环境显式声明
+    "pip>=24.0",
 ]
 vector = [
     "chromadb>=0.5.0",

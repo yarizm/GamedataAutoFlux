@@ -892,6 +892,7 @@ dev = [
     { name = "build" },
     { name = "firecrawl-py" },
     { name = "httpx" },
+    { name = "pip" },
     { name = "playwright" },
     { name = "pyright" },
     { name = "pytest" },
@@ -906,6 +907,7 @@ embedding = [
 test = [
     { name = "build" },
     { name = "firecrawl-py" },
+    { name = "pip" },
     { name = "playwright" },
     { name = "pytrends" },
     { name = "urllib3" },
@@ -939,6 +941,7 @@ requires-dist = [
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pgvector", specifier = ">=0.2.0,<1.0.0" },
+    { name = "pip", marker = "extra == 'test'", specifier = ">=24.0" },
     { name = "playwright", marker = "extra == 'test'", specifier = ">=1.40.0,<2.0.0" },
     { name = "pydantic", specifier = ">=2.9.0,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.0,<3.0.0" },
@@ -2461,6 +2464,15 @@ source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a7/ec/6eb80aebc728200f95229219882994c1b0585b956ca47da5edb9d062627a/pgvector-0.5.0.tar.gz", hash = "sha256:07a9dcf735696879406983afc6eba9a787cef7c0cf6c367ca1a5779f036dee74", size = 35170, upload-time = "2026-07-06T18:27:27.767Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5c/e4/a5573f2c579ca9ad133293bfb624148ba0893674ca4a6eeec85ced9a6a09/pgvector-0.5.0-py3-none-any.whl", hash = "sha256:fedc9800894e6da2be51358d7b7c574bf34f247ca741a5a09513622135f5964f", size = 30958, upload-time = "2026-07-06T18:27:26.797Z" },
+]
+
+[[package]]
+name = "pip"
+version = "26.2.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ae/15/4500e320e6b101ec3b719ae85b697d9940b6cda672bc555bd6016fc60c6f/pip-26.2.1.tar.gz", hash = "sha256:f6ad667e89a1fe78046c8f13232b247200f5258d7828f3f7883d660878e0813f", size = 1848877, upload-time = "2026-08-04T22:51:14.148Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/pip-26.2.1-py3-none-any.whl", hash = "sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e", size = 1816632, upload-time = "2026-08-04T22:51:12.472Z" },
 ]
 
 [[package]]
