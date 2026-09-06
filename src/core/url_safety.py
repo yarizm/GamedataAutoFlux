@@ -158,17 +158,16 @@ def validate_dynamic_browser_config(config) -> None:
 
 
 class NavigationUrlGuard:
-    """导航/子资源 URL 守卫：字面量 + DNS 校验，按 host 缓存解析结论。
+    """导航/子资源 URL 守卫：字面量 + DNS 校验，**不做任何结论缓存**。
 
-    一个浏览器 context 一个实例即可覆盖 redirect 与子资源请求
-    （每次请求都过 `check_url`，同 host 只解析一次 DNS）。
+    DNS rebinding 的核心是"解析结果随时间变化"——缓存第一次的安全结论
+    正好把防护窗口关掉。因此每次 `check_url` 都重新解析：初始导航与
+    每一条被拦截的请求（redirect/子资源）独立判定，代价是每请求一次
+    DNS 查询（按页面请求数，可接受）。
     """
 
-    def __init__(self) -> None:
-        self._host_reason: dict[str, str | None] = {}
-
     async def check_url(self, url: str) -> str | None:
-        """返回 None 表示安全，否则返回拦截原因。"""
+        """返回 None 表示安全，否则返回拦截原因（每次调用都重新解析）。"""
         try:
             parsed = urlparse(str(url or ""))
             port = parsed.port
@@ -184,10 +183,8 @@ class NavigationUrlGuard:
         if literal:
             return literal
 
-        cache_key = f"{host}:{port or ''}"
-        if cache_key not in self._host_reason:
-            self._host_reason[cache_key] = await resolve_host_reason(host, port)
-        return self._host_reason[cache_key]
+        # 不缓存：同 host 的下一次请求可能解析到不同地址（rebinding）
+        return await resolve_host_reason(host, port)
 
     async def enforce(self, url: str) -> None:
         """不安全时抛 ValueError，由调用方转为采集失败。"""

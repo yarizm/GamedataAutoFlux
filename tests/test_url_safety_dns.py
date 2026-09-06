@@ -145,15 +145,33 @@ async def test_guard_rejects_literal_loopback_without_dns():
     assert (await guard.check_url("http://[::1]/")) is not None
 
 
-async def test_guard_caches_dns_verdict_per_host(monkeypatch):
-    """同 host 的多次请求只解析一次 DNS。"""
+async def test_guard_does_not_cache_and_re_resolves_every_request(monkeypatch):
+    """安全结论不得缓存：同 host 每次请求都重新解析（rebinding 窗口）。"""
     resolver = _fake_resolver({"example.com": ["93.184.216.34"]})
     monkeypatch.setattr(url_safety, "_getaddrinfo", resolver)
     guard = NavigationUrlGuard()
 
     assert (await guard.check_url("https://example.com/a")) is None
     assert (await guard.check_url("https://example.com/b")) is None
-    assert len(resolver.calls) == 1
+    assert len(resolver.calls) == 2  # 每次请求一次解析
+
+
+async def test_stateful_dns_rebinding_second_lookup_blocked(monkeypatch):
+    """状态式 resolver：第一次公网 → 安全；第二次解析到回环 → 必须拦截。"""
+    calls: list[str] = []
+
+    async def _stateful(host: str, port):
+        calls.append(host)
+        addr = "93.184.216.34" if len(calls) == 1 else "127.0.0.1"
+        return [(0, 0, 0, "", (addr, port or 80))]
+
+    monkeypatch.setattr(url_safety, "_getaddrinfo", _stateful)
+    guard = NavigationUrlGuard()
+
+    assert (await guard.check_url("http://evil.example.com/page1")) is None
+    reason = await guard.check_url("http://evil.example.com/page2")
+    assert reason is not None and "blocked" in reason
+    assert len(calls) == 2  # 第二次真的重新解析了
 
 
 async def test_guard_tolerates_invalid_port():
@@ -215,6 +233,29 @@ async def test_route_guard_aborts_private_subresource(monkeypatch):
     route = _FakeRoute("http://db.internal/metrics")
     await collector._route_guard(route)
     assert route.aborted
+
+
+async def test_route_guard_aborts_after_dns_rebinds_mid_session(monkeypatch):
+    """初始 enforce 安全后 DNS 变更：后续请求必须被 abort(无缓存可依)。"""
+    calls: list[str] = []
+
+    async def _stateful(host: str, port):
+        calls.append(host)
+        addr = "93.184.216.34" if len(calls) <= 1 else "127.0.0.1"
+        return [(0, 0, 0, "", (addr, port or 80))]
+
+    monkeypatch.setattr(url_safety, "_getaddrinfo", _stateful)
+    from autoflux_plugin_dynamic_playwright.collector import DynamicPlaywrightCollector
+
+    collector = DynamicPlaywrightCollector()
+
+    first = _FakeRoute("http://site.example.com/page")
+    await collector._route_guard(first)
+    assert first.continued and not first.aborted
+
+    second = _FakeRoute("http://site.example.com/asset")  # 同 host,DNS 已变
+    await collector._route_guard(second)
+    assert second.aborted and not second.continued
 
 
 async def test_route_guard_passes_through_non_network_schemes(monkeypatch):

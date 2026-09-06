@@ -270,3 +270,35 @@ async def test_mutually_exclusive_conditions_activate_exactly_one_branch(compone
 
     assert "hot" in EXECUTED
     assert "cold" not in EXECUTED
+
+
+@pytest.mark.asyncio
+async def test_suppression_scopes_to_full_edge_including_from_port(components):
+    """A.records2 的无条件边不得被 A.records 条件边的抑制误伤。
+
+    回归背景：suppression 曾以 (from, to, to_port) 三元组为键，同一节点
+    经不同出端口汇入同一目标端口的两条合法边会互相误伤。
+    """
+    from src.core.dag import DAG, Edge, NodeSpec, PortSpec
+    from src.core.dag_executor import DAGExecutor
+    from src.core.task import Task, TaskTarget
+
+    a = NodeSpec(
+        "a", "collector", "_ce_ok", {}, [],
+        [PortSpec("records"), PortSpec("records2")], set(),
+    )
+    b = NodeSpec(
+        "b", "processor", "_ce_spy", {"tag": "via_port2"},
+        [PortSpec("records")], [PortSpec("records")], set(),
+    )
+    dag = DAG(
+        name="edge_key_scope",
+        nodes=[a, b],
+        edges=[
+            Edge("a", "records", "b", "records", condition="on_empty"),
+            Edge("a", "records2", "b", "records"),  # 无条件，必须存活
+        ],
+    )
+    await DAGExecutor().execute(Task(name="t", targets=[TaskTarget(name="g")]), dag)
+
+    assert EXECUTED == ["via_port2"]  # b 经 records2 边执行了

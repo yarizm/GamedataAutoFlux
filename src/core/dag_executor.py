@@ -301,7 +301,8 @@ class DAGExecutor:
     def __init__(self, *, subgraph_loader: Callable[[str], DAG | None] | None = None) -> None:
         self._port_table: dict[str, dict[str, Any]] = {}
         self._node_success: dict[str, bool] = {}
-        self._suppressed_edges: set[tuple[str, str, str]] = set()
+        # 边键 = 完整 4 元组；缺 from_port 会让同节点不同出端口的边互相误伤
+        self._suppressed_edges: set[tuple[str, str, str, str]] = set()
         self._skipped_nodes: set[str] = set()
         self._subgraph_loader = subgraph_loader
 
@@ -345,7 +346,12 @@ class DAGExecutor:
                 incoming = [e for e in dag.edges if e.to_node == node_id]
                 active = [
                     e for e in incoming
-                    if (e.from_node, e.to_node, e.to_port) not in self._suppressed_edges
+                    if (
+                        e.from_node,
+                        e.from_port,
+                        e.to_node,
+                        e.to_port,
+                    ) not in self._suppressed_edges
                 ]
                 if incoming and not active:
                     # 入边全被条件抑制 → 该分支未激活，节点不执行，跳过继续向下传播
@@ -488,7 +494,9 @@ class DAGExecutor:
         self._skipped_nodes.add(node_id)
         for e in dag.edges:
             if e.from_node == node_id:
-                self._suppressed_edges.add((e.from_node, e.to_node, e.to_port))
+                self._suppressed_edges.add(
+                    (e.from_node, e.from_port, e.to_node, e.to_port)
+                )
 
     def _evaluate_outgoing_conditions(self, dag: DAG, layer: list[str]) -> None:
         """对带条件的边求值；条件为假的边标记为抑制（边级，不影响同端口其它边）。"""
@@ -506,7 +514,9 @@ class DAGExecutor:
                 ctx = NodeContext(inputs={}, task=Task(name=""), config={})
                 activated = pred(out, ran_ok, ctx)
                 if not activated:
-                    self._suppressed_edges.add((e.from_node, e.to_node, e.to_port))
+                    self._suppressed_edges.add(
+                    (e.from_node, e.from_port, e.to_node, e.to_port)
+                )
 
     def _expand_composite_nodes(self, dag: DAG) -> DAG:
         """把 type=composite 节点按 subgraph_name 内联展开。无 composite 则原样返回。"""
