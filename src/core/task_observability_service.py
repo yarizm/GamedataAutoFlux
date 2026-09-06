@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable
 
 from src.core.collector_metadata import get_collector_metadata, resolve_session_mode
 from src.core.events import TaskCompletedEvent, TaskEventCreatedEvent
+from src.core.pipeline_recovery import PipelineResumeState
 from src.core.task import Task
 
 GetTaskEventServiceFn = Callable[[], Any]
@@ -422,7 +423,7 @@ def _pipeline_checkpoint_stats(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_pipeline_checkpoint_state(task: Task, payload: dict[str, Any]) -> dict[str, Any]:
+def _build_pipeline_checkpoint_state(task: Task, payload: dict[str, Any]) -> "PipelineResumeState":
     """Build checkpoint state without inventing a false successful prefix from counts alone."""
     from src.core.collector_resume import merge_checkpoint_state
 

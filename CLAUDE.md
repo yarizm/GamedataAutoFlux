@@ -267,6 +267,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **Edit 工具修改 HTML 模板**时，可能将属性引号保存为 `\"` 字面量，导致浏览器无法识别元素 ID。修改 `index.html` 后务必用 `grep` 或 `curl` 检查渲染输出。
 
 - **ValidationError 多继承 ValueError**（DomainError + ValueError 兼容桥）：既有
+- **payload 契约 TypedDict 化**（进行中）：Worker claim 协议（`src/core/worker_protocol.WorkerClaimPayload`，跨进程 REST 契约）与checkpoint 恢复上下文（`pipeline_recovery.py` 的四个 TypedDict）已固化键契约，运行时仍是普通 dict（JSON 序列化形状零变化）；pyright 检查面含 src/core|services|storage|worker。新 payload 面禁止再裸 `dict[str, Any]`。
   `except ValueError` 调用方无需改动；task_service 的状态/恢复校验 raise 已采纳类型化异常。
 
 - **类型化配置**：核心组件（scheduler/pipeline/database/server/agent 基础段）经

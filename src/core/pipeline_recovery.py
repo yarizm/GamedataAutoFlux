@@ -1,8 +1,14 @@
-"""Recovery and resume helpers for Pipeline execution."""
+"""Recovery and resume helpers for Pipeline execution.
+
+恢复上下文/断点状态历史上是匿名 dict；本模块用 TypedDict 固化它们的
+键契约（运行时仍是普通 dict——这些结构会整体 JSON 序列化进 checkpoint
+与 worker claim payload，形状必须保持兼容）。输入侧仍接受未信任的
+``dict[str, Any]``（来自持久化 JSON），**输出**类型即本模块契约。
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from src.collectors.base import CollectResult, CollectTarget
 from src.core.task import Task
@@ -10,10 +16,54 @@ from src.processors.base import ProcessInput
 from src.storage.base import StorageRecord
 
 
+class CollectResumeContext(TypedDict, total=False):
+    """多 target 断点续采上下文（recovery_context["collect"]）。"""
+
+    enabled: bool
+    next_target_index: int
+    target_order: list[str]
+    completed_targets: list[str]
+    cursor: dict[str, Any]
+    state: dict[str, Any]
+
+
+class PipelineRecoveryContext(TypedDict, total=False):
+    """checkpoint → 执行上下文的投影（build_pipeline_recovery_context）。"""
+
+    checkpoint_id: str
+    task_id: str
+    seq: int
+    collector_name: str
+    recovery_level: str
+    cursor: dict[str, Any]
+    state: dict[str, Any]
+    metadata: dict[str, Any]
+    collect: CollectResumeContext
+
+
+class StorageResumeContext(TypedDict, total=False):
+    """存储键续跑定位（resolve_storage_resume_context）。"""
+
+    resume_run_index: int
+    resume_offset: int
+    start_target: str
+
+
+class PipelineResumeState(TypedDict, total=False):
+    """任务结束时的续跑快照（PipelineResult.resume_state）。"""
+
+    target_order: list[str]
+    next_target_index: int
+    completed_targets: list[str]
+    successful_targets: list[str]
+    failed_targets: list[str]
+    output_record_keys: list[str]
+
+
 def build_pipeline_recovery_context(
     task: Task,
     recovery_checkpoint: dict[str, Any] | None,
-) -> dict[str, Any]:
+) -> PipelineRecoveryContext:
     checkpoint = recovery_checkpoint if isinstance(recovery_checkpoint, dict) else {}
     if not checkpoint:
         return {}
@@ -54,7 +104,7 @@ def build_collect_resume_context(
     *,
     cursor: dict[str, Any],
     state: dict[str, Any],
-) -> dict[str, Any]:
+) -> CollectResumeContext:
     target_order = state.get("target_order")
     if not isinstance(target_order, list) or not target_order:
         return {}
@@ -104,7 +154,7 @@ def resolve_storage_resume_context(
     recovery_context: dict[str, Any],
     *,
     current_data: list[ProcessInput],
-) -> dict[str, Any]:
+) -> StorageResumeContext:
     collect_context = recovery_context.get("collect", {})
     if not isinstance(collect_context, dict) or not collect_context.get("enabled"):
         return {"resume_run_index": 0, "resume_offset": 0}
@@ -147,7 +197,7 @@ def build_pipeline_resume_state(
     recovery_context: dict[str, Any],
     collect_results: list[CollectResult],
     output_records: list[StorageRecord],
-) -> dict[str, Any]:
+) -> PipelineResumeState:
     from src.core.collector_resume import merge_checkpoint_state
 
     target_order = [

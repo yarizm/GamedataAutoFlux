@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from src.core.scheduler import Scheduler
     from src.core.task import Task
+    from src.core.worker_protocol import WorkerClaimPayload
 
 
 class WorkerService:
@@ -25,7 +26,7 @@ class WorkerService:
         *,
         capabilities: "list[str] | None" = None,
         reserve_session_claim=None,
-    ) -> "dict[str, Any] | None":
+    ) -> "WorkerClaimPayload | None":
         return await self._get_scheduler().claim_task_for_worker(
             worker_id, capabilities=capabilities, reserve_session_claim=reserve_session_claim
         )

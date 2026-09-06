@@ -6,6 +6,8 @@ import copy
 import json
 from typing import Any
 
+from src.core.pipeline_recovery import PipelineResumeState
+
 CURSOR_SCHEMA_VERSION = 1
 PARTIAL_ITEM_CAP = 500
 PARTIAL_BYTES_CAP = 512 * 1024
@@ -171,7 +173,7 @@ def merge_checkpoint_state(
     target_order: list[str],
     previous: dict[str, Any] | None,
     collect_results: list[Any],
-) -> dict[str, Any]:
+) -> "PipelineResumeState":
     order = [str(n).strip() for n in target_order if str(n or "").strip()]
     success_names: list[str] = []
     failed_names: list[str] = []

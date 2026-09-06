@@ -19,6 +19,7 @@ from src.core.metrics import metrics
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task, TaskStatus
+from src.core.worker_protocol import WorkerClaimPayload
 from src.storage.base import StorageRecord
 
 PersistTaskFn = Callable[[Task], Awaitable[None]]
@@ -66,7 +67,7 @@ class WorkerClaimCoordinator:
         tasks: list[Task],
         capabilities: list[str] | None = None,
         reserve_session_claim: ReserveSessionClaimFn | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> WorkerClaimPayload | None:
         """Claim the next pending task for a worker."""
         claim_started = perf_counter()
         safe_worker_id = redact_sensitive_text(str(worker_id or "")).strip()
@@ -204,7 +205,7 @@ class WorkerClaimCoordinator:
             status="claimed",
         )
 
-        return {
+        payload: WorkerClaimPayload = {
             "task_id": task.id,
             "claim_status": "claimed",
             "claim_reason": "",
@@ -226,6 +227,7 @@ class WorkerClaimCoordinator:
             if collector_name
             else {},
         }
+        return payload
 
     async def _resolve_recovery_checkpoint_obj(self, task: Task) -> Any | None:
         """Resolve recovery checkpoint object honoring resume/rerun one-shot flags."""

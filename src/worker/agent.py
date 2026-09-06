@@ -6,7 +6,7 @@ import asyncio
 import socket
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from loguru import logger
@@ -16,6 +16,7 @@ from src.core.diagnostics import build_collector_session_diagnostics
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
 from src.core.task import Task
+from src.core.worker_protocol import WorkerClaimPayload
 
 
 @dataclass
@@ -181,7 +182,7 @@ class WorkerAgent:
         except asyncio.CancelledError:
             raise
 
-    async def _claim_task(self) -> dict[str, Any] | None:
+    async def _claim_task(self) -> WorkerClaimPayload | None:
         payload = await self._request(
             "POST",
             f"/api/workers/{self.worker_id}/claim-task",
@@ -190,9 +191,10 @@ class WorkerAgent:
         self._record_claim_status(payload)
         if not isinstance(payload, dict) or not payload.get("task_id"):
             return None
-        return payload
+        # 响应体即 Scheduler 侧的 WorkerClaimPayload 契约（claim-task 协议）
+        return cast(WorkerClaimPayload, payload)
 
-    async def _execute_claim(self, claim: dict[str, Any]) -> None:
+    async def _execute_claim(self, claim: WorkerClaimPayload) -> None:
         claim_task_id = redact_sensitive_text(str(claim.get("task_id") or "")).strip()
         task_payload = claim.get("task")
 

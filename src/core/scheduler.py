@@ -33,6 +33,7 @@ from src.core.worker_claim_coordinator import (
     WorkerClaimCoordinator,
     get_claimed_task_for_worker,
 )
+from src.core.worker_protocol import WorkerClaimPayload
 from src.services.cron_repository import CronRepository
 from src.services.pipeline_repository import PipelineRepository
 from src.services.task_artifact_service import StorageTaskArtifactService, TaskArtifactService
@@ -525,7 +526,7 @@ class Scheduler:
         *,
         capabilities: list[str] | None = None,
         reserve_session_claim=None,
-    ) -> dict[str, Any] | None:
+    ) -> WorkerClaimPayload | None:
         """Claim the next pending task for a worker."""
         with self._lock:
             tasks = list(self._tasks.values())

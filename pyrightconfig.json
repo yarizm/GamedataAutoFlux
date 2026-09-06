@@ -1,5 +1,5 @@
 {
-  "include": ["src/core", "src/services", "src/storage"],
+  "include": ["src/core", "src/services", "src/storage", "src/worker"],
   "exclude": ["**/__pycache__"],
   "venvPath": ".",
   "venv": ".venv",
