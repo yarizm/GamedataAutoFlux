@@ -2,16 +2,17 @@ import { api, toast, escapeHtml, formatTime } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 import { renderEmptyState } from '../../core/uiState.js';
 import {
-  getCollectorForPipeline,
+  describePipeline,
   loadAvailablePipelines,
   populatePipelineSelect,
 } from '../../core/pipelines.js';
 import {
-  applyTargetToForm,
-  buildTargets,
+  applyTargetsToMetadataForm,
+  buildFallbackTarget,
+  buildTargetsFromMetadata,
   parseAdvancedTargetsJson,
-  readTargetFormState,
-  updateTargetFieldPanels,
+  renderMetadataTargetForm,
+  updateCollectorLabels,
 } from '../../core/targetForm.js';
 
 export default {
@@ -202,23 +203,30 @@ export default {
     } catch {
       /* ignore — badge still updates */
     }
-    const collector = getCollectorForPipeline(pipelineName);
-    updateTargetFieldPanels('cron', collector);
-    return collector;
+    const descriptor = describePipeline(pipelineName);
+    const targetMetadata = descriptor?.targetDetails?.[0] || null;
+    renderMetadataTargetForm('cron', targetMetadata);
+    updateCollectorLabels('cron', targetMetadata);
+    return targetMetadata?.collector_id || descriptor?.targetCollectors?.[0] || '';
   },
 
   _buildTaskTemplate() {
     const pipelineName = document.getElementById('cron-pipeline')?.value || '';
-    const collector = getCollectorForPipeline(pipelineName);
-    const formState = readTargetFormState('cron', collector);
-    let targets = buildTargets(formState);
+    const descriptor = describePipeline(pipelineName);
+    const targetMetadata = descriptor?.targetDetails?.[0] || null;
+    const collector = targetMetadata?.collector_id || descriptor?.targetCollectors?.[0] || '';
+    const targetName = document.getElementById('cron-target-name')?.value.trim() || '';
+    let targets = buildTargetsFromMetadata('cron', targetMetadata);
+    if (!targets || !targets.length) {
+      targets = buildFallbackTarget('cron', targetMetadata?.target_schema?.target_type);
+    }
 
     const targetsRaw = document.getElementById('cron-targets')?.value.trim() || '';
     if (targetsRaw) {
       try {
         const parsed = parseAdvancedTargetsJson(
           targetsRaw,
-          formState.targetName || t('tasks.targetName'),
+          targetName || t('tasks.targetName'),
         );
         if (parsed) targets = parsed;
       } catch {
@@ -247,18 +255,12 @@ export default {
   },
 
   _clearTargetFields() {
-    [
-      'cron-target-name', 'cron-app-id', 'cron-taptap-url', 'cron-taptap-app-id',
-      'cron-steam-discussions-app-id', 'cron-steam-discussions-forum-url',
-      'cron-steam-discussions-start', 'cron-steam-discussions-end',
-      'cron-monitor-app-id', 'cron-monitor-twitch-name', 'cron-monitor-siteurl',
-      'cron-qimai-app-id', 'cron-official-site-url', 'cron-targets',
-    ].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-    const skip = document.getElementById('cron-skip-steamdb');
-    if (skip) skip.checked = true;
+    // Rendered schema fields reset themselves on re-render; only the shared
+    // name input and the advanced JSON override need explicit clearing.
+    const nameInput = document.getElementById('cron-target-name');
+    if (nameInput) nameInput.value = '';
+    const advanced = document.getElementById('cron-targets');
+    if (advanced) advanced.value = '';
   },
 
   async _previewSchedule(forceToast = false) {
@@ -332,25 +334,13 @@ export default {
       document.getElementById('cron-report-enabled').checked = !!(template.config?.report?.enabled);
       document.getElementById('cron-data-group').value = template.config?.data_group?.id || template.config?.data_group?.name || '';
 
-      const collector = await this._updateTargetFields();
+      await this._updateTargetFields();
       const targets = Array.isArray(template.targets) ? template.targets : [];
-      if (collector === 'youtube_profiles' || collector === 'youtube_comments') {
-        window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
-        window._importedYouTubeTargetsByCollector[collector] = targets;
-        if (targets.length > 1) {
-          document.getElementById('cron-targets').value = JSON.stringify(targets, null, 2);
-        }
-        const previewId = collector === 'youtube_profiles' ? 'cron-yt-profiles-preview' : 'cron-yt-comments-preview';
-        const preview = document.getElementById(previewId);
-        if (preview && targets.length) {
-          preview.style.display = 'block';
-          preview.className = 'mt-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300';
-          preview.innerHTML = t('cron.loadedTargets', { count: targets.length });
-        }
-      } else if (targets.length === 1) {
-        applyTargetToForm('cron', collector, targets[0]);
-      } else if (targets.length > 1) {
-        // multi-target: keep JSON advanced override so nothing is lost
+      const targetMetadata = describePipeline(
+        document.getElementById('cron-pipeline')?.value || '',
+      )?.targetDetails?.[0] || null;
+      if (targets.length && !applyTargetsToMetadataForm('cron', targetMetadata, targets)) {
+        // Collector declares no field contract — keep the raw targets as JSON.
         document.getElementById('cron-targets').value = JSON.stringify(targets, null, 2);
       }
 

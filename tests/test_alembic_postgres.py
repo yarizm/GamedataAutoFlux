@@ -15,9 +15,11 @@ postgresql+asyncpg://postgres:postgres@localhost:5432/autoflux）；
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 PG_URL = os.environ.get("ALEMBIC_PG_URL", "").strip()
@@ -68,9 +70,7 @@ async def test_fresh_upgrade_creates_schema_matching_models():
                     lambda c: sa_inspect(c).get_columns("scheduler_states")
                 )
             }
-            version = (
-                await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar()
+            version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
             embedding_type = (
                 await conn.execute(
                     text(
@@ -123,9 +123,7 @@ async def test_legacy_create_all_database_is_adopted():
         await run_db_migrations(engine, PG_URL)
 
         async with engine.connect() as conn:
-            version = (
-                await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar()
+            version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
             legacy_rows = (
                 await conn.execute(text("SELECT count(*) FROM scheduler_states"))
             ).scalar()
@@ -161,5 +159,40 @@ async def test_migration_failure_propagates(monkeypatch):
         # 包装为 DatabaseError 后仍必须穿透（阻断应用启动）
         with pytest.raises(DatabaseError, match="migration exploded"):
             await run_db_migrations(engine, PG_URL)
+    finally:
+        await engine.dispose()
+
+
+async def test_records_accepts_timezone_aware_stored_at():
+    """运行时 stored_at 是 tz-aware UTC；naive 列写入前必须归一化。
+
+    回归：asyncpg 对 TIMESTAMP WITHOUT TIME ZONE 列直接拒绝 aware datetime
+    （DataError: can't subtract offset-naive and offset-aware datetimes），
+    SQLite 会静默通过，所以只在真实 PostgreSQL 上才暴露。
+    """
+    from src.storage.base import StorageRecord
+    from src.storage.migrations import run_db_migrations
+    from src.storage.sqlalchemy_store import SQLAlchemyStorage
+
+    engine = create_async_engine(PG_URL)
+    try:
+        await _reset_schema(engine)
+        await run_db_migrations(engine, PG_URL)
+
+        store = SQLAlchemyStorage({"sqlalchemy_url": PG_URL})
+        await store.initialize()
+        try:
+            await store.save(
+                StorageRecord(
+                    key="tz:aware",
+                    data={"collector": "steam"},
+                    stored_at=datetime.now(timezone.utc),
+                )
+            )
+            loaded = await store.load("tz:aware")
+            assert loaded is not None
+            assert loaded.stored_at.tzinfo is None
+        finally:
+            await store.close()
     finally:
         await engine.dispose()

@@ -14,7 +14,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-steam",
-    version="0.1.0",
+    version="0.1.1",
     description="Steam Store, reviews, SteamDB and Community Discussions collectors.",
     modules=(
         "autoflux_plugin_steam.collector",

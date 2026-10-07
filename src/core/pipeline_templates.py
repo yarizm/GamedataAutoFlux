@@ -77,3 +77,49 @@ def restore_pipeline_templates(
     PIPELINE_TEMPLATES[:] = deepcopy(templates)
     _TEMPLATE_OWNERS.clear()
     _TEMPLATE_OWNERS.update(owners)
+
+
+def find_pipeline_template_for_collector(collector_id: str) -> str | None:
+    """返回首个采集步骤为 ``collector_id`` 的模板 id。
+
+    Plugin 用 ``make_template`` 声明模板时，collector 名就在第一个
+    ``type="collector"`` 步骤里。Agent 工作流据此反查模板，不再维护
+    写死的 collector → pipeline 映射表。
+    """
+
+    normalized = str(collector_id or "").strip()
+    if not normalized:
+        return None
+    for template in PIPELINE_TEMPLATES:
+        steps = template.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            if step.get("type") != "collector":
+                continue
+            # 只看首个采集步骤：模板的入口 collector 决定归属
+            if str(step.get("name") or "").strip() == normalized:
+                return str(template.get("id") or "").strip() or None
+            break
+    return None
+
+
+def find_template_entry_collector(template_id: str) -> str | None:
+    """返回模板首个采集步骤的 collector 名（``find_pipeline_template_for_collector`` 的反查）。"""
+
+    normalized = str(template_id or "").strip()
+    if not normalized:
+        return None
+    for template in PIPELINE_TEMPLATES:
+        if str(template.get("id") or "").strip() != normalized:
+            continue
+        steps = template.get("steps")
+        if not isinstance(steps, list):
+            return None
+        for step in steps:
+            if isinstance(step, dict) and step.get("type") == "collector":
+                return str(step.get("name") or "").strip() or None
+        return None
+    return None

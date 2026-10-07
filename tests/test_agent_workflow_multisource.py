@@ -233,3 +233,23 @@ def test_workflow_definitions_include_multisource() -> None:
     ms = next(d for d in defs if d.route == "multisource_workflow")
     assert ms.entry_node == "resolve_multisource_intent"
     assert ms.resolve("多源采集《原神》 steam 七麦") is not None
+
+
+def test_draft_uses_declared_pipeline_template_ids() -> None:
+    """Pipeline names come from the plugin templates, not a hardcoded table."""
+
+    draft = build_multisource_draft("多源采集《原神》 steam youtube评论")
+    pipelines = {item["collector_id"]: item["pipeline_name"] for item in draft["task_drafts"]}
+
+    assert pipelines["steam"] == "steam_basic"
+    assert pipelines["youtube_comments"] == "youtube_comments_pipeline"
+
+
+def test_draft_targets_carry_schema_defaults() -> None:
+    """Targets are built from the collector's declared target_schema."""
+
+    draft = build_multisource_draft("多源采集《原神》 steam")
+    steam = next(item for item in draft["task_drafts"] if item["collector_id"] == "steam")
+
+    assert steam["targets"][0]["name"] == "原神"
+    assert steam["targets"][0]["params"]["skip_steamdb"] is True

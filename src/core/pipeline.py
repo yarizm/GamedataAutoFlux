@@ -61,6 +61,8 @@ def _build_collect_complete_payload(
         recovery_context=recovery_context if isinstance(recovery_context, dict) else {},
         collect_results=collect_results,
         output_records=[],
+        # 采集阶段的 checkpoint 还不知道落库结果，保持"采集成功即完成"的语义
+        run_succeeded=True,
     )
     return {
         "status": "failed" if failed_count else "succeeded",
@@ -1006,6 +1008,7 @@ class Pipeline:
             recovery_context=recovery_context,
             collect_results=result.collect_results,
             output_records=result.output_records,
+            run_succeeded=result.success,
         )
         result.completed_at = datetime.now(timezone.utc)
         await self._emit_event(
@@ -1048,6 +1051,7 @@ class Pipeline:
             recovery_context=recovery_context,
             collect_results=result.collect_results,
             output_records=result.output_records,
+            run_succeeded=False,
         )
         result.completed_at = datetime.now(timezone.utc)
         await self._emit_event(

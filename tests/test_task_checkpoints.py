@@ -696,3 +696,68 @@ def test_task_detail_api_succeeds_when_session_registry_lookup_fails(monkeypatch
     payload = response.json()
     assert payload["id"] == task.id
     assert payload["session_diagnostics"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_finalize_checkpoint_requires_stored_records_on_failure() -> None:
+    """失败收尾写入的 checkpoint 必须把"完成"收紧到真正落库的 target。
+
+    回归：采集全部成功、下游（存储）失败时，旧逻辑写入 next_target_index=2；
+    自动重试据此跳过全部采集、手里又没有数据，必然再次失败。
+    """
+    from src.collectors.base import CollectResult, CollectTarget
+    from src.core.pipeline_recovery import build_pipeline_resume_state
+    from src.storage.base import StorageRecord
+
+    checkpoint_service = InMemoryTaskCheckpointService()
+    event_service = InMemoryTaskEventService()
+    scheduler = Scheduler(
+        task_event_service=event_service,
+        task_checkpoint_service=checkpoint_service,
+    )
+    task = Task(
+        id="pipeline-finalize-restrict",
+        name="Finalize Restrict",
+        pipeline_name="gtrends_basic",
+        collector_name="gtrends",
+        targets=[TaskTarget(name="A"), TaskTarget(name="B")],
+    )
+    scheduler._tasks[task.id] = task
+
+    collect_results = [
+        CollectResult(target=CollectTarget(name="A"), success=True, data={"ok": 1}),
+        CollectResult(target=CollectTarget(name="B"), success=True, data={"ok": 1}),
+    ]
+    resume_state = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=[StorageRecord(key="k1", data={}, metadata={"target": "A"})],
+        run_succeeded=False,
+    )
+    assert resume_state["next_target_index"] == 1
+
+    await scheduler._on_task_event(
+        task.id,
+        "pipeline",
+        "warning",
+        "Pipeline partially failed",
+        {"status": "failed", "resume_state": resume_state},
+    )
+
+    checkpoints = await checkpoint_service.list_checkpoints(task.id)
+    assert len(checkpoints) == 1
+    assert checkpoints[0].state["next_target_index"] == 1
+    assert checkpoints[0].state["completed_targets"] == ["A"]
+    assert checkpoints[0].state["successful_targets"] == ["A"]
+
+    # 一条都没落库时，重试必须从头重采
+    resume_empty = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=[],
+        run_succeeded=False,
+    )
+    assert resume_empty["next_target_index"] == 0
+    assert resume_empty["completed_targets"] == []

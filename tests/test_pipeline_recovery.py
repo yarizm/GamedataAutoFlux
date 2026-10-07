@@ -162,3 +162,58 @@ def test_non_negative_int_clamps_invalid_values() -> None:
     assert non_negative_int("3") == 3
     assert non_negative_int(-1, default=5) == 5
     assert non_negative_int("oops", default=7) == 7
+
+
+def test_build_pipeline_resume_state_failed_run_requires_stored_records() -> None:
+    """失败收尾时"完成"必须收紧到真正落库的 target。
+
+    回归：采集成功、下游（如存储）失败时，旧逻辑仍把 target 记为已完成；
+    自动重试据此跳过全部采集、手里又没有数据，必然再次失败。
+    """
+    task = Task(name="t", targets=[TaskTarget(name="gameA"), TaskTarget(name="gameB")])
+    collect_results = [
+        CollectResult(target=CollectTarget(name="gameA"), data={"a": 1}, success=True),
+        CollectResult(target=CollectTarget(name="gameB"), data={"b": 2}, success=True),
+    ]
+    stored = [StorageRecord(key="t:src:0", data={}, metadata={"target": "gameA"})]
+
+    failed = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=stored,
+        run_succeeded=False,
+    )
+    assert failed["next_target_index"] == 1
+    assert failed["completed_targets"] == ["gameA"]
+    assert failed["successful_targets"] == ["gameA"]
+
+    # 成功收尾保持原语义：采集成功即完成
+    succeeded = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=stored,
+        run_succeeded=True,
+    )
+    assert succeeded["next_target_index"] == 2
+
+
+def test_build_pipeline_resume_state_failed_run_without_records_restarts_collect() -> None:
+    """采集后失败且一条都没落库时，重试必须从第一个 target 重采。"""
+    task = Task(name="t", targets=[TaskTarget(name="gameA")])
+    collect_results = [
+        CollectResult(target=CollectTarget(name="gameA"), data={"a": 1}, success=True),
+    ]
+
+    state = build_pipeline_resume_state(
+        task,
+        recovery_context={},
+        collect_results=collect_results,
+        output_records=[],
+        run_succeeded=False,
+    )
+
+    assert state["next_target_index"] == 0
+    assert state["completed_targets"] == []
+    assert state["successful_targets"] == []

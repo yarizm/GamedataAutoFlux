@@ -18,6 +18,23 @@ from src.agent.tools.identifiers import _auto_fill_identifiers
 from src.agent.tools.utils import _format_result, _safe_error_text
 
 
+def _apply_collector_defaults(
+    targets: list[dict],
+    pipeline_name: str,
+    collector_name: str,
+) -> list[dict]:
+    """按 collector 声明的 target_schema 补齐缺失参数（不覆盖显式传入值）。"""
+    from src.core.collector_metadata import merge_collector_defaults
+    from src.core.pipeline_templates import find_template_entry_collector
+
+    collector_id = str(collector_name or "").strip() or (
+        find_template_entry_collector(pipeline_name) or ""
+    )
+    if not collector_id:
+        return targets
+    return merge_collector_defaults(collector_id, targets)
+
+
 def _identifier_changes(before: list[dict], after: list[dict]) -> list[dict[str, Any]]:
     changes: list[dict[str, Any]] = []
     for index, target in enumerate(after):
@@ -316,6 +333,7 @@ class CreateTaskTool(BaseTool):
         "需要指定任务名称(name)、Pipeline 模板 ID(pipeline_name)和采集目标(targets)。"
         'targets 格式: [{"name": "游戏名", "target_type": "game", "params": {"app_id": 123}}]。'
         "config 可选，支持 report.enabled / data_group 等配置。"
+        "targets 中未填写的参数会自动回退到该 collector 声明的默认值。"
     )
     args_schema: Type[BaseModel] = CreateTaskInput
 
@@ -337,6 +355,7 @@ class CreateTaskTool(BaseTool):
         requested_targets = copy.deepcopy(targets)
         targets = await _auto_fill_identifiers(targets, pipeline_name)
         identifier_changes = _identifier_changes(requested_targets, targets)
+        targets = _apply_collector_defaults(targets, pipeline_name, collector_name)
 
         precheck = ts.precheck(
             name=name,

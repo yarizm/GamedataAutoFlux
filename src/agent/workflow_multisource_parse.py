@@ -5,30 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Collector id → default pipeline template / create_task fields
-COLLECTOR_TASK_HINTS: dict[str, dict[str, str]] = {
-    "steam": {"pipeline_name": "steam_basic", "collector_name": "steam"},
-    "taptap": {"pipeline_name": "taptap_basic", "collector_name": "taptap"},
-    "qimai": {"pipeline_name": "qimai_basic", "collector_name": "qimai"},
-    "gtrends": {"pipeline_name": "gtrends_basic", "collector_name": "gtrends"},
-    "monitor": {"pipeline_name": "monitor_basic", "collector_name": "monitor"},
-    "steam_discussions": {
-        "pipeline_name": "steam_discussions_basic",
-        "collector_name": "steam_discussions",
-    },
-    "official_site": {
-        "pipeline_name": "official_site_basic",
-        "collector_name": "official_site",
-    },
-    "youtube_profiles": {
-        "pipeline_name": "youtube_profiles_basic",
-        "collector_name": "youtube_profiles",
-    },
-    "youtube_comments": {
-        "pipeline_name": "youtube_comments_basic",
-        "collector_name": "youtube_comments",
-    },
-}
+from src.core.collector_metadata import build_task_targets
+from src.core.pipeline_templates import find_pipeline_template_for_collector
 
 # Longer aliases first
 _COLLECTOR_ALIASES: tuple[tuple[str, str], ...] = (
@@ -199,26 +177,22 @@ def build_multisource_draft(
 
     drafts: list[dict[str, Any]] = []
     for collector_id in cols:
-        hint = COLLECTOR_TASK_HINTS.get(collector_id)
-        if not hint:
-            issues.append(f"未知采集源: {collector_id}")
+        pipeline = find_pipeline_template_for_collector(collector_id)
+        if not pipeline:
+            issues.append(f"未找到采集源 {collector_id} 的 Pipeline 模板")
             continue
-        pipeline = hint["pipeline_name"]
-        cname = hint.get("collector_name") or collector_id
         task_name = f"{subject}_{collector_id}"[:64] if subject else f"collect_{collector_id}"
+        targets = build_task_targets(collector_id, name=subject or task_name)
+        if not targets:
+            issues.append(f"采集源 {collector_id} 无法构造采集目标")
+            continue
         drafts.append(
             {
                 "collector_id": collector_id,
                 "name": task_name,
                 "pipeline_name": pipeline,
-                "collector_name": cname,
-                "targets": [
-                    {
-                        "name": subject or task_name,
-                        "target_type": "game",
-                        "params": {},
-                    }
-                ],
+                "collector_name": collector_id,
+                "targets": targets,
                 "config": {"batch_concurrency": 1},
             }
         )

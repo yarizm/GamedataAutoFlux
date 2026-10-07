@@ -29,6 +29,18 @@ def utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def to_naive_utc(value: datetime) -> datetime:
+    """把 tz-aware 时间归一到数据库列的 naive UTC 表示。
+
+    模型的时间列是 ``DateTime``（PostgreSQL 为 TIMESTAMP WITHOUT TIME ZONE），
+    运行时时间戳统一为 tz-aware UTC，写入前必须在此边界转换：asyncpg 不接受
+    tz-aware 值写进 naive 列，SQLite 则会静默丢弃偏移量掩盖问题。
+    """
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class RecordModel(Base):
     __tablename__ = "records"
 

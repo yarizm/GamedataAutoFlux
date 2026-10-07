@@ -445,3 +445,111 @@ def fallback_collector_metadata(collector_id: str) -> CollectorMetadata:
             rules=[],
         ),
     )
+
+
+_MISSING = object()
+
+
+def build_task_targets(
+    collector_id: str,
+    values: dict[str, Any] | None = None,
+    *,
+    name: str = "",
+    target_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """按 collector 声明的 target_schema 构造任务 targets。
+
+    Web 表单、Agent 工作流、工具调用共用这一个入口：默认值来自 schema
+    而不是各调用方各自硬编码。``values`` 里没有的字段回退到字段默认值，
+    与前端预填表单后的读取结果一致。
+    """
+
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    schema = metadata.target_schema
+    provided = dict(values or {})
+    fields = list(schema.fields)
+
+    name_field = next((field for field in fields if field.location == "name"), None)
+    resolved_name = str(name or "").strip()
+    if not resolved_name and name_field is not None:
+        resolved_name = str(provided.get(name_field.key) or "").strip()
+
+    params: dict[str, Any] = dict(schema.default_params)
+    repeated_key = ""
+    repeated_values: list[str] = []
+
+    for field in fields:
+        if field.location == "name":
+            continue
+        raw = provided.get(field.key, _MISSING)
+        if raw is _MISSING:
+            raw = field.default
+        if raw is None or raw == "":
+            continue
+        if field.multiple or field.input_type == "textarea_lines":
+            items = [line.strip() for line in str(raw).splitlines() if line.strip()]
+            if not items:
+                continue
+            repeated_key = field.key
+            repeated_values = items
+            continue
+        params[field.key] = raw
+
+    resolved_type = target_type or schema.target_type or "game"
+
+    if repeated_key:
+        return [
+            {
+                "name": item,
+                "target_type": resolved_type,
+                "params": {**params, repeated_key: item},
+            }
+            for item in repeated_values
+        ]
+
+    if not resolved_name:
+        # A declared name field means the target is unidentifiable without it;
+        # otherwise fall back to the first parameter value.
+        if name_field is not None or not params:
+            return []
+        resolved_name = str(next(iter(params.values()), ""))
+        if not resolved_name:
+            return []
+    return [
+        {
+            "name": resolved_name,
+            "target_type": resolved_type,
+            "params": params,
+        }
+    ]
+
+
+def merge_collector_defaults(
+    collector_id: str,
+    targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """用 collector 声明的默认值补齐 targets 中缺失的 params。
+
+    已有值优先，不覆盖调用方显式传入的参数。
+    """
+
+    metadata = get_collector_metadata(collector_id) or fallback_collector_metadata(collector_id)
+    schema = metadata.target_schema
+    defaults: dict[str, Any] = dict(schema.default_params)
+    for field in schema.fields:
+        if field.location == "name" or field.default is None:
+            continue
+        defaults.setdefault(field.key, field.default)
+    if not defaults:
+        return targets
+
+    merged: list[dict[str, Any]] = []
+    for target in targets:
+        item = dict(target)
+        params = dict(defaults)
+        existing = item.get("params")
+        if isinstance(existing, dict):
+            params.update(existing)
+        item["params"] = params
+        merged.append(item)
+    return merged

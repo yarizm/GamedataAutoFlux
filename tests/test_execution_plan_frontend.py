@@ -19,7 +19,12 @@ def test_task_wizard_is_driven_by_pipeline_and_plugin_metadata() -> None:
     assert "renderMetadataTargetForm('task', targetMetadata)" in tasks
     assert "buildTargetsFromMetadata('task', targetMetadata)" in tasks
     assert "task-pipeline-preview" in template
-    assert "task-target-guide" in template
+    assert "task-metadata-target-fields" in template
+    assert "cron-metadata-target-fields" in template
+    # describePipeline returns targetDetails; reading a "metadata" key silently
+    # disabled the schema form and fell back to the hardcoded panels.
+    assert "descriptor?.metadata" not in tasks
+    assert "?.targetDetails?.[0]" in tasks
     assert "schema.default_params" in target_form
     assert "textarea_lines" in target_form
 

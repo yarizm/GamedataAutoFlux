@@ -191,12 +191,59 @@ def build_storage_record_key(
     return f"{task.id}:{source}:{sequence}"
 
 
+def _stored_target_names(records: list[StorageRecord]) -> set[str]:
+    """从落库记录反推 target 名（存储 metadata 同时保留 target 与 source_task.target）。"""
+    names: set[str] = set()
+    for record in records or []:
+        meta = getattr(record, "metadata", None) or {}
+        if not isinstance(meta, dict):
+            continue
+        source_task = meta.get("source_task")
+        candidates = [meta.get("target")]
+        if isinstance(source_task, dict):
+            candidates.append(source_task.get("target"))
+        for candidate in candidates:
+            name = str(candidate or "").strip()
+            if name:
+                names.add(name)
+                break
+    return names
+
+
+def _restrict_resume_state_to_stored(
+    state: PipelineResumeState,
+    records: list[StorageRecord],
+) -> PipelineResumeState:
+    """失败收尾时把"完成"收紧到真正落库的 target。
+
+    checkpoint 此前只按"采集成功"推进 ``next_target_index``；采集之后的阶段失败时
+    数据从未落库，这个"完成"是假的——自动重试据此跳过全部采集，手里又没有数据，
+    必然再次失败。这里按落库结果重算，让重试能真正重采未落库的 target，
+    已落库的部分仍然保留，不浪费。
+    """
+    stored = _stored_target_names(records)
+    order = [str(name) for name in (state.get("target_order") or [])]
+    next_index = 0
+    for idx, name in enumerate(order):
+        if name not in stored:
+            break
+        next_index = idx + 1
+    bounded = min(next_index, len(order))
+    return {
+        **state,
+        "next_target_index": bounded,
+        "completed_targets": order[:bounded],
+        "successful_targets": [n for n in order if n in stored],
+    }
+
+
 def build_pipeline_resume_state(
     task: Task,
     *,
     recovery_context: dict[str, Any],
     collect_results: list[CollectResult],
     output_records: list[StorageRecord],
+    run_succeeded: bool = True,
 ) -> PipelineResumeState:
     from src.core.collector_resume import merge_checkpoint_state
 
@@ -220,6 +267,8 @@ def build_pipeline_resume_state(
         collect_results=collect_results,
     )
     merged["output_record_keys"] = [record.key for record in output_records]
+    if not run_succeeded:
+        merged = _restrict_resume_state_to_stored(merged, output_records)
     return merged
 
 

@@ -76,7 +76,7 @@ class SteamCollector(BaseCollector):
 
     配置 (target.params):
       - app_id: Steam App ID (如 "730"), 若不提供则按 name 模糊匹配
-      - skip_steamdb: 是否跳过 SteamDB 采集 (默认 False)
+      - skip_steamdb: 是否跳过 SteamDB 采集 (默认 True，与 target_schema 声明一致)
       - max_reviews: 最大评论采集数 (默认取 settings)
     """
 
@@ -520,7 +520,7 @@ class SteamCollector(BaseCollector):
         )
 
         # ── Stage: steamdb (optional; skip when already done or skip_steamdb) ──
-        skip_steamdb_param = bool(target.params.get("skip_steamdb", False))
+        skip_steamdb_param = bool(target.params.get("skip_steamdb", True))
         skip_steamdb = skip_steamdb_param or steamdb_done
         steamdb_data: dict[str, Any] | None = None
         steamdb_warning: str | None = None

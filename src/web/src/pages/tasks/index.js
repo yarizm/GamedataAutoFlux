@@ -27,11 +27,11 @@ import {
   populatePipelineSelect,
 } from '../../core/pipelines.js';
 import {
-  buildTargets as buildTargetsShared,
+  buildFallbackTarget,
   buildTargetsFromMetadata,
   parseAdvancedTargetsJson,
   renderMetadataTargetForm,
-  updateTargetFieldPanels,
+  updateCollectorLabels,
 } from '../../core/targetForm.js';
 
 function safeArtifactDownloadUrl(value) {
@@ -177,16 +177,9 @@ export default {
 
   _updateTargetFields() {
     const pipelineName = document.getElementById('task-pipeline')?.value || '';
-    const descriptor = describePipeline(pipelineName);
-    const targetMetadata = descriptor?.metadata;
-    if (targetMetadata) {
-      const guideEl = document.getElementById('task-target-guide');
-      if (guideEl) {
-        guideEl.innerHTML = renderMetadataTargetForm('task', targetMetadata);
-      }
-    }
-    const collector = this._getCollector(pipelineName);
-    updateTargetFieldPanels('task', collector);
+    const targetMetadata = describePipeline(pipelineName)?.targetDetails?.[0] || null;
+    renderMetadataTargetForm('task', targetMetadata);
+    updateCollectorLabels('task', targetMetadata);
 
     const autoReport = document.getElementById('task-enable-report');
     if (autoReport && ['steam_full_report', 'taptap_full_report', 'steam_discussions_full_report'].includes(pipelineName)) {
@@ -194,15 +187,12 @@ export default {
     }
   },
 
-  _buildTargets(formState) {
+  _buildTargets() {
     const pipelineName = document.getElementById('task-pipeline')?.value || '';
-    const descriptor = describePipeline(pipelineName);
-    const targetMetadata = descriptor?.metadata;
-    if (targetMetadata) {
-      const metaTargets = buildTargetsFromMetadata('task', targetMetadata);
-      if (metaTargets && metaTargets.length) return metaTargets;
-    }
-    return buildTargetsShared(formState);
+    const targetMetadata = describePipeline(pipelineName)?.targetDetails?.[0] || null;
+    const metaTargets = buildTargetsFromMetadata('task', targetMetadata);
+    if (metaTargets && metaTargets.length) return metaTargets;
+    return buildFallbackTarget('task', targetMetadata?.target_schema?.target_type);
   },
 
   /**
@@ -221,8 +211,6 @@ export default {
     const targetsRaw = cmEditor ? cmEditor.getValue().trim() : (document.getElementById('task-targets')?.value.trim() || '');
     const description = getVal('task-desc');
     const targetName = getVal('task-target-name');
-    const steamAppId = getVal('task-app-id');
-    const steamDiscussionsAppId = getVal('task-steam-discussions-app-id');
 
     if (!name || !pipelineName) {
       toast(t('message.taskNamePipelineRequired'), 'error');
@@ -238,27 +226,7 @@ export default {
       return null;
     }
 
-    let targets = this._buildTargets({
-      collector, targetName,
-      appId: collector === 'taptap' ? getVal('task-taptap-app-id') : collector === 'steam_discussions' ? steamDiscussionsAppId : steamAppId,
-      ...(collector === 'monitor' ? { appId: getVal('task-monitor-app-id') } : {}),
-      skipSteamdb: getChecked('task-skip-steamdb'),
-      steamdbTimeSlice: getNum('task-steamdb-time-slice', 'monthly_peak_1y'),
-      steamDiscussionsForumUrl: getVal('task-steam-discussions-forum-url'),
-      steamDiscussionsStart: document.getElementById('task-steam-discussions-start')?.value || '',
-      steamDiscussionsEnd: document.getElementById('task-steam-discussions-end')?.value || '',
-      steamDiscussionsMaxPages: getNum('task-steam-discussions-max-pages', '50'),
-      steamDiscussionsMaxTopics: getNum('task-steam-discussions-max-topics', '1000'),
-      steamDiscussionsIncludeReplies: document.getElementById('task-steam-discussions-include-replies')?.checked ?? true,
-      taptapUrl: getVal('task-taptap-url'),
-      taptapReviewsPages: getNum('task-taptap-reviews-pages', '1'),
-      taptapReviewsLimit: getNum('task-taptap-reviews-limit', '20'),
-      monitorDays: getNum('task-monitor-days', '30'),
-      monitorTwitchName: getVal('task-monitor-twitch-name'),
-      monitorSiteurl: getVal('task-monitor-siteurl'),
-      qimaiAppId: getVal('task-qimai-app-id'),
-      officialSiteUrl: getVal('task-official-site-url'),
-    });
+    let targets = this._buildTargets();
 
     if (targetsRaw) {
       try {
@@ -277,10 +245,7 @@ export default {
     const enableReport = getChecked('task-enable-report');
     const reportPromptRaw = getVal('task-report-prompt');
     const reportTemplate = document.getElementById('task-report-template')?.value || 'default';
-    const primarySubject = targetName
-      || (collector === 'taptap' ? getVal('task-taptap-app-id') : collector === 'steam_discussions' ? steamDiscussionsAppId : steamAppId)
-      || (collector === 'official_site' ? getVal('task-official-site-url') : '')
-      || name;
+    const primarySubject = targetName || targets[0]?.name || name;
     const reportPrompt = reportPromptRaw || (getLanguage?.() === 'en-US'
       ? `Based on this collection result, summarize ${primarySubject}'s core performance, version updates, review feedback, and key events.`
       : `基于本次采集结果，总结${primarySubject}的核心表现、版本更新、评论反馈和关键事件。`);
@@ -1015,8 +980,6 @@ window.getCollectorForPipeline = function (n) { if (window._tasksPage) return wi
 window.hasStorageStep = function () { return false; };
 
 // ── YouTube TXT import ──
-window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
-window._importedYouTubeTargets = window._importedYouTubeTargets || [];
 window.importYouTubeTargets = async function (collector, targetType, prefix = 'task') {
   const p = prefix || 'task';
   const inputId = collector === 'youtube_profiles' ? `${p}-yt-profiles-txt` : `${p}-yt-comments-txt`;
@@ -1032,8 +995,14 @@ window.importYouTubeTargets = async function (collector, targetType, prefix = 't
   try {
     const resp = await api('/tasks/import-targets', { method: 'POST', body: formData, isFormData: true });
     const targets = resp.targets || [];
-    window._importedYouTubeTargetsByCollector[collector] = targets;
-    window._importedYouTubeTargets = targets;
+    const fieldKey = collector === 'youtube_profiles' ? 'channel_url' : 'video_url';
+    const textarea = document.getElementById(`${p}-metadata-${fieldKey}`);
+    if (textarea) {
+      textarea.value = targets
+        .map((target) => target.params?.[fieldKey] || target.name || '')
+        .filter(Boolean)
+        .join('\n');
+    }
     const skipped = resp.skipped > 0 ? `, 跳过 ${resp.skipped} 行` : '';
     preview.style.display = 'block';
     preview.className = 'mt-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300';
@@ -1041,8 +1010,6 @@ window.importYouTubeTargets = async function (collector, targetType, prefix = 't
       (resp.skipped_reasons?.length ? `<span class="text-amber-400">${resp.skipped_reasons.slice(0, 3).join('<br>')}</span>` : '');
     if (typeof toast === 'function') toast(`已导入 ${resp.total} 个采集目标`, 'success');
   } catch (err) {
-    window._importedYouTubeTargetsByCollector[collector] = [];
-    window._importedYouTubeTargets = [];
     preview.style.display = 'block';
     preview.className = 'mt-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300';
     preview.innerHTML = `导入失败：${err.message || '未知错误'}`;

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.core.registry import registry
 from src.core.sensitive import redact_url_credentials
 from src.storage.base import BaseStorage, QueryResult, StorageRecord
-from src.storage.models import Base, RecordModel, utcnow
+from src.storage.models import Base, RecordModel, to_naive_utc, utcnow
 
 
 @registry.register("storage", "local")  # 历史别名，与 sqlalchemy 同一实现
@@ -85,7 +85,7 @@ class SQLAlchemyStorage(BaseStorage):
                 tags=record.tags,
                 data=data_to_save,
                 embedding=embedding_val,
-                stored_at=record.stored_at,
+                stored_at=to_naive_utc(record.stored_at),
             )
             stmt = stmt.on_conflict_do_update(
                 index_elements=[RecordModel.key],
@@ -136,7 +136,7 @@ class SQLAlchemyStorage(BaseStorage):
                     "tags": record.tags,
                     "data": data_to_save,
                     "embedding": embedding_val,
-                    "stored_at": record.stored_at,
+                    "stored_at": to_naive_utc(record.stored_at),
                 }
             )
 

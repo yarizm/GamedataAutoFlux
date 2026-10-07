@@ -52,7 +52,11 @@ function renderTaskActions(task) {
 }
 
 function showCreateTaskModal() {
-    Promise.all([loadPipelineTemplates(), loadPipelineSelect("task-pipeline")]).then(() => updateTaskTargetFields());
+    Promise.all([
+        loadPipelineTemplates(),
+        loadPipelineSelect("task-pipeline"),
+        loadCollectorMetadata(),
+    ]).then(() => updateTaskTargetFields());
     openModal("modal-create-task");
     currentWizardStep = 1;
     updateWizardUI();
@@ -74,60 +78,16 @@ function hasStorageStep(pipelineName, storageName) {
 function updateTaskTargetFields() {
     const pipelineName = document.getElementById("task-pipeline")?.value || "";
     const collector = getCollectorForPipeline(pipelineName);
+    const metadata = getCollectorMetadata(collector);
 
-    const steamFields = document.getElementById("task-steam-fields");
-    const steamDiscussionsFields = document.getElementById("task-steam-discussions-fields");
-    const taptapFields = document.getElementById("task-taptap-fields");
-    const monitorFields = document.getElementById("task-monitor-fields");
-    const qimaiFields = document.getElementById("task-qimai-fields");
-    const officialSiteFields = document.getElementById("task-official-site-fields");
-    const youtubeProfilesFields = document.getElementById("task-youtube-profiles-fields");
-    const youtubeCommentsFields = document.getElementById("task-youtube-comments-fields");
-    const helper = document.getElementById("task-target-helper");
+    if (!window.collectorMetadata) {
+        // Metadata not loaded yet — fetch it, then re-render.
+        loadCollectorMetadata().then(() => updateTaskTargetFields());
+        return;
+    }
 
-    if (steamFields) {
-        steamFields.style.display = collector === "steam" ? "block" : "none";
-    }
-    if (steamDiscussionsFields) {
-        steamDiscussionsFields.style.display = collector === "steam_discussions" ? "block" : "none";
-    }
-    if (taptapFields) {
-        taptapFields.style.display = collector === "taptap" ? "block" : "none";
-    }
-    if (monitorFields) {
-        monitorFields.style.display = collector === "monitor" ? "block" : "none";
-    }
-    if (qimaiFields) {
-        qimaiFields.style.display = collector === "qimai" ? "block" : "none";
-    }
-    if (officialSiteFields) {
-        officialSiteFields.style.display = collector === "official_site" ? "block" : "none";
-    }
-    if (youtubeProfilesFields) {
-        youtubeProfilesFields.style.display = collector === "youtube_profiles" ? "block" : "none";
-    }
-    if (youtubeCommentsFields) {
-        youtubeCommentsFields.style.display = collector === "youtube_comments" ? "block" : "none";
-    }
-    if (helper) {
-        if (collector === "taptap") {
-            helper.textContent = "TapTap v1 expects a public mainland page URL or app ID.";
-        } else if (collector === "steam_discussions") {
-            helper.textContent = "Steam Community tasks use app id or forum URL plus optional start/end dates.";
-        } else if (collector === "monitor") {
-            helper.textContent = "Monitor tasks use app id and optional Twitch/SullyGnome hints.";
-        } else if (collector === "qimai") {
-            helper.textContent = "Qimai tasks use qimai_app_id (App Store ID or Package Name).";
-        } else if (collector === "official_site") {
-            helper.textContent = "Official site tasks use target name plus official_url, or advanced JSON targets.";
-        } else if (collector === "youtube_profiles") {
-            helper.textContent = "YouTube profile tasks use an imported TXT list of channel URLs, IDs, or handles.";
-        } else if (collector === "youtube_comments") {
-            helper.textContent = "YouTube comment tasks use an imported TXT list of video URLs.";
-        } else {
-            helper.textContent = "Steam tasks use target name + app id, or advanced JSON targets.";
-        }
-    }
+    renderMetadataTargetForm("task", metadata);
+    updateCollectorLabels("task", metadata);
 
     const autoReport = document.getElementById("task-enable-report");
     if (autoReport && (
@@ -137,150 +97,6 @@ function updateTaskTargetFields() {
     )) {
         autoReport.checked = true;
     }
-}
-
-function buildTaskTargetsFromForm(formState) {
-    const {
-        collector,
-        targetName,
-        appId,
-        skipSteamdb,
-        steamdbTimeSlice,
-        steamDiscussionsForumUrl,
-        steamDiscussionsStart,
-        steamDiscussionsEnd,
-        steamDiscussionsMaxPages,
-        steamDiscussionsMaxTopics,
-        steamDiscussionsIncludeReplies,
-        taptapUrl,
-        taptapReviewsPages,
-        taptapReviewsLimit,
-        monitorDays,
-        monitorTwitchName,
-        monitorSiteurl,
-        qimaiAppId,
-        officialSiteUrl,
-    } = formState;
-
-    if (collector === "steam_discussions") {
-        if (!targetName && !appId && !steamDiscussionsForumUrl) {
-            return [];
-        }
-
-        const params = {
-            ...(appId ? { app_id: appId } : {}),
-            ...(steamDiscussionsForumUrl ? { forum_url: steamDiscussionsForumUrl } : {}),
-            ...(steamDiscussionsStart ? { start_time: steamDiscussionsStart } : {}),
-            ...(steamDiscussionsEnd ? { end_time: steamDiscussionsEnd } : {}),
-            max_pages: Number(steamDiscussionsMaxPages || 50),
-            max_topics: Number(steamDiscussionsMaxTopics || 1000),
-            include_replies: Boolean(steamDiscussionsIncludeReplies),
-        };
-
-        return [
-            {
-                name: targetName || appId || steamDiscussionsForumUrl,
-                target_type: "game",
-                params,
-            },
-        ];
-    }
-
-    if (collector === "taptap") {
-        if (!targetName && !taptapUrl && !appId) {
-            return [];
-        }
-
-        const params = {
-            region: "cn",
-            metrics: ["details", "reviews", "updates"],
-            reviews_pages: Number(taptapReviewsPages || 1),
-            reviews_limit: Number(taptapReviewsLimit || 20),
-            use_playwright: "auto",
-            ...(taptapUrl ? { page_url: taptapUrl } : {}),
-            ...(appId ? { app_id: appId } : {}),
-        };
-
-        return [
-            {
-                name: targetName || appId || taptapUrl,
-                target_type: "game",
-                params,
-            },
-        ];
-    }
-
-    if (collector === "monitor") {
-        if (!targetName && !appId) {
-            return [];
-        }
-        return [
-            {
-                name: targetName || appId,
-                target_type: "game",
-                params: {
-                    app_id: appId,
-                    days: Number(monitorDays || 30),
-                    metrics: ["twitch_viewer_trend"],
-                    ...(monitorTwitchName ? { twitch_name: monitorTwitchName } : {}),
-                    ...(monitorSiteurl ? { siteurl: monitorSiteurl } : {}),
-                },
-            },
-        ];
-    }
-
-    if (collector === "qimai") {
-        if (!targetName && !qimaiAppId) {
-            return [];
-        }
-        return [
-            {
-                name: targetName || qimaiAppId,
-                target_type: "game",
-                params: {
-                    qimai_app_id: qimaiAppId,
-                },
-            },
-        ];
-    }
-
-    if (collector === "official_site") {
-        if (!officialSiteUrl) {
-            return [];
-        }
-        return [
-            {
-                name: targetName || officialSiteUrl,
-                target_type: "game",
-                params: {
-                    official_url: officialSiteUrl,
-                    use_playwright: "auto",
-                },
-            },
-        ];
-    }
-
-    if (collector === "youtube_profiles" || collector === "youtube_comments") {
-        return window._importedYouTubeTargetsByCollector?.[collector] || [];
-    }
-
-    if (!targetName && !appId) {
-        return [];
-    }
-
-    const params = {
-        ...(appId ? { app_id: appId } : {}),
-        ...(!skipSteamdb && steamdbTimeSlice ? { steamdb_time_slice: steamdbTimeSlice } : {}),
-        ...(skipSteamdb ? { skip_steamdb: true } : {}),
-    };
-
-    return [
-        {
-            name: targetName || appId,
-            target_type: "game",
-            params,
-        },
-    ];
 }
 
 function renderTaskPrecheck(precheck) {
@@ -351,26 +167,6 @@ async function createTask() {
     const targetsRaw = taskTargetsEditor ? taskTargetsEditor.getValue().trim() : (document.getElementById("task-targets")?.value.trim() || "");
     const description = document.getElementById("task-desc")?.value.trim() || "";
     const targetName = document.getElementById("task-target-name")?.value.trim() || "";
-    const steamAppId = document.getElementById("task-app-id")?.value.trim() || "";
-    const steamDiscussionsAppId = document.getElementById("task-steam-discussions-app-id")?.value.trim() || "";
-    const steamDiscussionsForumUrl = document.getElementById("task-steam-discussions-forum-url")?.value.trim() || "";
-    const steamDiscussionsStart = document.getElementById("task-steam-discussions-start")?.value || "";
-    const steamDiscussionsEnd = document.getElementById("task-steam-discussions-end")?.value || "";
-    const steamDiscussionsMaxPages = document.getElementById("task-steam-discussions-max-pages")?.value || "50";
-    const steamDiscussionsMaxTopics = document.getElementById("task-steam-discussions-max-topics")?.value || "1000";
-    const steamDiscussionsIncludeReplies = document.getElementById("task-steam-discussions-include-replies")?.checked ?? true;
-    const taptapAppId = document.getElementById("task-taptap-app-id")?.value.trim() || "";
-    const skipSteamdb = document.getElementById("task-skip-steamdb")?.checked || false;
-    const steamdbTimeSlice = document.getElementById("task-steamdb-time-slice")?.value || "monthly_peak_1y";
-    const taptapUrl = document.getElementById("task-taptap-url")?.value.trim() || "";
-    const taptapReviewsPages = document.getElementById("task-taptap-reviews-pages")?.value || "1";
-    const taptapReviewsLimit = document.getElementById("task-taptap-reviews-limit")?.value || "20";
-    const monitorAppId = document.getElementById("task-monitor-app-id")?.value.trim() || "";
-    const monitorDays = document.getElementById("task-monitor-days")?.value || "30";
-    const monitorTwitchName = document.getElementById("task-monitor-twitch-name")?.value.trim() || "";
-    const monitorSiteurl = document.getElementById("task-monitor-siteurl")?.value.trim() || "";
-    const qimaiAppId = document.getElementById("task-qimai-app-id")?.value.trim() || "";
-    const officialSiteUrl = document.getElementById("task-official-site-url")?.value.trim() || "";
     const enableReport = document.getElementById("task-enable-report")?.checked || false;
     const reportPromptRaw = document.getElementById("task-report-prompt")?.value.trim() || "";
     const reportTemplate = document.getElementById("task-report-template")?.value || "default";
@@ -381,32 +177,11 @@ async function createTask() {
         return;
     }
 
-    let targets = buildTaskTargetsFromForm({
-        collector,
-        targetName,
-        appId: collector === "taptap"
-            ? taptapAppId
-            : collector === "steam_discussions"
-                ? steamDiscussionsAppId
-                : steamAppId,
-        ...(collector === "monitor" ? { appId: monitorAppId } : {}),
-        skipSteamdb,
-        steamdbTimeSlice,
-        steamDiscussionsForumUrl,
-        steamDiscussionsStart,
-        steamDiscussionsEnd,
-        steamDiscussionsMaxPages,
-        steamDiscussionsMaxTopics,
-        steamDiscussionsIncludeReplies,
-        taptapUrl,
-        taptapReviewsPages,
-        taptapReviewsLimit,
-        monitorDays,
-        monitorTwitchName,
-        monitorSiteurl,
-        qimaiAppId,
-        officialSiteUrl,
-    });
+    const targetMetadata = getCollectorMetadata(collector);
+    let targets = buildTargetsFromMetadata("task", targetMetadata);
+    if (!targets || !targets.length) {
+        targets = buildFallbackTarget("task", targetMetadata?.target_schema?.target_type);
+    }
     if (targetsRaw) {
         try {
             targets = JSON.parse(targetsRaw);
@@ -609,9 +384,6 @@ async function viewTaskDetail(id) {
     }
 }
 
-window._importedYouTubeTargetsByCollector = window._importedYouTubeTargetsByCollector || {};
-window._importedYouTubeTargets = window._importedYouTubeTargets || [];
-
 async function importYouTubeTargets(collector, targetType) {
     const inputId = collector === "youtube_profiles" ? "task-yt-profiles-txt" : "task-yt-comments-txt";
     const previewId = collector === "youtube_profiles" ? "task-yt-profiles-preview" : "task-yt-comments-preview";
@@ -635,8 +407,14 @@ async function importYouTubeTargets(collector, targetType) {
         }
         const resp = await response.json();
         const targets = resp.targets || [];
-        window._importedYouTubeTargetsByCollector[collector] = targets;
-        window._importedYouTubeTargets = targets;
+        const fieldKey = collector === "youtube_profiles" ? "channel_url" : "video_url";
+        const textarea = document.getElementById(`task-metadata-${fieldKey}`);
+        if (textarea) {
+            textarea.value = targets
+                .map((target) => (target.params || {})[fieldKey] || target.name || "")
+                .filter(Boolean)
+                .join("\n");
+        }
         if (preview) {
             const skipped = resp.skipped > 0 ? `, skipped ${resp.skipped} lines` : "";
             const reasons = resp.skipped_reasons?.length
@@ -648,8 +426,6 @@ async function importYouTubeTargets(collector, targetType) {
         }
         toast(`Imported ${resp.total} YouTube targets`, "success");
     } catch (err) {
-        window._importedYouTubeTargetsByCollector[collector] = [];
-        window._importedYouTubeTargets = [];
         if (preview) {
             preview.style.display = "block";
             preview.className = "mt-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300";

@@ -51,11 +51,17 @@ async def test_create_task_tool_returns_final_targets_and_auto_fill_summary(
     assert payload["data"]["task_id"] == "task-created"
     assert payload["data"]["collector_name"] == "steam"
     assert payload["data"]["targets_count"] == 1
+    # Collector schema defaults are merged in before submission.
     assert payload["data"]["targets"] == [
         {
             "name": "Counter-Strike 2",
             "target_type": "game",
-            "params": {"api_key": "[REDACTED]", "app_id": "730"},
+            "params": {
+                "skip_steamdb": True,
+                "steamdb_time_slice": "monthly_peak_1y",
+                "api_key": "[REDACTED]",
+                "app_id": "730",
+            },
         }
     ]
     assert payload["data"]["auto_filled_identifiers"] == [
@@ -68,6 +74,8 @@ async def test_create_task_tool_returns_final_targets_and_auto_fill_summary(
     ]
     assert "secret-key" not in json.dumps(payload, ensure_ascii=False)
     assert fake_service.created["targets"][0]["params"] == {
+        "skip_steamdb": True,
+        "steamdb_time_slice": "monthly_peak_1y",
         "api_key": "secret-key",
         "app_id": "730",
     }
