@@ -49,6 +49,13 @@ export function mountInspector(el, opts = {}) {
   }
 
   function renderInputsBlock(node) {
+    if (node.type === 'input') {
+      return `
+        <div class="insp-field">
+          <label>${escapeHtml(t('dag.ports'))}</label>
+          <div class="insp-ro text-[11px]">${escapeHtml(t('dag.portsIOInput'))}</div>
+        </div>`;
+    }
     if (node.type !== 'collector') {
       const outLabel = node.type === 'storage' ? t('dag.portsNone') : 'records';
       return `
@@ -161,6 +168,7 @@ export function mountInspector(el, opts = {}) {
 
   function renderNodeUsage(node) {
     const usageKeys = {
+      input: ['dag.usage.input1', 'dag.usage.input2'],
       collector: ['dag.usage.collector1', 'dag.usage.collector2', 'dag.usage.collector3'],
       processor: ['dag.usage.processor1', 'dag.usage.processor2'],
       storage: ['dag.usage.storage1', 'dag.usage.storage2'],
@@ -304,7 +312,9 @@ export function mountInspector(el, opts = {}) {
       ? getCachedCollectorMeta(node.component)
       : null;
     const definition = getCachedDagNodeDefinition(node.type, node.component);
-    const description = definition?.description || collectorMeta?.description || '';
+    const description = definition?.description
+      || collectorMeta?.description
+      || (node.type === 'input' ? t('dag.inputNodeDesc') : '');
     const owner = definition?.owner || 'core';
     const capabilities = Array.isArray(collectorMeta?.capabilities)
       ? collectorMeta.capabilities

@@ -53,6 +53,22 @@ export function mountPalette(el, opts = {}) {
         // Business sink is sqlalchemy only; local is a legacy alias.
         && (item.type !== 'storage' || item.name === 'sqlalchemy')
       ));
+      // 入口参数节点由核心提供（无插件 component），不来自 /components/metadata 的组件目录
+      visibleItems.unshift({
+        type: 'input',
+        name: '',
+        displayName: t('dag.inputNode'),
+        description: t('dag.inputNodeDesc'),
+        owner: 'core',
+        capabilities: [],
+        recoveryLevel: '',
+        definition: {
+          type: 'input',
+          component: '',
+          ports_in: [],
+          ports_out: [{ name: 'params', required: true }],
+        },
+      });
       if (!visibleItems.length) {
         el.innerHTML = `<p class="text-muted text-xs">${escapeHtml(t('dag.empty.components'))}</p>`;
         return;

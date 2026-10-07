@@ -1,6 +1,6 @@
 # tests/test_pipeline_to_dag.py
-from src.core.pipeline import Pipeline
 from src.core.dag import dag_to_pipeline, pipeline_to_dag
+from src.core.pipeline import Pipeline
 
 
 def test_dag_to_pipeline_roundtrip_steps():
@@ -101,3 +101,28 @@ def test_pipeline_to_dag_roundtrip_via_storage():
     assert restored.name == "roundtrip"
     assert len(restored.nodes) == len(dag.nodes)
     assert len(restored.edges) == len(dag.edges)
+
+
+def test_pipeline_to_dag_declares_input_node_and_params_edges():
+    """入口参数由 input 节点声明：每个 collector 都从它拿到 params。"""
+    from src.core.dag import INPUT_NODE_ID
+    from src.core.dag_executor import validate_dag
+
+    p = Pipeline("g").add_collector("steam").add_collector("taptap").add_storage("sqlalchemy")
+    dag = pipeline_to_dag(p)
+    inputs = [n for n in dag.nodes if n.type == "input"]
+    assert [n.id for n in inputs] == [INPUT_NODE_ID]
+    assert [port.name for port in inputs[0].ports_out] == ["params"]
+    collectors = [n for n in dag.nodes if n.type == "collector"]
+    assert len(collectors) == 2
+    for collector in collectors:
+        assert "params" in collector.is_param_port
+        assert any(
+            e.from_node == INPUT_NODE_ID
+            and e.from_port == "params"
+            and e.to_node == collector.id
+            and e.to_port == "params"
+            for e in dag.edges
+        )
+    # input 是有效源，collector 从它可达 → 结构校验无 error
+    assert validate_dag(dag) == []

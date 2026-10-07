@@ -135,6 +135,37 @@ def build_emit_checkpoint(
     return _emit_checkpoint
 
 
+class InputNode:
+    """图入口参数节点：把任务声明的 targets 作为图参数显式产出。
+
+    参数归属集中在这里，由 ``params`` 端口连给需要它的 collector；没有 params
+    入边的 collector 仍回退到任务 targets，所以存量图行为不变。
+    """
+
+    def __init__(
+        self,
+        spec: NodeSpec,
+        *,
+        task: Task,
+        recovery_checkpoint: dict[str, Any],
+    ) -> None:
+        self.spec = spec
+        self.node_id = spec.id
+        self.input_ports = spec.ports_in
+        self.output_ports = spec.ports_out
+        self._task = task
+        self._recovery_context = recovery_checkpoint
+
+    async def setup(self) -> None:
+        return None
+
+    async def run(self, ctx: NodeContext) -> dict[str, Any]:
+        return {"params": _build_collect_targets(self._task)}
+
+    async def teardown(self) -> None:
+        return None
+
+
 class CollectorNode:
     """Runtime node wrapping one registered collector."""
 
@@ -175,9 +206,13 @@ class CollectorNode:
 
         node_config = {**(self.spec.config or {}), **(ctx.config or {})}
         upstream_records = _flatten_records(ctx.inputs.get("records"))
-        task_targets = _build_collect_targets(self._task)
+        # 参数来源由图的 input 节点声明；没有 params 入边时回退任务 targets（存量图兼容）
+        if "params" in ctx.inputs:
+            param_targets = _flatten_records(ctx.inputs.get("params"))
+        else:
+            param_targets = _build_collect_targets(self._task)
         targets = resolve_collector_targets(
-            task_targets=task_targets,
+            task_targets=param_targets,
             upstream_records=upstream_records,
             node_config=node_config,
         )

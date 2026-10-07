@@ -1,6 +1,7 @@
 /** API ↔ editor model adapter for DAG page. */
 
 export const TYPE_COLORS = {
+  input: 'rose',
   collector: 'emerald',
   processor: 'sky',
   storage: 'amber',
@@ -18,6 +19,12 @@ export function layoutNum(value, fallback = 0) {
 }
 
 export function defaultPortsForType(type) {
+  if (type === 'input') {
+    return {
+      ports_in: [],
+      ports_out: [{ name: 'params', required: true }],
+    };
+  }
   if (type === 'storage') {
     return {
       ports_in: [{ name: 'records', required: true }],

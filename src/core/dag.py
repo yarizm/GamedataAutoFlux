@@ -18,6 +18,10 @@ class PortSpec:
     type_hint: str = ""
 
 
+# 入口参数节点的固定 ID：图上声明"任务参数从这里进入"的唯一位置
+INPUT_NODE_ID = "input_params"
+
+
 @dataclass
 class NodeSpec:
     id: str
@@ -166,19 +170,35 @@ class DAGResult:
 
 
 def pipeline_to_dag(pipeline: Any) -> DAG:
-    """把三段式 Pipeline 转成等价 DAG：collectors 并行汇合到 processor 链，链尾连 storage。"""
+    """把三段式 Pipeline 转成等价 DAG：collectors 并行汇合到 processor 链，链尾连 storage。
+
+    入口参数由 ``input`` 节点声明：任务 targets 从它的 ``params`` 端口显式连到
+    每个 collector，参数来源因此在图上可见。只在执行期转出来的临时图（
+    ``Pipeline.execute`` 的 DAG 委托）也会带上这个节点，语义与直接读任务一致。
+    """
     from src.core.pipeline import StepType
 
     collectors = [s for s in pipeline.steps if s.step_type == StepType.COLLECTOR]
     processors = [s for s in pipeline.steps if s.step_type == StepType.PROCESSOR]
     storages = [s for s in pipeline.steps if s.step_type == StepType.STORAGE]
 
-    nodes: list[NodeSpec] = []
+    nodes: list[NodeSpec] = [
+        NodeSpec(INPUT_NODE_ID, "input", "", {}, [], [PortSpec("params")], set())
+    ]
     edges: list[Edge] = []
     collector_ids = []
     for i, s in enumerate(collectors):
         nid = f"collect_{i}_{s.component_name}"
-        nodes.append(NodeSpec(nid, "collector", s.component_name, s.config, [], [PortSpec("records")], set()))
+        nodes.append(NodeSpec(
+            nid,
+            "collector",
+            s.component_name,
+            s.config,
+            [PortSpec("params", False), PortSpec("records", False)],
+            [PortSpec("records")],
+            {"params"},
+        ))
+        edges.append(Edge(INPUT_NODE_ID, "params", nid, "params"))
         collector_ids.append(nid)
     prev_ids = collector_ids
     for i, s in enumerate(processors):

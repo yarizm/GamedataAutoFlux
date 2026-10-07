@@ -1,10 +1,11 @@
 # tests/test_dag_executor.py
 import pytest
-from src.core.dag import DAG, NodeSpec, Edge, PortSpec
-from src.core.dag_executor import validate_dag, topological_layers, DAGExecutor
-from src.core.task import Task, TaskTarget
-from src.core.registry import registry
+
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
+from src.core.dag import DAG, Edge, NodeSpec, PortSpec
+from src.core.dag_executor import DAGExecutor, topological_layers, validate_dag
+from src.core.registry import registry
+from src.core.task import Task, TaskTarget
 from src.processors.base import BaseProcessor, ProcessInput, ProcessOutput
 
 
@@ -174,5 +175,65 @@ async def test_dag_executor_recovery_skips_completed_targets():
         assert len(result.collect_results) == 1
         assert result.collect_results[0].target.name == "gameB"
         assert len(result.process_results) == 1
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
+async def test_dag_executor_resume_skip_all_reports_honest_error():
+    """续跑跳过全部 target 时，如实说明"无可存储数据"，而不是误报采集失败。
+
+    回归：checkpoint 的 next_target_index 覆盖全部 target 时，
+    ``apply_collect_resume_context`` 返回空列表，采集节点会"成功"产出零结果。
+    此前这会被 "all collect targets failed" 覆盖真实原因（例如下游存储阶段失败）。
+    """
+    snap = registry.snapshot()
+    registry.register("collector", "_dummy_skip_all")(_DummyCollector)
+    try:
+        dag = DAG(
+            name="skip_all_dag",
+            nodes=[
+                NodeSpec("src", "collector", "_dummy_skip_all", {}, [], [PortSpec("records")], set()),
+            ],
+            edges=[],
+        )
+        task = Task(name="t", targets=[TaskTarget(name="gameA"), TaskTarget(name="gameB")])
+        checkpoint = {
+            "task_id": task.id,
+            "seq": 1,
+            "state": {
+                "target_order": ["gameA", "gameB"],
+                "next_target_index": 2,
+                "completed_targets": ["gameA", "gameB"],
+            },
+        }
+        result = await DAGExecutor().execute(task, dag, recovery_checkpoint=checkpoint)
+
+        assert not result.success
+        assert result.collect_results == []
+        assert any("resume checkpoint" in e for e in result.errors), result.errors
+        assert not any("all collect targets failed" in e for e in result.errors), result.errors
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
+async def test_dag_executor_collect_failure_keeps_original_error():
+    """没有续跑上下文时，采集全失败仍报原来的错误。"""
+    snap = registry.snapshot()
+    registry.register("collector", "_failing_all")(_FailingCollector)
+    try:
+        dag = DAG(
+            name="fail_all_dag",
+            nodes=[
+                NodeSpec("src", "collector", "_failing_all", {}, [], [PortSpec("records")], set()),
+            ],
+            edges=[],
+        )
+        task = Task(name="t", targets=[TaskTarget(name="gameA")])
+        result = await DAGExecutor().execute(task, dag)
+
+        assert not result.success
+        assert any("all collect targets failed" in e for e in result.errors), result.errors
     finally:
         registry.restore(snap)

@@ -34,6 +34,8 @@ function nodeHtml(node) {
     if (outs.length && outs[0] !== 'records') {
       outHint = `<div class="dag-node-ports"><span class="port-tag out">输出</span> ${escapeHtml(outs.join(', '))}</div>`;
     }
+  } else if (node.type === 'input') {
+    outHint = '<div class="dag-node-ports"><span class="port-tag out">出</span> params</div>';
   } else if (node.type === 'processor' || node.type === 'storage') {
     inHint = '<div class="dag-node-ports"><span class="port-tag in">入</span> records</div>';
     if (node.type === 'processor') {
@@ -343,6 +345,7 @@ export function createCanvas(el, handlers = {}) {
       'dag-type-processor',
       'dag-type-storage',
       'dag-type-composite',
+      'dag-type-input',
     );
     nodeEl.classList.add(`dag-type-${node.type || 'composite'}`);
   }

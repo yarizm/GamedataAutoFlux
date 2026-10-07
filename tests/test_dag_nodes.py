@@ -1,10 +1,11 @@
 # tests/test_dag_nodes.py
 import pytest
-from src.core.dag import NodeSpec, PortSpec
-from src.core.dag_nodes import CollectorNode, NodeContext
-from src.core.task import Task, TaskTarget
+
 from src.collectors.base import BaseCollector, CollectResult, CollectTarget
+from src.core.dag import NodeSpec, PortSpec
+from src.core.dag_nodes import CollectorNode, InputNode, NodeContext
 from src.core.registry import registry
+from src.core.task import Task, TaskTarget
 
 
 class _DummyCollector(BaseCollector):
@@ -229,5 +230,80 @@ async def test_collector_node_from_upstream_empty_does_not_fallback_to_task():
         await node.teardown()
         assert out["records"] == []
         assert _CaptureCollector.last_targets == []
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
+async def test_input_node_emits_task_targets_on_params_port():
+    """input 节点是任务参数进入图的唯一声明点。"""
+    spec = NodeSpec(
+        id="input_params", type="input", component="", config={},
+        ports_in=[], ports_out=[PortSpec("params")], is_param_port=set(),
+    )
+    task = Task(name="t", targets=[TaskTarget(name="A"), TaskTarget(name="B")])
+    node = InputNode(spec, task=task, recovery_checkpoint={})
+    await node.setup()
+    out = await node.run(NodeContext(inputs={}, task=task, config={}))
+    assert [t.name for t in out["params"]] == ["A", "B"]
+    await node.teardown()
+
+
+@pytest.mark.asyncio
+async def test_collector_node_params_port_overrides_task_targets():
+    """params 端口接线后，collector 用图参数而不是任务 targets。"""
+    snap = registry.snapshot()
+    registry.register("collector", "_capture_params")(_CaptureCollector)
+    _CaptureCollector.last_targets = []
+    try:
+        spec = NodeSpec(
+            id="c",
+            type="collector",
+            component="_capture_params",
+            config={},
+            ports_in=[PortSpec("params", required=False)],
+            ports_out=[PortSpec("records")],
+            is_param_port={"params"},
+        )
+        task = Task(name="t", targets=[TaskTarget(name="from_task")])
+        node = CollectorNode(spec, task=task, recovery_checkpoint={})
+        await node.setup()
+        out = await node.run(
+            NodeContext(
+                inputs={"params": [CollectTarget(name="from_graph")]},
+                task=task,
+                config=spec.config,
+            )
+        )
+        await node.teardown()
+        assert [t.name for t in _CaptureCollector.last_targets] == ["from_graph"]
+        assert len(out["records"]) == 1
+    finally:
+        registry.restore(snap)
+
+
+@pytest.mark.asyncio
+async def test_collector_node_without_params_edge_keeps_task_targets():
+    """没有 params 入边（存量图）行为不变：仍读任务 targets。"""
+    snap = registry.snapshot()
+    registry.register("collector", "_capture_no_params")(_CaptureCollector)
+    _CaptureCollector.last_targets = []
+    try:
+        spec = NodeSpec(
+            id="c",
+            type="collector",
+            component="_capture_no_params",
+            config={},
+            ports_in=[],
+            ports_out=[PortSpec("records")],
+            is_param_port=set(),
+        )
+        task = Task(name="t", targets=[TaskTarget(name="from_task")])
+        node = CollectorNode(spec, task=task, recovery_checkpoint={})
+        await node.setup()
+        out = await node.run(NodeContext(inputs={}, task=task, config=spec.config))
+        await node.teardown()
+        assert [t.name for t in _CaptureCollector.last_targets] == ["from_task"]
+        assert len(out["records"]) == 1
     finally:
         registry.restore(snap)

@@ -14,6 +14,7 @@ from src.core.dag import DAG, DAGResult, Edge, NodeSpec
 from src.core.dag_conditions import CONDITION_PREDICATES, resolve_condition
 from src.core.dag_nodes import (
     CollectorNode,
+    InputNode,
     NodeContext,
     ProcessorNode,
     StorageNode,
@@ -31,7 +32,7 @@ from src.core.pipeline_recovery import (
 from src.core.sensitive import redact_sensitive_text
 from src.core.task import Task
 
-_VALID_NODE_TYPES = frozenset({"collector", "processor", "storage", "composite"})
+_VALID_NODE_TYPES = frozenset({"collector", "processor", "storage", "composite", "input"})
 
 
 @dataclass(frozen=True)
@@ -230,7 +231,7 @@ def validate_dag_detailed(
 def _is_effective_source(node: NodeSpec, incoming_by_node: dict[str, set[str]]) -> bool:
     if node.id in incoming_by_node:
         return False
-    if node.type in ("collector", "composite"):
+    if node.type in ("collector", "composite", "input"):
         return True
     # 无入边的 processor/storage：必需端口全部是 param 端口（任务配置注入）
     # 才算配置驱动的有效源；否则永远收不到数据
@@ -269,6 +270,8 @@ def topological_layers(dag: DAG) -> list[list[str]]:
 
 
 def _instantiate_node(node_spec: NodeSpec, *, task: Task, recovery_checkpoint: dict) -> Any:
+    if node_spec.type == "input":
+        return InputNode(node_spec, task=task, recovery_checkpoint=recovery_checkpoint)
     if node_spec.type == "collector":
         return CollectorNode(node_spec, task=task, recovery_checkpoint=recovery_checkpoint)
     if node_spec.type == "processor":
@@ -280,6 +283,28 @@ def _instantiate_node(node_spec: NodeSpec, *, task: Task, recovery_checkpoint: d
 
 def _has_successful_collects(collect_results: list) -> bool:
     return any(r.success and r.data is not None for r in collect_results)
+
+
+def _collect_failure_message(dag_name: str, recovery_context: dict[str, Any]) -> str:
+    """采集阶段零结果的如实归因：区分"续跑跳过"与"采集全失败"。
+
+    续跑按 checkpoint 的 next_target_index 跳过已完成 target；当它覆盖全部 target 时
+    ``apply_collect_resume_context`` 返回空列表，采集节点会"成功"产出零结果。此时
+    collector 并没有失败，沿用 "all collect targets failed" 会掩盖真实原因。
+    """
+    if isinstance(recovery_context, dict):
+        collect_context = recovery_context.get("collect")
+    else:
+        collect_context = None
+    if isinstance(collect_context, dict) and collect_context.get("enabled"):
+        target_order = collect_context.get("target_order") or []
+        try:
+            next_index = int(collect_context.get("next_target_index") or 0)
+        except (TypeError, ValueError):
+            next_index = 0
+        if target_order and next_index >= len(target_order):
+            return f"{dag_name}: collect skipped by resume checkpoint; nothing to store"
+    return f"{dag_name}: all collect targets failed"
 
 
 def _flatten_records(value: Any) -> list:
@@ -442,7 +467,7 @@ class DAGExecutor:
                 aborted = True
                 result.success = False
                 if not result.errors:
-                    result.errors.append(f"{dag.name}: all collect targets failed")
+                    result.errors.append(_collect_failure_message(dag.name, recovery_context))
                 break
 
             if on_progress is not None:
@@ -460,6 +485,7 @@ class DAGExecutor:
             recovery_context=recovery_context,
             collect_results=result.collect_results,
             output_records=result.output_records,
+            run_succeeded=result.success,
         )
         return result
 
@@ -478,6 +504,10 @@ class DAGExecutor:
         调用方负责翻译成具体事件契约（如 pipeline 的 collect/process/storage 事件）。
         """
         if on_event is None:
+            return
+        if node_spec.type == "input":
+            # input 节点只声明参数入口，不是执行阶段；透传会让任务事件流里
+            # 多出一个假的 input 阶段（前端会当成一个采集阶段显示）
             return
         try:
             r = on_event(task_id, node_spec, phase, out=out, error=error)

@@ -321,7 +321,7 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
                     },
                 ) from exc
             _validate_node_ports_or_400(node)
-        elif node.type != "composite":
+        elif node.type not in {"composite", "input"}:
             raise HTTPException(400, f"Unsupported DAG node type: {node.type}")
         if node.type == "collector":
             _validate_collector_config_or_400(node.component, node.config)
