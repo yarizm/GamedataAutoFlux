@@ -62,7 +62,7 @@ dev = [
 test = [
     "pytrends>=4.9.2",
     "urllib3>=2.0.0",
-    "firecrawl-py>=1.0.0,<3.0.0",
+    "firecrawl-py>=1.0.0,<5.0.0",
     "playwright>=1.40.0,<2.0.0",
     "build>=1.2.0",
     # 插件管理器运行时经 `python -m pip` 把 wheel 装进受管环境；
