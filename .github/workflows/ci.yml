@@ -52,7 +52,7 @@ jobs:
         run: uv run playwright install chromium
 
       - name: Dependency security audit
-        # 已知漏洞依赖在 CI 即暴露（配合 .github/dependabot.yml 的周期更新）
+        # 已知漏洞依赖在 CI 即暴露（依赖升级改手工处理，仓库已移除 dependabot 配置）
         run: uv run --with pip-audit pip-audit --skip-editable
 
       - name: Compile sources
