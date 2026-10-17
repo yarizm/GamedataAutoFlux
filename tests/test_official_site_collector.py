@@ -137,6 +137,8 @@ def test_collect_returns_standard_structure(monkeypatch):
                     "official_url": "https://example.com",
                     "max_pages": 20,
                     "max_depth": 1,
+                    # fixture 是固定日期；默认 180 天窗口会把它们过滤掉，测试会随时间烂掉
+                    "since_days": 36500,
                     "use_playwright": "never",
                 },
             )
