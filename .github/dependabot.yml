@@ -9,16 +9,9 @@ updates:
       dev-and-runtime:
         patterns:
           - "*"
-  - package-ecosystem: npm
-    directory: "/src/web"
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-    groups:
-      npm-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
+  # npm (src/web) 版本更新已停用：dependabot 每月重开同一批前端升级 PR
+  # （marked 12→18、npm-minor-patch 组等），历次都未合并、被逐个关闭。
+  # 前端依赖改为按需手动升级；恢复时从 git 历史取回这段配置。
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
