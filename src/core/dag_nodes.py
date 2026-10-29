@@ -328,30 +328,29 @@ class StorageNode:
         )
 
         raw = _flatten_records(ctx.inputs.get("records"))
-        collect_results = [item for item in raw if isinstance(item, CollectResult)]
-        process_outputs = [item for item in raw if isinstance(item, ProcessOutput)]
 
+        # 按入端口顺序逐条转换；同时接了采集器与处理器两路时两路都存，
+        # 不能因为出现处理结果就丢掉另一路的原始采集记录
         process_inputs: list[ProcessInput] = []
-        if process_outputs:
-            for output in process_outputs:
-                if not output.success or output.data is None:
+        for item in raw:
+            if isinstance(item, ProcessOutput):
+                if not item.success or item.data is None:
                     continue
                 process_inputs.append(
                     ProcessInput(
-                        data=output.data,
-                        metadata=output.metadata,
-                        source=output.processor_name or "unknown",
+                        data=item.data,
+                        metadata=item.metadata,
+                        source=item.processor_name or "unknown",
                     )
                 )
-        else:
-            for result in collect_results:
-                if not result.success or result.data is None:
+            elif isinstance(item, CollectResult):
+                if not item.success or item.data is None:
                     continue
                 process_inputs.append(
                     ProcessInput(
-                        data=result.data,
-                        metadata=result.metadata,
-                        source=result.target.name,
+                        data=item.data,
+                        metadata=item.metadata,
+                        source=item.target.name,
                     )
                 )
 
@@ -537,6 +536,10 @@ def dag_node_catalog_payload(
                 )
                 owner = "core"
             payload.append(definition.to_payload(owner=owner))
+    # 内置逻辑节点（条件分支/过滤/转换）不依赖任何插件，始终可用
+    from src.core.dag_logic import logic_node_catalog
+
+    payload.extend(logic_node_catalog())
     return payload
 
 
@@ -555,7 +558,11 @@ def default_dag_node(
         ports_in = [DagPortDefinition(name="records", required=True)]
         ports_out: list[DagPortDefinition] = []
     elif node_type == "collector":
-        ports_in = [DagPortDefinition(name="records", required=False)]
+        # params 接 input 节点（任务参数）；records 接上游记录（from_upstream 串联）
+        ports_in = [
+            DagPortDefinition(name="params", required=False, type_hint="params"),
+            DagPortDefinition(name="records", required=False),
+        ]
         ports_out = [DagPortDefinition(name="records", required=True)]
     else:
         ports_in = [DagPortDefinition(name="records", required=True)]

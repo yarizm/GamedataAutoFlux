@@ -645,3 +645,459 @@
     white-space: normal;
   }
 }
+
+/* ── Workflow editor additions: logic nodes, ports, run trace ───────── */
+
+#tab-dag {
+  --dag-logic: var(--accent);
+  --dag-input: #ec4899;
+}
+
+#drawflow .drawflow .drawflow-node.dag-type-logic {
+  border-left: 4px solid var(--dag-logic);
+}
+#drawflow .drawflow .drawflow-node.dag-type-input {
+  border-left: 4px solid var(--dag-input);
+}
+.dag-type-logic .dag-node-type { color: var(--dag-logic); }
+.dag-type-input .dag-node-type { color: var(--dag-input); }
+
+.dag-node-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+.dag-node-badges .dag-node-badge {
+  margin-top: 0;
+}
+
+/* Port labels (only rendered when a side has several / non-default ports) */
+#drawflow .drawflow .drawflow-node .output[data-port-label]::after,
+#drawflow .drawflow .drawflow-node .input[data-port-label]::after {
+  content: attr(data-port-label);
+  position: absolute;
+  top: -15px;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+#drawflow .drawflow .drawflow-node .output[data-port-label]::after {
+  left: 14px;
+}
+#drawflow .drawflow .drawflow-node .input[data-port-label]::after {
+  right: 14px;
+}
+#drawflow .drawflow .drawflow-node .output.dag-port-error {
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+}
+#drawflow .drawflow .drawflow-node .output.dag-port-error[data-port-label]::after {
+  color: var(--danger);
+}
+#drawflow .drawflow .drawflow-node .dag-port-params {
+  border-color: color-mix(in srgb, var(--dag-input) 70%, transparent);
+}
+
+/* Error-branch edges */
+#drawflow .drawflow .connection.dag-edge-error .main-path {
+  stroke: color-mix(in srgb, var(--danger) 70%, transparent);
+  stroke-dasharray: 4 4;
+}
+
+/* Run trace: node rings and edge emphasis */
+#drawflow .drawflow .drawflow-node.dag-run-running,
+#drawflow .drawflow .drawflow-node.dag-run-retrying {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 70%, transparent), 0 0 18px color-mix(in srgb, var(--info) 35%, transparent);
+  animation: dag-run-pulse 1.4s ease-in-out infinite;
+}
+#drawflow .drawflow .drawflow-node.dag-run-succeeded {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 65%, transparent);
+}
+#drawflow .drawflow .drawflow-node.dag-run-failed {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 75%, transparent);
+}
+#drawflow .drawflow .drawflow-node.dag-run-exception {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 75%, transparent);
+}
+#drawflow .drawflow .drawflow-node.dag-run-skipped,
+#drawflow .drawflow .drawflow-node.dag-run-not_run {
+  opacity: 0.55;
+  border-style: dashed;
+}
+@keyframes dag-run-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 70%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 35%, transparent); }
+}
+#drawflow .drawflow .connection.dag-edge-active .main-path {
+  stroke: var(--success);
+  stroke-width: 3px;
+}
+#drawflow .drawflow .connection.dag-edge-inactive .main-path {
+  stroke: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  stroke-dasharray: 3 5;
+}
+
+.dag-node-run {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.4rem;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-secondary);
+}
+.dag-node-run.is-running,
+.dag-node-run.is-retrying { background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info); }
+.dag-node-run.is-succeeded { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.dag-node-run.is-failed { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.dag-node-run.is-exception { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.dag-node-run-icon { font-size: 11px; }
+
+.dag-run-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.dag-run-pill.is-succeeded { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.dag-run-pill.is-running,
+.dag-run-pill.is-retrying { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.dag-run-pill.is-failed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.dag-run-pill.is-exception { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
+
+.dag-run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--border-subtle));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--info) 7%, var(--bg-elevated));
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dag-run-bar[hidden] { display: none; }
+.dag-run-bar.is-success { border-color: color-mix(in srgb, var(--success) 35%, var(--border-subtle)); background: color-mix(in srgb, var(--success) 7%, var(--bg-elevated)); }
+.dag-run-bar.is-failed,
+.dag-run-bar.is-cancelled { border-color: color-mix(in srgb, var(--danger) 35%, var(--border-subtle)); background: color-mix(in srgb, var(--danger) 6%, var(--bg-elevated)); }
+.dag-run-bar-status { font-weight: 700; color: var(--text-primary); }
+.dag-run-bar-task { font-family: ui-monospace, monospace; font-size: 11px; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dag-run-bar-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.dag-run-bar-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+
+/* Toolbar */
+.dag-toolbar-group {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.6rem;
+}
+.dag-toolbar-group .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dag-dirty {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--warning);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+.dag-dirty[hidden] { display: none; }
+
+#dag-validate-bar.has-warnings { color: var(--warning); }
+#dag-validate-bar .dag-issue.is-warning { color: var(--warning); }
+
+/* Palette groups + search */
+.dag-palette-search {
+  width: 100%;
+  margin-bottom: 0.65rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 0.4rem 0.55rem;
+}
+.dag-palette-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dag-palette-group-title span {
+  font-weight: 600;
+  opacity: 0.8;
+}
+.dag-palette-group + .dag-palette-group {
+  margin-top: 0.85rem;
+}
+.dag-palette-logic {
+  border-left: 3px solid color-mix(in srgb, var(--dag-logic) 70%, transparent);
+}
+
+/* Inspector: scrollable column, run block, policy + logic editors */
+.dag-inspector-card {
+  max-height: calc(65vh + 3.6rem);
+  overflow-y: auto;
+}
+#dag-inspector input[type="number"],
+#dag-inspector input[type="search"] {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 0.4rem 0.55rem;
+}
+#dag-inspector .logic-editor textarea {
+  min-height: 2.6rem;
+}
+#dag-inspector .logic-editor input:disabled {
+  opacity: 0.45;
+}
+
+.insp-run {
+  margin-bottom: 0.85rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.6rem;
+  background: var(--bg-elevated);
+}
+.insp-run-title {
+  margin-bottom: 0.4rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.insp-run dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  font-size: 11px;
+}
+.insp-run dt { color: var(--text-muted); }
+.insp-run dd { margin: 0; color: var(--text-secondary); }
+.insp-run-error {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem;
+  max-height: 9rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.insp-policy {
+  margin-top: 0.4rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.65rem;
+}
+.insp-policy > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.logic-case {
+  margin-bottom: 0.6rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--dag-logic) 5%, var(--bg-elevated));
+}
+.logic-case-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+.logic-case-tag {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--dag-logic);
+}
+.logic-case-port {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+.logic-cond-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+/* flex-basis 决定宽度（覆盖 inspector 通用的 width:100%），一行放不下自动换行 */
+.logic-cond-row > * {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+.logic-cond-row > .logic-icon-btn {
+  flex: 0 0 1.5rem;
+}
+.logic-cond-row > [hidden] { display: none; }
+.logic-icon-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.logic-icon-btn:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.logic-add-btn {
+  display: block;
+  width: 100%;
+  margin: 0.25rem 0 0.4rem;
+  padding: 0.3rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.logic-add-btn:hover {
+  color: var(--dag-logic);
+  border-color: color-mix(in srgb, var(--dag-logic) 50%, transparent);
+}
+.logic-join {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin-bottom: 0.35rem;
+}
+.logic-join-btn {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.logic-join-btn.is-active {
+  color: var(--dag-logic);
+  border-color: color-mix(in srgb, var(--dag-logic) 55%, transparent);
+  background: color-mix(in srgb, var(--dag-logic) 10%, transparent);
+}
+.logic-else {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.6rem;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.logic-hint {
+  margin-top: 0.45rem;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.logic-section-title {
+  margin-bottom: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+#dag-inspector .logic-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+#dag-inspector .logic-grid > label,
+#dag-inspector .logic-block-label {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+#dag-inspector .policy-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.logic-inline {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.logic-inline > input,
+.logic-inline > textarea {
+  flex: 1;
+  min-width: 0;
+}
+.logic-inline > select {
+  width: auto !important;
+  flex: 0 0 auto;
+}
+#dag-inspector .logic-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.logic-check input {
+  width: auto !important;
+}
+.logic-field-row {
+  margin-bottom: 0.5rem;
+  padding: 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+}
+.logic-field-row textarea {
+  margin-top: 0.3rem;
+}
+
+.dag-run-modal {
+  max-width: 34rem;
+}

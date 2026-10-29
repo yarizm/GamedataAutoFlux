@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 安装项目（开发模式，含测试依赖）
 pip install -e .[dev]
 playwright install chromium
+# 核心不含任何采集器：本地跑采集要另装插件（或在 WebUI 插件中心安装），见 docs/collector-plugins.md
+pip install ./plugins/steam ./plugins/youtube   # 按需；official_site/monitor 需同时装 ./plugins/smart_web
 
 # 启动服务
 autoflux                        # 或: python -m src.web.app
@@ -30,7 +32,7 @@ pytest tests/test_*.py -k worker  # 运行特定测试（如 worker 相关）
 pytest tests/test_smoke.py      # 单个文件
 
 # 代码检查
-ruff check src/
+ruff check src/ plugins/        # CI 同时检查核心与插件
 ruff format src/
 pyright                # 类型检查：src/core|services|storage，error 级阻断 CI
 ```
@@ -51,14 +53,15 @@ Pipeline 与 DAG 并存：`Pipeline.execute()` 默认内部委托 `DAGExecutor`�
 
 ### 1. 核心引擎 (`src/core/`)
 
-- **`registry.py`** — 全局单例 `ComponentRegistry`。通过 `@registry.register("collector", "steam")` 装饰器注册插件。启动时 `app.py` 的 `_auto_discover_plugins()` 扫描 `src/collectors/`、`src/processors/`、`src/storage/` 子包自动导入。
+- **`registry.py`** — 全局单例 `ComponentRegistry`，组件用 `@registry.register("collector", "<name>")` 装饰器注册。启动时 `app.py` 的 `_auto_discover_plugins()` 调 `plugin_manager.load_installed()`：先 `load_core_components()` 导入 `src/processors/`、`src/storage/`，再加载 `gamedata_autoflux.plugins` entry point 和 `AUTOFLUX_PLUGIN_MODULES` 指定的模块（见下文「采集插件」）。
+- **`plugin_system.py`** — 插件发现/校验/激活。每个插件导出一个 `PluginSpec`；激活是事务式的：先快照 registry、collector metadata、pipeline 模板、probes、config validators、identifier resolvers、DAG 节点，任一贡献校验失败就整体回滚，不影响其他插件。
 - **`config.py`** — YAML 配置加载，支持 `${ENV_VAR}` 环境变量插值和 `SERVER_HOST`/`SERVER_PORT` 直接覆盖。`get(key, default)` 用点号路径取值。`save_section()` 可写回 settings.yaml 保留原有格式。自动加载 `.env` 文件。
 - **`config_schema.py`** — settings.yaml 的 schema 验证，启动时自动运行。
 - **`pipeline.py`** — Builder 模式的 Pipeline 编排引擎。`execute()` 默认委托 DAGExecutor（受 `pipeline.use_dag_execution` 配置开关控制，默认开启），DAG 失败回退 `_execute_legacy` 三段式。保留 `to_config()`/`from_config()`/`add_collector|processor|storage` builder API。
 - **`pipeline_recovery.py`** — Checkpoint 恢复逻辑。`build_pipeline_recovery_context` 从 checkpoint 的 cursor/state 计算 `collect` 上下文，`apply_collect_resume_context` 跳过已完成 target。`build_storage_record_key` 生成键 `{task_id}:{source}:{resume_run_index}:{sequence}`。`build_pipeline_resume_state` 产出 pipeline 格式 resume_state（`target_order`/`next_target_index`/`completed_targets`/`output_record_keys`）。
 - **`dag.py`** — DAG 数据结构：`PortSpec`/`NodeSpec`/`Edge`/`Condition`/`DAG`/`DAGResult`，`to_storage()`/`from_storage()` 序列化，`pipeline_to_dag()` 把三段式 Pipeline 转等价 DAG。节点类型 `collector | processor | storage | composite | input`；`input` 节点（固定 id `INPUT_NODE_ID`）是任务参数进入图的唯一声明点，`pipeline_to_dag()` 会自动补一个并连到每个 collector 的 `params` 端口。
 - **`dag_nodes.py`** — 节点包装层：`NodeContext`/`NodeProtocol`/`InputNode`/`CollectorNode`/`ProcessorNode`/`StorageNode`。collector 的 targets 优先取自 `params` 入边（`InputNode` 产出任务 targets）；没有该边时回退读任务 targets，因此不含 `input` 节点的存量图行为不变。复用 pipeline 的 `build_storage_record_key`/`_build_storage_metadata` 保证存储键/metadata 与 Pipeline 路径一致。
-- **`dag_executor.py`** — `DAGExecutor`：拓扑排序（Kahn 分层）+ asyncio.gather 并发 + 端口表（多入边同端口聚合 list）+ 条件边求值（边级抑制，不污染共享端口）+ checkpoint 恢复（消费 pipeline 格式 recovery_context）+ composite 节点子图展开 + 节点生命周期事件。collector 层全失败早终止。
+- **`dag_executor.py`** — `DAGExecutor`：就绪队列调度（每个入边 resolved 即可启动；至少一条入边活跃才执行，否则跳过并向下游传播）+ asyncio 并发 + 端口表（多入边同端口聚合 list）+ 条件边求值（边级抑制，不污染共享端口）+ 节点级策略（`NodeSpec.policy`：max_retries / retry_interval_seconds / timeout_seconds / on_error=fail|stop|continue|error_branch，校验与语义见 `dag_policy.py`）+ 内置逻辑节点（condition/filter/transform，见 `dag_logic.py`）+ checkpoint 恢复（消费 pipeline 格式 recovery_context）+ composite 节点子图展开 + NodeRun 轨迹（`dag_trace.py` 折叠事件里的 `node_id`/`node` 快照，`GET /api/tasks/{id}/dag-trace`）。collector 层全失败早终止。
 - **`dag_conditions.py`** — 预置条件谓词：`on_success`/`on_failure`/`on_nonempty`/`on_empty` + `CONDITION_PREDICATES` 注册表。
 - **`scheduler.py`** — 异步调度器，信号量控制并发，支持 `in_process` 和 `worker_claim` 两种执行后端。任务通过 Semaphore 限制并发（默认 5）。委托给 4 个协调器/服务：
   - `TaskExecutionCoordinator` — 进程内任务执行、重试、checkpoint
@@ -74,27 +77,29 @@ Pipeline 与 DAG 并存：`Pipeline.execute()` 默认内部委托 `DAGExecutor`�
   - `WebSocketTaskEventHook` — task_event → WebSocket 广播结构化事件
 - **`task.py`** — 任务状态机：PENDING → RUNNING → SUCCESS / FAILED → RETRYING。支持 `first_started_at`（跨重试保留）和 `total_duration_seconds`。结果摘要与完整结果分离存储。
 - **`errors.py`** — 统一错误码枚举 `ErrorCode`（9 种），带中文标签、建议和严重级别。`classify_exception()` 根据异常消息自动推断错误码。
-- **`collector_metadata.py`** — 每个 collector 的声明式元数据：capability 列表、session 需求、checkpoint 支持级别（L0-L3）、target 验证规则、worker binding 模式。
+- **`collector_metadata.py`** — collector 元数据的运行时注册表（由插件 `PluginSpec.metadata` 注册，记录 owner）：capability 列表、session 需求、checkpoint 支持级别（L0-L3）、`target_schema`（任务表单与预检的唯一参数来源）、worker binding 模式。
 - **`session_runtime.py`** — 浏览器会话的运行时建模：account 信息、session state（health check）、lease 策略、worker binding。
 - **`sensitive.py`** — 全局脱敏工具，`redact_sensitive()` 递归脱敏字典中的敏感字段。
 
-### 2. 采集器 (`src/collectors/`)
+### 2. 采集插件 (`plugins/`) 与插件中心 (`src/plugin_manager/`)
 
-- **`base.py`** — `BaseCollector` 抽象基类。生命周期：`setup()` → `collect()`/`collect_batch()` → `teardown()`。`collect_batch()` 内置并发控制、超时、自动重试（可重试错误码：network_unreachable、rate_limited、unknown）。
-- **Steam** (`steam_collector.py` + `steam/` 子包) — Steam 官方 API（商店数据、评测）+ SteamDB 浏览器抓取（CDP 连接已登录 Chrome）。支持 rate limiting、人类行为模拟。
-- **Steam Discussions** (`steam_discussions_collector.py`) — Steam 社区论坛帖子抓取。
-- **TapTap** (`taptap_collector.py` + `taptap/` 子包) — Playwright 浏览器抓取 + 可选 Firecrawl fallback。
-- **七麦/Qimai** (`qimai_collector.py`) — Playwright 持久化 profile 登录态，CDP 可选。
-- **Google Trends** (`gtrends_collector.py` + `gtrends/` 子包) — pytrends API。
-- **YouTube** (`youtube/` 子包) — 最新添加。两个采集器：
-  - `youtube_profiles` — 频道元数据（订阅数、视频数等）
-  - `youtube_comments` — 视频评论抓取（top + scan 模式）
-  - 含 client_pool（多 API key 轮转）、rate limiting
-- **官网/Official Site** (`official_site_collector.py`) — HTTP + Playwright 混合，支持 recipes 配置（游戏 → 官网 URL 映射），按 include/exclude pattern 过滤。
-- **Monitor** (`monitor_collector.py`) — Steam CCU + Twitch 指标综合监控。
-- **Dynamic Playwright** (`dynamic_playwright_collector.py`) — Agent 动态生成的 JS 提取脚本执行。
-- **LLM Extractor** (`llm_extractor.py`) — LLM 辅助结构化数据提取，置信度阈值自动降级。
-- **HTML Trimmer** (`html_trimmer.py`) — HTML 压缩/截断工具。
+核心包**不含任何平台采集器**，`src/collectors/` 只剩 `base.py` 的 `BaseCollector` 协议：生命周期 `setup()` → `collect()`/`collect_batch()` → `teardown()`；`collect_batch()` 内置并发控制、超时、自动重试（可重试错误码：network_unreachable、rate_limited、unknown）。每个平台是独立 Python distribution（源码在 `plugins/<name>/src/autoflux_plugin_<name>/`），完整说明见 `docs/collector-plugins.md`：
+
+| 目录 | 采集器 | 说明 |
+|---|---|---|
+| `plugins/steam` | `steam`, `steam_discussions` | 官方 API（商店、评测）+ SteamDB（CDP 连已登录 Chrome）+ 社区论坛；注册 Steam App ID 解析器 |
+| `plugins/taptap` | `taptap` | Playwright 抓取 + 可选 Firecrawl fallback |
+| `plugins/qimai` | `qimai` | Playwright 持久化 profile 登录态，CDP 可选 |
+| `plugins/gtrends` | `gtrends` | pytrends |
+| `plugins/youtube` | `youtube_profiles`, `youtube_comments` | 频道元数据 / 评论（top + scan）；多 API key 轮转、rate limiting |
+| `plugins/official_site` | `official_site` | HTTP + Playwright，recipes 配置游戏 → 官网 URL，include/exclude 过滤 |
+| `plugins/monitor` | `monitor` | Steam CCU + Twitch 指标 |
+| `plugins/dynamic_playwright` | `dynamic_playwright` | 执行 Agent 生成的 JS 提取脚本 |
+| `plugins/smart_web` | 无（辅助库，无 entry point） | `llm_extractor`（LLM 提取，置信度低自动降级）、`html_trimmer`；official_site / monitor 依赖它 |
+
+- **插件契约**：`pyproject.toml` 声明 `[project.entry-points."gamedata_autoflux.plugins"]`，指向模块级 `plugin = PluginSpec(...)`。`PluginSpec` 列出 `modules`（导入时用 `@registry.register` 注册组件）、`collectors`、`metadata`（`CollectorMetadata`），可选 `pipeline_templates` / `dag_nodes`。`PluginSpec` 是插件唯一身份来源，目录名不算。
+- **插件中心** `src/plugin_manager/`：官方 catalog / 上传 wheel 安装、启停、升级、卸载、回滚。安装进隔离的不可变 generation（受管 site-packages），隔离子进程验证；状态存 SQLite（`store.py`）。目录默认 `data/plugin-manager`，`AUTOFLUX_PLUGIN_MANAGER_DIR` 可覆盖。已激活的 generation 会盖过 `plugins/` 源码，验证源码改动时注意。变更需重启生效。
+- **测试加载方式**：`tests/conftest.py` 把 `plugins/*/src` 插入 `sys.path` 并设置 `AUTOFLUX_PLUGIN_MODULES`，从源码加载全部第一方插件（不走 entry point），测试无需安装插件。
 
 ### 3. Agent 系统 (`src/agent/`)
 
@@ -149,16 +154,17 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - `pipelines.py` — Pipeline 管理（含 create_dynamic_pipeline）
 - `reports.py` — 报告生成与预检（含 source gap → create_task_draft）
 - `cron.py` — 定时任务 list/create/delete（create/delete 需 `confirm=true`）
-- `identifiers.py` — Steam App ID 解析和游戏标识符发现
+- `identifiers.py` — 游戏标识符解析（各平台解析器由插件经 `src/core/identifier_resolvers.py` 注册，如 Steam App ID）
 - `system.py` — 系统状态与就绪检查工具
 - `utils.py` — 工具辅助函数
 
 ### 4. Web 层 (`src/web/`)
 
-- **`app.py`** — FastAPI 应用入口。lifespan 中：自动发现插件 → 初始化 DB session factory → 初始化 storage → 创建 Agent 会话服务 → 注入 repositories 到 Scheduler → 注册 EventBus hooks → 注册 YouTube pipeline 模板 → 启动 Scheduler。所有 API 路由挂载在 `/api`，管理端路由需要 `require_admin` 依赖。
+- **`app.py`** — FastAPI 应用入口。lifespan 中：加载配置 → `_auto_discover_plugins()`（核心组件 + 已安装插件，pipeline 模板也由插件贡献）→ 初始化 DB session factory → 初始化 storage → 创建 Agent 会话服务 → `attach_persistence` 注入 repositories → 注册 EventBus hooks → 启动 Scheduler → 启动 `PluginOperationService` → `migrate_pipelines_to_dag`（失败阻断启动）。所有 API 路由挂载在 `/api`，管理端路由需要 `require_admin` 依赖。
 - **路由**：
   - `tasks.py` — 任务 CRUD、提交、取消、事件/产物/checkpoint 查询
-  - `pipelines.py` — Pipeline CRUD、模板管理
+  - `pipelines.py` — Pipeline CRUD、模板管理；另有 `GET /plugins`（插件激活状态）、`GET /components/metadata`（组件、采集器元数据、DAG 节点目录）
+  - `plugin_manager.py` — 插件中心 `/api/plugin-manager/*`：插件清单、catalog、install/upgrade/uninstall/rollback/upload 操作、启停、apply-restart
   - `reports.py` — Excel 报告生成与下载
   - `data.py` — 数据记录浏览、搜索、删除
   - `agent.py` — Agent 聊天（SSE）、会话管理、状态查询
@@ -173,11 +179,11 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
   - `validate_dynamic_playwright_config` — 配置保存时的字面量校验（禁 localhost/内网 IP 字面量，SSRF 防护）
   - `validate_url_runtime` — 同步字面量校验（给无法 await 的调用点）
   - DNS 级校验在 `src/core/url_safety.py`（纯逻辑，无 Web 依赖）：`NavigationUrlGuard` 解析 A/AAAA 记录逐地址检查网段（防 DNS rebinding）；dynamic_playwright 采集器用 `context.route("**/*")` 拦截全部请求，redirect 跳转与子资源同样受检
-- **前端** — Vite + Tailwind 4 + ECharts，纯 JS SPA。源码在 `src/web/src/`，构建输出到 `src/web/static/dist/`。
+- **前端** — Vite + Tailwind 4 + ECharts，纯 JS SPA。源码在 `src/web/src/`，构建输出到 `src/web/static/dist/`。DAG 编辑器在 `src/web/src/pages/dag/`（Drawflow 画布 `canvas.js` + 纯函数模块 adapter/validate/layout/history/runTrace/schemas；`*.selftest.mjs` 由 `tests/test_frontend_selftests.py` 自动发现并跑）。注意：删除节点/连线走 Drawflow 右键菜单（无 Delete 键）；`canvas.js` 的 `syncEdgesFromDrawflow()` 必须保持既有 edges 数组顺序，否则快照比较误判导致撤销失效。
 
 ### 5. 服务层 (`src/services/`)
 
-所有服务通过模块级懒加载函数获取，不走依赖注入容器。
+服务单例经 `src/bootstrap/container.py` 的懒加载 getter 获取（见「关键约定」）。
 
 - **`task_service.py`** — 任务生命周期管理（创建、提交、取消）。依赖 Scheduler 和 SessionRegistry。
 - **`worker_registry.py`** — Worker 注册/心跳/状态管理。有 `InMemoryWorkerRegistry` 和 `StorageWorkerRegistry` 两种实现。
@@ -246,8 +252,8 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **嵌入模型**：`get_embeddings()` 工厂函数（`src/services/_utils.py`）返回 DashScope Embeddings 实例。
 - **采集器需登录态**：SteamDB 通过 CDP 连接已登录 Chrome（`scripts/steamdb_login.py`），七麦通过 Playwright 持久化 profile（`scripts/qimai_login.py`）。Worker 通过能力标签声明登录态资源，Scheduler 根据 `SessionRegistry` 路由任务。
 - **Scheduler 执行后端**有两种：`in_process`（默认，本地执行）和 `worker_claim`（任务放入队列等待 Worker 领取）。通过 `scheduler.execution_backend` 配置切换。两种后端最终都走 `DAGExecutor`：in_process 经 `Pipeline.execute()` 委托，worker_claim 经 claim payload 的 `graph` 字段（`payload_version="2"`，旧版回退 `pipeline` 字段）。
-- **DAG 持久化**：图定义存 `state_type="graph"`（key `graph:{name}`），旧 pipeline 快照 `state_type="pipeline"`。lifespan 启动时 `migrate_pipelines_to_dag` 自动把旧 pipeline 转成 graph（幂等，只转不删，原记录标 `migrated:true`）。
-- **新增采集器需定义 metadata**：在 `src/core/collector_metadata.py` 的 `_COLLECTOR_METADATA` 字典中添加条目，声明 capability、session 需求、checkpoint 级别、target schema。
+- **DAG 持久化**：图定义存 `state_type="graph"`（key `graph:{name}`），旧 pipeline 快照 `state_type="pipeline"`。lifespan 启动时 `migrate_pipelines_to_dag` 自动把旧 pipeline 转成 graph（幂等，只转不删，原记录标 `migrated:true`；**只在没有同名 graph 时补建**，不会用有损的 pipeline 投影覆盖编辑器保存的图）。
+- **新增采集器 = 新插件**：在 `plugins/<name>/` 建独立 distribution，用 `PluginSpec.metadata` 声明 `CollectorMetadata`（capability、session 需求、checkpoint 级别、`target_schema`）。不要往核心 `src/collectors/` 加平台实现，也不要直接改 `_COLLECTOR_METADATA`。步骤见 `docs/collector-plugins.md`。
 - **Checkpoint 恢复级别**：L0（不支持）→ L1（本地记录）→ L2（跨 Worker 续传，需 session）→ L3（幂等，任意 Worker）。
 
 ## 注意事项
@@ -267,8 +273,8 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **Edit 工具修改 HTML 模板**时，可能将属性引号保存为 `\"` 字面量，导致浏览器无法识别元素 ID。修改 `index.html` 后务必用 `grep` 或 `curl` 检查渲染输出。
 
 - **ValidationError 多继承 ValueError**（DomainError + ValueError 兼容桥）：既有
-- **payload 契约 TypedDict 化**（进行中）：Worker claim 协议（`src/core/worker_protocol.WorkerClaimPayload`，跨进程 REST 契约）与checkpoint 恢复上下文（`pipeline_recovery.py` 的四个 TypedDict）已固化键契约，运行时仍是普通 dict（JSON 序列化形状零变化）；pyright 检查面含 src/core|services|storage|worker。新 payload 面禁止再裸 `dict[str, Any]`。
   `except ValueError` 调用方无需改动；task_service 的状态/恢复校验 raise 已采纳类型化异常。
+- **payload 契约 TypedDict 化**（进行中）：Worker claim 协议（`src/core/worker_protocol.WorkerClaimPayload`，跨进程 REST 契约）与checkpoint 恢复上下文（`pipeline_recovery.py` 的四个 TypedDict）已固化键契约，运行时仍是普通 dict（JSON 序列化形状零变化）；pyright 检查面含 src/core|services|storage|worker。新 payload 面禁止再裸 `dict[str, Any]`。
 
 - **类型化配置**：核心组件（scheduler/pipeline/database/server/agent 基础段）经
   `src/core/app_settings.py` 的 `get_app_settings()` 读类型化模型，禁止新增

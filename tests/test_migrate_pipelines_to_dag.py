@@ -69,6 +69,47 @@ async def test_migrate_does_not_delete_original(isolated_db_config):
 
 
 @pytest.mark.asyncio
+async def test_migrate_never_overwrites_graph_saved_by_editor(isolated_db_config):
+    """回归：DAG 编辑器保存时同时写 graph 与有损的 pipeline 投影。
+
+    启动迁移曾用 upsert 把投影转回的图覆盖真实的图，重启后条件边、逻辑节点、
+    节点策略全部丢失。迁移只能在没有同名 graph 时补建。
+    """
+    from src.core.dag import Edge, NodeSpec, PortSpec, dag_to_pipeline
+
+    sf = await _sf()
+    try:
+        graph = DAG(
+            name="edited",
+            nodes=[
+                NodeSpec("src", "collector", "steam", {}, [], [PortSpec("records")], set(),
+                         policy={"max_retries": 2}),
+                NodeSpec("cond", "logic", "condition", {"cases": [{"id": "hot", "conditions": [
+                    {"source": "aggregate", "field": "count", "operator": "gt", "value": 0}]}]},
+                    [PortSpec("records")], [PortSpec("hot"), PortSpec("else")], set()),
+                NodeSpec("store", "storage", "sqlalchemy", {}, [PortSpec("records")], [], set()),
+            ],
+            edges=[
+                Edge("src", "records", "cond", "records"),
+                Edge("cond", "hot", "store", "records"),
+            ],
+        )
+        await SQLAlchemyDAGRepository(sf).save(graph)
+        await SQLAlchemyPipelineRepository(sf).save(dag_to_pipeline(graph))
+
+        result = await migrate_pipelines_to_dag(sf)
+        assert "edited" in result["migrated"]  # 投影被标记为已迁移
+
+        loaded = await SQLAlchemyDAGRepository(sf).load("edited")
+        assert loaded is not None
+        assert {n.id for n in loaded.nodes} == {"src", "cond", "store"}
+        assert loaded.node_by_id("src").policy == {"max_retries": 2}
+        assert any(e.from_port == "hot" for e in loaded.edges)
+    finally:
+        await _close()
+
+
+@pytest.mark.asyncio
 async def test_migrate_empty_store_no_error(isolated_db_config):
     sf = await _sf()
     try:

@@ -70,6 +70,8 @@ export function initWebSocket(store) {
 
       if (data.type === 'task_update' && data.task) {
         store.set('taskUpdate', data.task);
+      } else if (data.type === 'task_event' && data.event) {
+        store.set('taskEvent', data.event);
       } else if (data.type === 'stats_update' && data.stats) {
         store.set('statsUpdate', data.stats);
       } else if (data.type === 'report_progress') {

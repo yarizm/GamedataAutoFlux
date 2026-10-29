@@ -233,6 +233,45 @@ async def get_task_events(
     )
 
 
+_DAG_TRACE_PAGE = 1000
+_DAG_TRACE_MAX_EVENTS = 20000
+
+
+@router.get("/tasks/{task_id}/dag-trace")
+async def get_task_dag_trace(task_id: Annotated[str, Path(description="任务 ID")]):
+    """任务的 DAG 逐节点运行状态（由事件流折叠，供 DAG 编辑器回放）。"""
+    from src.bootstrap.container import get_task_service
+    from src.core.dag_trace import fold_dag_node_events
+
+    task_service = get_task_service()
+    task = task_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(404, f"任务不存在: {task_id}")
+
+    events: list[Any] = []
+    offset = 0
+    while offset < _DAG_TRACE_MAX_EVENTS:
+        page = await task_service.get_task_events(
+            task_id, limit=_DAG_TRACE_PAGE, offset=offset, order="asc"
+        )
+        if not page:
+            break
+        events.extend(event.to_public_payload() for event in page)
+        if len(page) < _DAG_TRACE_PAGE:
+            break
+        offset += _DAG_TRACE_PAGE
+
+    return {
+        "task_id": task_id,
+        "task_name": task.name,
+        "pipeline_name": task.pipeline_name,
+        "status": task.status.value,
+        "progress": task.progress,
+        "error": redact_sensitive_text(task.error) if task.error else None,
+        "nodes": fold_dag_node_events(events),
+    }
+
+
 @router.get("/tasks/{task_id}/artifacts", response_model=TaskArtifactsResponse)
 async def get_task_artifacts(
     task_id: Annotated[str, Path(description="任务 ID")],

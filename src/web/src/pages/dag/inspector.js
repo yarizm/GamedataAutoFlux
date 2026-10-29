@@ -7,25 +7,37 @@ import {
   inputParamsFromMetadata,
   loadCollectorMetaMap,
   outputFieldsForComponent,
+  recordFieldOptions,
   upstreamOutputFields,
 } from './schemas.js';
+import {
+  mountConditionEditor,
+  mountFilterEditor,
+  mountPolicyEditor,
+  mountTransformEditor,
+} from './logicEditors.js';
+import { nodeDisplayName } from './canvas.js';
+import { describeRunState, formatElapsed } from './runTrace.js';
 
 function conditionOptions() {
   return [
     { value: '', label: t('dag.conditionNone') },
-    { value: 'on_success', label: 'on_success' },
-    { value: 'on_failure', label: 'on_failure' },
-    { value: 'on_nonempty', label: 'on_nonempty' },
-    { value: 'on_empty', label: 'on_empty' },
+    { value: 'on_success', label: t('dag.edgeCond.on_success') },
+    { value: 'on_failure', label: t('dag.edgeCond.on_failure') },
+    { value: 'on_nonempty', label: t('dag.edgeCond.on_nonempty') },
+    { value: 'on_empty', label: t('dag.edgeCond.on_empty') },
   ];
 }
 
 /**
  * @param {HTMLElement} el
  * @param {{
- *   onUpdateNode: (id: string, patch: object) => void,
+ *   onUpdateNode: (id: string, patch: object, meta?: { rerender?: boolean }) => void,
  *   onUpdateEdge: (edgeKey: object, patch: object) => void,
+ *   onDeleteNode?: (id: string) => void,
+ *   onDeleteEdge?: (edge: object) => void,
  *   getEditor?: () => object,
+ *   getRunState?: (nodeId: string) => object|null,
  * }} opts
  */
 export function mountInspector(el, opts = {}) {
@@ -44,8 +56,33 @@ export function mountInspector(el, opts = {}) {
         <li>${escapeHtml(t('dag.help.zoom'))}</li>
         <li>${escapeHtml(t('dag.help.connect'))}</li>
         <li>${escapeHtml(t('dag.help.upstream'))}</li>
+        <li>${escapeHtml(t('dag.help.logic'))}</li>
+        <li>${escapeHtml(t('dag.help.shortcuts'))}</li>
       </ul>
     `;
+  }
+
+  function renderRunBlock(node) {
+    const state = opts.getRunState?.(node.id);
+    if (!state) return '';
+    const run = describeRunState(state);
+    const counts = Object.entries(state.output_counts || {})
+      .map(([port, count]) => `<code>${escapeHtml(port)}</code> ${escapeHtml(String(count))}`)
+      .join(' · ');
+    const rows = [
+      [t('dag.run.label.status'), `<span class="dag-run-pill is-${escapeHtml(run.status)}">${run.icon} ${escapeHtml(t(`dag.run.status.${run.status}`))}</span>`],
+      state.elapsed_ms != null ? [t('dag.run.label.elapsed'), escapeHtml(formatElapsed(state.elapsed_ms))] : null,
+      Number(state.attempts) > 0 ? [t('dag.run.label.attempts'), escapeHtml(`${state.attempts} / ${state.max_attempts || 1}`)] : null,
+      state.input_count != null && state.status !== 'skipped' ? [t('dag.run.label.input'), escapeHtml(String(state.input_count))] : null,
+      counts ? [t('dag.run.label.output'), counts] : null,
+      state.branch ? [t('dag.run.label.branch'), `<code>${escapeHtml(state.branch)}</code>`] : null,
+    ].filter(Boolean);
+    return `
+      <div class="insp-run">
+        <div class="insp-run-title">${escapeHtml(t('dag.run.lastRun'))}</div>
+        <dl>${rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join('')}</dl>
+        ${state.error ? `<pre class="insp-run-error">${escapeHtml(state.error)}</pre>` : ''}
+      </div>`;
   }
 
   function renderInputsBlock(node) {
@@ -54,6 +91,14 @@ export function mountInspector(el, opts = {}) {
         <div class="insp-field">
           <label>${escapeHtml(t('dag.ports'))}</label>
           <div class="insp-ro text-[11px]">${escapeHtml(t('dag.portsIOInput'))}</div>
+        </div>`;
+    }
+    if (node.type === 'logic') {
+      const outs = (node.ports_out || []).map((p) => `<code>${escapeHtml(p.name)}</code>`).join(' ');
+      return `
+        <div class="insp-field">
+          <label>${escapeHtml(t('dag.ports'))}</label>
+          <div class="insp-ro text-[11px]">${escapeHtml(t('dag.portsLogic'))} ${outs}</div>
         </div>`;
     }
     if (node.type !== 'collector') {
@@ -125,7 +170,7 @@ export function mountInspector(el, opts = {}) {
     }).join('');
 
     const autoChecks = AUTO_UPSTREAM_FIELDS.map((k) => {
-      const known = upFields.some((f) => f.key === k);
+      const known = upFields.some((f) => f.key === k && f.fromNode);
       return `<label class="insp-chip ${known ? 'is-known' : ''}" title="${escapeHtml(known ? t('dag.upstreamKnown') : t('dag.fieldCommon'))}">
         <code>${escapeHtml(k)}</code>
       </label>`;
@@ -173,7 +218,9 @@ export function mountInspector(el, opts = {}) {
       processor: ['dag.usage.processor1', 'dag.usage.processor2'],
       storage: ['dag.usage.storage1', 'dag.usage.storage2'],
     };
-    const keys = usageKeys[node.type] || [];
+    const keys = node.type === 'logic'
+      ? [`dag.usage.${node.component}1`, `dag.usage.${node.component}2`]
+      : (usageKeys[node.type] || []);
     return `
       <div class="insp-usage">
         <strong>${escapeHtml(t('dag.howToUse'))}</strong>
@@ -235,7 +282,7 @@ export function mountInspector(el, opts = {}) {
         if (value === '') delete nextConfig[key];
         else nextConfig[key] = value;
         node.config = nextConfig;
-        opts.onUpdateNode?.(node.id, { config: nextConfig });
+        opts.onUpdateNode?.(node.id, { config: nextConfig }, { rerender: false });
       });
     });
   }
@@ -306,15 +353,51 @@ export function mountInspector(el, opts = {}) {
     });
   }
 
+  function mountLogicEditor(node) {
+    const host = el.querySelector('#insp-logic-editor');
+    if (!host) return;
+    const ctx = {
+      fieldOptions: recordFieldOptions(opts.getEditor?.() || { nodes: [], edges: [] }, node.id),
+      onChange(config, { structural }) {
+        node.config = config;
+        syncConfigJson(config);
+        // 结构变化（增删分支）会改端口，由页面决定是否重建画布；编辑器自己负责局部重绘
+        opts.onUpdateNode?.(node.id, { config }, { rerender: false, structural });
+      },
+    };
+    if (node.component === 'condition') mountConditionEditor(host, node, ctx);
+    else if (node.component === 'filter') mountFilterEditor(host, node, ctx);
+    else if (node.component === 'transform') mountTransformEditor(host, node, ctx);
+  }
+
+  function mountPolicy(node) {
+    const host = el.querySelector('#insp-policy-editor');
+    if (!host) return;
+    mountPolicyEditor(host, node, {
+      onChange(policy, { structural }) {
+        node.policy = policy;
+        opts.onUpdateNode?.(node.id, { policy }, { rerender: false, structural });
+      },
+    });
+  }
+
+  function syncConfigJson(config) {
+    const area = el.querySelector('#insp-config');
+    if (area && document.activeElement !== area) {
+      area.value = JSON.stringify(config || {}, null, 2);
+    }
+  }
+
   function renderNode(node) {
     const configText = JSON.stringify(node.config || {}, null, 2);
     const collectorMeta = node.type === 'collector'
       ? getCachedCollectorMeta(node.component)
       : null;
     const definition = getCachedDagNodeDefinition(node.type, node.component);
-    const description = definition?.description
+    let description = definition?.description
       || collectorMeta?.description
       || (node.type === 'input' ? t('dag.inputNodeDesc') : '');
+    if (node.type === 'logic') description = t(`dag.logic.${node.component}Desc`);
     const owner = definition?.owner || 'core';
     const capabilities = Array.isArray(collectorMeta?.capabilities)
       ? collectorMeta.capabilities
@@ -325,9 +408,11 @@ export function mountInspector(el, opts = {}) {
         `<code class="insp-capability">${escapeHtml(capability)}</code>`,
       ).join('')
       : `<span class="text-muted text-[10px]">${escapeHtml(t('dag.capabilitiesNone'))}</span>`;
+    const executable = node.type !== 'input' && node.type !== 'composite';
 
     el.innerHTML = `
-      <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(t('dag.node'))}</h2>
+      <h2 class="font-bold tracking-tight text-sm uppercase mb-3" style="color:var(--text-primary)">${escapeHtml(nodeDisplayName(node))}</h2>
+      ${renderRunBlock(node)}
       <div class="insp-field">
         <label>ID</label>
         <div class="insp-ro font-mono">${escapeHtml(node.id)}</div>
@@ -357,10 +442,23 @@ export function mountInspector(el, opts = {}) {
       </div>
       ${renderInputsBlock(node)}
       ${renderUpstreamMapper(node)}
-      <div class="insp-field">
-        <label>${escapeHtml(t('dag.nodeConfig'))}</label>
-        ${renderConfigFields(node, definition)}
-      </div>
+      ${node.type === 'logic' ? `
+        <div class="insp-field">
+          <label>${escapeHtml(t(`dag.logic.${node.component}Editor`))}</label>
+          <div id="insp-logic-editor" class="logic-editor"></div>
+        </div>
+      ` : `
+        <div class="insp-field">
+          <label>${escapeHtml(t('dag.nodeConfig'))}</label>
+          ${renderConfigFields(node, definition)}
+        </div>
+      `}
+      ${executable ? `
+        <details class="insp-policy" ${node.policy && Object.keys(node.policy).length ? 'open' : ''}>
+          <summary>${escapeHtml(t('dag.policy.title'))}</summary>
+          <div id="insp-policy-editor" class="logic-editor mt-2"></div>
+        </details>
+      ` : ''}
       <details class="insp-advanced-config">
         <summary>${escapeHtml(t('dag.advancedConfig'))}</summary>
         <div class="insp-field mt-2">
@@ -369,20 +467,29 @@ export function mountInspector(el, opts = {}) {
           <div id="insp-config-err" class="insp-error hidden"></div>
         </div>
       </details>
+      <div class="mt-3">
+        <button type="button" id="insp-delete-node" class="btn btn-ghost btn-sm" style="color:var(--danger)">${escapeHtml(t('dag.deleteNode'))}</button>
+      </div>
     `;
 
     const labelEl = el.querySelector('#insp-label');
     labelEl?.addEventListener('change', () => {
-      opts.onUpdateNode?.(node.id, { label: labelEl.value.trim() });
+      opts.onUpdateNode?.(node.id, { label: labelEl.value.trim() }, { rerender: false });
     });
     labelEl?.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') {
-        opts.onUpdateNode?.(node.id, { label: labelEl.value.trim() });
+        labelEl.blur();
       }
+    });
+
+    el.querySelector('#insp-delete-node')?.addEventListener('click', () => {
+      opts.onDeleteNode?.(node.id);
     });
 
     bindUpstreamControls(node);
     bindConfigFields(node);
+    if (node.type === 'logic') mountLogicEditor(node);
+    if (executable) mountPolicy(node);
 
     const configEl = el.querySelector('#insp-config');
     const errEl = el.querySelector('#insp-config-err');
@@ -394,7 +501,7 @@ export function mountInspector(el, opts = {}) {
         }
         errEl?.classList.add('hidden');
         if (errEl) errEl.textContent = '';
-        opts.onUpdateNode?.(node.id, { config: parsed });
+        opts.onUpdateNode?.(node.id, { config: parsed }, { structural: true });
       } catch (e) {
         if (errEl) {
           errEl.textContent = e.message || t('dag.jsonParseFail');
@@ -424,10 +531,16 @@ export function mountInspector(el, opts = {}) {
         <select id="insp-condition">${optsHtml}</select>
       </div>
       <p class="text-muted text-[10px]">${escapeHtml(t('dag.edgeConditionHint'))}</p>
+      <div class="mt-3">
+        <button type="button" id="insp-delete-edge" class="btn btn-ghost btn-sm" style="color:var(--danger)">${escapeHtml(t('dag.deleteEdge'))}</button>
+      </div>
     `;
     el.querySelector('#insp-condition')?.addEventListener('change', (ev) => {
       const value = ev.target.value || null;
       opts.onUpdateEdge?.(edge, { condition: value || null });
+    });
+    el.querySelector('#insp-delete-edge')?.addEventListener('click', () => {
+      opts.onDeleteEdge?.(edge);
     });
   }
 
@@ -438,9 +551,12 @@ export function mountInspector(el, opts = {}) {
     selection = sel || { kind: null };
     // Ensure collector and DAG-node metadata are loaded, then re-render.
     if (selection.kind === 'node' && selection.node) {
+      const target = selection.node;
       loadCollectorMetaMap().then(() => {
-        if (selection.kind === 'node' && selection.node) {
-          renderNode(selection.node);
+        // metadata 首次就绪时补一次渲染；之后缓存命中，不再打断输入
+        if (selection.kind === 'node' && selection.node === target && !el.dataset.metaReady) {
+          el.dataset.metaReady = '1';
+          renderNode(target);
         }
       });
     }

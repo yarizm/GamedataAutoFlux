@@ -79,6 +79,12 @@ class CollectorSetupError(InfrastructureError):
     error_code = ErrorCode.collector_setup
 
 
+class DAGNodeTimeoutError(RetryableError):
+    """DAG 节点超过策略声明的 timeout_seconds。"""
+
+    error_code = ErrorCode.node_timeout
+
+
 class DatabaseError(InfrastructureError):
     """数据库连接/schema/迁移故障。"""
 

@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     invalid_params = "invalid_params"
     dag_validation = "dag_validation"
     collector_setup = "collector_setup"
+    node_timeout = "node_timeout"
     database = "database"
     browser = "browser"
     worker = "worker"
@@ -41,6 +42,7 @@ class ErrorCode(str, Enum):
             ErrorCode.invalid_params: "参数无效",
             ErrorCode.dag_validation: "DAG 校验失败",
             ErrorCode.collector_setup: "采集器初始化失败",
+            ErrorCode.node_timeout: "节点执行超时",
             ErrorCode.database: "数据库错误",
             ErrorCode.browser: "浏览器错误",
             ErrorCode.worker: "Worker 错误",
@@ -62,6 +64,7 @@ class ErrorCode(str, Enum):
             ErrorCode.invalid_params: "检查目标配置中的 URL 或参数格式是否正确",
             ErrorCode.dag_validation: "检查 DAG 节点/端口/条件边定义是否合法",
             ErrorCode.collector_setup: "检查采集器组件是否已安装、配置是否完整",
+            ErrorCode.node_timeout: "调大该节点的超时时间，或检查目标站点/上游是否响应过慢",
             ErrorCode.database: "检查数据库连接与 schema 版本（Alembic）",
             ErrorCode.browser: "检查 Playwright/浏览器环境与目标页面状态",
             ErrorCode.worker: "检查 Worker 心跳、能力声明与 claim 状态",
@@ -83,6 +86,7 @@ class ErrorCode(str, Enum):
             ErrorCode.invalid_params: "error",
             ErrorCode.dag_validation: "error",
             ErrorCode.collector_setup: "error",
+            ErrorCode.node_timeout: "error",
             ErrorCode.database: "error",
             ErrorCode.browser: "error",
             ErrorCode.worker: "error",

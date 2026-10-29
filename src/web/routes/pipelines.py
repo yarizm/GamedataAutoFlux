@@ -18,7 +18,9 @@ from src.core.collector_validators import validate_collector_config
 from src.core.dag import DAG, NodeSpec, PortSpec, dag_to_pipeline
 from src.core.dag import Edge as DagEdge
 from src.core.dag_executor import validate_dag_detailed
+from src.core.dag_logic import LOGIC_NODE_TYPE, logic_node_ports, validate_logic_config
 from src.core.dag_nodes import dag_node_catalog_payload, get_dag_node
+from src.core.dag_policy import ERROR_PORT, uses_error_port, validate_node_policy
 from src.core.pipeline import Pipeline
 from src.core.pipeline_availability import inspect_pipeline_availability
 from src.core.pipeline_templates import PIPELINE_TEMPLATES
@@ -26,6 +28,8 @@ from src.core.registry import registry
 from src.web.safety import require_explicit_confirmation
 
 router = APIRouter(tags=["pipelines"])
+
+PARAMS_PORT = "params"
 
 
 def _get_scheduler():
@@ -87,6 +91,8 @@ class NodeSpecConfig(BaseModel):
     subgraph_name: str | None = None
     # Frontend layout metadata (x/y/label); ignored by executor
     ui: dict[str, Any] = Field(default_factory=dict)
+    # Node execution policy (retry/timeout/on_error), see src/core/dag_policy.py
+    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 class EdgeConfig(BaseModel):
@@ -247,6 +253,19 @@ async def create_pipeline(
     return {"message": f"Pipeline created: {req.name}", "config": pipeline.to_config()}
 
 
+@router.post("/dags/validate")
+async def validate_dag_request(
+    req: Annotated[CreateDagRequest, Body(description="DAG configuration")],
+):
+    """只校验不保存：给编辑器的检查清单用（error 阻断保存，warning 仅提示）。"""
+    dag = _build_dag_from_request(req)
+    issues = await _validate_dag_with_subgraphs(dag)
+    return {
+        "ok": not any(i.severity == "error" for i in issues),
+        "issues": [_issue_payload(i) for i in issues],
+    }
+
+
 @router.post("/dags")
 async def create_dag(
     req: Annotated[CreateDagRequest, Body(description="DAG configuration")],
@@ -254,22 +273,18 @@ async def create_dag(
     """保存 DAG 图，并投影注册为同名 Pipeline 供任务创建使用。"""
     dag = _build_dag_from_request(req)
 
-    # 保存前完整结构校验；composite 引用的子图预载后一并校验可解析性
-    dag_repo = _get_dag_repo()
-    subgraphs: dict[str, Any] = {}
-    for node in dag.nodes:
-        if node.type == "composite" and (node.subgraph_name or "").strip():
-            subgraphs[node.subgraph_name] = await dag_repo.load(node.subgraph_name)
-    issues = validate_dag_detailed(
-        dag,
-        subgraph_loader=(lambda name: subgraphs.get(name)) if subgraphs else None,
-    )
-    errors = [i.message for i in issues if i.severity == "error"]
+    issues = await _validate_dag_with_subgraphs(dag)
+    errors = [i for i in issues if i.severity == "error"]
     if errors:
         raise HTTPException(
             400,
-            {"code": "dag_validation_failed", "issues": errors},
+            {
+                "code": "dag_validation_failed",
+                "issues": [i.message for i in errors],
+                "details": [_issue_payload(i) for i in errors],
+            },
         )
+    dag_repo = _get_dag_repo()
     await dag_repo.save(dag)
 
     # 双写：投影 Pipeline 注册进 Scheduler，任务下拉/ precheck / submit 可用
@@ -278,11 +293,35 @@ async def create_dag(
         raise HTTPException(400, "DAG has no executable collector/processor/storage nodes")
     await _get_pipeline_service().save_pipeline(pipeline)
 
+    warnings = [i for i in issues if i.severity == "warning"]
     return {
         "message": f"DAG created: {req.name}",
         "config": dag.to_storage(),
         "pipeline": pipeline.to_config(),
-        "warnings": [i.message for i in issues if i.severity == "warning"],
+        "warnings": [i.message for i in warnings],
+        "warning_details": [_issue_payload(i) for i in warnings],
+    }
+
+
+async def _validate_dag_with_subgraphs(dag: DAG) -> list[Any]:
+    # 完整结构校验；composite 引用的子图预载后一并校验可解析性
+    dag_repo = _get_dag_repo()
+    subgraphs: dict[str, Any] = {}
+    for node in dag.nodes:
+        if node.type == "composite" and (node.subgraph_name or "").strip():
+            subgraphs[node.subgraph_name] = await dag_repo.load(node.subgraph_name)
+    return validate_dag_detailed(
+        dag,
+        subgraph_loader=(lambda name: subgraphs.get(name)) if subgraphs else None,
+    )
+
+
+def _issue_payload(issue: Any) -> dict[str, Any]:
+    return {
+        "code": issue.code,
+        "message": issue.message,
+        "severity": issue.severity,
+        "node_id": issue.node_id,
     }
 
 
@@ -321,8 +360,32 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
                     },
                 ) from exc
             _validate_node_ports_or_400(node)
+        elif node.type == LOGIC_NODE_TYPE:
+            logic_issues = validate_logic_config(node.component, node.config)
+            if logic_issues:
+                raise HTTPException(
+                    400,
+                    {
+                        "code": "dag_logic_config_invalid",
+                        "node_id": node.id,
+                        "component": node.component,
+                        "issues": logic_issues,
+                        "message": f"DAG node '{node.id}': " + "; ".join(logic_issues),
+                    },
+                )
         elif node.type not in {"composite", "input"}:
             raise HTTPException(400, f"Unsupported DAG node type: {node.type}")
+        policy_issues = validate_node_policy(node.policy)
+        if policy_issues:
+            raise HTTPException(
+                400,
+                {
+                    "code": "dag_policy_invalid",
+                    "node_id": node.id,
+                    "issues": policy_issues,
+                    "message": f"DAG node '{node.id}' policy: " + "; ".join(policy_issues),
+                },
+            )
         if node.type == "collector":
             _validate_collector_config_or_400(node.component, node.config)
     nodes = [
@@ -336,6 +399,7 @@ def _build_dag_from_request(req: CreateDagRequest) -> DAG:
             is_param_port=set(n.is_param_port),
             subgraph_name=n.subgraph_name,
             ui=dict(n.ui or {}),
+            policy=dict(n.policy or {}),
         )
         for n in req.nodes
     ]
@@ -363,6 +427,10 @@ def _validate_node_ports_or_400(node: NodeSpecConfig) -> None:
         if not supplied:
             continue
         allowed = {item.name for item in declared}
+        if direction == "output" and uses_error_port(node.policy):
+            allowed.add(ERROR_PORT)
+        if direction == "input" and node.type == "collector":
+            allowed.add(PARAMS_PORT)
         unknown = sorted({item.name for item in supplied} - allowed)
         if unknown:
             raise HTTPException(
@@ -382,6 +450,30 @@ def _validate_node_ports_or_400(node: NodeSpecConfig) -> None:
 
 
 def _resolved_node_ports(
+    node: NodeSpecConfig,
+    *,
+    direction: str,
+) -> list[PortSpec]:
+    if node.type == LOGIC_NODE_TYPE:
+        # 逻辑节点端口由配置推导（condition 每个分支一个出端口），忽略客户端上报
+        ports_in, ports_out = logic_node_ports(node.component, node.config)
+        ports = ports_in if direction == "in" else ports_out
+    else:
+        ports = _declared_node_ports(node, direction=direction)
+    if (
+        direction == "in"
+        and node.type == "collector"
+        and not any(item.name == PARAMS_PORT for item in ports)
+    ):
+        # 插件自定义端口时也保证 input 节点能连进来
+        ports = [PortSpec(name=PARAMS_PORT, required=False, type_hint="params"), *ports]
+    if direction == "out" and uses_error_port(node.policy):
+        if not any(item.name == ERROR_PORT for item in ports):
+            ports = [*ports, PortSpec(name=ERROR_PORT, required=False, type_hint="records")]
+    return ports
+
+
+def _declared_node_ports(
     node: NodeSpecConfig,
     *,
     direction: str,

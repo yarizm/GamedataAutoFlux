@@ -434,16 +434,26 @@ class Pipeline:
             dag = pipeline_to_dag(self)
         executor = DAGExecutor()
 
-        node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
+        node_type_to_event = {
+            "collector": "collect",
+            "processor": "process",
+            "storage": "storage",
+            "logic": "logic",
+        }
         recovery_context = build_pipeline_recovery_context(task, recovery_checkpoint)
         accumulated_collect_results: list[CollectResult] = []
 
-        async def _on_event(task_id, node_spec, phase, *, out=None, error=None):
+        async def _on_event(task_id, node_spec, phase, *, out=None, error=None, trace=None):
             event_type = node_type_to_event.get(node_spec.type, node_spec.type)
+            # node_id + 运行记录快照：DAG 编辑器据此在画布上回放每个节点的状态
+            node_fields: dict[str, Any] = {"node_id": node_spec.id}
+            if trace:
+                node_fields["node"] = trace
             if phase == "start":
                 payload: dict[str, Any] = {
                     "status": "started",
                     "component": node_spec.component,
+                    **node_fields,
                 }
                 if node_spec.type == "collector":
                     payload["targets_count"] = len(task.targets)
@@ -469,6 +479,7 @@ class Pipeline:
                     payload["success_count"] = success_count
                     payload["failed_count"] = failed_count
                     payload["status"] = "succeeded" if not failed_count else "failed"
+                    payload.update(node_fields)
                     level = "warning" if failed_count else "info"
                     await self._emit_event(
                         task_id,
@@ -482,7 +493,11 @@ class Pipeline:
                         task_id,
                         event_type,
                         "Process complete",
-                        payload={"status": "succeeded", "component": node_spec.component},
+                        payload={
+                            "status": "succeeded",
+                            "component": node_spec.component,
+                            **node_fields,
+                        },
                     )
                 elif node_spec.type == "storage":
                     await self._emit_event(
@@ -493,15 +508,71 @@ class Pipeline:
                             "status": "succeeded",
                             "component": node_spec.component,
                             "stored_count": (out or {}).get("_stored", 0),
+                            **node_fields,
+                        },
+                    )
+                else:
+                    branch = (trace or {}).get("branch")
+                    await self._emit_event(
+                        task_id,
+                        event_type,
+                        f"{node_spec.component} complete"
+                        + (f": branch {branch}" if branch else ""),
+                        payload={
+                            "status": "succeeded",
+                            "component": node_spec.component,
+                            **node_fields,
                         },
                     )
             elif phase == "error":
+                # 被 on_error=continue/error_branch 吸收的失败降为 warning；payload.status
+                # 仍是 failed，checkpoint 等既有消费方的语义不变
+                handled = bool(trace) and trace.get("status") == "exception"
+                trace_mode = trace.get("on_error") if trace else None
+                message = f"{event_type} failed: {error}"
+                if handled:
+                    message = (
+                        f"{event_type} failed (handled by on_error={trace_mode}): "
+                        f"{error}"
+                    )
                 await self._emit_event(
                     task_id,
                     event_type,
-                    f"{event_type} failed: {error}",
-                    level="error",
-                    payload={"status": "failed", "component": node_spec.component, "error": error},
+                    message,
+                    level="warning" if handled else "error",
+                    payload={
+                        "status": "failed",
+                        "component": node_spec.component,
+                        "error": error,
+                        "handled": handled,
+                        **node_fields,
+                    },
+                )
+            elif phase == "retry":
+                attempt = (trace or {}).get("attempts")
+                max_attempts = (trace or {}).get("max_attempts")
+                await self._emit_event(
+                    task_id,
+                    event_type,
+                    f"{event_type} attempt {attempt}/{max_attempts} failed, retrying: {error}",
+                    level="warning",
+                    payload={
+                        "status": "retrying",
+                        "component": node_spec.component,
+                        "error": error,
+                        **node_fields,
+                    },
+                )
+            elif phase == "skipped":
+                await self._emit_event(
+                    task_id,
+                    event_type,
+                    f"{event_type} skipped: {node_spec.id}",
+                    payload={
+                        "status": "skipped",
+                        "component": node_spec.component,
+                        **node_fields,
+                    },
                 )
             elif phase == "progress" and node_spec.type == "collector":
                 out_payload = out if isinstance(out, dict) else {}
@@ -515,6 +586,7 @@ class Pipeline:
                         "checkpoint_cursor": out_payload.get("checkpoint_cursor"),
                         "checkpoint_state": out_payload.get("checkpoint_state") or {},
                         "stats": out_payload.get("stats") or {},
+                        "node_id": node_spec.id,
                     },
                 )
 

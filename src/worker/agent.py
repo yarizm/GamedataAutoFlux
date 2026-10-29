@@ -364,7 +364,12 @@ class WorkerAgent:
 
     def _build_dag_callbacks(self, task_id: str):
         """DAGExecutor 回调：on_progress + on_event(node 通知翻译成 pipeline 契约事件)。"""
-        node_type_to_event = {"collector": "collect", "processor": "process", "storage": "storage"}
+        node_type_to_event = {
+            "collector": "collect",
+            "processor": "process",
+            "storage": "storage",
+            "logic": "logic",
+        }
 
         async def on_progress(_task_id: str, progress: float, message: str) -> None:
             await self._append_event(
@@ -374,20 +379,33 @@ class WorkerAgent:
                 payload={"progress": progress},
             )
 
-        async def on_event(_task_id, node_spec, phase, *, out=None, error=None) -> None:
+        async def on_event(_task_id, node_spec, phase, *, out=None, error=None, trace=None) -> None:
             node_id = getattr(node_spec, "id", str(node_spec))
             node_type = getattr(node_spec, "type", "node")
             event_type = node_type_to_event.get(node_type, "node")
-            status = {"start": "started", "complete": "succeeded", "error": "failed"}.get(
-                phase, phase
-            )
-            level = "error" if phase == "error" else "info"
+            status = {
+                "start": "started",
+                "complete": "succeeded",
+                "error": "failed",
+                "retry": "retrying",
+            }.get(phase, phase)
+            handled = bool(trace) and trace.get("status") == "exception"
+            if phase == "error":
+                level = "warning" if handled else "error"
+            elif phase == "retry":
+                level = "warning"
+            else:
+                level = "info"
             payload: dict[str, Any] = {
                 "node_id": node_id,
                 "node_type": node_type,
                 "status": status,
                 "component": getattr(node_spec, "component", ""),
             }
+            if trace:
+                payload["node"] = trace
+            if phase == "error":
+                payload["handled"] = handled
             if phase == "complete" and out is not None:
                 if node_type == "storage":
                     payload["stored_count"] = out.get("_stored", 0)

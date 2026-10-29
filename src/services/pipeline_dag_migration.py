@@ -131,14 +131,9 @@ async def migrate_pipelines_to_dag(
                         "migrated_from": rec.key,
                     },
                 )
-                ins = ins.on_conflict_do_update(
-                    index_elements=[SchedulerStateModel.key],
-                    set_={
-                        "state_type": ins.excluded.state_type,
-                        "data": ins.excluded.data,
-                        "metadata": ins.excluded.metadata,
-                    },
-                )
+                # 只在没有同名 graph 时补建：DAG 编辑器保存时会同时写 graph 与
+                # 有损的 pipeline 投影，覆盖会让条件边/逻辑节点/策略/布局在重启后丢失
+                ins = ins.on_conflict_do_nothing(index_elements=[SchedulerStateModel.key])
                 await session.execute(ins)
                 rec.metadata_ = {**(rec.metadata_ or {}), "migrated": True}
                 flag_modified(rec, "metadata_")

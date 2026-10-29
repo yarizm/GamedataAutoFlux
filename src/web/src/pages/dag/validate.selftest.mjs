@@ -136,4 +136,71 @@ function codes(result) {
   console.log('case valid_chain: PASS_AS_EXPECTED');
 }
 
+const collector = (id, extra = {}) => ({
+  id,
+  type: 'collector',
+  component: 'steam',
+  config: {},
+  ports_in: [{ name: 'params', required: false }, { name: 'records', required: false }],
+  ports_out: [{ name: 'records' }],
+  ...extra,
+});
+
+// --- invalid: edge uses a port the node does not have ---
+{
+  const r = validateEditor({
+    name: 'bad_port',
+    nodes: [
+      collector('src'),
+      {
+        id: 'cond', type: 'logic', component: 'condition',
+        config: { cases: [{ id: 'hot', conditions: [{ source: 'aggregate', field: 'count', operator: 'gt', value: 0 }] }] },
+        ports_in: [{ name: 'records', required: true }],
+        ports_out: [{ name: 'hot' }, { name: 'else' }],
+      },
+    ],
+    edges: [
+      { from: 'src', out: 'records', to: 'cond', in: 'records' },
+      { from: 'cond', out: 'missing', to: 'src', in: 'records' },
+    ],
+  });
+  assert(r.ok === false && codes(r).has('bad_port'), 'expected bad_port');
+  console.log('case bad_port: FAIL_AS_EXPECTED');
+}
+
+// --- invalid: incomplete logic configs + bad policy ---
+{
+  const r = validateEditor({
+    name: 'bad_logic',
+    nodes: [
+      collector('src', { policy: { max_retries: 99 } }),
+      { id: 'cond', type: 'logic', component: 'condition', config: { cases: [] }, ports_in: [{ name: 'records', required: true }], ports_out: [{ name: 'else' }] },
+      { id: 'flt', type: 'logic', component: 'filter', config: { conditions: [{ field: '', operator: 'eq', value: '' }], limit: -1 }, ports_in: [{ name: 'records', required: true }], ports_out: [{ name: 'records' }, { name: 'rejected' }] },
+      { id: 'tf', type: 'logic', component: 'transform', config: { fields: [{ key: 'bad key', template: 'x' }] }, ports_in: [{ name: 'records', required: true }], ports_out: [{ name: 'records' }] },
+    ],
+    edges: [
+      { from: 'src', out: 'records', to: 'cond', in: 'records' },
+      { from: 'src', out: 'records', to: 'flt', in: 'records' },
+      { from: 'src', out: 'records', to: 'tf', in: 'records' },
+    ],
+  });
+  const c = codes(r);
+  for (const code of ['logic_no_case', 'logic_condition', 'logic_limit', 'logic_transform_key', 'policy_invalid']) {
+    assert(c.has(code), `expected ${code}, got ${[...c].join(',')}`);
+  }
+  console.log('case logic_and_policy: FAIL_AS_EXPECTED');
+}
+
+// --- warning only: error_branch without error edge; translator hook ---
+{
+  const r = validateEditor({
+    name: 'warn',
+    nodes: [collector('src', { policy: { on_error: 'error_branch' }, ports_out: [{ name: 'records' }, { name: 'error' }] })],
+    edges: [],
+  }, { t: (key, params) => (key === 'dag.check.error_branch_unconnected' ? `T:${params.node}` : key) });
+  assert(r.ok === true, 'warnings do not block');
+  assert(r.warnings.length === 1 && r.warnings[0].message === 'T:src', 'translated warning');
+  console.log('case error_branch_warning: PASS_AS_EXPECTED');
+}
+
 console.log('VALIDATE_EDITOR_SELFTEST_OK');

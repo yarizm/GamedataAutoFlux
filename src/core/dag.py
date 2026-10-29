@@ -25,7 +25,7 @@ INPUT_NODE_ID = "input_params"
 @dataclass
 class NodeSpec:
     id: str
-    type: str  # collector | processor | storage | composite
+    type: str  # collector | processor | storage | composite | input | logic
     component: str
     config: dict[str, Any] = field(default_factory=dict)
     ports_in: list[PortSpec] = field(default_factory=list)
@@ -35,6 +35,8 @@ class NodeSpec:
     subgraph_name: str | None = None
     # 前端布局元数据（x/y/label 等）；执行路径忽略
     ui: dict[str, Any] = field(default_factory=dict)
+    # 节点级执行策略（重试/超时/失败处理），见 src/core/dag_policy.py；组件拿不到它
+    policy: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -79,6 +81,7 @@ class DAG:
                     "is_param_port": sorted(n.is_param_port),
                     "subgraph_name": n.subgraph_name,
                     "ui": dict(n.ui or {}),
+                    "policy": dict(n.policy or {}),
                 }
                 for n in self.nodes
             ],
@@ -116,6 +119,7 @@ class DAG:
                     is_param_port=set(n.get("is_param_port", [])),
                     subgraph_name=n.get("subgraph_name"),
                     ui=dict(n.get("ui") or {}),
+                    policy=dict(n.get("policy") or {}),
                 )
             )
         edges = [
@@ -153,6 +157,8 @@ class DAGResult:
     generated_report_id: str | None = None
     generated_report_title: str | None = None
     generated_report_matched_records: int = 0
+    # 逐节点执行记录（NodeRun.to_dict()，按图中节点顺序）
+    node_runs: list[dict[str, Any]] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 

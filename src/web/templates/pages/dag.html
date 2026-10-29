@@ -1,14 +1,31 @@
 <section class="tab-content" id="tab-dag">
             <div class="section-header">
                 <h1 data-i18n="dag.title">DAG 编辑器</h1>
-                <div class="flex items-center gap-2 flex-wrap">
+                <div class="flex items-center gap-2 flex-wrap dag-toolbar">
                     <input id="dag-name-input" type="text" data-i18n-placeholder="dag.namePlaceholder" placeholder="DAG 名称" class="input h-9 w-40 text-sm" />
+                    <span id="dag-dirty" class="dag-dirty" hidden></span>
+                    <div class="dag-toolbar-group">
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-undo" type="button" data-i18n-title="dag.undoTitle" title="撤销 (Ctrl+Z)" disabled data-i18n="dag.undo">撤销</button>
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-redo" type="button" data-i18n-title="dag.redoTitle" title="重做 (Ctrl+Shift+Z)" disabled data-i18n="dag.redo">重做</button>
+                    </div>
+                    <div class="dag-toolbar-group">
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-layout" type="button" data-i18n="dag.layout">整理布局</button>
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-fit" type="button" data-i18n="dag.fit">适应画布</button>
+                    </div>
+                    <div class="dag-toolbar-group">
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-import" type="button" data-i18n="dag.import">导入</button>
+                        <button class="btn btn-ghost btn-sm" id="btn-dag-export" type="button" data-i18n="dag.export">导出</button>
+                        <input id="dag-import-file" type="file" accept=".json,application/json" hidden />
+                    </div>
                     <button class="btn btn-ghost" id="btn-dag-validate" type="button" data-i18n="dag.validate">校验</button>
-                    <button class="btn btn-secondary" id="btn-dag-fit" type="button" data-i18n="dag.fit">适应画布</button>
                     <button class="btn btn-secondary" id="btn-dag-clear" type="button" data-i18n="dag.clear">清空</button>
-                    <button class="btn btn-primary" id="btn-dag-save" type="button">
+                    <button class="btn btn-secondary" id="btn-dag-save" type="button">
                         <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                         <span data-i18n="dag.save">保存 DAG</span>
+                    </button>
+                    <button class="btn btn-primary" id="btn-dag-run" type="button">
+                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+                        <span data-i18n="dag.run.button">运行</span>
                     </button>
                 </div>
             </div>
@@ -36,6 +53,7 @@
             </section>
 
             <div id="dag-validate-bar" class="text-xs text-muted mb-2 px-1"></div>
+            <div id="dag-run-bar" class="dag-run-bar" hidden></div>
 
             <div class="dag-layout grid grid-cols-12 gap-4">
                 <aside class="col-span-3 space-y-4">
@@ -51,7 +69,7 @@
                     </div>
                     <div class="card rounded-2xl p-4 mb-0">
                         <h2 class="font-bold tracking-tight text-sm uppercase mb-3" data-i18n="dag.palette">节点库</h2>
-                        <div id="dag-palette" class="space-y-2 max-h-[40vh] overflow-y-auto">
+                        <div id="dag-palette" class="dag-palette max-h-[48vh] overflow-y-auto">
                             <p class="text-muted text-xs" data-i18n="common.loading">加载中...</p>
                         </div>
                     </div>
@@ -69,7 +87,7 @@
                 </main>
 
                 <aside class="col-span-3">
-                    <div class="card rounded-2xl p-4 mb-0" id="dag-inspector" data-tour-id="dag-inspector">
+                    <div class="card rounded-2xl p-4 mb-0 dag-inspector-card" id="dag-inspector" data-tour-id="dag-inspector">
                         <p class="text-muted text-xs" data-i18n="dag.selectHint">选中节点或边以编辑属性</p>
                     </div>
                 </aside>
