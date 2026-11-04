@@ -10,7 +10,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-gtrends",
-    version="0.1.0",
+    version="0.1.1",
     description="Google Trends time series and related queries collector.",
     modules=(
         "autoflux_plugin_gtrends.collector",

@@ -11,7 +11,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-official-site",
-    version="0.1.0",
+    version="0.1.1",
     description="Official website news, announcements, events and update collector.",
     modules=(
         "autoflux_plugin_official_site.collector",

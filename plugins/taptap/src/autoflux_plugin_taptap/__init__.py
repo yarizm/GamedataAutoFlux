@@ -12,7 +12,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-taptap",
-    version="0.1.0",
+    version="0.1.1",
     description="TapTap public pages, reviews and update collection.",
     modules=("autoflux_plugin_taptap.collector", "autoflux_plugin_taptap.resolvers"),
     collectors=("taptap",),

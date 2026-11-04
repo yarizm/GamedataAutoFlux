@@ -1,6 +1,6 @@
 [project]
 name = "autoflux-plugin-official-site"
-version = "0.1.0"
+version = "0.1.1"
 description = "Official-site collector for GamedataAutoFlux"
 license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]

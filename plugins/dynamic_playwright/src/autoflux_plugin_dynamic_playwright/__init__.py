@@ -11,7 +11,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-dynamic-playwright",
-    version="0.1.0",
+    version="0.1.1",
     description="Configuration-driven collector for dynamic web pages.",
     modules=(
         "autoflux_plugin_dynamic_playwright.collector",

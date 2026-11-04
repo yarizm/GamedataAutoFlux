@@ -13,7 +13,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-qimai",
-    version="0.1.0",
+    version="0.1.1",
     description="Authenticated Qimai App Store metrics collector.",
     modules=(
         "autoflux_plugin_qimai.collector",

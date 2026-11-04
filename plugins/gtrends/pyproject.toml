@@ -1,6 +1,6 @@
 [project]
 name = "autoflux-plugin-gtrends"
-version = "0.1.0"
+version = "0.1.1"
 description = "Google Trends collector for GamedataAutoFlux"
 license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]

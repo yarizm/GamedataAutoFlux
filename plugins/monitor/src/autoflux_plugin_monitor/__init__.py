@@ -10,7 +10,7 @@ from src.core.plugin_system import PluginSpec, make_template
 
 plugin = PluginSpec(
     name="autoflux-plugin-monitor",
-    version="0.1.0",
+    version="0.1.1",
     description="Steam, Twitch and external-site monitoring collector.",
     modules=(
         "autoflux_plugin_monitor.collector",

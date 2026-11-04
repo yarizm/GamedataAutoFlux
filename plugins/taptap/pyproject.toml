@@ -1,6 +1,6 @@
 [project]
 name = "autoflux-plugin-taptap"
-version = "0.1.0"
+version = "0.1.1"
 description = "TapTap collector for GamedataAutoFlux"
 license = "MIT"
 authors = [{ name = "Autoflux Contributors" }]
