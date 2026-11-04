@@ -24,7 +24,7 @@ from src.core.sensitive import redact_sensitive_text
 
 
 class SteamDBScrapeFailed(Exception):
-    """SteamDB 閲囬泦澶辫触锛堣Е鍙戝厹搴曞垏鎹級"""
+    """SteamDB 采集失败（触发兜底切换）"""
 
     pass
 
@@ -81,7 +81,7 @@ _REVIEW_HISTORY_READY_SCRIPT = """
 
 
 class SteamDBScraper:
-    """Playwright 椹卞姩鐨?SteamDB 閲囬泦鍣"""
+    """Playwright 驱动的 SteamDB 采集器"""
 
     BASE_URL = "https://steamdb.info"
 
@@ -122,12 +122,12 @@ class SteamDBScraper:
         self._behavior = HumanBehaviorSimulator()
 
     async def setup(self) -> None:
-        """鍚姩 Playwright 娴忚鍣"""
+        """启动 Playwright 浏览器"""
         try:
             from playwright.async_api import async_playwright
         except ImportError:
             raise SteamDBScrapeFailed(
-                "playwright 鏈畨瑁呫€傝繍琛? pip install playwright && playwright install chromium"
+                "playwright 未安装。运行: pip install playwright && playwright install chromium"
             )
 
         self._playwright = await async_playwright().start()
@@ -155,17 +155,17 @@ class SteamDBScraper:
             ],
         )
         self._browser_is_cdp = False
-        logger.info("[SteamDB] Playwright 娴忚鍣ㄥ凡鍚姩")
+        logger.info("[SteamDB] Playwright 浏览器已启动")
 
     def _should_use_threaded_playwright(self) -> bool:
-        """Windows SelectorEventLoop 涓嬫敼鐢ㄧ嫭绔嬬嚎绋嬩腑鐨勫悓姝?Playwright銆"""
+        """Windows SelectorEventLoop 下改用独立线程中的同步 Playwright。"""
         if sys.platform != "win32":
             return False
         loop_name = asyncio.get_running_loop().__class__.__name__
         return "Selector" in loop_name
 
     async def teardown(self) -> None:
-        """鍏抽棴娴忚鍣"""
+        """关闭浏览器"""
         if self._browser and not self._browser_is_cdp:
             try:
                 await self._browser.close()
@@ -186,13 +186,14 @@ class SteamDBScraper:
         extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
-        閲囬泦 SteamDB 涓婃寚瀹氭父鎴忕殑鏁版嵁銆?
+        采集 SteamDB 上指定游戏的数据。
         Returns:
-            鍖呭惈 charts 鍜?info 鏁版嵁鐨勫瓧鍏搞€?
+            包含 charts 和 info 数据的字典。
         Raises:
-            SteamDBScrapeFailed: 褰?Cloudflare 鎷︽埅鎴栭〉闈㈣В鏋愬け璐ユ椂銆?"""
+            SteamDBScrapeFailed: 当 Cloudflare 拦截或页面解析失败时。
+        """
         if self._should_use_threaded_playwright():
-            logger.info("[SteamDB] 褰撳墠浜嬩欢寰幆涓嶅吋瀹癸紝鏀圭敤鐙珛绾跨▼鍚姩 Playwright")
+            logger.info("[SteamDB] 当前事件循环不兼容，改用独立线程启动 Playwright")
             return await asyncio.to_thread(
                 self._scrape_sync, app_id, time_slice, cookie, extra_headers
             )
@@ -225,13 +226,13 @@ class SteamDBScraper:
         try:
             page = await context.new_page()
 
-            # 鈹€鈹€ Charts 椤甸潰 鈹€鈹€
+            # ── Charts 页面 ──
             charts_data = await self._scrape_charts(page, app_id, time_slice=time_slice)
             result["charts"] = charts_data
 
             await self._rate_limiter.wait("charts -> info")
 
-            # 鈹€鈹€ Info 椤甸潰 鈹€鈹€
+            # ── Info 页面 ──
             info_data = await self._scrape_info(page, app_id)
             result["info"] = info_data
 
@@ -245,15 +246,15 @@ class SteamDBScraper:
 
             await self._rate_limiter.wait("sales -> top_sellers")
 
-            # 鈹€鈹€ 褰撳墠 Steam 鍏ㄧ悆鐣呴攢姒?鈹€鈹€
+            # ── 当前 Steam 全球畅销榜 ──
             result["top_sellers"] = await self._scrape_top_sellers(page, app_id)
 
         except SteamDBScrapeFailed:
             raise
         except Exception as e:
             safe_error = _safe_log_text(e)
-            logger.error(f"[SteamDB] 閲囬泦寮傚父: {safe_error}")
-            raise SteamDBScrapeFailed(f"Playwright 閲囬泦澶辫触: {safe_error}") from e
+            logger.error(f"[SteamDB] 采集异常: {safe_error}")
+            raise SteamDBScrapeFailed(f"Playwright 采集失败: {safe_error}") from e
         finally:
             if page is not None:
                 try:
@@ -272,12 +273,12 @@ class SteamDBScraper:
         cookie: str = "",
         extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """鍦ㄧ嫭绔嬬嚎绋嬩腑浣跨敤鍚屾 Playwright锛岀粫寮€ Windows SelectorEventLoop 闄愬埗銆"""
+        """在独立线程中使用同步 Playwright，绕开 Windows SelectorEventLoop 限制。"""
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
             raise SteamDBScrapeFailed(
-                "playwright 鏈畨瑁呫€傝繍琛? pip install playwright && playwright install chromium"
+                "playwright 未安装。运行: pip install playwright && playwright install chromium"
             )
 
         result: dict[str, Any] = {
@@ -357,12 +358,12 @@ class SteamDBScraper:
             raise
         except Exception as e:
             safe_error = _safe_log_text(e)
-            logger.error(f"[SteamDB] 鍚屾绾跨▼閲囬泦寮傚父: {safe_error}")
-            raise SteamDBScrapeFailed(f"Playwright 绾跨▼閲囬泦澶辫触: {safe_error}") from e
+            logger.error(f"[SteamDB] 同步线程采集异常: {safe_error}")
+            raise SteamDBScrapeFailed(f"Playwright 线程采集失败: {safe_error}") from e
 
         return result
 
-    # 鈹€鈹€ 鍐呴儴閲囬泦鏂规硶 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+    # ── 内部采集方法 ──────────────────────────────────
 
     def _request_headers(
         self,
@@ -442,9 +443,9 @@ class SteamDBScraper:
     async def _scrape_charts(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
     ) -> dict[str, Any]:
-        """閲囬泦 charts 椤甸潰: 鍦ㄧ嚎瓒嬪娍銆佸嘲鍊间汉鏁"""
+        """采集 charts 页面: 在线趋势、峰值人数"""
         url = _build_charts_url(self.BASE_URL, app_id, time_slice)
-        logger.info(f"[SteamDB] 璁块棶 charts: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 charts: {_safe_log_text(url)}")
 
         try:
             resp = await _navigate_by_click_async(
@@ -460,7 +461,7 @@ class SteamDBScraper:
                 label="charts",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
+            raise SteamDBScrapeFailed(f"Charts 页面加载失败: {_safe_log_text(e)}")
 
         if (
             resp
@@ -471,7 +472,7 @@ class SteamDBScraper:
         if resp and resp.status == 403:
             raise SteamDBScrapeFailed("Cloudflare 403 blocked")
 
-        # 妫€娴?Cloudflare challenge
+        # 检测 Cloudflare challenge
         content = await page.content()
         if (
             "challenge-platform" in content or "Just a moment" in content
@@ -491,7 +492,7 @@ class SteamDBScraper:
 
         # Extract key chart summary values.
         try:
-            # 褰撳墠鍦ㄧ嚎鏁版嵁锛堥〉闈㈤《閮ㄧ粺璁″尯鍩燂級
+            # 当前在线数据（页面顶部统计区域）
             stat_elements = await page.query_selector_all(".app-chart-numbers .number-group")
             for el in stat_elements:
                 label = await el.query_selector(".label")
@@ -501,9 +502,9 @@ class SteamDBScraper:
                     value_text = (await value.inner_text()).strip()
                     charts[_normalize_key(label_text)] = value_text
         except Exception as e:
-            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] charts 统计区提取失败: {_safe_log_text(e)}")
 
-        # 灏濊瘯浠庨〉闈㈡枃鏈腑鎻愬彇鍏抽敭鏁板瓧
+        # 尝试从页面文本中提取关键数字
         try:
             page_text = await page.inner_text("body")
             charts.update(_extract_numbers_from_text(page_text))
@@ -515,7 +516,7 @@ class SteamDBScraper:
             highcharts_payload = await page.evaluate(_HIGHCHARTS_EXTRACT_SCRIPT)
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
-            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] Highcharts 序列提取失败: {_safe_log_text(e)}")
 
         await self._behavior.after_navigation(page)
 
@@ -536,7 +537,7 @@ class SteamDBScraper:
                     if table_data:
                         charts[f"table_{i}"] = table_data
             except Exception as e:
-                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {_safe_log_text(e)}")
+                logger.debug(f"[SteamDB] 表格提取失败: {_safe_log_text(e)}")
 
         return charts
 
@@ -628,9 +629,9 @@ class SteamDBScraper:
         return _parse_sales_text(text, url)
 
     async def _scrape_info(self, page: Any, app_id: str | int) -> dict[str, Any]:
-        """閲囬泦 info 椤甸潰: 鐗堟湰鏇存柊銆佸彂甯冨晢淇℃伅"""
+        """采集 info 页面: 版本更新、发布商信息"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
-        logger.info(f"[SteamDB] 璁块棶 info: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 info: {_safe_log_text(url)}")
 
         try:
             resp = await _navigate_by_click_async(
@@ -647,7 +648,7 @@ class SteamDBScraper:
                 label="info",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
+            raise SteamDBScrapeFailed(f"Info 页面加载失败: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if await self._wait_out_cloudflare_async(page, "info", reload_url=url):
@@ -678,9 +679,9 @@ class SteamDBScraper:
                     if key and val:
                         info[_normalize_key(key)] = val
         except Exception as e:
-            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] info KV 提取失败: {_safe_log_text(e)}")
 
-        # 灏濊瘯鎻愬彇鏇存柊鍘嗗彶
+        # 尝试提取更新历史
         try:
             page_text = await page.inner_text("body")
             info["steamdb_signed_in"] = not _looks_signed_out(page_text)
@@ -692,9 +693,9 @@ class SteamDBScraper:
         return info
 
     async def _scrape_top_sellers(self, page: Any, app_id: str | int) -> dict[str, Any]:
-        """閲囬泦 SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶃€"""
+        """采集 SteamDB 当前全球畅销榜排名。"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
-        logger.info(f"[SteamDB] 璁块棶 global top sellers: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 global top sellers: {_safe_log_text(url)}")
         resp = None
         navigation_error = ""
         for timeout in (self._timeout, max(self._timeout * 2, 60000)):
@@ -716,7 +717,7 @@ class SteamDBScraper:
                 break
             except Exception as e:
                 navigation_error = _safe_log_text(e)
-                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}")
+                logger.debug(f"[SteamDB] global top sellers 加载失败: {navigation_error}")
                 await page.wait_for_timeout(3000)
         if navigation_error:
             rows = await page.query_selector_all("table tbody tr")
@@ -750,9 +751,9 @@ class SteamDBScraper:
     def _scrape_charts_sync(
         self, page: Any, app_id: str | int, time_slice: str = "monthly_peak_1y"
     ) -> dict[str, Any]:
-        """鍚屾鐗堟湰鐨?charts 閲囬泦銆"""
+        """同步版本的 charts 采集。"""
         url = _build_charts_url(self.BASE_URL, app_id, time_slice)
-        logger.info(f"[SteamDB] 璁块棶 charts: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 charts: {_safe_log_text(url)}")
 
         try:
             resp = _navigate_by_click_sync(
@@ -768,7 +769,7 @@ class SteamDBScraper:
                 label="charts",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Charts 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
+            raise SteamDBScrapeFailed(f"Charts 页面加载失败: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "charts", reload_url=url):
@@ -802,7 +803,7 @@ class SteamDBScraper:
                     value_text = value.inner_text().strip()
                     charts[_normalize_key(label_text)] = value_text
         except Exception as e:
-            logger.debug(f"[SteamDB] charts 缁熻鍖烘彁鍙栧け璐? {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] charts 统计区提取失败: {_safe_log_text(e)}")
 
         try:
             page_text = page.inner_text("body")
@@ -815,7 +816,7 @@ class SteamDBScraper:
             highcharts_payload = page.evaluate(_HIGHCHARTS_EXTRACT_SCRIPT)
             _merge_highcharts_payload(charts, highcharts_payload)
         except Exception as e:
-            logger.debug(f"[SteamDB] Highcharts 搴忓垪鎻愬彇澶辫触: {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] Highcharts 序列提取失败: {_safe_log_text(e)}")
 
         self._behavior.after_navigation_sync(page)
 
@@ -833,7 +834,7 @@ class SteamDBScraper:
                     if table_data:
                         charts[f"table_{i}"] = table_data
             except Exception as e:
-                logger.debug(f"[SteamDB] 琛ㄦ牸鎻愬彇澶辫触: {_safe_log_text(e)}")
+                logger.debug(f"[SteamDB] 表格提取失败: {_safe_log_text(e)}")
 
         return charts
 
@@ -919,9 +920,9 @@ class SteamDBScraper:
         return _parse_sales_text(page.inner_text("body"), url)
 
     def _scrape_info_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
-        """鍚屾鐗堟湰鐨?info 閲囬泦銆"""
+        """同步版本的 info 采集。"""
         url = f"{self.BASE_URL}/app/{app_id}/info/"
-        logger.info(f"[SteamDB] 璁块棶 info: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 info: {_safe_log_text(url)}")
 
         try:
             resp = _navigate_by_click_sync(
@@ -938,7 +939,7 @@ class SteamDBScraper:
                 label="info",
             )
         except Exception as e:
-            raise SteamDBScrapeFailed(f"Info 椤甸潰鍔犺浇澶辫触: {_safe_log_text(e)}")
+            raise SteamDBScrapeFailed(f"Info 页面加载失败: {_safe_log_text(e)}")
 
         if resp and resp.status == 403:
             if self._wait_out_cloudflare_sync(page, "info", reload_url=url):
@@ -968,7 +969,7 @@ class SteamDBScraper:
                     if key and val:
                         info[_normalize_key(key)] = val
         except Exception as e:
-            logger.debug(f"[SteamDB] info KV 鎻愬彇澶辫触: {_safe_log_text(e)}")
+            logger.debug(f"[SteamDB] info KV 提取失败: {_safe_log_text(e)}")
 
         try:
             page_text = page.inner_text("body")
@@ -981,9 +982,9 @@ class SteamDBScraper:
         return info
 
     def _scrape_top_sellers_sync(self, page: Any, app_id: str | int) -> dict[str, Any]:
-        """鍚屾鐗堟湰鐨?SteamDB 褰撳墠鍏ㄧ悆鐣呴攢姒滄帓鍚嶉噰闆嗐€"""
+        """同步版本的 SteamDB 当前全球畅销榜排名采集。"""
         url = f"{self.BASE_URL}/stats/globaltopsellers/"
-        logger.info(f"[SteamDB] 璁块棶 global top sellers: {_safe_log_text(url)}")
+        logger.info(f"[SteamDB] 访问 global top sellers: {_safe_log_text(url)}")
         resp = None
         navigation_error = ""
         for timeout in (self._timeout, max(self._timeout * 2, 60000)):
@@ -1005,7 +1006,7 @@ class SteamDBScraper:
                 break
             except Exception as e:
                 navigation_error = _safe_log_text(e)
-                logger.debug(f"[SteamDB] global top sellers 鍔犺浇澶辫触: {navigation_error}")
+                logger.debug(f"[SteamDB] global top sellers 加载失败: {navigation_error}")
                 page.wait_for_timeout(3000)
         if navigation_error:
             rows = page.query_selector_all("table tbody tr")
@@ -1037,7 +1038,7 @@ class SteamDBScraper:
         return _parse_top_sellers_rows_sync(rows, app_id, url)
 
 
-# 鈹€鈹€ 宸ュ叿鍑芥暟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ── 工具函数 ──────────────────────────────────────────
 
 
 async def _navigate_by_click_async(
@@ -1347,7 +1348,7 @@ def _parse_patchnotes_text(text: str, url: str) -> dict[str, Any]:
 
 def _parse_sales_text(text: str, url: str) -> dict[str, Any]:
     normalized = re.sub(r"\s+", " ", str(text or "")).strip()
-    prices = re.findall(r"(?:\$|鈧瑋拢|楼|R\$)\s?[0-9]+(?:[.,][0-9]{2})?", normalized)
+    prices = re.findall(r"(?:\$|€|£|¥|R\$)\s?[0-9]+(?:[.,][0-9]{2})?", normalized)
     discounts = re.findall(r"-\s?[0-9]{1,3}\s?%", normalized)
     return {
         "source": "steamdb_sales",
@@ -1765,7 +1766,7 @@ def _wait_for_review_history_chart_sync(page: Any) -> None:
 
 
 def _random_user_agent() -> str:
-    """鐢熸垚闅忔満 User-Agent"""
+    """生成随机 User-Agent"""
     agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -1777,7 +1778,7 @@ def _random_user_agent() -> str:
 
 
 def _normalize_key(text: str) -> str:
-    """灏嗘爣绛炬枃鏈爣鍑嗗寲涓?snake_case key"""
+    """将标签文本标准化为 snake_case key"""
     text = text.lower().strip()
     text = re.sub(r"[^a-z0-9\s]", "", text)
     text = re.sub(r"\s+", "_", text)
@@ -1785,7 +1786,7 @@ def _normalize_key(text: str) -> str:
 
 
 def _extract_numbers_from_text(text: str) -> dict[str, Any]:
-    """浠庨〉闈㈡枃鏈腑鎻愬彇鍏抽敭缁熻鏁板瓧"""
+    """从页面文本中提取关键统计数字"""
     result: dict[str, Any] = {}
     patterns = {
         "all_time_peak": r"all.time peak[:\s]*([0-9,]+)",

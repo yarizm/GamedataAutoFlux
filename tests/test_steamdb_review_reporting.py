@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
 from autoflux_plugin_steam.steam.steam_api_client import _build_review_trend_from_histogram
-from autoflux_plugin_steam.steam.steamdb_scraper import _extract_review_stats_from_text
+from autoflux_plugin_steam.steam.steamdb_scraper import (
+    _extract_review_stats_from_text,
+    _parse_sales_text,
+)
 from src.reporting.data_extractor import extract_from_records
 
 
@@ -87,3 +90,9 @@ def test_review_trend_uses_valid_end_date() -> None:
         days=2,
     )
     assert rows[-1]["date"] == "2023-11-14"
+
+
+def test_parse_sales_text_extracts_all_currencies() -> None:
+    parsed = _parse_sales_text("Lowest $19.99 €12,99 £9.99 ¥98 R$ 29,99 -50 %", "https://steamdb.info/sales/")
+    assert parsed["prices"] == ["$19.99", "€12,99", "£9.99", "¥98", "R$ 29,99"]
+    assert parsed["discounts"] == ["-50 %"]
