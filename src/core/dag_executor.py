@@ -57,6 +57,9 @@ _VALID_NODE_TYPES = frozenset(
 
 EdgeKey = tuple[str, str, str, str]
 
+# 这些条件边为"上游没拿到可用数据"而接，collector 全失败时仍要走
+_FAILURE_CONDITIONS = frozenset({"on_failure", "on_empty"})
+
 
 @dataclass(frozen=True)
 class DAGValidationIssue:
@@ -487,6 +490,8 @@ class DAGExecutor:
         self._error_branch_nodes: set[str] = set()
         self._runs: dict[str, NodeRun] = {}
         self._stop_requested: str | None = None
+        # collector 全失败后仍在执行的失败处理节点；其下游同样算失败路径
+        self._failure_path_nodes: set[str] = set()
         self._subgraph_loader = subgraph_loader
 
     async def execute(
@@ -517,6 +522,7 @@ class DAGExecutor:
         self._active_ports = {}
         self._error_branch_nodes = set()
         self._stop_requested = None
+        self._failure_path_nodes = set()
         self._runs = {
             n.id: NodeRun(
                 node_id=n.id,
@@ -541,7 +547,10 @@ class DAGExecutor:
         collector_ids = {n.id for n in dag.nodes if n.type == "collector"}
         total_nodes = len(dag.nodes)
         settled = 0
+        # on_error=stop：不再启动任何新节点
         aborted = False
+        # collector 全失败：常规数据路径不再执行，但失败处理路径照走
+        collect_exhausted = False
 
         def _settle(node_id: str) -> None:
             nonlocal settled
@@ -561,11 +570,25 @@ class DAGExecutor:
                         self._runs[node_id].status = "not_run"
                         continue
                     inbound = incoming[node_id]
-                    if inbound and all(_edge_key(e) in self._suppressed_edges for e in inbound):
+                    all_suppressed = bool(inbound) and all(
+                        _edge_key(e) in self._suppressed_edges for e in inbound
+                    )
+                    upstream_not_run = any(
+                        self._runs[e.from_node].status == "not_run" for e in inbound
+                    )
+                    if all_suppressed and not upstream_not_run:
                         # 入边全被条件抑制 → 该分支未激活，节点不执行，跳过继续向下传播
                         await self._skip_node(node_spec, task.id, on_event, outgoing[node_id])
                         _settle(node_id)
                         continue
+                    if collect_exhausted:
+                        if all_suppressed or not self._on_failure_path(inbound):
+                            # 不执行也要给出边下结论，否则汇合到这里的失败分支永远等不到就绪
+                            self._runs[node_id].status = "not_run"
+                            self._suppressed_edges.update(_edge_key(e) for e in outgoing[node_id])
+                            _settle(node_id)
+                            continue
+                        self._failure_path_nodes.add(node_id)
                     job = asyncio.create_task(
                         self._run_node(
                             node_spec,
@@ -593,17 +616,20 @@ class DAGExecutor:
                     result.success = False
                     result.errors.append(self._stop_requested)
 
-                # collector 全失败 → 早终止（复刻 Pipeline._has_successful_collects）。
+                # collector 全失败 → 常规路径早终止（复刻 Pipeline._has_successful_collects）。
                 # 必须等所有 collector 节点都已执行或被跳过再判，否则条件分支里的
                 # 兜底 collector 还没轮到就被砍掉，故障转移永远走不通。
+                # 失败全被 on_error 策略吸收的不算：那是用户声明过的正常结果。
                 done_ids = set(self._node_success) | self._skipped_nodes
                 if (
                     not aborted
+                    and not collect_exhausted
                     and collector_ids
                     and collector_ids <= done_ids
+                    and self._has_unhandled_collector(collector_ids)
                     and not _has_successful_collects(result.collect_results)
                 ):
-                    aborted = True
+                    collect_exhausted = True
                     result.success = False
                     if not result.errors:
                         result.errors.append(_collect_failure_message(dag.name, recovery_context))
@@ -638,6 +664,30 @@ class DAGExecutor:
             run_succeeded=result.success,
         )
         return result
+
+    def _has_unhandled_collector(self, collector_ids: set[str]) -> bool:
+        """是否有 collector 真正执行过且结果没被 on_error 策略吸收。"""
+        return any(
+            node_id in self._node_success and self._runs[node_id].status != "exception"
+            for node_id in collector_ids
+        )
+
+    def _on_failure_path(self, inbound: list[Edge]) -> bool:
+        """节点是否由失败处理路径激活（collector 全失败后只有这些节点继续执行）。
+
+        失败节点的无条件出边已被抑制，所以它还活着的出边一定是显式接的失败分支；
+        on_error=continue 吸收的节点例外，它的无条件边按语义继续把空输出传给下游。
+        """
+        for edge in inbound:
+            if _edge_key(edge) in self._suppressed_edges:
+                continue
+            if (
+                edge.from_node in self._failure_path_nodes
+                or edge.condition in _FAILURE_CONDITIONS
+                or self._runs[edge.from_node].status in ("failed", "exception")
+            ):
+                return True
+        return False
 
     def _gather_inputs(self, inbound: list[Edge]) -> dict[str, Any]:
         """按端口累加激活边的上游输出；同端口多入边聚合为 list。"""

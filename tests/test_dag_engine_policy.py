@@ -480,3 +480,190 @@ def test_dag_validation_reports_policy_and_error_port_issues():
     warning = next(i for i in issues if i.code == "error_branch_unconnected")
     assert warning.severity == "warning"
     assert warning.node_id == "c"
+
+
+# ── collector 全失败时的失败处理路径 ─────────────────────────────────
+
+
+class _TargetFailCollector(BaseCollector):
+    """节点本身不抛异常，但每个 target 都失败。"""
+
+    async def collect(self, target: CollectTarget) -> CollectResult:
+        return CollectResult(target=target, data=None, success=False, error="target failed")
+
+
+@pytest.fixture
+def failing_components(components):
+    registry.register("collector", "_pe_target_fail")(_TargetFailCollector)
+
+
+def _boom(node_id="c", *, policy=None):
+    return _collector(
+        node_id, "_pe_flaky", config={"key": node_id, "fail_times": 99}, policy=policy
+    )
+
+
+@pytest.mark.asyncio
+async def test_error_branch_runs_when_only_collector_fails(components):
+    dag = DAG(
+        name="sole_error_branch",
+        nodes=[_boom(policy={"on_error": "error_branch"}), _processor("handler"), _processor("normal")],
+        edges=[
+            Edge("c", "error", "handler", "records"),
+            Edge("c", "records", "normal", "records"),
+        ],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    # 失败被策略吸收：任务不算失败，错误分支要执行，常规分支被跳过
+    assert result.success
+    assert result.errors == []
+    assert runs["c"]["status"] == "exception"
+    assert runs["handler"]["status"] == "succeeded"
+    assert runs["normal"]["status"] == "skipped"
+    assert EXECUTED == ["handler"]
+
+
+@pytest.mark.asyncio
+async def test_continue_keeps_run_green_when_only_collector_fails(components):
+    dag = DAG(
+        name="sole_continue",
+        nodes=[_boom(policy={"on_error": "continue"}), _processor("after")],
+        edges=[Edge("c", "records", "after", "records")],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert result.success
+    assert result.errors == []
+    assert runs["after"]["status"] == "succeeded"
+    assert runs["after"]["input_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_on_failure_edge_runs_after_last_collector_raises(components):
+    dag = DAG(
+        name="sole_on_failure",
+        nodes=[_boom(), _processor("handler"), _processor("normal")],
+        edges=[
+            Edge("c", "records", "handler", "records", "on_failure"),
+            Edge("c", "records", "normal", "records"),
+        ],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    # 没有策略吸收：任务仍然失败，但失败处理分支要跑
+    assert not result.success
+    assert any("flaky boom" in error for error in result.errors)
+    assert runs["handler"]["status"] == "succeeded"
+    assert runs["normal"]["status"] == "skipped"
+
+
+@pytest.mark.parametrize("condition", ["on_failure", "on_empty"])
+@pytest.mark.asyncio
+async def test_failure_edges_run_when_all_targets_fail(failing_components, condition):
+    dag = DAG(
+        name="all_targets_fail",
+        nodes=[_collector("c", "_pe_target_fail"), _processor("handler"), _processor("normal")],
+        edges=[
+            Edge("c", "records", "handler", "records", condition),
+            Edge("c", "records", "normal", "records"),
+        ],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert not result.success
+    assert any("all collect targets failed" in error for error in result.errors)
+    assert runs["handler"]["status"] == "succeeded"
+    # 常规路径不在全失败的结果上继续跑
+    assert runs["normal"]["status"] == "not_run"
+    assert EXECUTED == ["handler"]
+
+
+@pytest.mark.asyncio
+async def test_regular_path_still_stops_when_all_targets_fail(failing_components):
+    dag = DAG(
+        name="regular_stop",
+        nodes=[_collector("c", "_pe_target_fail"), _processor("p"), _storage("s")],
+        edges=[Edge("c", "records", "p", "records"), Edge("p", "records", "s", "records")],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert not result.success
+    assert result.errors == ["regular_stop: all collect targets failed"]
+    assert runs["p"]["status"] == "not_run"
+    assert runs["s"]["status"] == "not_run"
+    assert EXECUTED == []
+
+
+@pytest.mark.asyncio
+async def test_failure_path_propagates_and_joins_past_not_run_nodes(failing_components):
+    # handler → after 是失败路径的延续；join 同时接常规分支（not_run）和失败分支，不能卡死
+    dag = DAG(
+        name="join",
+        nodes=[
+            _collector("c", "_pe_target_fail"),
+            _processor("handler"),
+            _processor("after"),
+            _processor("normal"),
+            _processor("join"),
+        ],
+        edges=[
+            Edge("c", "records", "handler", "records", "on_failure"),
+            Edge("handler", "records", "after", "records"),
+            Edge("c", "records", "normal", "records"),
+            Edge("after", "records", "join", "records"),
+            Edge("normal", "records", "join", "records"),
+        ],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert runs["normal"]["status"] == "not_run"
+    assert runs["after"]["status"] == "succeeded"
+    assert runs["join"]["status"] == "succeeded"
+    assert EXECUTED == ["handler", "after", "join"]
+
+
+@pytest.mark.asyncio
+async def test_failover_chain_reaches_final_handler(components):
+    dag = DAG(
+        name="failover_chain",
+        nodes=[
+            _boom("primary"),
+            _collector(
+                "backup", "_pe_flaky", config={"key": "backup", "fail_times": 99}, optional_input=True
+            ),
+            _processor("handler"),
+        ],
+        edges=[
+            Edge("primary", "records", "backup", "records", "on_failure"),
+            Edge("backup", "records", "handler", "records", "on_failure"),
+        ],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert not result.success
+    assert runs["backup"]["status"] == "failed"
+    assert runs["handler"]["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_on_error_stop_blocks_failure_paths_too(components):
+    dag = DAG(
+        name="hard_stop",
+        nodes=[_boom(policy={"on_error": "stop"}), _processor("handler")],
+        edges=[Edge("c", "records", "handler", "records", "on_failure")],
+    )
+    result = await DAGExecutor().execute(_task(), dag)
+
+    runs = _runs(result)
+    assert not result.success
+    assert any("on_error=stop" in error for error in result.errors)
+    assert runs["handler"]["status"] == "not_run"
+    assert EXECUTED == []
