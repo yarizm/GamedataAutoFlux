@@ -242,6 +242,39 @@ class CollectorNode:
             self._collector = None
 
 
+def _processor_inputs(records: list[Any]) -> list[ProcessInput]:
+    """把上游记录转成处理器入参：可以来自采集器，也可以来自上一个处理器。
+
+    只收 CollectResult 的话，处理器链（A → B → 存储）第二步会拿到空输入，
+    任务显示成功但一条数据都不落库。
+    """
+    inputs: list[ProcessInput] = []
+    for record in records:
+        if isinstance(record, CollectResult):
+            if record.success and record.data is not None:
+                inputs.append(
+                    ProcessInput(
+                        data=record.data,
+                        metadata={
+                            **record.metadata,
+                            "target": record.target.name,
+                            "collected_at": record.collected_at.isoformat(),
+                        },
+                        source=record.target.name,
+                    )
+                )
+        elif isinstance(record, ProcessOutput):
+            if record.success and record.data is not None:
+                inputs.append(
+                    ProcessInput(
+                        data=record.data,
+                        metadata=record.metadata,
+                        source=record.processor_name or "unknown",
+                    )
+                )
+    return inputs
+
+
 class ProcessorNode:
     """Runtime node wrapping one registered processor."""
 
@@ -266,24 +299,7 @@ class ProcessorNode:
 
     async def run(self, ctx: NodeContext) -> dict[str, Any]:
         assert self._processor is not None
-        collect_results = [
-            result
-            for result in _flatten_records(ctx.inputs.get("records"))
-            if isinstance(result, CollectResult)
-        ]
-        inputs = [
-            ProcessInput(
-                data=result.data,
-                metadata={
-                    **result.metadata,
-                    "target": result.target.name,
-                    "collected_at": result.collected_at.isoformat(),
-                },
-                source=result.target.name,
-            )
-            for result in collect_results
-            if result.success and result.data is not None
-        ]
+        inputs = _processor_inputs(_flatten_records(ctx.inputs.get("records")))
         await self._processor.setup()
         outputs = await self._processor.process_batch(inputs)
         return {"records": outputs}
