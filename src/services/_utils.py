@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from pydantic import SecretStr
+
 from src.core.sensitive import redact_sensitive_text
 
 # ---------------------------------------------------------------------------
@@ -598,22 +600,36 @@ def roll_time_params(params: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
+# DashScope 兼容模式下 text-embedding-v2 固定 1536 维（与 records.embedding 列一致）；
+# 单次请求的条数上限低于 OpenAI，这里取所有 DashScope 嵌入模型都接受的 10
+_EMBEDDING_MODEL = "text-embedding-v2"
+_EMBEDDING_BATCH_SIZE = 10
+_DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
 def get_embeddings() -> Any:
-    """Return a configured Embeddings instance based on settings."""
-    from langchain_community.embeddings import DashScopeEmbeddings
+    """Return a configured Embeddings instance based on settings, or None if unavailable."""
+    from langchain_openai import OpenAIEmbeddings
     from loguru import logger
 
     from src.core.config import get_settings
 
     settings = get_settings()
     llm_config = settings.get("llm", {}).get("qwen", {})
-    api_key = llm_config.get("api_key")
+    api_key = str(llm_config.get("api_key") or "").strip()
+    if not api_key or api_key.startswith("${"):
+        logger.warning("Embeddings are unavailable: llm.qwen.api_key is not configured")
+        return None
 
     try:
-        # For DashScope, base_url is typically handled via environment variable or client kwargs
-        # if using the compatible mode. But standard DashScopeEmbeddings doesn't accept base_url easily.
-        # The model "text-embedding-v2" is fixed for 1536 dims.
-        return DashScopeEmbeddings(model="text-embedding-v2", dashscope_api_key=api_key)
+        return OpenAIEmbeddings(
+            model=_EMBEDDING_MODEL,
+            api_key=SecretStr(api_key),
+            base_url=llm_config.get("base_url") or _DASHSCOPE_COMPATIBLE_BASE_URL,
+            # 默认会先按 tiktoken 切成 token 数组再发送，DashScope 只接受字符串
+            check_embedding_ctx_length=False,
+            chunk_size=_EMBEDDING_BATCH_SIZE,
+        )
     except Exception as e:
-        logger.error(f"Failed to initialize embeddings: {e}")
+        logger.error(f"Failed to initialize embeddings: {redact_sensitive_text(str(e))}")
         return None

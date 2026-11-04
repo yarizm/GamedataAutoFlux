@@ -39,8 +39,8 @@ dependencies = [
     "websockets>=12.0",
     # LangChain / LangGraph Agent
     "langchain>=1.0.0,<2.0.0",
-    "langchain-community>=0.3.0,<1.0.0",
     "langchain-openai>=1.0.0,<2.0.0",
+    "langchain-text-splitters>=1.0.0,<2.0.0",
     "langgraph>=1.0.0,<2.0.0",
     # MCP
     # 2.0 把 inputSchema/isError/mimeType 改名为 snake_case，src/agent/mcp_client.py 依赖新名字；
@@ -70,9 +70,6 @@ test = [
     # 插件管理器运行时经 `python -m pip` 把 wheel 装进受管环境；
     # uv 管理的 venv 默认不含 pip，测试环境显式声明
     "pip>=24.0",
-]
-embedding = [
-    "openai>=1.40.0",
 ]
 
 [project.scripts]

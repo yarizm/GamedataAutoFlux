@@ -249,7 +249,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 - **数据库迁移分两条路**：PostgreSQL 走 Alembic（`migrations/` + `src/storage/migrations.py` 程序化入口；启动时 `upgrade head`，失败阻断 lifespan；历史 create_all 库自动 `stamp head` 收编；pgvector 扩展缺失时 embedding 降级 JSONB，与 models 回退语义一致）。SQLite（测试/嵌入）仍用 `create_all`。schema 变更流程：改 `src/storage/models.py` + 对真库 `alembic revision --autogenerate` 生成新 revision。
 - **存储通过工厂获取**：所有代码通过 `get_storage()` 获取存储实例，不直接实例化具体类。存储后端由 `config/settings.yaml` 中的 `database.provider` 控制。
 - **全局单例归属**：EventBus 单例由 Container 持有（`get_event_bus()`；`src.core.events` 只定义类），storage/session factory 保留模块级生命周期（init/close/reset），容器 getter 统一入口。
-- **嵌入模型**：`get_embeddings()` 工厂函数（`src/services/_utils.py`）返回 DashScope Embeddings 实例。
+- **嵌入模型**：`get_embeddings()` 工厂函数（`src/services/_utils.py`）返回走 DashScope OpenAI 兼容接口的 `OpenAIEmbeddings`（text-embedding-v2，1536 维，每批 10 条）；`llm.qwen.api_key` 未配置时返回 None。
 - **采集器需登录态**：SteamDB 通过 CDP 连接已登录 Chrome（`scripts/steamdb_login.py`），七麦通过 Playwright 持久化 profile（`scripts/qimai_login.py`）。Worker 通过能力标签声明登录态资源，Scheduler 根据 `SessionRegistry` 路由任务。
 - **Scheduler 执行后端**有两种：`in_process`（默认，本地执行）和 `worker_claim`（任务放入队列等待 Worker 领取）。通过 `scheduler.execution_backend` 配置切换。两种后端最终都走 `DAGExecutor`：in_process 经 `Pipeline.execute()` 委托，worker_claim 经 claim payload 的 `graph` 字段（`payload_version="2"`，旧版回退 `pipeline` 字段）。
 - **DAG 持久化**：图定义存 `state_type="graph"`（key `graph:{name}`），旧 pipeline 快照 `state_type="pipeline"`。lifespan 启动时 `migrate_pipelines_to_dag` 自动把旧 pipeline 转成 graph（幂等，只转不删，原记录标 `migrated:true`；**只在没有同名 graph 时补建**，不会用有损的 pipeline 投影覆盖编辑器保存的图）。
@@ -260,6 +260,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 
 - **Python 3.12+** 必需。Windows 下会自动切换到 `WindowsProactorEventLoopPolicy`（兼容 Playwright 子进程）。
 - **Worker Agent 可选**：默认 Scheduler 本地执行所有任务。启动 Worker Agent 后，需要登录态的任务会自动路由到声明对应能力的 Worker。Worker 通过环境变量或命令行参数配置 `--base-url`、`--capability` 等。
+- **第三方 SDK 契约测试**：mcp、firecrawl-py 大版本升级曾改掉字段名/调用方式，异常被 except 吞掉后功能静默失效（只剩一行错误日志）。升级这两个依赖后先跑 `tests/test_agent_mcp_client.py`、`tests/test_firecrawl_fallback_contract.py`；新增第三方 import 由 `tests/test_imports_resolve.py` 校验已声明。
 - **Agent MCP 依赖**：Playwright MCP 工具需要 Node.js 和 `npx`。Windows 下 Playwright 不可用或连续失败时会自动降级并禁用浏览器工具。
 - **前端有两套 JS 加载路径**：`index.html` 通过 Jinja2 条件分三路 — ① Vite dev (`VITE_DEV=1`, localhost:5173) ② Vite 构建产物 (`static/dist/`, 需 `npm run build`) ③ 静态脚本 (`static/agent.js` 等)。修改 `src/web/src/` 源码后必须 `npm run build`，否则 Vite 构建模式下不生效。
 - **前端构建产物默认不入库**：`src/web/static/dist/` 在 `.gitignore` 中；CI 与部署时执行 `cd src/web && npm ci && npm run build`。Agent 意图 chips 在 `templates/pages/agent.html` + `src/web/src/core/i18n.js`。
