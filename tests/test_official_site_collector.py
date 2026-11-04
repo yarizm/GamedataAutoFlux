@@ -6,6 +6,7 @@ from autoflux_plugin_official_site.collector import (
     OfficialSiteCollector,
     _classify_category,
     _parse_html,
+    _same_domain,
 )
 from src.core.registry import registry
 from src.reporting.data_extractor import _detect_collector, extract_from_records
@@ -245,3 +246,12 @@ def test_data_extractor_detects_and_extracts_official_site():
     assert data.overview[0]["数据来源"] == "官方网站"
     assert len(data.events) == 3
     assert {item["标题"] for item in data.events} == {"News", "Patch", "Event"}
+
+
+def test_same_domain_strips_only_www_prefix():
+    assert _same_domain("https://www.example.com/a", "https://example.com/b")
+    assert _same_domain("https://WWW.Example.com", "https://example.com/news")
+    # 只能去掉 "www." 前缀，不能按字符集剥掉开头的 w 和 .
+    assert not _same_domain("https://www.wwe.com", "https://e.com")
+    assert not _same_domain("https://wow.com", "https://ow.com")
+    assert not _same_domain("https://web.example.com", "https://eb.example.com")

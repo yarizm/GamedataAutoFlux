@@ -1227,7 +1227,11 @@ def _slash_retry_url(url: str) -> str:
 
 
 def _same_domain(a: str, b: str) -> bool:
-    return urlparse(a).netloc.lower().lstrip("www.") == urlparse(b).netloc.lower().lstrip("www.")
+    # removeprefix 而非 lstrip：lstrip("www.") 剥的是字符集 {w, .}，会把 wwe.com 与 e.com 判成同域
+    return (
+        urlparse(a).netloc.lower().removeprefix("www.")
+        == urlparse(b).netloc.lower().removeprefix("www.")
+    )
 
 
 def _is_excluded_url(url: str, exclude_patterns: tuple[str, ...]) -> bool:
