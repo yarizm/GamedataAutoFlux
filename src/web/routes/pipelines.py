@@ -17,7 +17,7 @@ from src.core.collector_metadata import (
 from src.core.collector_validators import validate_collector_config
 from src.core.dag import DAG, NodeSpec, PortSpec, dag_to_pipeline
 from src.core.dag import Edge as DagEdge
-from src.core.dag_executor import validate_dag_detailed
+from src.core.dag_executor import preload_subgraphs, validate_dag_detailed
 from src.core.dag_logic import LOGIC_NODE_TYPE, logic_node_ports, validate_logic_config
 from src.core.dag_nodes import dag_node_catalog_payload, get_dag_node
 from src.core.dag_policy import ERROR_PORT, uses_error_port, validate_node_policy
@@ -305,11 +305,7 @@ async def create_dag(
 
 async def _validate_dag_with_subgraphs(dag: DAG) -> list[Any]:
     # 完整结构校验；composite 引用的子图预载后一并校验可解析性
-    dag_repo = _get_dag_repo()
-    subgraphs: dict[str, Any] = {}
-    for node in dag.nodes:
-        if node.type == "composite" and (node.subgraph_name or "").strip():
-            subgraphs[node.subgraph_name] = await dag_repo.load(node.subgraph_name)
+    subgraphs = await preload_subgraphs(dag, _get_dag_repo().load)
     return validate_dag_detailed(
         dag,
         subgraph_loader=(lambda name: subgraphs.get(name)) if subgraphs else None,

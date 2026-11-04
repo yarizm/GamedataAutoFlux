@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 
+from loguru import logger
+
 from src.core.collector_metadata import (
     build_collector_recovery_info,
     collector_metadata_payload,
@@ -14,7 +16,9 @@ from src.core.collector_metadata import (
     resolve_session_mode,
 )
 from src.core.dag import pipeline_to_dag
+from src.core.dag_executor import expand_stored_composites
 from src.core.diagnostics import build_collector_session_diagnostics
+from src.core.exceptions import DAGValidationError
 from src.core.metrics import metrics
 from src.core.pipeline import Pipeline, PipelineResult
 from src.core.sensitive import redact_sensitive, redact_sensitive_text
@@ -186,10 +190,17 @@ class WorkerClaimCoordinator:
                 from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
                 from src.storage.session_factory import get_session_factory
 
-                stored = await SQLAlchemyPipelineRepository(get_session_factory()).load_as_dag(
-                    pipeline.name
-                )
+                repo = SQLAlchemyPipelineRepository(get_session_factory())
+                stored = await repo.load_as_dag(pipeline.name)
                 if stored is not None:
+                    try:
+                        stored = await expand_stored_composites(stored, repo.load_as_dag)
+                    except DAGValidationError as exc:
+                        # 子图被删或成环：照发原图，Worker 校验失败后任务如实标失败，
+                        # 不能在认领途中抛异常让任务卡在已认领状态
+                        logger.warning(
+                            "Graph {} cannot expand composites: {}", pipeline.name, exc
+                        )
                     graph_payload = stored.to_storage()
             except RuntimeError:
                 # Embedded/test mode may not initialize the shared DB factory;

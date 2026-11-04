@@ -242,6 +242,8 @@ def validate_dag_detailed(
                     f"composite node {n.id}: subgraph '{n.subgraph_name}' not found",
                     node_id=n.id,
                 ))
+        if not any(i.code == "composite_subgraph_unresolvable" for i in issues):
+            issues.extend(_composite_expansion_issues(dag, subgraph_loader))
 
     # 悬空必需输入端口；全部入边带条件 → 仅告警（故障转移等合法模式）
     incoming_by_node: dict[str, set[str]] = defaultdict(set)
@@ -300,6 +302,22 @@ def validate_dag_detailed(
             ))
 
     return issues
+
+
+def _composite_expansion_issues(
+    dag: DAG, subgraph_loader: Callable[[str], Any]
+) -> list[DAGValidationIssue]:
+    """按运行时的方式展开一次：嵌套缺失、成环、父子图接线错误都在保存时报出来。"""
+    if not any(n.type == "composite" and (n.subgraph_name or "").strip() for n in dag.nodes):
+        return []
+    try:
+        expanded = expand_composite_graph(dag, subgraph_loader)
+    except DAGValidationError as exc:
+        return [DAGValidationIssue("composite_expansion_invalid", str(exc))]
+    return [
+        DAGValidationIssue("composite_expansion_invalid", f"expanded graph: {problem}")
+        for problem in validate_dag(expanded)
+    ]
 
 
 def _is_effective_source(node: NodeSpec, incoming_by_node: dict[str, set[str]]) -> bool:
@@ -469,6 +487,103 @@ def _accepts_trace_kwarg(callback: Callable[..., Any]) -> bool:
     except (TypeError, ValueError):
         return False
     return any(p.kind is inspect.Parameter.VAR_KEYWORD or p.name == "trace" for p in params)
+
+
+def expand_composite_graph(
+    dag: DAG,
+    subgraph_loader: Callable[[str], DAG | None],
+    *,
+    _stack: tuple[str, ...] = (),
+) -> DAG:
+    """把 composite 节点内联成子图的节点和边（支持嵌套）；无 composite 则原样返回。
+
+    子图缺失或互相引用成环抛 DAGValidationError。
+    """
+    if not any(n.type == "composite" for n in dag.nodes):
+        return dag
+    stack = _stack or (dag.name,)
+
+    new_nodes: list[NodeSpec] = []
+    new_edges: list[Edge] = []
+    # 每个 composite 展开后的入口/出口节点，下面用来重写父图的边
+    sub_sources: dict[str, list[str]] = {}
+    sub_sinks: dict[str, list[str]] = {}
+    for n in dag.nodes:
+        if n.type != "composite":
+            new_nodes.append(n)
+            continue
+        name = n.subgraph_name or ""
+        if name in stack:
+            cycle = " -> ".join((*stack, name))
+            raise DAGValidationError(f"composite node {n.id}: subgraph cycle {cycle}")
+        sub = subgraph_loader(name)
+        if sub is None:
+            raise DAGValidationError(f"composite node {n.id}: subgraph '{name}' not found")
+        sub = expand_composite_graph(sub, subgraph_loader, _stack=(*stack, name))
+        prefix = f"{n.id}/"
+        has_incoming = {e.to_node for e in sub.edges}
+        has_outgoing = {e.from_node for e in sub.edges}
+        for sn in sub.nodes:
+            new_nodes.append(NodeSpec(
+                id=prefix + sn.id, type=sn.type, component=sn.component,
+                config=sn.config, ports_in=sn.ports_in, ports_out=sn.ports_out,
+                is_param_port=sn.is_param_port, subgraph_name=None,
+                policy=dict(sn.policy or {}),
+            ))
+        sub_sources[n.id] = [prefix + sn.id for sn in sub.nodes if sn.id not in has_incoming]
+        sub_sinks[n.id] = [prefix + sn.id for sn in sub.nodes if sn.id not in has_outgoing]
+        for se in sub.edges:
+            new_edges.append(Edge(
+                from_node=prefix + se.from_node, from_port=se.from_port,
+                to_node=prefix + se.to_node, to_port=se.to_port,
+                condition=se.condition,
+            ))
+
+    # 重写父图边：原指向/出自 composite 的边改指向子图入口/出口
+    for e in dag.edges:
+        from_nodes = sub_sinks.get(e.from_node, [e.from_node])
+        to_nodes = sub_sources.get(e.to_node, [e.to_node])
+        for from_node in from_nodes:
+            for to_node in to_nodes:
+                new_edges.append(Edge(from_node, e.from_port, to_node, e.to_port, e.condition))
+
+    all_ids = [n.id for n in new_nodes]
+    if len(set(all_ids)) != len(all_ids):
+        raise DAGValidationError("composite expansion produced duplicate node ids")
+
+    return DAG(name=dag.name, nodes=new_nodes, edges=new_edges, conditions=dag.conditions)
+
+
+async def preload_subgraphs(
+    dag: DAG, load: Callable[[str], Awaitable[DAG | None]]
+) -> dict[str, DAG | None]:
+    """读出 composite 直接或间接引用的全部子图；不存在的子图记为 None。
+
+    展开是同步的，存储读取是异步的，所以要提前把子图都读好。
+    """
+    loaded: dict[str, DAG | None] = {}
+    pending = [dag]
+    while pending:
+        current = pending.pop()
+        for node in current.nodes:
+            name = (node.subgraph_name or "").strip()
+            if node.type != "composite" or not name or name in loaded:
+                continue
+            sub = await load(name)
+            loaded[name] = sub
+            if sub is not None:
+                pending.append(sub)
+    return loaded
+
+
+async def expand_stored_composites(
+    dag: DAG, load: Callable[[str], Awaitable[DAG | None]]
+) -> DAG:
+    """从存储读子图并展开。Worker 不连数据库，调度端也要用它展开后再下发。"""
+    if not any(n.type == "composite" for n in dag.nodes):
+        return dag
+    subgraphs = await preload_subgraphs(dag, load)
+    return expand_composite_graph(dag, subgraphs.get)
 
 
 class DAGExecutor:
@@ -997,76 +1112,8 @@ class DAGExecutor:
 
     def _expand_composite_nodes(self, dag: DAG) -> DAG:
         """把 type=composite 节点按 subgraph_name 内联展开。无 composite 则原样返回。"""
-        composite_nodes = [n for n in dag.nodes if n.type == "composite"]
-        if not composite_nodes:
+        if not any(n.type == "composite" for n in dag.nodes):
             return dag
         if self._subgraph_loader is None:
             raise DAGValidationError("composite node present but no subgraph_loader configured")
-
-        new_nodes: list[NodeSpec] = []
-        new_edges: list[Edge] = []
-        # composite_id -> (source_node_ids, sink_node_ids) 子图入口/出口
-        for n in dag.nodes:
-            if n.type != "composite":
-                new_nodes.append(n)
-                continue
-            sub = self._subgraph_loader(n.subgraph_name or "")
-            if sub is None:
-                raise DAGValidationError(f"composite node {n.id}: subgraph '{n.subgraph_name}' not found")
-            prefix = f"{n.id}/"
-            sub_source_ids: list[str] = []
-            sub_sink_ids: list[str] = []
-            has_incoming: set[str] = set()
-            has_outgoing: set[str] = set()
-            for e in sub.edges:
-                has_incoming.add(e.to_node)
-                has_outgoing.add(e.from_node)
-            for sn in sub.nodes:
-                prefixed_id = prefix + sn.id
-                new_nodes.append(NodeSpec(
-                    id=prefixed_id, type=sn.type, component=sn.component,
-                    config=sn.config, ports_in=sn.ports_in, ports_out=sn.ports_out,
-                    is_param_port=sn.is_param_port, subgraph_name=None,
-                    policy=dict(sn.policy or {}),
-                ))
-                if sn.id not in has_incoming:
-                    sub_source_ids.append(prefixed_id)
-                if sn.id not in has_outgoing:
-                    sub_sink_ids.append(prefixed_id)
-            for se in sub.edges:
-                new_edges.append(Edge(
-                    from_node=prefix + se.from_node, from_port=se.from_port,
-                    to_node=prefix + se.to_node, to_port=se.to_port,
-                    condition=se.condition,
-                ))
-            # 记录 composite 的入出边映射，下面重写父图边
-            n._sub_sources = sub_source_ids  # type: ignore[attr-defined]
-            n._sub_sinks = sub_sink_ids  # type: ignore[attr-defined]
-
-        # 重写父图边：原指向/出自 composite 的边改指向子图入口/出口
-        composite_by_id = {n.id: n for n in dag.nodes if n.type == "composite"}
-        for e in dag.edges:
-            if e.to_node in composite_by_id and e.from_node in composite_by_id:
-                # composite → composite：从源子图每个 sink 连到目标子图每个 source
-                src_sinks = getattr(composite_by_id[e.from_node], "_sub_sinks", [])
-                dst_sources = getattr(composite_by_id[e.to_node], "_sub_sources", [])
-                for s in src_sinks:
-                    for d in dst_sources:
-                        new_edges.append(Edge(s, e.from_port, d, e.to_port, e.condition))
-            elif e.to_node in composite_by_id:
-                dst_sources = getattr(composite_by_id[e.to_node], "_sub_sources", [])
-                for d in dst_sources:
-                    new_edges.append(Edge(e.from_node, e.from_port, d, e.to_port, e.condition))
-            elif e.from_node in composite_by_id:
-                src_sinks = getattr(composite_by_id[e.from_node], "_sub_sinks", [])
-                for s in src_sinks:
-                    new_edges.append(Edge(s, e.from_port, e.to_node, e.to_port, e.condition))
-            else:
-                new_edges.append(e)
-
-        # ID 冲突校验
-        all_ids = [n.id for n in new_nodes]
-        if len(set(all_ids)) != len(all_ids):
-            raise DAGValidationError("composite expansion produced duplicate node ids")
-
-        return DAG(name=dag.name, nodes=new_nodes, edges=new_edges, conditions=dag.conditions)
+        return expand_composite_graph(dag, self._subgraph_loader)

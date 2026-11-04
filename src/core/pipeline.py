@@ -622,7 +622,10 @@ class Pipeline:
         - 没存过同名 graph → None，走投影；
         - 数据库读写、schema、反序列化失败 → 直接抛出。降级到投影会静默
           丢失条件边与拓扑，属于执行语义变更，必须让任务失败可见。
+
+        composite 节点在这里展开（子图缺失或成环同样抛出，任务如实失败）。
         """
+        from src.core.dag_executor import expand_stored_composites
         from src.services.sqlalchemy_pipeline_repository import SQLAlchemyPipelineRepository
         from src.storage.session_factory import get_session_factory
 
@@ -633,7 +636,10 @@ class Pipeline:
             return None
 
         repo = SQLAlchemyPipelineRepository(factory)
-        return await repo.load_as_dag(self.name)
+        dag = await repo.load_as_dag(self.name)
+        if dag is None:
+            return None
+        return await expand_stored_composites(dag, repo.load_as_dag)
 
     def _map_dag_result_to_pipeline_result(self, dag_result: Any) -> PipelineResult:
         """逐字段把 DAGResult 映射回 PipelineResult。"""
