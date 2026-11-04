@@ -165,34 +165,14 @@ class FirecrawlFallback:
         try:
             import asyncio
 
-            scrape_fn = getattr(self._app, "scrape", None)
-            if callable(scrape_fn):
-                kwargs: dict[str, Any] = {"formats": ["markdown"]}
-                if actions:
-                    kwargs["actions"] = actions
-                if headers:
-                    kwargs["headers"] = headers
-                result = await asyncio.to_thread(
-                    scrape_fn,
-                    url,
-                    **kwargs,
-                )
-            else:
-                legacy_scrape_fn = getattr(self._app, "scrape_url", None)
-                if not callable(legacy_scrape_fn):
-                    raise AttributeError(
-                        "Firecrawl client does not expose scrape() or scrape_url()"
-                    )
-                params: dict[str, Any] = {"formats": ["markdown"]}
-                if actions:
-                    params["actions"] = actions
-                if headers:
-                    params["headers"] = headers
-                result = await asyncio.to_thread(
-                    legacy_scrape_fn,
-                    url,
-                    params=params,
-                )
+            if self._app is None:
+                raise RuntimeError("Firecrawl client is not initialized")
+            kwargs: dict[str, Any] = {"formats": ["markdown"]}
+            if actions:
+                kwargs["actions"] = actions
+            if headers:
+                kwargs["headers"] = headers
+            result = await asyncio.to_thread(self._app.scrape, url, **kwargs)
 
             markdown = _extract_markdown(result)
             action_payload = _extract_actions(result)

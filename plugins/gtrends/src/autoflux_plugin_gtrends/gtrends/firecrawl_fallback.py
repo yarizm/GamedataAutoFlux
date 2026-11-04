@@ -116,20 +116,12 @@ class GtrendsFirecrawlFallback:
 
     async def _scrape_url(self, url: str) -> str | None:
         try:
-            scrape_fn = getattr(self._app, "scrape", None)
-            if callable(scrape_fn):
-                kwargs: dict[str, Any] = {"formats": ["markdown"]}
-                if self._headers:
-                    kwargs["headers"] = self._headers
-                result = await asyncio.to_thread(scrape_fn, url, **kwargs)
-            else:
-                legacy_fn = getattr(self._app, "scrape_url", None)
-                if not callable(legacy_fn):
-                    raise AttributeError("Firecrawl client missing scrape() / scrape_url()")
-                params: dict[str, Any] = {"formats": ["markdown"]}
-                if self._headers:
-                    params["headers"] = self._headers
-                result = await asyncio.to_thread(legacy_fn, url, params=params)
+            if self._app is None:
+                raise RuntimeError("Firecrawl client is not initialized")
+            kwargs: dict[str, Any] = {"formats": ["markdown"]}
+            if self._headers:
+                kwargs["headers"] = self._headers
+            result = await asyncio.to_thread(self._app.scrape, url, **kwargs)
 
             markdown = _extract_markdown(result)
             if markdown:

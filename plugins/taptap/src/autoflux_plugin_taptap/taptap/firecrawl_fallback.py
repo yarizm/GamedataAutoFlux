@@ -78,20 +78,9 @@ class TapTapFirecrawlFallback:
     async def _scrape_url(self, url: str) -> str | None:
         logger.info(f"[TapTap Firecrawl] Scrape: {_safe_log_text(url)}")
         try:
-            scrape_fn = getattr(self._app, "scrape", None)
-            if callable(scrape_fn):
-                result = await asyncio.to_thread(scrape_fn, url, formats=["markdown"])
-            else:
-                legacy_scrape_fn = getattr(self._app, "scrape_url", None)
-                if not callable(legacy_scrape_fn):
-                    raise AttributeError(
-                        "Firecrawl client does not expose scrape() or scrape_url()"
-                    )
-                result = await asyncio.to_thread(
-                    legacy_scrape_fn,
-                    url,
-                    params={"formats": ["markdown"]},
-                )
+            if self._app is None:
+                raise RuntimeError("Firecrawl client is not initialized")
+            result = await asyncio.to_thread(self._app.scrape, url, formats=["markdown"])
         except Exception as exc:
             logger.error(f"[TapTap Firecrawl] Scrape failed: {_safe_log_text(exc)}")
             return None

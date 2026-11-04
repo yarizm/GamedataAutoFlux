@@ -647,19 +647,21 @@ wheels = [
 
 [[package]]
 name = "firecrawl-py"
-version = "2.16.5"
+version = "4.55.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "httpx" },
     { name = "nest-asyncio" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "websockets" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/97/7a/e6911fe11d140db5b5deda7a3ad6ee80c7615fcb248097ec7a4bc784eff6/firecrawl_py-2.16.5.tar.gz", hash = "sha256:7f5186bba359a426140a6827b550a604e62bfbeda33ded757952899b1cca4c83", size = 40154, upload-time = "2025-08-06T20:38:23.92Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/97/20/d0ba2d02dd3bcd3b3f8587be1a95839483bd5a0a099224d040e6173928da/firecrawl_py-4.55.0.tar.gz", hash = "sha256:2c6d3b75564f2691c25a40844260dcacd67061cb26afdedee2b70b1de734fcfb", size = 277141, upload-time = "2026-11-04T16:10:14.288Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/0f/99/fa2a41e2c1c5ff3e01150470b0a8a630792a363724c188bf6522e6798be7/firecrawl_py-2.16.5-py3-none-any.whl", hash = "sha256:3caed19b8f21522ab9c2193c2226990f2468e6bc5669ef54aa156e4230a5e35e", size = 75978, upload-time = "2025-08-06T20:38:22.857Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/cd/dd/b31313f8b59409fc8f4db7113021a7c1d4ace04d2e29c7f5cec765557608/firecrawl_py-4.55.0-py3-none-any.whl", hash = "sha256:3cd1df65f0c2851fc0cc41f6837ee32bb715bcbbda3a105a0dcad5584eb93806", size = 339500, upload-time = "2026-11-04T16:10:12.354Z" },
 ]
 
 [[package]]
@@ -821,7 +823,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.29.0,<1.0.0" },
     { name = "build", marker = "extra == 'test'", specifier = ">=1.2.0" },
     { name = "fastapi", specifier = ">=0.136.1,<1.0.0" },
-    { name = "firecrawl-py", marker = "extra == 'test'", specifier = ">=1.0.0,<5.0.0" },
+    { name = "firecrawl-py", marker = "extra == 'test'", specifier = ">=4.0.0,<5.0.0" },
     { name = "gamedata-autoflux", extras = ["test"], marker = "extra == 'dev'" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
