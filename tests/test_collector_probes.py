@@ -198,3 +198,23 @@ async def test_precheck_async_default_no_probe_calls(monkeypatch) -> None:
     )
     assert result.deep is False
     assert called["n"] == 0
+
+
+async def test_cancelled_probe_runner_becomes_warning(monkeypatch) -> None:
+    """回归：gather(return_exceptions=True) 把被取消的子任务放成 CancelledError（BaseException），
+    旧代码只判断 Exception，会对它执行 results.extend(...) 抛 TypeError，整次探测失败。"""
+    import asyncio
+
+    async def fake_runner(collector_id, **kwargs):
+        if collector_id == "cancelled":
+            raise asyncio.CancelledError()
+        return [ProbeResult(collector_id=collector_id, name="ok", status="ok", message="fine")]
+
+    monkeypatch.setattr("src.core.collector_probes._run_probes_for_collector", fake_runner)
+
+    results = await run_collector_probes(["cancelled", "healthy"])
+
+    by_collector = {result.collector_id: result for result in results}
+    assert by_collector["cancelled"].status == "warning"
+    assert by_collector["cancelled"].name == "probe"
+    assert by_collector["healthy"].status == "ok"

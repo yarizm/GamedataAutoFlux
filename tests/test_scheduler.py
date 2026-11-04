@@ -676,3 +676,15 @@ def task_time():
     from datetime import datetime
 
     return datetime.now()
+
+
+async def test_submit_unknown_pipeline_raises_value_error() -> None:
+    """回归：错误信息曾引用已迁走的 Scheduler._pipelines，未知 Pipeline 变成 AttributeError。"""
+    scheduler = Scheduler(task_repo=InMemoryTaskRepository())
+    await scheduler.start()
+    try:
+        task = Task(id="missing-pipeline", name="Missing", pipeline_name="no_such_pipeline")
+        with pytest.raises(ValueError, match="no_such_pipeline.*不存在"):
+            await scheduler.submit(task)
+    finally:
+        await scheduler.stop()

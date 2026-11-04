@@ -384,7 +384,7 @@ class Scheduler:
             pipeline = await self.resolve_pipeline(name or "")
             if pipeline is None:
                 raise ValueError(
-                    f"Pipeline/DAG '{name}' 不存在。可用: {list(self._pipelines.keys())}"
+                    f"Pipeline/DAG '{name}' 不存在。可用: {list(self.pipeline_service.registry)}"
                 )
 
         from src.core.pipeline_availability import inspect_pipeline_availability

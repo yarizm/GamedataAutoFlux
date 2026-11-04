@@ -157,7 +157,7 @@ async def run_collector_probes(
     nested = await asyncio.gather(*tasks, return_exceptions=True)
     results: list[ProbeResult] = []
     for collector_id, item in zip(unique, nested):
-        if isinstance(item, Exception):
+        if isinstance(item, BaseException):
             results.append(
                 ProbeResult(
                     collector_id=collector_id,
