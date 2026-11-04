@@ -200,6 +200,9 @@ class SteamDBScraper:
 
         if not self._browser:
             await self.setup()
+        browser = self._browser
+        if browser is None:
+            raise SteamDBScrapeFailed("SteamDB browser is not initialized")
 
         result: dict[str, Any] = {
             "source": "steamdb_playwright",
@@ -208,8 +211,8 @@ class SteamDBScraper:
         }
 
         close_context = False
-        if self._browser_is_cdp and self._browser.contexts:
-            context = self._browser.contexts[0]
+        if self._browser_is_cdp and browser.contexts:
+            context = browser.contexts[0]
         else:
             context_kwargs: dict[str, Any] = {
                 "viewport": {"width": 1920, "height": 1080},
@@ -219,7 +222,7 @@ class SteamDBScraper:
             context_headers = self._request_headers(cookie=cookie, extra_headers=extra_headers)
             if context_headers:
                 context_kwargs["extra_http_headers"] = context_headers
-            context = await self._browser.new_context(**context_kwargs)
+            context = await browser.new_context(**context_kwargs)
             close_context = True
 
         page = None

@@ -281,11 +281,14 @@ class SteamDiscussionsCollector(BaseCollector):
         return detail
 
     async def _fetch_text(self, url: str) -> str:
+        client = self._client
+        if client is None:
+            raise RuntimeError("Steam discussions collector client is not initialized")
         retries = 3
         last_error = None
         for attempt in range(1, retries + 1):
             try:
-                response = await self._client.get(url)
+                response = await client.get(url)
                 response.raise_for_status()
                 return response.text
             except httpx.HTTPError as exc:

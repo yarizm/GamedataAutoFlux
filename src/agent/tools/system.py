@@ -12,9 +12,9 @@ class GetSystemStatsTool(BaseTool):
     description: str = "获取系统概览统计信息：任务总数、运行中数量、定时任务数等"
 
     async def _arun(self) -> str:
-        from src.bootstrap.container import scheduler
+        from src.bootstrap.container import get_scheduler
 
-        stats = scheduler.get_stats()
+        stats = get_scheduler().get_stats()
         total = stats.get("total_tasks", 0)
         running = stats.get("running_tasks", 0)
         return _format_result(

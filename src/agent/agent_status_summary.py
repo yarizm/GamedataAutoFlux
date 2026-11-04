@@ -175,7 +175,7 @@ def summarize_agent_runtime_status(
     base_tool_names = [tool.name for tool in base_tools]
     active_tool_names = [tool.name for tool in executor_tools] or base_tool_names
     mcp_running = bool(mcp_manager and getattr(mcp_manager, "_is_running", False))
-    mcp_tools = mcp_manager.get_langchain_tools() if mcp_running else []
+    mcp_tools = mcp_manager.get_langchain_tools() if mcp_manager and mcp_running else []
     mcp_tool_names = [tool.name for tool in mcp_tools]
     history_recovery_warnings = build_history_recovery_warnings(
         history_load_failed=history_load_failed,

@@ -149,16 +149,17 @@ class LangGraphAgentRuntime:
         if not get_config("agent.playwright_mcp.enabled", False):
             return
 
-        if not self.mcp_manager:
-            self.mcp_manager = self._create_mcp_manager()
+        mcp_manager = self.mcp_manager
+        if not mcp_manager:
+            mcp_manager = self.mcp_manager = self._create_mcp_manager()
 
         mcp_restarted = False
-        if not self.mcp_manager._is_running:
+        if not mcp_manager._is_running:
             logger.info("MCP 未运行，尝试启动/重连 Playwright MCP Server...")
-            await self.mcp_manager.start()
+            await mcp_manager.start()
             mcp_restarted = True
 
-        mcp_tools = self.mcp_manager.get_langchain_tools()
+        mcp_tools = mcp_manager.get_langchain_tools()
         current_tool_names = {tool.name for tool in self.active_tools}
         mcp_tool_names = {tool.name for tool in mcp_tools}
 

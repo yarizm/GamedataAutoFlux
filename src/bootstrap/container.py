@@ -57,6 +57,20 @@ def ensure_core_services() -> tuple[Scheduler, ReportGenerator]:
     return scheduler, report_generator
 
 
+def get_scheduler() -> Scheduler:
+    """返回已初始化的 Scheduler；未初始化时给出明确错误，而不是对 None 取属性。"""
+    if scheduler is None:
+        raise RuntimeError("Scheduler 尚未初始化：需先调用 ensure_core_services()")
+    return scheduler
+
+
+def get_report_generator() -> ReportGenerator:
+    """返回已初始化的 ReportGenerator；未初始化时给出明确错误。"""
+    if report_generator is None:
+        raise RuntimeError("ReportGenerator 尚未初始化：需先调用 ensure_core_services()")
+    return report_generator
+
+
 def _reset_runtime_singletons(
     *,
     reset_agent: bool = False,

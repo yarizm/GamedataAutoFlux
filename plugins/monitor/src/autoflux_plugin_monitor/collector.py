@@ -338,11 +338,14 @@ class MonitorCollector(BaseCollector):
         return name.strip() if isinstance(name, str) and name.strip() else None
 
     async def _fetch_text(self, url: str, *, headers: dict[str, str] | None = None) -> str:
+        client = self._client
+        if client is None:
+            raise RuntimeError("Monitor collector client is not initialized")
         retries = 3
         last_error = None
         for attempt in range(1, retries + 1):
             try:
-                response = await self._client.get(url, headers=headers)
+                response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 return response.text
             except httpx.HTTPError as exc:
@@ -366,11 +369,14 @@ class MonitorCollector(BaseCollector):
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        client = self._client
+        if client is None:
+            raise RuntimeError("Monitor collector client is not initialized")
         retries = 3
         last_error = None
         for attempt in range(1, retries + 1):
             try:
-                response = await self._client.get(url, params=params, headers=headers)
+                response = await client.get(url, params=params, headers=headers)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPError as exc:

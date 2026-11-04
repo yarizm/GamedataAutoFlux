@@ -171,6 +171,10 @@ class SteamCollector(BaseCollector):
         S1 stage machine: resolve_app_id → api_light → api_reviews → steamdb → done.
         Deep resume via recovery_checkpoint cursor (review_cursor / completed_stages).
         """
+        steam_api = self._steam_api
+        if steam_api is None:
+            raise RuntimeError("Steam API client is not initialized")
+
         last_cursor: dict[str, Any] | None = None
 
         # ── Stage: resolve_app_id ──
@@ -178,7 +182,7 @@ class SteamCollector(BaseCollector):
         if not app_id:
             logger.info(f"[Steam] 按名称查找 app_id: {target.name}")
             try:
-                resolved = await self._steam_api.resolve_app_id(target.name)
+                resolved = await steam_api.resolve_app_id(target.name)
             except Exception as e:
                 safe_error = _safe_log_text(e)
                 logger.error(f"[Steam] resolve_app_id 失败: {safe_error}")
@@ -407,7 +411,7 @@ class SteamCollector(BaseCollector):
 
         logger.info("[Steam] 阶段: 官方 API 采集 (api_light + api_reviews)")
         try:
-            steam_data = await self._steam_api.collect_all(
+            steam_data = await steam_api.collect_all(
                 app_id,
                 max_reviews=max_reviews,
                 review_language=review_language,
@@ -458,10 +462,10 @@ class SteamCollector(BaseCollector):
             completed_stages.append(_STAGE_API_REVIEWS)
             reviews_done = True
 
-        reviews_blob = (
-            steam_data.get("reviews") if isinstance(steam_data.get("reviews"), dict) else {}
-        )
-        review_items = reviews_blob.get("reviews") if isinstance(reviews_blob, dict) else None
+        reviews_blob = steam_data.get("reviews")
+        if not isinstance(reviews_blob, dict):
+            reviews_blob = {}
+        review_items = reviews_blob.get("reviews")
         if not isinstance(review_items, list):
             review_items = []
         try:

@@ -11,6 +11,8 @@ from src.agent.workflow_matchers import (
     _last_user_text,
 )
 from src.agent.workflow_support import (
+    _dict_field,
+    _list_field,
     _parse_tool_payload,
     _resolved_report_prompt,
     _resolved_template_name,
@@ -149,14 +151,14 @@ def apply_cron_action_node(state: AgentWorkflowState) -> dict[str, Any]:
     """List always; create/delete only when confirm + complete."""
     action = str(state.get("workflow_cron_action") or "").strip().lower()
     confirm = bool(state.get("workflow_cron_confirm"))
-    draft = state.get("cron_draft") if isinstance(state.get("cron_draft"), dict) else {}
+    draft = _dict_field(state, "cron_draft")
     job_name = str(state.get("workflow_cron_name") or draft.get("job_name") or "").strip()
     pipeline = str(state.get("workflow_pipeline_name") or draft.get("pipeline_name") or "").strip()
     expr = str(state.get("workflow_cron_expr") or draft.get("cron_expr") or "").strip()
     tz = str(state.get("workflow_cron_timezone") or draft.get("timezone") or "").strip()
     meta = state.get("workflow_cron_schedule_meta")
     if not isinstance(meta, dict):
-        meta = draft.get("schedule_meta") if isinstance(draft.get("schedule_meta"), dict) else {}
+        meta = _dict_field(draft, "schedule_meta")
 
     try:
         if action == "list":
@@ -354,10 +356,10 @@ def build_multisource_draft_node(state: AgentWorkflowState) -> dict[str, Any]:
 
 async def apply_multisource_action_node(state: AgentWorkflowState) -> dict[str, Any]:
     """Create tasks only when same-turn confirm + complete drafts."""
-    draft = state.get("multisource_draft") if isinstance(state.get("multisource_draft"), dict) else {}
+    draft = _dict_field(state, "multisource_draft")
     confirm = bool(state.get("workflow_multisource_confirm"))
     issues = list(draft.get("issues") or [])
-    task_drafts = draft.get("task_drafts") if isinstance(draft.get("task_drafts"), list) else []
+    task_drafts = _list_field(draft, "task_drafts")
 
     if not task_drafts or issues:
         return {
@@ -396,9 +398,9 @@ async def apply_multisource_action_node(state: AgentWorkflowState) -> dict[str, 
                 continue
             name = str(item.get("name") or "").strip()
             pipeline_name = str(item.get("pipeline_name") or "").strip()
-            targets = item.get("targets") if isinstance(item.get("targets"), list) else []
+            targets = _list_field(item, "targets")
             collector_name = str(item.get("collector_name") or "").strip()
-            config = item.get("config") if isinstance(item.get("config"), dict) else {}
+            config = _dict_field(item, "config")
             try:
                 precheck = ts.precheck(
                     name=name,

@@ -73,8 +73,11 @@ class TapTapPlaywrightScraper:
 
         if not self._browser:
             await self.setup()
+        browser = self._browser
+        if browser is None:
+            raise TapTapPlaywrightFailed("browser is not initialized")
 
-        context = await self._browser.new_context(
+        context = await browser.new_context(
             **_browser_context_options(region=region, referer=detail_url)
         )
         await context.add_init_script(_stealth_init_script(region=region))

@@ -25,9 +25,9 @@ router = APIRouter(tags=["health"])
 @router.get("/health")
 async def health_check():
     """Return compact runtime health status."""
-    from src.bootstrap.container import scheduler
+    from src.bootstrap.container import get_scheduler
 
-    return build_health_report(scheduler.get_stats())
+    return build_health_report(get_scheduler().get_stats())
 
 
 @router.get("/metrics", dependencies=[Depends(require_admin)])

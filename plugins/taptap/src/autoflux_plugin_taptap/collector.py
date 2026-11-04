@@ -356,11 +356,14 @@ class TapTapCollector(BaseCollector):
     async def _fetch_with_retry(
         self, url: str, headers: dict[str, str] | None = None
     ) -> httpx.Response:
+        client = self._client
+        if client is None:
+            raise RuntimeError("TapTap collector client is not initialized")
         retries = max(1, int(self.config.get("request_retries", 2)))
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                response = await self._client.get(url, headers=headers)
+                response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 return response
             except httpx.HTTPError as exc:

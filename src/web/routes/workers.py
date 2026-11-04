@@ -198,17 +198,18 @@ async def claim_task(
     )
     if claim is None:
         return WorkerClaimTaskResponse(worker_id=worker_id, claim_status="no_task")
-    if not claim.get("task_id"):
+    task_id = claim.get("task_id")
+    if not task_id:
         return WorkerClaimTaskResponse(worker_id=worker_id, **claim)
     await _run_side_effect_best_effort(
         get_worker_registry().heartbeat(
             worker_id,
             status="busy",
-            current_task_ids=[claim["task_id"]],
+            current_task_ids=[task_id],
         ),
         action="mark worker busy after task claim",
         worker_id=worker_id,
-        task_id=claim["task_id"],
+        task_id=task_id,
     )
     session_diagnostics = claim.get("session_diagnostics", {})
     if (
@@ -221,11 +222,11 @@ async def claim_task(
                 get_session_registry,
                 session_diagnostics,
                 worker_id=worker_id,
-                task_id=claim["task_id"],
+                task_id=task_id,
             ),
             action="bind task session after task claim",
             worker_id=worker_id,
-            task_id=claim["task_id"],
+            task_id=task_id,
         )
     return WorkerClaimTaskResponse(worker_id=worker_id, **claim)
 

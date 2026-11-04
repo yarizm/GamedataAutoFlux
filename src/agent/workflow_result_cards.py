@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from src.agent.workflow_events import result_card_event
+from src.agent.workflow_support import _dict_field, _list_field
 
 
 def build_report_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -157,7 +158,7 @@ def build_task_review_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
 
     completeness = str(review.get("completeness") or "unknown")
     record_count = int(review.get("record_count") or 0)
-    issues = review.get("issues") if isinstance(review.get("issues"), list) else []
+    issues = _list_field(review, "issues")
     summary = (
         f"任务 {task_id or '当前任务'} 采集复查：{completeness}"
         + (f"，{record_count} 条记录" if record_count else "")
@@ -319,10 +320,8 @@ def build_pipeline_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
 
 def build_multisource_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     """Build result_card for multisource_workflow."""
-    draft = state.get("multisource_draft") if isinstance(state.get("multisource_draft"), dict) else {}
-    result = (
-        state.get("multisource_result") if isinstance(state.get("multisource_result"), dict) else {}
-    )
+    draft = _dict_field(state, "multisource_draft")
+    result = _dict_field(state, "multisource_result")
     status = str(result.get("status") or draft.get("status") or "error").strip().lower()
     game = str(
         result.get("game_name")
@@ -341,7 +340,7 @@ def build_multisource_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     task_drafts = result.get("task_drafts") or draft.get("task_drafts") or []
     if not isinstance(task_drafts, list):
         task_drafts = []
-    created = result.get("created_tasks") if isinstance(result.get("created_tasks"), list) else []
+    created = _list_field(result, "created_tasks")
     issues = result.get("issues") or draft.get("issues") or []
     if not isinstance(issues, list):
         issues = []
@@ -426,8 +425,8 @@ def build_multisource_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
 def build_cron_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     """Build result_card for cron_workflow."""
     action = str(state.get("workflow_cron_action") or "").strip().lower() or "list"
-    result = state.get("cron_result") if isinstance(state.get("cron_result"), dict) else {}
-    draft = state.get("cron_draft") if isinstance(state.get("cron_draft"), dict) else {}
+    result = _dict_field(state, "cron_result")
+    draft = _dict_field(state, "cron_draft")
     status = str(result.get("status") or "").strip().lower() or "error"
 
     job_name = str(
@@ -449,7 +448,7 @@ def build_cron_result_card(state: Mapping[str, Any]) -> dict[str, Any]:
     issues = result.get("issues") or draft.get("issues") or []
     if not isinstance(issues, list):
         issues = []
-    jobs = result.get("jobs") if isinstance(result.get("jobs"), list) else []
+    jobs = _list_field(result, "jobs")
 
     title_map = {
         ("list", "success"): "定时任务列表",
@@ -682,7 +681,7 @@ def _report_collect_draft_phrase(precheck: Mapping[str, Any]) -> str:
     if isinstance(draft, dict) and draft.get("pipeline_name"):
         name = str(draft.get("name") or "补采任务").strip()
         pipeline = str(draft.get("pipeline_name") or "").strip()
-        targets = draft.get("targets") if isinstance(draft.get("targets"), list) else []
+        targets = _list_field(draft, "targets")
         game = ""
         if targets and isinstance(targets[0], dict):
             game = str(targets[0].get("name") or "").strip()

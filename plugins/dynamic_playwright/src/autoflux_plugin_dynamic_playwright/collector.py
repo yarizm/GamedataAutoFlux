@@ -125,7 +125,8 @@ class DynamicPlaywrightCollector(BaseCollector):
     async def teardown(self) -> None:
         # 浏览器资源只在 setup 成功过（有 worker loop）时清理；
         # 自身 executor 无论哪条路径都要释放——包括 setup 中途失败留下的实例
-        if self._worker_loop:
+        worker_loop = self._worker_loop
+        if worker_loop:
             loop = asyncio.get_running_loop()
             executor = self._get_executor()
 
@@ -139,14 +140,14 @@ class DynamicPlaywrightCollector(BaseCollector):
                         await self._pw.stop()
 
                 try:
-                    self._worker_loop.run_until_complete(_do_teardown())
+                    worker_loop.run_until_complete(_do_teardown())
                 except Exception as e:
                     logger.error(
                         f"[dynamic_playwright] Error during teardown: {_safe_log_text(e)}"
                     )
                 finally:
                     try:
-                        self._worker_loop.close()
+                        worker_loop.close()
                     except Exception:
                         pass
 
@@ -200,7 +201,9 @@ class DynamicPlaywrightCollector(BaseCollector):
             pass
 
     async def collect(self, target: CollectTarget) -> CollectResult:
-        if not self._worker_loop:
+        worker_loop = self._worker_loop
+        browser_context = self._context
+        if not worker_loop or not browser_context:
             return CollectResult(target=target, success=False, error="Browser not initialized")
 
         loop = asyncio.get_running_loop()
@@ -217,7 +220,7 @@ class DynamicPlaywrightCollector(BaseCollector):
                         target=target, success=False, error=f"Missing URL param: {e}"
                     )
 
-                page = await self._context.new_page()
+                page = await browser_context.new_page()
                 try:
                     # DNS 级校验（防 rebinding）：本机解析结果全过检才放行；
                     # redirect 与子资源由 context 级 _route_guard 兜底
@@ -276,7 +279,7 @@ class DynamicPlaywrightCollector(BaseCollector):
                 finally:
                     await page.close()
 
-            return self._worker_loop.run_until_complete(_do_collect())
+            return worker_loop.run_until_complete(_do_collect())
 
         return await loop.run_in_executor(executor, _worker_collect)
 

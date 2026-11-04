@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from src.agent.workflow_types import AgentWorkflowState
 
 _TEMPLATE_NAMES = ("general_game", "steam_game", "taptap_game")
+
+
+def _dict_field(mapping: Mapping[str, Any], key: str) -> dict[str, Any]:
+    """Return ``mapping[key]`` when it is a dict, else an empty dict."""
+    value = mapping.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _list_field(mapping: Mapping[str, Any], key: str) -> list[Any]:
+    """Return ``mapping[key]`` when it is a list, else an empty list."""
+    value = mapping.get(key)
+    return value if isinstance(value, list) else []
 
 
 def _parse_tool_payload(value: Any) -> dict[str, Any]:

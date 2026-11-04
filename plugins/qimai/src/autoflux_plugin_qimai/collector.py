@@ -17,7 +17,7 @@ import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from loguru import logger
 
@@ -26,16 +26,16 @@ from src.core.config import get as get_config
 from src.core.registry import registry
 from src.core.sensitive import redact_sensitive_text
 
-try:
+if TYPE_CHECKING:
     from playwright.async_api import Response as AsyncResponse
-    from playwright.async_api import async_playwright
     from playwright.sync_api import Response as SyncResponse
+
+try:
+    from playwright.async_api import async_playwright
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover - dependency is optional at import time
     async_playwright = None
     sync_playwright = None
-    AsyncResponse = Any
-    SyncResponse = Any
 
 
 class QimaiScrapeFailed(Exception):
@@ -252,7 +252,7 @@ class QimaiCollector(BaseCollector):
             if context is None:
                 context, managed_browser = await self._new_managed_or_persistent_context_async(p)
             page = None
-            on_response = None
+            response_listener: Callable[[Any], None] | None = None
             capture_tasks: list[asyncio.Task[Any]] = []
             try:
                 page = await context.new_page()
@@ -263,7 +263,8 @@ class QimaiCollector(BaseCollector):
                         return
                     capture_tasks.append(asyncio.create_task(state.capture_async(response)))
 
-                page.on("response", on_response)
+                response_listener = on_response
+                page.on("response", response_listener)
 
                 for index, (page_name, url) in enumerate(self._urls(app_id, country)):
                     if index:
@@ -289,8 +290,8 @@ class QimaiCollector(BaseCollector):
                 state.stop_capture()
                 try:
                     if page is not None:
-                        if on_response is not None:
-                            page.remove_listener("response", on_response)
+                        if response_listener is not None:
+                            page.remove_listener("response", response_listener)
                         await page.close()
                 except Exception:
                     pass
@@ -1792,6 +1793,9 @@ def _read_qimai_xlsx_rows(path: Path) -> list[dict[str, Any]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
         sheet = workbook.active
+        # 活动页可能不是工作表（如图表页），没有 iter_rows
+        if sheet is None or not hasattr(sheet, "iter_rows"):
+            return []
         raw_rows = list(sheet.iter_rows(values_only=True))
     finally:
         workbook.close()

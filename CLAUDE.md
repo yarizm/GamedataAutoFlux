@@ -34,7 +34,7 @@ pytest tests/test_smoke.py      # 单个文件
 # 代码检查
 ruff check src/ plugins/        # CI 同时检查核心与插件
 ruff format src/
-pyright                # 类型检查：src/core|services|storage，error 级阻断 CI
+pyright                # 类型检查：src/ 与 plugins/*/src，error 级阻断 CI
 ```
 
 ## 架构概览
@@ -274,7 +274,7 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
 
 - **ValidationError 多继承 ValueError**（DomainError + ValueError 兼容桥）：既有
   `except ValueError` 调用方无需改动；task_service 的状态/恢复校验 raise 已采纳类型化异常。
-- **payload 契约 TypedDict 化**（进行中）：Worker claim 协议（`src/core/worker_protocol.WorkerClaimPayload`，跨进程 REST 契约）与checkpoint 恢复上下文（`pipeline_recovery.py` 的四个 TypedDict）已固化键契约，运行时仍是普通 dict（JSON 序列化形状零变化）；pyright 检查面含 src/core|services|storage|worker。新 payload 面禁止再裸 `dict[str, Any]`。
+- **payload 契约 TypedDict 化**（进行中）：Worker claim 协议（`src/core/worker_protocol.WorkerClaimPayload`，跨进程 REST 契约）与checkpoint 恢复上下文（`pipeline_recovery.py` 的四个 TypedDict）已固化键契约，运行时仍是普通 dict（JSON 序列化形状零变化）；pyright 检查面为 src/ 全部与 plugins/*/src。新 payload 面禁止再裸 `dict[str, Any]`。
 
 - **类型化配置**：核心组件（scheduler/pipeline/database/server/agent 基础段）经
   `src/core/app_settings.py` 的 `get_app_settings()` 读类型化模型，禁止新增

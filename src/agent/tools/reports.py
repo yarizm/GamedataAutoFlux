@@ -203,11 +203,9 @@ def _compact_report_text(value: object, *, max_chars: int) -> str:
 
 def _report_quality_fields(report) -> dict[str, object]:
     metadata = report.metadata if isinstance(getattr(report, "metadata", None), dict) else {}
-    template_validation = (
-        metadata.get("template_validation")
-        if isinstance(metadata.get("template_validation"), dict)
-        else {}
-    )
+    template_validation = metadata.get("template_validation")
+    if not isinstance(template_validation, dict):
+        template_validation = {}
     empty_record_keys = [
         str(key) for key in metadata.get("empty_record_keys", []) if str(key or "").strip()
     ]
@@ -344,11 +342,9 @@ def _report_source_tokens(
     source_coverage = quality.get("source_coverage", {})
     if isinstance(source_coverage, dict):
         values.extend(source_coverage.keys())
-    template_validation = (
-        metadata.get("template_validation")
-        if isinstance(metadata.get("template_validation"), dict)
-        else {}
-    )
+    template_validation = metadata.get("template_validation")
+    if not isinstance(template_validation, dict):
+        template_validation = {}
     for key in ("available_collectors",):
         source_values = template_validation.get(key, [])
         if isinstance(source_values, list):
@@ -978,7 +974,7 @@ class ListReportsTool(BaseTool):
         quality_status: str = "",
         report_format: str = "",
     ) -> str:
-        from src.bootstrap.container import report_generator
+        from src.bootstrap.container import get_report_generator
 
         safe_limit = _coerce_report_limit(limit)
         has_filters = any(
@@ -987,7 +983,7 @@ class ListReportsTool(BaseTool):
         )
         scan_limit = min(max(safe_limit * 5, 50), 200) if has_filters else safe_limit
         try:
-            reports = await report_generator.list_reports(limit=scan_limit)
+            reports = await get_report_generator().list_reports(limit=scan_limit)
             filtered = [
                 report
                 for report in reports
@@ -1048,7 +1044,7 @@ class GenerateReportTool(BaseTool):
         template: str = "general_game",
         record_keys: list[str] | None = None,
     ) -> str:
-        from src.bootstrap.container import report_generator
+        from src.bootstrap.container import get_report_generator
         from src.storage.factory import get_storage
 
         record_keys = record_keys or []
@@ -1143,7 +1139,7 @@ class GenerateReportTool(BaseTool):
             await store.close()
 
         try:
-            result = await report_generator.generate_excel(
+            result = await get_report_generator().generate_excel(
                 prompt=prompt,
                 data_source=data_source or "",
                 template=template,
@@ -1182,10 +1178,10 @@ class GetReportContentTool(BaseTool):
     args_schema: Type[BaseModel] = GetReportContentInput
 
     async def _arun(self, report_id: str) -> str:
-        from src.bootstrap.container import report_generator
+        from src.bootstrap.container import get_report_generator
 
         try:
-            report = await report_generator.get_report(report_id)
+            report = await get_report_generator().get_report(report_id)
             if report is None:
                 return _safe_json({"success": False, "error": f"报告不存在: {report_id}"})
             content, truncated = _prepare_report_content(report.content, max_chars=8000)

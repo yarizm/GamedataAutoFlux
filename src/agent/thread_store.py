@@ -30,9 +30,11 @@ class AgentThreadStore(Protocol):
     @property
     def max_threads(self) -> int:
         """Maximum number of persisted threads to keep."""
+        ...
 
     async def load_threads(self) -> dict[str, AgentThreadSnapshot]:
         """Load persisted thread snapshots."""
+        ...
 
     async def save_threads(
         self,
@@ -42,9 +44,11 @@ class AgentThreadStore(Protocol):
         force: bool = False,
     ) -> float:
         """Persist thread snapshots and return the next save timestamp."""
+        ...
 
     async def delete_threads(self, thread_ids: Sequence[str]) -> None:
         """Delete persisted threads by id."""
+        ...
 
 
 class SessionBackedAgentThreadStore:

@@ -16,11 +16,9 @@ def build_report_quality_summary(
     """Build compact, public report quality metadata from report storage metadata."""
     if not isinstance(metadata, dict):
         metadata = {}
-    template_validation = (
-        metadata.get("template_validation")
-        if isinstance(metadata.get("template_validation"), dict)
-        else {}
-    )
+    template_validation = metadata.get("template_validation")
+    if not isinstance(template_validation, dict):
+        template_validation = {}
     empty_record_keys = metadata.get("empty_record_keys", [])
     empty_record_count = len(empty_record_keys) if isinstance(empty_record_keys, list) else 0
     source_record_count = metadata.get("source_record_count", matched_records)

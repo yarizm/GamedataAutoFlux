@@ -137,11 +137,11 @@ async def list_report_providers():
 @router.post("/reports/generate", response_model=ReportResponse)
 async def generate_report(req: Annotated[GenerateReportRequest, Body(description="报告生成配置")]):
     """生成分析报告并写入历史。"""
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
-    report = await report_generator.generate(
+    report = await get_report_generator().generate(
         prompt=req.prompt,
         data_source=req.data_source,
         template=req.template,
@@ -297,9 +297,9 @@ async def upload_report_json(
 @router.get("/reports", response_model=list[ReportSummaryResponse])
 async def list_reports(limit: Annotated[int, Query(ge=1, le=200, description="返回数量限制")] = 20):
     """获取历史报告列表。"""
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
-    reports = await report_generator.list_reports(limit=limit)
+    reports = await get_report_generator().list_reports(limit=limit)
     return [_to_summary_response(report) for report in reports]
 
 
@@ -336,9 +336,9 @@ async def precheck_report(
 @router.get("/reports/{report_id}", response_model=ReportResponse)
 async def get_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """获取单个历史报告。"""
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
-    report = await report_generator.get_report(report_id)
+    report = await get_report_generator().get_report(report_id)
     if report is None:
         raise HTTPException(404, f"报告不存在: {report_id}")
     return _to_report_response(report)
@@ -349,10 +349,10 @@ async def update_report(
     report_id: Annotated[str, Path(description="Report ID")],
     req: Annotated[UpdateReportRequest, Body(description="Editable report fields")],
 ):
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
     metadata = {"notes": req.notes} if req.notes is not None else None
-    report = await report_generator.update_report(
+    report = await get_report_generator().update_report(
         report_id,
         title=req.title,
         prompt=req.prompt,
@@ -370,10 +370,10 @@ async def delete_report(
     report_id: Annotated[str, Path(description="Report ID")],
     confirm: Annotated[bool, Query(description="Must be true for destructive delete")] = False,
 ):
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
     require_explicit_confirmation(confirm, "report deletion")
-    if not await report_generator.delete_report(report_id):
+    if not await get_report_generator().delete_report(report_id):
         raise HTTPException(404, f"Report not found: {report_id}")
     return {"message": f"Report deleted: {report_id}"}
 
@@ -383,11 +383,11 @@ async def generate_excel_report(
     req: Annotated[GenerateReportRequest, Body(description="Excel 报告生成配置")],
 ):
     """生成 Excel 格式的分析报告。"""
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
     records = await _load_selected_records(req.record_keys) if req.record_keys else None
 
-    report = await report_generator.generate_excel(
+    report = await get_report_generator().generate_excel(
         prompt=req.prompt,
         data_source=req.data_source,
         template=req.template,
@@ -403,9 +403,9 @@ async def generate_excel_report(
 @router.get("/reports/{report_id}/download")
 async def download_report(report_id: Annotated[str, Path(description="报告 ID")]):
     """下载报告的 Excel 文件。"""
-    from src.bootstrap.container import report_generator
+    from src.bootstrap.container import get_report_generator
 
-    report = await report_generator.get_report(report_id)
+    report = await get_report_generator().get_report(report_id)
     if report is None:
         raise HTTPException(404, f"报告不存在: {report_id}")
 

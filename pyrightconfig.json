@@ -1,6 +1,17 @@
 {
-  "include": ["src/core", "src/services", "src/storage", "src/worker"],
-  "exclude": ["**/__pycache__"],
+  "include": ["src", "plugins"],
+  "exclude": ["**/__pycache__", "**/node_modules", "src/web/static"],
+  "extraPaths": [
+    "plugins/dynamic_playwright/src",
+    "plugins/gtrends/src",
+    "plugins/monitor/src",
+    "plugins/official_site/src",
+    "plugins/qimai/src",
+    "plugins/smart_web/src",
+    "plugins/steam/src",
+    "plugins/taptap/src",
+    "plugins/youtube/src"
+  ],
   "venvPath": ".",
   "venv": ".venv",
   "typeCheckingMode": "basic",

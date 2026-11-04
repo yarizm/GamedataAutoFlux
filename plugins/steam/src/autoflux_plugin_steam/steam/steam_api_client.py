@@ -672,10 +672,13 @@ class SteamAPIClient:
         """带重试和限速的 HTTP GET。"""
         if not self._client:
             await self.setup()
+        client = self._client
+        if client is None:
+            raise RuntimeError("Steam API client is not initialized")
 
         for attempt in range(1, self._max_retries + 1):
             try:
-                resp = await self._client.get(url, params=params)
+                resp = await client.get(url, params=params)
 
                 if resp.status_code == 429:
                     wait = min(2**attempt * 2, 30)

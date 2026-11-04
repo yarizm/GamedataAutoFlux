@@ -977,7 +977,11 @@ def _extract_labeled_pairs(lines: list[str]) -> dict[str, str]:
 
 
 def _select_store_links(links: list[dict[str, str]]) -> dict[str, str | None]:
-    selected = {"official_website": None, "google_play_url": None, "app_store_url": None}
+    selected: dict[str, str | None] = {
+        "official_website": None,
+        "google_play_url": None,
+        "app_store_url": None,
+    }
     for link in links:
         host = urlparse(link["url"]).netloc.lower()
         if "play.google.com" in host:

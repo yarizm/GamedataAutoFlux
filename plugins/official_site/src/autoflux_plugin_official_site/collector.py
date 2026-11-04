@@ -284,8 +284,8 @@ class OfficialSiteCollector(BaseCollector):
             item
             for item in items
             if not item.get("date")
-            or _date_from_text(item["date"]) is None
-            or _date_from_text(item["date"]) >= cutoff
+            or (item_date := _date_from_text(item["date"])) is None
+            or item_date >= cutoff
         ]
 
         news_items = [item for item in items if item.get("category") not in {"patch", "event"}]

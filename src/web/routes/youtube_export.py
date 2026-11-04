@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel, Field
 
 from src.storage.base import BaseStorage, StorageRecord
@@ -169,8 +170,15 @@ def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _export_profiles(wb: Workbook, records) -> None:
+def _active_worksheet(wb: Workbook) -> Worksheet:
     ws = wb.active
+    if not isinstance(ws, Worksheet):
+        raise RuntimeError("Workbook 缺少可写的活动工作表")
+    return ws
+
+
+def _export_profiles(wb: Workbook, records) -> None:
+    ws = _active_worksheet(wb)
     ws.title = "博主信息"
     headers = ["输入链接", "博主名称", "频道ID", "频道URL", "粉丝数", "简介", "解析方式", "状态"]
     ws.append(headers)
@@ -189,7 +197,7 @@ def _export_profiles(wb: Workbook, records) -> None:
 
 
 def _export_comments(wb: Workbook, records) -> None:
-    ws_video = wb.active
+    ws_video = _active_worksheet(wb)
     ws_video.title = "视频信息"
     video_headers = [
         "视频链接", "标题", "频道名", "频道链接", "发布时间", "视频类型",

@@ -12,7 +12,7 @@ from src.agent.workflow_result_cards import (
     build_report_result_card,
     build_task_review_result_card,
 )
-from src.agent.workflow_support import _task_detail_data
+from src.agent.workflow_support import _dict_field, _task_detail_data
 from src.agent.workflow_types import AgentWorkflowState
 
 
@@ -61,7 +61,7 @@ def build_multisource_response_with_card(
 def _build_multisource_response(state: AgentWorkflowState) -> str:
     card = build_multisource_result_card(state)
     lines = [str(card.get("title") or "多源采集"), str(card.get("summary") or "")]
-    payload = card.get("payload") if isinstance(card.get("payload"), dict) else {}
+    payload = _dict_field(card, "payload")
     game = str(payload.get("game_name") or "").strip()
     if game:
         lines.append(f"目标：`{game}`")
@@ -100,7 +100,7 @@ def _build_multisource_response(state: AgentWorkflowState) -> str:
 def _build_cron_response(state: AgentWorkflowState) -> str:
     card = build_cron_result_card(state)
     lines = [str(card.get("title") or "定时任务"), str(card.get("summary") or "")]
-    payload = card.get("payload") if isinstance(card.get("payload"), dict) else {}
+    payload = _dict_field(card, "payload")
     cron_expr = str(payload.get("cron_expr") or "").strip()
     human = str(payload.get("human_schedule") or "").strip()
     pipeline = str(payload.get("pipeline_name") or "").strip()
