@@ -182,7 +182,7 @@ class PlaywrightMcpManager:
             response = await self._session.list_tools()
             self._tools_cache = []
             for tool in response.tools:
-                langchain_tool = self._wrap_mcp_tool(tool.name, tool.description, tool.inputSchema)
+                langchain_tool = self._wrap_mcp_tool(tool.name, tool.description, tool.input_schema)
                 self._tools_cache.append(langchain_tool)
             logger.info(f"Loaded {len(self._tools_cache)} tools from Playwright MCP.")
         except Exception as e:
@@ -280,12 +280,12 @@ class PlaywrightMcpManager:
                             output_parts.append(content.text)
                         elif content.type == "image":
                             output_parts.append(
-                                f"[Image content returned (base64 omitted), mime_type: {content.mimeType}]"
+                                f"[Image content returned (base64 omitted), mime_type: {content.mime_type}]"
                             )
                         else:
                             output_parts.append(f"[Unknown content type: {content.type}]")
 
-                    if result.isError:
+                    if result.is_error:
                         self._consecutive_failures += 1
                         return f"MCP 工具错误: {redact_sensitive_text(' | '.join(output_parts))}"
 

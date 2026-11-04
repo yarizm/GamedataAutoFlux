@@ -43,7 +43,9 @@ dependencies = [
     "langchain-openai>=1.0.0,<2.0.0",
     "langgraph>=1.0.0,<2.0.0",
     # MCP
-    "mcp>=1.1.2",
+    # 2.0 把 inputSchema/isError/mimeType 改名为 snake_case，src/agent/mcp_client.py 依赖新名字；
+    # 2.2.0 起修复 CVE-2026-59951
+    "mcp>=2.2.0,<3",
 ]
 
 [project.optional-dependencies]

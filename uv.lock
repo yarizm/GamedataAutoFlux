@@ -831,7 +831,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.0.0,<2.0.0" },
     { name = "langgraph", specifier = ">=1.0.0,<2.0.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "mcp", specifier = ">=1.1.2" },
+    { name = "mcp", specifier = ">=2.2.0,<3" },
     { name = "openai", marker = "extra == 'embedding'", specifier = ">=1.40.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "packaging", specifier = ">=24.0" },

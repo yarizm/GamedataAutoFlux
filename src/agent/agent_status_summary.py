@@ -104,11 +104,17 @@ def build_agent_status_summary(
 ) -> dict[str, Any]:
     compatibility_warnings_list = list(compatibility_warnings)
     history_recovery_warnings_list = list(history_recovery_warnings)
-    status_warnings = compatibility_warnings_list + history_recovery_warnings_list
     available_provider_list = list(available_providers)
     base_tool_list = list(base_tool_names)
     active_tool_list = list(active_tool_names)
     mcp_tool_list = list(mcp_tool_names)
+    # 进程在跑但工具列表为空，说明加载失败：浏览器工具不可用，不能只留一行错误日志
+    mcp_warnings = (
+        ["Playwright MCP 已启动但没有加载到任何工具，浏览器工具不可用，请查看服务日志。"]
+        if mcp_enabled and mcp_running and not mcp_tool_list
+        else []
+    )
+    status_warnings = compatibility_warnings_list + history_recovery_warnings_list + mcp_warnings
     base_tool_set = set(base_tool_list)
     active_tool_set = set(active_tool_list)
 
