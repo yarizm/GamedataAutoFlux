@@ -770,8 +770,12 @@ def _build_review_trend_from_histogram(
     if not isinstance(results, dict):
         return []
 
-    recent = results.get("recent") if isinstance(results.get("recent"), list) else []
-    rollups = results.get("rollups") if isinstance(results.get("rollups"), list) else []
+    recent = results.get("recent")
+    if not isinstance(recent, list):
+        recent = []
+    rollups = results.get("rollups")
+    if not isinstance(rollups, list):
+        rollups = []
     daily: dict[date, dict[str, int]] = {}
     recent_dates: set[date] = set()
 
@@ -790,8 +794,11 @@ def _build_review_trend_from_histogram(
 
     end_date = max(daily.keys(), default=None)
     if end_date is None:
+        # end_date 缺失或无法解析都回退到今天，否则下面的日期运算会对 None 抛 TypeError
         end_ts = results.get("end_date")
-        end_date = _timestamp_to_date(end_ts) if end_ts else datetime.now(timezone.utc).date()
+        end_date = (_timestamp_to_date(end_ts) if end_ts else None) or datetime.now(
+            timezone.utc
+        ).date()
     start_date = end_date - timedelta(days=max(days, 1) - 1)
     target_dates = {start_date + timedelta(days=index) for index in range(max(days, 1))}
 

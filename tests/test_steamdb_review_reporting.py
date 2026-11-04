@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+
+from autoflux_plugin_steam.steam.steam_api_client import _build_review_trend_from_histogram
 from autoflux_plugin_steam.steam.steamdb_scraper import _extract_review_stats_from_text
 from src.reporting.data_extractor import extract_from_records
 
@@ -65,3 +68,22 @@ def test_report_uses_steamdb_review_rate_and_trend() -> None:
     assert overview["整体好评率"] == "58.07%"
     assert overview["近期好评率(30 Days)"] == "52.0%"
     assert len([row for row in extracted.trends if row["类型"] == "Steam好评率(90天)"]) == 2
+
+
+def test_review_trend_survives_invalid_end_date() -> None:
+    # 只有 end_date 且无法解析时回退到今天，不能对 None 做日期运算
+    for end_date in ("not-a-timestamp", 10**20):
+        rows = _build_review_trend_from_histogram(
+            {"results": {"recent": [], "rollups": [], "end_date": end_date}},
+            days=3,
+        )
+        assert [row["total"] for row in rows] == [0, 0, 0]
+        assert rows[-1]["date"] == datetime.now(timezone.utc).date().isoformat()
+
+
+def test_review_trend_uses_valid_end_date() -> None:
+    rows = _build_review_trend_from_histogram(
+        {"results": {"recent": [], "rollups": [], "end_date": 1_700_000_000}},
+        days=2,
+    )
+    assert rows[-1]["date"] == "2023-11-14"
