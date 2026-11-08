@@ -8,7 +8,10 @@ app:
 server:
   host: "127.0.0.1"
   port: 8000
+  # 管理员 key：配置后远程访问必须带 X-API-Key，WebUI 需先登录（为空时只允许本机访问）
   api_key: ""
+  # Worker 专用 key：只能调用 Worker 协议接口，不能访问管理接口
+  worker_api_key: ""
   cors_origins:
     - "http://localhost:8000"
     - "http://127.0.0.1:8000"

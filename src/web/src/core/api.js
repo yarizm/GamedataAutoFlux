@@ -1,4 +1,8 @@
 import { getLanguage, t } from './i18n.js';
+import { handleUnauthorized } from './auth.js';
+import { toast } from './toast.js';
+
+export { toast };
 
 export async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -6,6 +10,11 @@ export async function api(path, options = {}) {
     headers: isFormData ? { ...options.headers } : { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
+
+  if (resp.status === 401) {
+    // 会话失效时刷新回服务端登录页；免 key 模式的远程访问只提示一次。
+    void handleUnauthorized();
+  }
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -17,17 +26,6 @@ export async function api(path, options = {}) {
   }
 
   return resp.json();
-}
-
-export function toast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
-  el.textContent = message;
-  container.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
 }
 
 export function escapeJs(value) {

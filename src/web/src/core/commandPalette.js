@@ -5,6 +5,7 @@
 
 import { navigate } from './router.js';
 import { escapeHtml } from './api.js';
+import { fetchAuthStatus, logout } from './auth.js';
 import { getLanguage, t } from './i18n.js';
 import { setThemePreference } from './theme.js';
 
@@ -46,6 +47,11 @@ export function getStandardCommands(store) {
     // Language Switch
     { id: 'act-lang-zh', category: 'action', label: '切换语言: 中文 (zh-CN)', icon: 'globe', keywords: 'lang language zhongwen 中文 语言', action: () => { window.setLanguage?.('zh-CN'); } },
     { id: 'act-lang-en', category: 'action', label: 'Switch Language: English (en-US)', icon: 'globe', keywords: 'lang language english 英文 英语', action: () => { window.setLanguage?.('en-US'); } },
+
+    // Sign out — only when the server requires API-key login (store.authRequired, set by initCommandPalette)
+    ...(store?.get?.('authRequired') === true
+      ? [{ id: 'act-logout', category: 'action', label: t('auth.logout'), icon: 'log-out', keywords: 'logout log out sign out signout tuichu dengchu 退出 登出 注销 退出登录', action: () => { void logout(); } }]
+      : []),
   ];
 }
 
@@ -196,6 +202,11 @@ function executeCommand(idx, store) {
 export function initCommandPalette(store) {
   if (commandPaletteInitialized || typeof window === 'undefined') return;
   commandPaletteInitialized = true;
+
+  // 「退出登录」只在服务端启用了 API Key 登录时出现。
+  fetchAuthStatus()
+    .then((status) => store?.set?.('authRequired', status?.auth_required === true))
+    .catch((err) => console.warn('[CommandPalette] auth status unavailable:', err));
 
   const overlay = document.getElementById('command-palette-overlay');
   const input = document.getElementById('command-palette-input');

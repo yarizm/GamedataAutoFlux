@@ -29,7 +29,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--worker-id", default=os.environ.get("AUTOFLUX_WORKER_ID", ""), help="Stable worker id. Auto-generated when omitted.")
     parser.add_argument("--hostname", default=os.environ.get("AUTOFLUX_WORKER_HOSTNAME", ""), help="Worker host name reported to the server.")
     parser.add_argument("--capability", action="append", dest="capabilities", default=None, help="Advertise one capability. Repeatable.")
-    parser.add_argument("--api-key", default=os.environ.get("AUTOFLUX_API_KEY", ""), help="Admin API key when the server requires it.")
+    parser.add_argument("--api-key", default=os.environ.get("AUTOFLUX_API_KEY", ""), help="server.worker_api_key (recommended, worker-only) or server.api_key when the server requires auth.")
     parser.add_argument("--heartbeat-interval", type=float, default=float(os.environ.get("AUTOFLUX_WORKER_HEARTBEAT", "15")), help="Heartbeat interval in seconds.")
     parser.add_argument("--claim-poll-interval", type=float, default=float(os.environ.get("AUTOFLUX_WORKER_POLL", "3")), help="Claim polling interval in seconds.")
     parser.add_argument("--request-timeout", type=float, default=float(os.environ.get("AUTOFLUX_WORKER_TIMEOUT", "30")), help="HTTP request timeout in seconds.")
@@ -37,11 +37,19 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 监听通配地址不是可连接地址；服务端只认 loopback Host 免 key，0.0.0.0 会被 403。
+_WILDCARD_LISTEN_HOSTS = {"", "0.0.0.0", "::", "[::]"}
+
+
 def _resolve_base_url(raw: str) -> str:
     value = raw.strip()
     if value:
         return value.rstrip("/")
-    host = str(get_config("server.host", "127.0.0.1") or "127.0.0.1").strip()
+    host = str(get_config("server.host", "127.0.0.1") or "").strip()
+    if host in _WILDCARD_LISTEN_HOSTS:
+        host = "127.0.0.1"
+    elif ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # IPv6 字面量在 URL 里要加方括号
     port = int(get_config("server.port", 8000) or 8000)
     return f"http://{host}:{port}"
 

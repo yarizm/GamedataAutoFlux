@@ -469,6 +469,17 @@ html[data-theme="light"] {
     color: #9f1239;
     border-color: color-mix(in srgb, var(--danger) 35%, transparent);
   }
+  /* Persistent toast with a close button (toast(msg, type, { dismissible: true })) */
+  .toast-dismissible {
+    @apply flex items-start gap-3 max-w-md;
+  }
+  .toast-dismissible .toast-message { @apply min-w-0 flex-1; }
+  .toast-close {
+    @apply shrink-0 p-0 bg-transparent border-none cursor-pointer text-lg leading-none opacity-70 transition-opacity;
+    color: inherit;
+  }
+  .toast-close:hover,
+  .toast-close:focus-visible { @apply opacity-100; }
 
   /* Custom Layout Overrides */
   .data-browser-layout { @apply grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start; }

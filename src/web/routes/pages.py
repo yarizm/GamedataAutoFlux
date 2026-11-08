@@ -8,7 +8,9 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, status
+
+from src.web.safety import admin_rejection, is_api_key_auth_enabled
 
 router = APIRouter(tags=["pages"])
 
@@ -50,9 +52,31 @@ def _vite_assets() -> dict[str, str]:
     }
 
 
+def _auth_gate_page(request: Request):
+    """未通过管理端鉴权时的页面：配了 api_key 给登录表单，免 key 模式说明只允许本机访问。"""
+    login_enabled = is_api_key_auth_enabled()
+    return _get_templates().TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"mode": "login" if login_enabled else "remote_disabled"},
+        status_code=status.HTTP_401_UNAUTHORIZED if login_enabled else status.HTTP_403_FORBIDDEN,
+        # 登录后要立刻重新请求本页拿 SPA，不能让浏览器缓存这个门禁页。
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/")
 async def index(request: Request):
-    """主页"""
+    """主页。
+
+    登录门禁在服务端做：未通过鉴权时不下发 SPA，三条前端加载路径
+    （Vite dev / 构建产物 / 旧版 static 脚本）因此都有登录入口。
+    顶层导航不是 CSRF——从其他站点点链接打开时 Sec-Fetch-Site 为 cross-site，
+    不能因此拒绝，所以不做同源校验。
+    """
+    if admin_rejection(request, None, enforce_same_origin=False) is not None:
+        return _auth_gate_page(request)
+
     assets = _vite_assets()
     providers = _get_llm_providers()
     return _get_templates().TemplateResponse(

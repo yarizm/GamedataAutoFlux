@@ -171,11 +171,16 @@ LangGraph 驱动（general 路径用 `langchain.agents.create_agent`），是最
   - `workers.py` — Worker 注册、心跳、claim/complete/fail
   - `health.py` — 健康检查、诊断信息
   - `targets.py` — 采集目标建议发现
-  - `youtube_export.py` — YouTube 数据 XLSX 导出
+  - `youtube_export.py` — YouTube 数据 XLSX 导出（写到 `tmp/exports/youtube/`，经 `GET /api/files/export/{name}` 受鉴权下载）
+  - `auth.py` — WebUI 登录 `/api/auth/status|login|logout`（不挂 require_admin）
   - `ws.py` — WebSocket 连接管理（任务状态/事件实时推送）
-  - `pages.py` — 页面路由（无 `/api` 前缀）
+  - `pages.py` — 页面路由（无 `/api` 前缀）。`GET /` 在服务端做登录门禁：未通过鉴权返回 `templates/login.html`（配了 key 给登录表单 401，免 key 远程访问给说明页 403），三条前端加载路径都覆盖
 - **`safety.py`** — 安全层：
-  - `require_admin` — 本地请求免认证，远程需要 X-API-Key
+  - `require_admin` — 未配 `server.api_key` 时只放行本机请求（loopback 来源 + 无代理头 + loopback Host + 非跨站，防 CSRF/DNS rebinding）；但信任一切能连到 loopback 端口的连接，经反代/隧道暴露必须配 key。配置后需 `X-API-Key` 头或登录 Cookie（`/api/auth/login` 换取，HttpOnly+SameSite=Strict，名字 `autoflux_session_<port>`，WebUI/WebSocket/下载走它）。不接受查询参数传 key
+  - 跨站判断 `is_cross_site_request`：cors_origins 白名单 → `Sec-Fetch-Site` → Origin 与 Host 比较 hostname+port（不比 scheme，兼容 TLS 代理）。本机其他端口的页面算跨站
+  - key 失败限流：登录表单、`X-API-Key`、worker key 都走 `check_presented_key`，按 TCP 对端 IP 计数（不信 X-Forwarded-For），5 分钟 10 次后该 IP 带 key 的请求一律 429；有效 Cookie 和本机免 key 不受影响
+  - 会话 token（`session_tokens.py`）：服务端随机密钥签名（`data/auth/`，`AUTOFLUX_AUTH_DIR` 覆盖），含 api_key 哈希（换 key 旧 Cookie 失效），logout 写吊销表
+  - `require_worker` — Worker 协议接口（`workers.py` 的 `worker_router`）额外接受 `server.worker_api_key`；该 key 访问不了任何管理接口
   - `validate_dynamic_playwright_config` — 配置保存时的字面量校验（禁 localhost/内网 IP 字面量，SSRF 防护）
   - `validate_url_runtime` — 同步字面量校验（给无法 await 的调用点）
   - DNS 级校验在 `src/core/url_safety.py`（纯逻辑，无 Web 依赖）：`NavigationUrlGuard` 解析 A/AAAA 记录逐地址检查网段（防 DNS rebinding）；dynamic_playwright 采集器用 `context.route("**/*")` 拦截全部请求，redirect 跳转与子资源同样受检

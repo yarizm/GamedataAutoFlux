@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel, Field
@@ -16,9 +18,17 @@ from src.storage.factory import get_storage
 
 router = APIRouter(tags=["youtube_export"])
 
-EXPORT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tmp"
+# 导出文件单独放一个目录，不和 tmp/ 根目录下的日志、脚本等临时文件混放。
+# 下载接口只认「这个目录下的直接子文件 + .xlsx 后缀」，不再维护文件名模板的正则拷贝。
+EXPORT_DIR = Path(__file__).resolve().parents[3] / "tmp" / "exports" / "youtube"
 EXPORT_SCAN_PAGE_SIZE = 5000
 SUPPORTED_COLLECTORS = {"youtube_profiles", "youtube_comments"}
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# 下载文件名里出现任何一个就直接 404：路径分隔符、上级目录、
+# 冒号（Windows 盘符如 "D:x.xlsx" 会让 EXPORT_DIR / name 跳出目录，也是 ADS 语法）、NUL。
+_UNSAFE_FILENAME_PARTS = ("/", "\\", "..", ":", "\x00")
+# 随机后缀撞上已有文件时换名重试的次数（独占创建保证不会覆盖）。
+_FILENAME_ATTEMPTS = 3
 
 
 class ExportRequest(BaseModel):
@@ -55,11 +65,6 @@ async def export_youtube(req: ExportRequest):
     if not records:
         raise HTTPException(404, "No matching records found")
 
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"export_{req.collector}_{timestamp}.xlsx"
-    filepath = EXPORT_DIR / filename
-
     wb = Workbook()
 
     if collector == "youtube_profiles":
@@ -67,12 +72,55 @@ async def export_youtube(req: ExportRequest):
     elif collector == "youtube_comments":
         _export_comments(wb, records)
 
-    wb.save(str(filepath))
+    filename = _save_export_workbook(wb, collector)
 
     return ExportResponse(
         download_url=f"/api/files/export/{filename}",
         record_count=len(records),
     )
+
+
+@router.get("/files/export/{filename}")
+async def download_youtube_export(filename: str):
+    """下载 YouTube 导出文件：只放行 EXPORT_DIR 下的直接子文件且后缀为 .xlsx。"""
+    filepath = _resolve_export_file(filename)
+    if filepath is None:
+        raise HTTPException(404, "Export file not found")
+    return FileResponse(filepath, filename=filename, media_type=XLSX_MEDIA_TYPE)
+
+
+def _save_export_workbook(wb: Workbook, collector: str) -> str:
+    """把工作簿写成一个新的导出文件，返回文件名。
+
+    文件名 = collector + 秒级时间戳 + 8 位随机后缀，同一秒的多次导出不会同名；
+    再用独占创建（"xb"）打开，万一后缀撞上已有文件也只会换名重试，绝不覆盖别人的导出。
+    """
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    for _ in range(_FILENAME_ATTEMPTS):
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"export_{collector}_{timestamp}_{uuid4().hex[:8]}.xlsx"
+        try:
+            fh = (EXPORT_DIR / filename).open("xb")
+        except FileExistsError:
+            continue
+        with fh:
+            wb.save(fh)
+        return filename
+    raise RuntimeError(f"连续 {_FILENAME_ATTEMPTS} 次生成的导出文件名都已存在")
+
+
+def _resolve_export_file(filename: str) -> Path | None:
+    """把下载请求里的文件名解析成 EXPORT_DIR 下的 .xlsx 文件；不合法或不存在返回 None。"""
+    if not filename or any(part in filename for part in _UNSAFE_FILENAME_PARTS):
+        return None
+    if Path(filename).suffix != ".xlsx":
+        return None
+    export_dir = EXPORT_DIR.resolve()
+    filepath = (export_dir / filename).resolve()
+    # resolve() 会跟随符号链接：指向目录外的链接在这里被挡掉。
+    if not filepath.is_relative_to(export_dir) or not filepath.is_file():
+        return None
+    return filepath
 
 
 async def _load_youtube_records(

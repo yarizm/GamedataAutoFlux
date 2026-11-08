@@ -84,7 +84,7 @@ def blocked_reason_for_ip(ip_text: str) -> str | None:
 
 def is_loopback_host(host: str) -> bool:
     normalized = host.strip().strip("[]").lower().rstrip(".")
-    if normalized in {"localhost", "testclient"}:
+    if normalized == "localhost":
         return True
     ip = try_parse_ip(normalized)
     return ip is not None and ip.is_loopback

@@ -1,4 +1,5 @@
 import { api, toast, escapeHtml } from '../../core/api.js';
+import { handleUnauthorized } from '../../core/auth.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { t } from '../../core/i18n.js';
@@ -1114,6 +1115,7 @@ export default {
         signal: abortController.signal,
       });
       if (!response.ok) {
+        if (response.status === 401) void handleUnauthorized();
         const errData = await response.json().catch(() => ({ detail: response.statusText }));
         this._appendMessage('assistant', t('message.loadFailed', { error: errData.detail || response.status }));
         return;

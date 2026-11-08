@@ -35,6 +35,51 @@ from src.core.pipeline import Pipeline  # noqa: E402
 from src.storage.base import StorageRecord  # noqa: E402
 
 
+def _use_real_loopback_test_client_defaults() -> None:
+    """TestClient 默认 Host ``testserver`` / 对端 ``testclient`` 不是真实本机值。
+
+    生产鉴权不认这两个名字（本机免 key 只认 loopback 地址），所以测试默认改用真实本机值；
+    要模拟远程客户端时照常显式传 ``client=``/``base_url=``。``websocket_connect`` 原本把相对路径
+    固定拼到 ``ws://testserver``，这里改成跟 HTTP 请求一样基于 ``base_url``（浏览器也是连页面所在主机）。
+    """
+    from urllib.parse import urljoin
+
+    from starlette.testclient import TestClient
+
+    if getattr(TestClient, "_autoflux_loopback_defaults", False):
+        return
+    original_init = TestClient.__init__
+    original_websocket_connect = TestClient.websocket_connect
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("base_url", "http://127.0.0.1")
+        kwargs.setdefault("client", ("127.0.0.1", 50000))
+        original_init(self, *args, **kwargs)
+
+    def websocket_connect(self, url, *args, **kwargs):
+        if "://" not in url:
+            url = urljoin(str(self.base_url).replace("http", "ws", 1), url)
+        return original_websocket_connect(self, url, *args, **kwargs)
+
+    TestClient.__init__ = __init__
+    TestClient.websocket_connect = websocket_connect
+    TestClient._autoflux_loopback_defaults = True
+
+
+_use_real_loopback_test_client_defaults()
+
+
+@pytest.fixture(autouse=True)
+def isolated_auth_state(tmp_path, monkeypatch):
+    """会话密钥/吊销表写到临时目录，key 失败限流计数每个测试从零开始。"""
+    monkeypatch.setenv("AUTOFLUX_AUTH_DIR", str(tmp_path / "auth"))
+
+    import src.web.safety as safety
+
+    monkeypatch.setattr(safety, "_key_failures", safety.KeyFailureTracker())
+    yield
+
+
 @pytest.fixture(autouse=True)
 def isolated_db_config(tmp_path, monkeypatch):
     """Ensure all tests use an isolated file database by default."""

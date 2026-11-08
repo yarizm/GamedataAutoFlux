@@ -46,6 +46,8 @@ class ServerSettings(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
     api_key: str = ""
+    # 只允许访问 Worker 协议接口（/api/workers/register|heartbeat|claim...）的 token
+    worker_api_key: str = ""
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:8000", "http://127.0.0.1:8000"]
     )
@@ -72,6 +74,19 @@ def _c(path: str, default: Any) -> Any:
     return _get(path, default)
 
 
+def _server_payload() -> dict[str, Any]:
+    return {
+        "host": _c("server.host", "127.0.0.1"),
+        "port": _c("server.port", 8000),
+        "api_key": _c("server.api_key", ""),
+        "worker_api_key": _c("server.worker_api_key", ""),
+        "cors_origins": _c(
+            "server.cors_origins",
+            ["http://localhost:8000", "http://127.0.0.1:8000"],
+        ),
+    }
+
+
 def build_app_settings() -> AppSettings:
     """经 config.get 逐路径构建类型化配置（保留测试覆盖接缝）。"""
     return AppSettings.model_validate(
@@ -93,15 +108,7 @@ def build_app_settings() -> AppSettings:
                 "provider": _c("database.provider", "sqlalchemy"),
                 "sqlalchemy_url": _c("database.sqlalchemy_url", None),
             },
-            "server": {
-                "host": _c("server.host", "127.0.0.1"),
-                "port": _c("server.port", 8000),
-                "api_key": _c("server.api_key", ""),
-                "cors_origins": _c(
-                    "server.cors_origins",
-                    ["http://localhost:8000", "http://127.0.0.1:8000"],
-                ),
-            },
+            "server": _server_payload(),
             "agent": {
                 "enabled": _c("agent.enabled", True),
                 "session_timeout_minutes": _c("agent.session_timeout_minutes", 60),
@@ -115,3 +122,12 @@ def build_app_settings() -> AppSettings:
 def get_app_settings() -> AppSettings:
     """每次现取现建：保证 config 覆盖（含测试 monkeypatch）立即生效。"""
     return build_app_settings()
+
+
+def get_server_settings() -> ServerSettings:
+    """只构建/校验 server 段（同样不缓存）。
+
+    鉴权每个请求都要读 server 段：只建这一段，既省掉整份 AppSettings 的构建，
+    也不会因为运行中 settings.yaml 的其他段（scheduler 等）被改坏而让鉴权整体 500。
+    """
+    return ServerSettings.model_validate(_server_payload())

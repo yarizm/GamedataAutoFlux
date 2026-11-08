@@ -105,7 +105,7 @@ async def test_worker_agent_executes_claimed_task_via_api() -> None:
         transport = httpx.ASGITransport(app=app)
         agent = WorkerAgent(
             WorkerAgentConfig(
-                base_url="http://testserver",
+                base_url="http://127.0.0.1",
                 worker_id="worker-agent-1",
                 capabilities=["worker_agent_test", "gtrends"],
                 heartbeat_interval_seconds=60,
@@ -307,6 +307,38 @@ def test_worker_agent_config_defaults_from_script(monkeypatch) -> None:
 
     assert worker_script._resolve_base_url("") == "http://127.0.0.1:8011"
     assert worker_script._resolve_capabilities(None) == ["steam", "gtrends"]
+
+
+@pytest.mark.parametrize(
+    ("configured_host", "expected"),
+    [
+        # 监听通配地址不是连接地址：服务端只认 loopback Host 免 key，0.0.0.0 会被 403
+        ("0.0.0.0", "http://127.0.0.1:8011"),
+        ("::", "http://127.0.0.1:8011"),
+        ("[::]", "http://127.0.0.1:8011"),
+        ("", "http://127.0.0.1:8011"),
+        (None, "http://127.0.0.1:8011"),
+        ("::1", "http://[::1]:8011"),
+        ("192.168.1.10", "http://192.168.1.10:8011"),
+        ("autoflux.internal", "http://autoflux.internal:8011"),
+    ],
+)
+def test_worker_agent_default_base_url_maps_listen_wildcards_to_loopback(
+    monkeypatch, configured_host, expected
+) -> None:
+    import scripts.worker_agent as worker_script
+
+    monkeypatch.setattr(
+        worker_script,
+        "get_config",
+        lambda key, default=None: {"server.host": configured_host, "server.port": 8011}.get(
+            key, default
+        ),
+    )
+
+    assert worker_script._resolve_base_url("") == expected
+    # 显式指定的地址原样使用
+    assert worker_script._resolve_base_url(" http://10.0.0.5:9000/ ") == "http://10.0.0.5:9000"
 
 
 def test_worker_agent_normalizes_session_capabilities(monkeypatch, tmp_path) -> None:
@@ -766,7 +798,7 @@ async def test_worker_agent_request_stop_drains_current_task_before_exit() -> No
         transport = httpx.ASGITransport(app=app)
         agent = WorkerAgent(
             WorkerAgentConfig(
-                base_url="http://testserver",
+                base_url="http://127.0.0.1",
                 worker_id="worker-agent-drain",
                 capabilities=["worker_agent_slow_test"],
                 heartbeat_interval_seconds=0.5,

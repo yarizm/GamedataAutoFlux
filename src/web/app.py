@@ -30,7 +30,7 @@ from src.bootstrap.container import (  # noqa: F401 — Web 层兼容再导出
     get_task_service,
     get_worker_registry,
 )
-from src.core.app_settings import get_app_settings
+from src.core.app_settings import get_app_settings, get_server_settings
 from src.core.config import load_settings
 from src.core.logging_config import configure_logging
 
@@ -104,6 +104,12 @@ async def lifespan(app: FastAPI):
     loop_name = asyncio.get_running_loop().__class__.__name__
     logger.info(f"当前 asyncio 事件循环: {loop_name}")
     logger.info("GamedataAutoFlux 启动中...")
+
+    from src.web.safety import remote_access_warning
+
+    access_warning = remote_access_warning(get_server_settings())
+    if access_warning:
+        logger.warning(access_warning)
 
     scheduler, report_generator = container.ensure_core_services()
     _reset_runtime_singletons(reset_agent=True)
@@ -259,6 +265,7 @@ def create_app() -> FastAPI:
 
     # 注册路由
     from src.web.routes.agent import router as agent_router
+    from src.web.routes.auth import router as auth_router
     from src.web.routes.data import router as data_router
     from src.web.routes.health import router as health_router
     from src.web.routes.pipelines import router as pipelines_router
@@ -267,22 +274,29 @@ def create_app() -> FastAPI:
     from src.web.routes.targets import router as targets_router
     from src.web.routes.tasks import router as tasks_router
     from src.web.routes.workers import router as workers_router
+    from src.web.routes.workers import worker_router as worker_protocol_router
     from src.web.routes.ws import router as ws_router
     from src.web.routes.youtube_export import router as youtube_export_router
-    from src.web.safety import require_admin
+    from src.web.safety import require_admin, require_worker
 
     admin_dependencies = [Depends(require_admin)]
     app.include_router(tasks_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(pipelines_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(reports_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(data_router, prefix="/api", dependencies=admin_dependencies)
-    app.include_router(ws_router, prefix="/api")
+    # WebSocket 同样走 require_admin：浏览器无法带自定义头，配置了 api_key 时靠登录 Cookie；
+    # Cookie 与本机免 key 两条路都经 Origin/Host 校验挡住跨站 WebSocket 劫持。
+    app.include_router(ws_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(agent_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(workers_router, prefix="/api", dependencies=admin_dependencies)
+    app.include_router(
+        worker_protocol_router, prefix="/api", dependencies=[Depends(require_worker)]
+    )
     app.include_router(targets_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(youtube_export_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(plugin_manager_router, prefix="/api", dependencies=admin_dependencies)
     app.include_router(health_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
 
     # 注册页面路由
     from src.web.routes.pages import router as pages_router
@@ -294,10 +308,7 @@ def create_app() -> FastAPI:
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # YouTube export files
-    tmp_dir = Path(__file__).parent.parent.parent / "tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/api/files/export", StaticFiles(directory=str(tmp_dir)), name="export_files")
+    # YouTube 导出文件下载走 youtube_export 路由（受 require_admin 保护），不再整目录挂载 tmp/。
 
     return app
 

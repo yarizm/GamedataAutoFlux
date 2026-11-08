@@ -235,4 +235,42 @@ assert.ok(
   'nav-reports must activate the tab even when the hash is unchanged',
 );
 
+// ─────────────────────────────────────────────────────────────
+// 8. Sign-out command: offered only when the server requires API-key
+//    login (store.authRequired), and it must really log out.
+//    Regression: logout existed only as an uncalled window global.
+// ─────────────────────────────────────────────────────────────
+assert.ok(
+  !getStandardCommands(mockStore).some((c) => c.id === 'act-logout'),
+  'no sign-out command when the server does not require login',
+);
+assert.ok(
+  !getStandardCommands({ get: (key) => (key === 'authRequired' ? false : undefined), set() {} })
+    .some((c) => c.id === 'act-logout'),
+  'authRequired=false → no sign-out command',
+);
+
+const authStore = { get: (key) => (key === 'authRequired' ? true : undefined), set() {} };
+const findLogout = () => getStandardCommands(authStore).find((c) => c.id === 'act-logout');
+
+setLanguage('zh-CN');
+assert.equal(findLogout()?.label, '退出登录');
+setLanguage('en-US');
+assert.equal(findLogout()?.label, 'Sign out', 'sign-out label must follow the active language');
+setLanguage('zh-CN');
+assert.ok(filterCommands('logout', getStandardCommands(authStore)).some((c) => c.id === 'act-logout'));
+assert.ok(filterCommands('退出', getStandardCommands(authStore)).some((c) => c.id === 'act-logout'));
+
+const logoutRequests = [];
+let reloadCount = 0;
+globalThis.fetch = async (url, init = {}) => {
+  logoutRequests.push([url, init.method]);
+  return { ok: true, status: 200, json: async () => ({ authenticated: false }) };
+};
+globalThis.window.location.reload = () => { reloadCount += 1; };
+findLogout().action();
+await new Promise((resolve) => setImmediate(resolve));
+assert.deepEqual(logoutRequests, [['/api/auth/logout', 'POST']], 'sign-out must POST /api/auth/logout');
+assert.equal(reloadCount, 1, 'sign-out reloads after the server confirmed');
+
 console.log('COMMAND_PALETTE_SELFTEST_OK');

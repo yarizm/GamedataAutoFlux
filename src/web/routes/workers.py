@@ -28,9 +28,12 @@ from src.services.session_inventory_sync import (
 )
 
 router = APIRouter(tags=["workers"])
+# Worker 协议接口（注册/心跳/领取/上报）：app.py 用 require_worker 挂载，
+# 可用 server.worker_api_key 访问；其余管理接口（列表/详情/回收）挂在 router 上，只认管理员。
+worker_router = APIRouter(tags=["workers"])
 
 
-@router.post("/workers/register", response_model=WorkerResponse)
+@worker_router.post("/workers/register", response_model=WorkerResponse)
 async def register_worker(
     req: Annotated[WorkerRegisterRequest, Body(description="Worker registration")],
 ):
@@ -47,7 +50,7 @@ async def register_worker(
     return _worker_to_response(worker)
 
 
-@router.post("/workers/{worker_id}/heartbeat", response_model=WorkerResponse)
+@worker_router.post("/workers/{worker_id}/heartbeat", response_model=WorkerResponse)
 async def worker_heartbeat(
     worker_id: Annotated[str, Path(description="Worker id")],
     req: Annotated[WorkerHeartbeatRequest, Body(description="Worker heartbeat")],
@@ -176,7 +179,7 @@ async def get_worker(worker_id: Annotated[str, Path(description="Worker id")]):
     return _worker_to_response(worker)
 
 
-@router.post("/workers/{worker_id}/claim-task", response_model=WorkerClaimTaskResponse)
+@worker_router.post("/workers/{worker_id}/claim-task", response_model=WorkerClaimTaskResponse)
 async def claim_task(
     worker_id: Annotated[str, Path(description="Worker id")],
     req: Annotated[WorkerClaimTaskRequest, Body(description="Task claim request")],
@@ -231,7 +234,7 @@ async def claim_task(
     return WorkerClaimTaskResponse(worker_id=worker_id, **claim)
 
 
-@router.post("/workers/{worker_id}/tasks/{task_id}/events")
+@worker_router.post("/workers/{worker_id}/tasks/{task_id}/events")
 async def append_task_event(
     worker_id: Annotated[str, Path(description="Worker id")],
     task_id: Annotated[str, Path(description="Task id")],
@@ -257,7 +260,7 @@ async def append_task_event(
     return {"event": event.to_public_payload()}
 
 
-@router.post("/workers/{worker_id}/tasks/{task_id}/artifacts")
+@worker_router.post("/workers/{worker_id}/tasks/{task_id}/artifacts")
 async def register_task_artifact(
     worker_id: Annotated[str, Path(description="Worker id")],
     task_id: Annotated[str, Path(description="Task id")],
@@ -286,7 +289,7 @@ async def register_task_artifact(
     return {"artifact": artifact.to_public_payload()}
 
 
-@router.post("/workers/{worker_id}/tasks/{task_id}/checkpoints")
+@worker_router.post("/workers/{worker_id}/tasks/{task_id}/checkpoints")
 async def register_task_checkpoint(
     worker_id: Annotated[str, Path(description="Worker id")],
     task_id: Annotated[str, Path(description="Task id")],
@@ -314,7 +317,7 @@ async def register_task_checkpoint(
     return {"checkpoint": checkpoint.to_public_payload()}
 
 
-@router.post("/workers/{worker_id}/tasks/{task_id}/complete")
+@worker_router.post("/workers/{worker_id}/tasks/{task_id}/complete")
 async def complete_task(
     worker_id: Annotated[str, Path(description="Worker id")],
     task_id: Annotated[str, Path(description="Task id")],
@@ -352,7 +355,7 @@ async def complete_task(
     return {"task": task.to_public_payload()}
 
 
-@router.post("/workers/{worker_id}/tasks/{task_id}/fail")
+@worker_router.post("/workers/{worker_id}/tasks/{task_id}/fail")
 async def fail_task(
     worker_id: Annotated[str, Path(description="Worker id")],
     task_id: Annotated[str, Path(description="Task id")],

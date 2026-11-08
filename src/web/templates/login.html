@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="light dark">
+    <title>{% if mode == "login" %}登录{% else %}远程访问未开启{% endif %} · GamedataAutoFlux</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <script>
+        // 独立页面，不依赖 dist 构建产物。尽早应用 WebUI 里显式选择的主题，避免闪烁；
+        // 未选择或选了「跟随系统」时由 prefers-color-scheme 决定。
+        try {
+            var storedTheme = window.localStorage.getItem('gamedata-autoflux.theme');
+            if (storedTheme === 'light' || storedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', storedTheme);
+            }
+        } catch (e) { /* localStorage 不可用时跟随系统 */ }
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg-canvas: #e8edf5;
+            --bg-card: #ffffff;
+            --bg-input: #f8fafc;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border: #d0d7e2;
+            --border-strong: #94a3b8;
+            --accent: #4f46e5;
+            --accent-hover: #4338ca;
+            --accent-ring: rgba(79, 70, 229, 0.35);
+            --danger: #be123c;
+            --notice-bg: #fffbeb;
+            --notice-border: #fcd34d;
+            --code-bg: #f1f5f9;
+            --grid-line: rgba(15, 23, 42, 0.06);
+            --shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                color-scheme: dark;
+                --bg-canvas: #050505;
+                --bg-card: #111113;
+                --bg-input: #18181b;
+                --text-primary: #f4f4f5;
+                --text-secondary: #d4d4d8;
+                --text-muted: #a1a1aa;
+                --border: rgba(255, 255, 255, 0.08);
+                --border-strong: rgba(255, 255, 255, 0.18);
+                --accent: #7c3aed;
+                --accent-hover: #6d28d9;
+                --accent-ring: rgba(139, 92, 246, 0.45);
+                --danger: #fb7185;
+                --notice-bg: rgba(245, 158, 11, 0.1);
+                --notice-border: rgba(245, 158, 11, 0.35);
+                --code-bg: rgba(255, 255, 255, 0.08);
+                --grid-line: rgba(255, 255, 255, 0.03);
+                --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+            }
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg-canvas: #050505;
+            --bg-card: #111113;
+            --bg-input: #18181b;
+            --text-primary: #f4f4f5;
+            --text-secondary: #d4d4d8;
+            --text-muted: #a1a1aa;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-strong: rgba(255, 255, 255, 0.18);
+            --accent: #7c3aed;
+            --accent-hover: #6d28d9;
+            --accent-ring: rgba(139, 92, 246, 0.45);
+            --danger: #fb7185;
+            --notice-bg: rgba(245, 158, 11, 0.1);
+            --notice-border: rgba(245, 158, 11, 0.35);
+            --code-bg: rgba(255, 255, 255, 0.08);
+            --grid-line: rgba(255, 255, 255, 0.03);
+            --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+            font-family: 'Inter', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            background-color: var(--bg-canvas);
+            background-image:
+                linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+                linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        .card {
+            width: 100%;
+            max-width: 420px;
+            padding: 32px 28px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .brand img { width: 24px; height: 24px; }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 20px;
+            font-weight: 600;
+            line-height: 1.35;
+            color: var(--text-primary);
+        }
+        p { margin: 0 0 12px; }
+        .muted { font-size: 14px; color: var(--text-muted); }
+        code {
+            padding: 1px 6px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.9em;
+            color: var(--text-primary);
+            background: var(--code-bg);
+            border-radius: 6px;
+        }
+        form { margin-top: 20px; }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        input[type="password"] {
+            display: block;
+            width: 100%;
+            height: 42px;
+            padding: 0 12px;
+            font: inherit;
+            color: var(--text-primary);
+            background: var(--bg-input);
+            border: 1px solid var(--border-strong);
+            border-radius: 10px;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        input[type="password"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-ring);
+        }
+        .error {
+            min-height: 22px;
+            margin: 8px 0 12px;
+            font-size: 14px;
+            color: var(--danger);
+        }
+        button {
+            width: 100%;
+            height: 42px;
+            font: inherit;
+            font-weight: 600;
+            color: #ffffff;
+            background: var(--accent);
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.15s, opacity 0.15s;
+        }
+        button:hover:not(:disabled) { background: var(--accent-hover); }
+        button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+        button:disabled { opacity: 0.6; cursor: progress; }
+        .notice {
+            margin: 16px 0;
+            padding: 12px 14px;
+            font-size: 14px;
+            background: var(--notice-bg);
+            border: 1px solid var(--notice-border);
+            border-radius: 10px;
+        }
+        .notice p { margin: 0; }
+    </style>
+</head>
+<body data-mode="{{ mode }}">
+    <main class="card">
+        <div class="brand">
+            <img src="/static/favicon.svg" alt="" width="24" height="24">
+            <span>GamedataAutoFlux</span>
+        </div>
+        {% if mode == "login" %}
+        <h1 data-i18n="loginTitle">需要登录</h1>
+        <p class="muted" data-i18n="loginDescription">服务端已启用 API Key 鉴权，请输入管理员 API Key（<code>server.api_key</code>）。</p>
+        <noscript><p class="error">此页面需要启用 JavaScript。This page requires JavaScript.</p></noscript>
+        <form id="login-form">
+            <label for="login-api-key" data-i18n="apiKeyLabel">管理员 API Key</label>
+            <input type="password" id="login-api-key" name="api_key" autocomplete="current-password" maxlength="512" required autofocus>
+            <p id="login-error" class="error" role="alert"></p>
+            <button type="submit" id="login-submit" data-i18n="submit">登录</button>
+        </form>
+        {% else %}
+        <h1 data-i18n="remoteTitle">远程访问未开启</h1>
+        <p data-i18n="remoteDescription">服务端没有配置 API Key（免 Key 模式），这种模式只允许在运行服务的机器上通过 localhost 或 127.0.0.1 访问。</p>
+        <div class="notice">
+            <p data-i18n="remoteHowTo">如需远程使用，请在服务端配置 <code>server.api_key</code> 并重启服务。经反向代理或隧道访问时同样需要配置。</p>
+        </div>
+        <p class="muted" data-i18n="remoteLocalHint">如果你就在运行服务的机器上，请改用 localhost 或 127.0.0.1 地址打开。</p>
+        {% endif %}
+    </main>
+    <script>
+    (function () {
+        'use strict';
+
+        var MESSAGES = {
+            'zh-CN': {
+                loginPageTitle: '登录 · GamedataAutoFlux',
+                remotePageTitle: '远程访问未开启 · GamedataAutoFlux',
+                loginTitle: '需要登录',
+                loginDescription: '服务端已启用 API Key 鉴权，请输入管理员 API Key（{key}）。',
+                apiKeyLabel: '管理员 API Key',
+                submit: '登录',
+                invalid: 'API Key 不正确。',
+                tooMany: '失败次数过多，请稍后再试。',
+                crossSite: '跨站请求被拒绝。请直接在浏览器地址栏打开本页面后再登录。',
+                network: '无法连接服务器，请检查网络后重试。',
+                cookieNotSent: '已登录，但浏览器没有随页面请求发送登录 Cookie。请在浏览器地址栏直接打开本页面。',
+                remoteTitle: '远程访问未开启',
+                remoteDescription: '服务端没有配置 API Key（免 Key 模式），这种模式只允许在运行服务的机器上通过 localhost 或 127.0.0.1 访问。',
+                remoteHowTo: '如需远程使用，请在服务端配置 {key} 并重启服务。经反向代理或隧道访问时同样需要配置。',
+                remoteLocalHint: '如果你就在运行服务的机器上，请改用 localhost 或 127.0.0.1 地址打开。'
+            },
+            'en-US': {
+                loginPageTitle: 'Sign in · GamedataAutoFlux',
+                remotePageTitle: 'Remote access disabled · GamedataAutoFlux',
+                loginTitle: 'Sign in required',
+                loginDescription: 'API key authentication is enabled on this server. Enter the admin API key ({key}).',
+                apiKeyLabel: 'Admin API key',
+                submit: 'Sign in',
+                invalid: 'Invalid API key.',
+                tooMany: 'Too many failed attempts. Try again later.',
+                crossSite: 'Cross-site request rejected. Open this page directly from the address bar, then sign in.',
+                network: 'Cannot reach the server. Check your connection and try again.',
+                cookieNotSent: 'Signed in, but the browser did not send the session cookie with the page request. Open this page directly from the address bar.',
+                remoteTitle: 'Remote access is not enabled',
+                remoteDescription: 'No API key is configured on the server (key-less mode). This mode only allows access from the machine running the server, via localhost or 127.0.0.1.',
+                remoteHowTo: 'To use it remotely, set {key} on the server and restart it. Access through a reverse proxy or tunnel needs it as well.',
+                remoteLocalHint: 'If you are on the machine running the server, open it via localhost or 127.0.0.1 instead.'
+            }
+        };
+
+        var mode = document.body.getAttribute('data-mode');
+
+        function detectLanguage() {
+            var stored = null;
+            try {
+                stored = window.localStorage.getItem('gamedata-autoflux.language');
+            } catch (e) {
+                stored = null;
+            }
+            if (stored && MESSAGES[stored]) return stored;
+            var preferred = String(navigator.language || '');
+            if (!preferred) return 'zh-CN';
+            return /^zh\b/i.test(preferred) ? 'zh-CN' : 'en-US';
+        }
+
+        var lang = detectLanguage();
+        var dict = MESSAGES[lang];
+
+        // 文案里的 {key} 渲染成 <code>server.api_key</code>，不拼 innerHTML。
+        function setText(el, text) {
+            if (typeof text !== 'string') return;
+            el.textContent = '';
+            var parts = text.split('{key}');
+            for (var i = 0; i < parts.length; i++) {
+                if (i > 0) {
+                    var code = document.createElement('code');
+                    code.textContent = 'server.api_key';
+                    el.appendChild(code);
+                }
+                if (parts[i]) el.appendChild(document.createTextNode(parts[i]));
+            }
+        }
+
+        document.documentElement.lang = lang;
+        document.title = dict[mode === 'login' ? 'loginPageTitle' : 'remotePageTitle'];
+        var marked = document.querySelectorAll('[data-i18n]');
+        for (var m = 0; m < marked.length; m++) {
+            setText(marked[m], dict[marked[m].getAttribute('data-i18n')]);
+        }
+
+        var errorEl = document.getElementById('login-error');
+        function showError(text) {
+            if (errorEl) errorEl.textContent = text || '';
+        }
+
+        // 进入应用（已持有有效 Cookie）。location.reload() 沿用本页原始导航的发起方：
+        // 本页若是从其他站点的链接打开的，重载仍算跨站，SameSite=Strict 的 Cookie 照样不发，
+        // 会一直回到这里。所以连续进入失败时改用由本页发起的全新导航（必然同站，
+        // 代价是丢掉 #/路由），再失败就停下，绝不无限刷新。
+        var ATTEMPT_KEY = 'gamedata-autoflux.authEnterAttempts';
+        var ATTEMPT_WINDOW_MS = 30000;
+
+        function readAttempts() {
+            try {
+                var saved = JSON.parse(window.sessionStorage.getItem(ATTEMPT_KEY) || 'null');
+                if (saved && typeof saved.count === 'number' && Date.now() - saved.at < ATTEMPT_WINDOW_MS) {
+                    return saved.count;
+                }
+            } catch (e) { /* sessionStorage 不可用 */ }
+            return 0;
+        }
+
+        function writeAttempts(count) {
+            try {
+                if (count > 0) {
+                    window.sessionStorage.setItem(ATTEMPT_KEY, JSON.stringify({ count: count, at: Date.now() }));
+                } else {
+                    window.sessionStorage.removeItem(ATTEMPT_KEY);
+                }
+            } catch (e) { /* sessionStorage 不可用 */ }
+        }
+
+        function enterApp() {
+            var attempts = readAttempts();
+            if (attempts >= 2) {
+                writeAttempts(0);
+                return false;
+            }
+            writeAttempts(attempts + 1);
+            if (attempts === 0 && window.location.hash) {
+                window.location.reload();
+            } else {
+                window.location.replace(window.location.pathname + window.location.search);
+            }
+            return true;
+        }
+
+        // 已持有有效 Cookie 却被门禁拦下（典型：从其他站点的链接打开，SameSite=Strict
+        // 的 Cookie 没随导航发送），同源请求会带上 Cookie，据此自愈。
+        fetch('/api/auth/status', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (resp) { return resp.ok ? resp.json() : null; })
+            .then(function (status) {
+                if (status && status.authenticated === true) {
+                    if (!enterApp()) showError(dict.cookieNotSent);
+                } else {
+                    writeAttempts(0);
+                }
+            })
+            .catch(function () { /* 状态接口不可达时保持当前页面 */ });
+
+        var form = document.getElementById('login-form');
+        var input = document.getElementById('login-api-key');
+        var submit = document.getElementById('login-submit');
+        if (!form || !input || !submit) return;
+
+        function describeFailure(resp) {
+            if (resp.status === 401) return Promise.resolve(dict.invalid);
+            if (resp.status === 429) return Promise.resolve(dict.tooMany);
+            if (resp.status === 403) return Promise.resolve(dict.crossSite);
+            return resp.json().then(
+                function (body) {
+                    return body && typeof body.detail === 'string' && body.detail
+                        ? body.detail
+                        : 'HTTP ' + resp.status;
+                },
+                function () { return 'HTTP ' + resp.status; }
+            );
+        }
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            if (submit.disabled) return;
+            submit.disabled = true;
+            submit.setAttribute('aria-busy', 'true');
+            showError('');
+
+            function release(message) {
+                showError(message);
+                submit.disabled = false;
+                submit.removeAttribute('aria-busy');
+                input.focus();
+                input.select();
+            }
+
+            fetch('/api/auth/login', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: input.value })
+            })
+                .then(function (resp) {
+                    if (resp.ok) {
+                        // 用户主动登录成功，重新开始计数；导航期间按钮保持禁用。
+                        writeAttempts(0);
+                        enterApp();
+                        return undefined;
+                    }
+                    return describeFailure(resp).then(release);
+                })
+                .catch(function () { release(dict.network); });
+        });
+    })();
+    </script>
+</body>
+</html>

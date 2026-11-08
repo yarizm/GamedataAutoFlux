@@ -1,3 +1,5 @@
+import { handleUnauthorized, isSignedOut } from './auth.js';
+
 let wsConnection = null;
 let _store = null;
 let reconnectTimer = null;
@@ -7,6 +9,9 @@ let connectionStatus = 'disconnected';
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 const BACKOFF_FACTOR = 1.5;
+// 服务端鉴权拒绝 WebSocket 时用 1008（策略违规）；握手阶段就被拒时浏览器只能看到 1006，
+// 表现为连接从未 open 就关闭。
+const WS_POLICY_VIOLATION = 1008;
 
 function setStatus(status, store) {
   connectionStatus = status;
@@ -39,15 +44,19 @@ export function initWebSocket(store) {
 
   setStatus('connecting', store);
 
+  let socket;
   try {
-    wsConnection = new WebSocket(wsUrl);
+    socket = new WebSocket(wsUrl);
   } catch (err) {
     console.error('WebSocket creation error:', err);
     scheduleReconnect(store);
     return;
   }
+  wsConnection = socket;
+  let opened = false;
 
-  wsConnection.onopen = () => {
+  socket.onopen = () => {
+    opened = true;
     const wasReconnecting = reconnectAttempts > 0;
     reconnectAttempts = 0;
     setStatus('connected', store);
@@ -63,7 +72,7 @@ export function initWebSocket(store) {
     }
   };
 
-  wsConnection.onmessage = (event) => {
+  socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       if (!data || !store) return;
@@ -82,16 +91,37 @@ export function initWebSocket(store) {
     }
   };
 
-  wsConnection.onclose = () => {
+  socket.onclose = (event) => {
+    if (wsConnection && wsConnection !== socket) return; // 已被更新的连接取代
     setStatus('disconnected', store);
     wsConnection = null;
-    scheduleReconnect(store);
+    if (!opened || event?.code === WS_POLICY_VIOLATION) {
+      // 可能是未登录 / 会话过期被拒：先确认登录状态，未登录就停止重连。
+      void reconnectUnlessSignedOut(store);
+    } else {
+      scheduleReconnect(store);
+    }
   };
 
-  wsConnection.onerror = (err) => {
+  socket.onerror = (err) => {
     console.error('WebSocket error:', err);
     // onclose will be triggered automatically following error
   };
+}
+
+async function reconnectUnlessSignedOut(store) {
+  let result = 'unknown';
+  try {
+    result = await handleUnauthorized();
+  } catch (err) {
+    console.error('WebSocket auth check failed:', err);
+  }
+  if (isSignedOut(result)) {
+    console.warn('WebSocket rejected: not signed in, reconnect stopped.');
+    return;
+  }
+  // 已登录或状态接口也不可达（断网、服务重启）：按原逻辑退避重连。
+  scheduleReconnect(store);
 }
 
 function scheduleReconnect(store) {

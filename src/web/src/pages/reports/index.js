@@ -1,4 +1,5 @@
 import { api, toast, escapeHtml, escapeJs, formatTime, setValue, setText } from '../../core/api.js';
+import { handleUnauthorized } from '../../core/auth.js';
 import { t } from '../../core/i18n.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -306,6 +307,7 @@ export default {
         // ... (rest is same, but I'll replace the exact _uploadJson to append my new function too)
 
       const resp = await fetch('/api/reports/upload-json', { method: 'POST', body: formData });
+      if (resp.status === 401) void handleUnauthorized();
       if (!resp.ok) { const err = await resp.json().catch(() => ({ detail: resp.statusText })); throw new Error(err.detail || `HTTP ${resp.status}`); }
       const uploaded = await resp.json();
       for (const item of uploaded) this._addRecordSelection(item.key, { collector: item.collector, data_source: labelCollector(normalizeCollector(item.collector)), game_name: item.game_name, app_id: item.app_id });
